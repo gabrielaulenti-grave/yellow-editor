@@ -37,6 +37,10 @@ interface Evolution {
   item: string | null;
   target: string;
 }
+interface PokedexTextLine {
+  kind: "text" | "next" | "page";
+  text: string;
+}
 
 interface PokedexInfo {
   category: string;
@@ -44,7 +48,7 @@ interface PokedexInfo {
   heightInches: number;
   weightTenthsLb: number;
   textLabel: string;
-  text: string;
+  textLines: PokedexTextLine[];
 }
 
 interface PokemonDetails {
@@ -270,11 +274,17 @@ function App() {
 					  Weight:{" "}
 					  {(selectedPokemon.pokedex.weightTenthsLb / 10).toFixed(1)} lbs
 					</p>
-					<p>{selectedPokemon.pokedex.text}</p>
-				  </>
-				) : (
-				  <p>No Pokédex data.</p>
-				)}
+				{selectedPokemon.pokedex.textLines.map((line, index) => (
+				  <div key={index}>
+					<label>
+					  {line.kind}
+					  <input
+						value={line.text}
+						maxLength={18}
+					  />
+					</label>
+				  </div>
+				))}
 			  </section>
 			)}
 		  </section>

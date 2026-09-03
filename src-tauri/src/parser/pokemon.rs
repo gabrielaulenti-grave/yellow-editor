@@ -327,18 +327,25 @@ pub struct Evolution {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PokedexTextLine {
+    pub kind: String,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PokedexInfo {
     pub category: String,
     pub height_feet: u8,
     pub height_inches: u8,
     pub weight_tenths_lb: u16,
     pub text_label: String,
-    pub text: String,
+    pub text_lines: Vec<PokedexTextLine>,
 }
 fn parse_pokedex_text(
     project_root: &Path,
     text_label: &str,
-) -> Result<String, String> {
+) -> Result<Vec<PokedexTextLine>, String> {
     let path = project_root
         .join("data")
         .join("pokemon")
@@ -353,7 +360,6 @@ fn parse_pokedex_text(
             )
         })?;
 
-    // dex_text.asm labels use ::
     let marker = format!("{}::", text_label);
 
     let start = contents
@@ -367,7 +373,7 @@ fn parse_pokedex_text(
 
     let block = &contents[start + marker.len()..];
 
-    let mut parts = Vec::new();
+    let mut lines = Vec::new();
 
     for raw_line in block.lines() {
         let line = raw_line.trim();
@@ -376,33 +382,32 @@ fn parse_pokedex_text(
             continue;
         }
 
-        // End of one Pokédex entry.
         if line == "dex" {
             break;
         }
 
-        if let Some(value) = parse_text_directive(line, "text") {
-            parts.push(value);
-            continue;
-        }
-
-        if let Some(value) = parse_text_directive(line, "next") {
-            parts.push(value);
-            continue;
-        }
-
-        if let Some(value) = parse_text_directive(line, "page") {
-            parts.push(value);
-            continue;
-        }
-
-        // Defensive stop if malformed source reaches another label.
         if line.ends_with("::") {
             break;
         }
+
+        for kind in ["text", "next", "page"] {
+            let prefix = format!("{} \"", kind);
+
+            if let Some(value) = line
+                .strip_prefix(&prefix)
+                .and_then(|s| s.strip_suffix('"'))
+            {
+                lines.push(PokedexTextLine {
+                    kind: kind.to_string(),
+                    text: value.to_string(),
+                });
+
+                break;
+            }
+        }
     }
 
-    Ok(parts.join(" "))
+    Ok(lines)
 }
 fn parse_text_directive(
     line: &str,
@@ -773,25 +778,8 @@ pub fn parse_pokedex_info(
             )
         })?;
 
-    let text_line = lines
-        .next()
-        .ok_or("Missing Pokédex text label")?;
-
-    let text_label = text_line
-        .strip_prefix("text_far ")
-        .ok_or_else(|| {
-            format!(
-                "Expected text_far directive: {}",
-                text_line
-            )
-        })?
-        .trim()
-        .to_string();
-
-    let text = parse_pokedex_text(
-    project_root,
-    &text_label,
-)?;
+    let text_lines =
+    parse_pokedex_text(project_root, &text_label)?;
 
 	Ok(Some(PokedexInfo {
 		category,
@@ -799,6 +787,6 @@ pub fn parse_pokedex_info(
 		height_inches,
 		weight_tenths_lb,
 		text_label,
-		text,
+		text_lines,
 	}))
 }
