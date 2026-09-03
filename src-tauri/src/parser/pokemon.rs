@@ -415,18 +415,6 @@ fn parse_pokedex_text(
 
     Ok(lines)
 }
-fn parse_text_directive(
-    line: &str,
-    directive: &str,
-) -> Option<String> {
-    let prefix = format!("{} \"", directive);
-
-    let value = line
-        .strip_prefix(&prefix)?
-        .strip_suffix('"')?;
-
-    Some(value.to_string())
-}
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PokemonDetails {
