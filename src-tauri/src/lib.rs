@@ -121,11 +121,34 @@ fn get_pokemon_details(
 
     let pokedex =
         parser::pokemon::parse_pokedex_info(root, internal_id)?;
+	
+	let front_path = root
+    .join("gfx")
+    .join("pokemon")
+    .join("front")
+    .join(format!("{}.png", source_slug));
+
+	let back_path = root
+		.join("gfx")
+		.join("pokemon")
+		.join("back")
+		.join(format!("{}b.png", source_slug));
+
+	let sprites = parser::pokemon::PokemonSprites {
+		front: front_path
+			.exists()
+			.then(|| front_path.to_string_lossy().to_string()),
+
+		back: back_path
+			.exists()
+			.then(|| back_path.to_string_lossy().to_string()),
+	};
 
     Ok(PokemonDetails {
         stats,
         evolutions,
         learnset,
         pokedex,
+		sprites,
     })
 }

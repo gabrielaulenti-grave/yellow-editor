@@ -50,6 +50,12 @@ fn parse_base_stats_slugs(
 
     Ok(result)
 }
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PokemonSprites {
+    pub front: Option<String>,
+    pub back: Option<String>,
+}
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -428,6 +434,7 @@ pub struct PokemonDetails {
     pub evolutions: Vec<Evolution>,
     pub learnset: Vec<LearnsetMove>,
     pub pokedex: Option<PokedexInfo>,
+    pub sprites: PokemonSprites,
 }
 fn parse_evos_moves_pointer_table(
     project_root: &Path,

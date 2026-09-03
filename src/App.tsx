@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import {
+  invoke,
+  convertFileSrc,
+} from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 interface ProjectInfo {
@@ -56,6 +59,7 @@ interface PokemonDetails {
   evolutions: Evolution[];
   learnset: LearnsetMove[];
   pokedex: PokedexInfo | null;
+  sprites:PokemonSprites;
 }
 function formatHex(value: number) {
   return `$${value
@@ -207,7 +211,51 @@ function App() {
 					)?.displayName
 				  }
 				</h3>
+				<h4>Sprites</h4>
 
+				<div
+				  style={{
+					display: "flex",
+					gap: 32,
+					alignItems: "flex-start",
+				  }}
+				>
+				  <div>
+					<p>Front</p>
+
+					{selectedPokemon.sprites.front ? (
+					  <img
+						src={convertFileSrc(selectedPokemon.sprites.front)}
+						alt="Front sprite"
+						style={{
+						  width: 112,
+						  height: 112,
+						  imageRendering: "pixelated",
+						}}
+					  />
+					) : (
+					  <p>No front sprite.</p>
+					)}
+				  </div>
+
+				  <div>
+					<p>Back</p>
+
+					{selectedPokemon.sprites.back ? (
+					  <img
+						src={convertFileSrc(selectedPokemon.sprites.back)}
+						alt="Back sprite"
+						style={{
+						  width: 112,
+						  height: 112,
+						  imageRendering: "pixelated",
+						}}
+					  />
+					) : (
+					  <p>No back sprite.</p>
+					)}
+				  </div>
+				</div>
 				<p>HP: {selectedPokemon.stats.hp}</p>
 				<p>Attack: {selectedPokemon.stats.attack}</p>
 				<p>Defense: {selectedPokemon.stats.defense}</p>
