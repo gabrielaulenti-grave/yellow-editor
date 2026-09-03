@@ -44,6 +44,7 @@ interface PokedexInfo {
   heightInches: number;
   weightTenthsLb: number;
   textLabel: string;
+  text: string;
 }
 
 interface PokemonDetails {
@@ -269,7 +270,7 @@ function App() {
 					  Weight:{" "}
 					  {(selectedPokemon.pokedex.weightTenthsLb / 10).toFixed(1)} lbs
 					</p>
-					<p>Text label: {selectedPokemon.pokedex.textLabel}</p>
+					<p>{selectedPokemon.pokedex.text}</p>
 				  </>
 				) : (
 				  <p>No Pokédex data.</p>

@@ -333,8 +333,89 @@ pub struct PokedexInfo {
     pub height_inches: u8,
     pub weight_tenths_lb: u16,
     pub text_label: String,
+    pub text: String,
 }
+fn parse_pokedex_text(
+    project_root: &Path,
+    text_label: &str,
+) -> Result<String, String> {
+    let path = project_root
+        .join("data")
+        .join("pokemon")
+        .join("dex_text.asm");
 
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| {
+            format!(
+                "Failed to read {}: {}",
+                path.display(),
+                e
+            )
+        })?;
+
+    // dex_text.asm labels use ::
+    let marker = format!("{}::", text_label);
+
+    let start = contents
+        .find(&marker)
+        .ok_or_else(|| {
+            format!(
+                "Could not find Pokédex text label {}",
+                marker
+            )
+        })?;
+
+    let block = &contents[start + marker.len()..];
+
+    let mut parts = Vec::new();
+
+    for raw_line in block.lines() {
+        let line = raw_line.trim();
+
+        if line.is_empty() {
+            continue;
+        }
+
+        // End of one Pokédex entry.
+        if line == "dex" {
+            break;
+        }
+
+        if let Some(value) = parse_text_directive(line, "text") {
+            parts.push(value);
+            continue;
+        }
+
+        if let Some(value) = parse_text_directive(line, "next") {
+            parts.push(value);
+            continue;
+        }
+
+        if let Some(value) = parse_text_directive(line, "page") {
+            parts.push(value);
+            continue;
+        }
+
+        // Defensive stop if malformed source reaches another label.
+        if line.ends_with("::") {
+            break;
+        }
+    }
+
+    Ok(parts.join(" "))
+}
+fn parse_text_directive(
+    line: &str,
+    directive: &str,
+) -> Option<String> {
+    let prefix = format!("{} \"", directive);
+
+    let value = line
+        .strip_prefix(&prefix)?
+        .strip_suffix('"')?;
+
+    Some(value.to_string())
+}
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PokemonDetails {
@@ -707,11 +788,17 @@ pub fn parse_pokedex_info(
         .trim()
         .to_string();
 
-    Ok(Some(PokedexInfo {
-        category,
-        height_feet,
-        height_inches,
-        weight_tenths_lb,
-        text_label,
-    }))
+    let text = parse_pokedex_text(
+    project_root,
+    &text_label,
+)?;
+
+	Ok(Some(PokedexInfo {
+		category,
+		height_feet,
+		height_inches,
+		weight_tenths_lb,
+		text_label,
+		text,
+	}))
 }
