@@ -263,39 +263,49 @@ function App() {
 
 				<h4>Pokédex</h4>
 
-				{selectedPokemon.pokedex ? (
-				  <>
-					<p>Species: {selectedPokemon.pokedex.category}</p>
-					<p>
-					  Height: {selectedPokemon.pokedex.heightFeet}'
-					  {selectedPokemon.pokedex.heightInches}"
-					</p>
-					<p>
-					  Weight:{" "}
-					  {(selectedPokemon.pokedex.weightTenthsLb / 10).toFixed(1)} lbs
-					</p>
-				{selectedPokemon.pokedex.textLines.map((line, index) => (
-				  <div key={index}>
-					<label>
-					  {line.kind}
-					  <input
-						value={line.text}
-						maxLength={18}
-					  />
-					</label>
-				  </div>
-				))}
+					{selectedPokemon.pokedex ? (
+					  <>
+						<p>Species: {selectedPokemon.pokedex.category}</p>
+
+						<p>
+						  Height: {selectedPokemon.pokedex.heightFeet}'
+						  {selectedPokemon.pokedex.heightInches}"
+						</p>
+
+						<p>
+						  Weight:{" "}
+						  {(selectedPokemon.pokedex.weightTenthsLb / 10).toFixed(1)} lbs
+						</p>
+
+						{selectedPokemon.pokedex.textLines.map((line, index) => (
+						  <div key={index}>
+							<label>
+							  {line.kind}
+							  <input
+								value={line.text}
+								maxLength={18}
+								readOnly
+							  />
+							</label>
+						  </div>
+						))}
+					  </>
+					) : (
+					  <p>No Pokédex data.</p>
+					)}
+
+				  </section>
+				)}
+
 			  </section>
 			)}
-		  </section>
-		)}
 
-		{activeTab === "moves" && (
-		  <section>
-			<h2>Moves</h2>
-			<p>Move editor coming soon.</p>
-		  </section>
-		)}
+			{activeTab === "moves" && (
+			  <section>
+				<h2>Moves</h2>
+				<p>Move editor coming soon.</p>
+			  </section>
+			)}	
     </main>
   );
 

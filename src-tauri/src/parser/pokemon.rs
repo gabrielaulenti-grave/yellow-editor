@@ -770,16 +770,31 @@ pub fn parse_pokedex_info(
         .trim();
 
     let weight_tenths_lb = weight_text
-        .parse::<u16>()
-        .map_err(|_| {
-            format!(
-                "Invalid Pokédex weight: {}",
-                weight_text
-            )
-        })?;
+    .parse::<u16>()
+    .map_err(|_| {
+        format!(
+            "Invalid Pokédex weight: {}",
+            weight_text
+        )
+    })?;
 
-    let text_lines =
-    parse_pokedex_text(project_root, &text_label)?;
+	let text_line = lines
+		.next()
+		.ok_or("Missing Pokédex text label")?;
+
+	let text_label = text_line
+		.strip_prefix("text_far ")
+		.ok_or_else(|| {
+			format!(
+				"Expected text_far directive: {}",
+				text_line
+			)
+		})?
+		.trim()
+		.to_string();
+
+	let text_lines =
+		parse_pokedex_text(project_root, &text_label)?;
 
 	Ok(Some(PokedexInfo {
 		category,
