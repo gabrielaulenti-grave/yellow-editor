@@ -203,18 +203,77 @@ function App() {
 				  }
 				</h3>
 
-				<p>HP: {selectedPokemon.hp}</p>
-				<p>Attack: {selectedPokemon.attack}</p>
-				<p>Defense: {selectedPokemon.defense}</p>
-				<p>Speed: {selectedPokemon.speed}</p>
-				<p>Special: {selectedPokemon.special}</p>
+				<p>HP: {selectedPokemon.stats.hp}</p>
+				<p>Attack: {selectedPokemon.stats.attack}</p>
+				<p>Defense: {selectedPokemon.stats.defense}</p>
+				<p>Speed: {selectedPokemon.stats.speed}</p>
+				<p>Special: {selectedPokemon.stats.special}</p>
 
 				<p>
-				  Type: {selectedPokemon.type1} / {selectedPokemon.type2}
+				  Type: {selectedPokemon.stats.type1} / {selectedPokemon.stats.type2}
 				</p>
 
-				<p>Catch Rate: {selectedPokemon.catchRate}</p>
-				<p>Base EXP: {selectedPokemon.baseExp}</p>
+				<p>Catch Rate: {selectedPokemon.stats.catchRate}</p>
+				<p>Base EXP: {selectedPokemon.stats.baseExp}</p>
+				
+				<h4>Evolution</h4>
+
+				{selectedPokemon.evolutions.length === 0 ? (
+				  <p>Does not evolve.</p>
+				) : (
+				  <ul>
+					{selectedPokemon.evolutions.map((evolution, index) => (
+					  <li key={index}>
+						{evolution.method === "level" &&
+						  `Level ${evolution.level} → ${evolution.target}`}
+
+						{evolution.method === "item" &&
+						  `${evolution.item} → ${evolution.target}`}
+
+						{evolution.method === "trade" &&
+						  `Trade → ${evolution.target}`}
+					  </li>
+					))}
+				  </ul>
+				)}
+
+				<h4>Level-up Learnset</h4>
+
+				<table>
+				  <thead>
+					<tr>
+					  <th>Level</th>
+					  <th>Move</th>
+					</tr>
+				  </thead>
+				  <tbody>
+					{selectedPokemon.learnset.map((move, index) => (
+					  <tr key={index}>
+						<td>{move.level}</td>
+						<td>{move.moveConstant}</td>
+					  </tr>
+					))}
+				  </tbody>
+				</table>
+
+				<h4>Pokédex</h4>
+
+				{selectedPokemon.pokedex ? (
+				  <>
+					<p>Species: {selectedPokemon.pokedex.category}</p>
+					<p>
+					  Height: {selectedPokemon.pokedex.heightFeet}'
+					  {selectedPokemon.pokedex.heightInches}"
+					</p>
+					<p>
+					  Weight:{" "}
+					  {(selectedPokemon.pokedex.weightTenthsLb / 10).toFixed(1)} lbs
+					</p>
+					<p>Text label: {selectedPokemon.pokedex.textLabel}</p>
+				  </>
+				) : (
+				  <p>No Pokédex data.</p>
+				)}
 			  </section>
 			)}
 		  </section>
