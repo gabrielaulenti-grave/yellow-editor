@@ -52,7 +52,7 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
 # Emscripten provides these dependencies as ports. Defining the imported
 # targets before RGBDS is added lets FetchContent's find-package integration
-# use the ports instead of building native zlib/libpng copies.
+# use the ports instead of building native zlib/libpng copies when supported.
 set(ZLIB_FOUND TRUE)
 add_library(ZLIB::ZLIB INTERFACE IMPORTED GLOBAL)
 target_compile_options(ZLIB::ZLIB INTERFACE "--use-port=zlib")
@@ -165,6 +165,14 @@ async function main() {
         `RGBDS ${RGBDS_TAG} resolved to ${actualCommit}, expected ${RGBDS_COMMIT}.`,
       );
     }
+
+    // RGBDS is normally configured as the top-level CMake project. Its CPack
+    // setup resolves these two resources through CMAKE_SOURCE_DIR, so mirror
+    // them into our wrapper root rather than patching any RGBDS source.
+    await Promise.all([
+      copyFile(path.join(sourceDirectory, "LICENSE"), path.join(tempRoot, "LICENSE")),
+      copyFile(path.join(sourceDirectory, "README.md"), path.join(tempRoot, "README.md")),
+    ]);
 
     await writeFile(path.join(tempRoot, "CMakeLists.txt"), wrapperCmake(), "utf8");
 
