@@ -30,6 +30,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Prepare pret helper WebAssembly tools
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git .emsdk
+          ./.emsdk/emsdk install 4.0.15
+          ./.emsdk/emsdk activate 4.0.15
+          source ./.emsdk/emsdk_env.sh
+          npm run prepare:wasm-tools
+
       - name: Build
         run: npm run build
 
