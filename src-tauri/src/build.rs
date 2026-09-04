@@ -343,6 +343,15 @@ fn rom_filename(target: &str) -> Option<&'static str> {
     }
 }
 
+fn make_variable_command(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    if value.contains(' ') {
+        format!("\"{}\"", value)
+    } else {
+        value.into_owned()
+    }
+}
+
 #[tauri::command]
 pub fn build_rom(
     app: tauri::AppHandle,
@@ -391,7 +400,7 @@ pub fn build_rom(
             "rgbgfx" => "RGBGFX",
             _ => continue,
         };
-        command.env(variable, path);
+        command.env(variable, make_variable_command(path));
     }
 
     let output = command
