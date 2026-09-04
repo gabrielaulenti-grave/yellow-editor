@@ -5,6 +5,7 @@ import type {
   BuildProgressEvent,
   BuildResult,
   BuildTarget,
+  BuildTaskProgress,
   BuildToolStatus,
 } from "./core/types";
 import { invoke } from "./platform/compat";
@@ -45,6 +46,31 @@ function formatDuration(milliseconds: number): string {
   }
   const minutes = Math.floor(seconds / 60);
   return `${minutes}m ${seconds % 60}s`;
+}
+
+function resolveTaskPercent(task: BuildTaskProgress | undefined): number | null {
+  if (!task) {
+    return null;
+  }
+  if (task.percent !== undefined) {
+    return Math.max(0, Math.min(100, task.percent));
+  }
+  if (
+    task.completed !== undefined &&
+    task.total !== undefined &&
+    task.total > 0
+  ) {
+    return Math.max(0, Math.min(100, Math.round((task.completed / task.total) * 100)));
+  }
+  return null;
+}
+
+function taskCountLabel(task: BuildTaskProgress): string | null {
+  if (task.completed === undefined || task.total === undefined) {
+    return null;
+  }
+  const unit = task.unit ? ` ${task.unit}` : "";
+  return `${task.completed} of ${task.total}${unit}`;
 }
 
 function ToolRows({ tools }: { tools: BuildToolStatus[] }) {
@@ -115,6 +141,13 @@ function buildDiagnosticReport(
       );
       if (event.detail) {
         lines.push(`  ${event.detail}`);
+      }
+      if (event.task) {
+        const taskPercent = resolveTaskPercent(event.task);
+        const count = taskCountLabel(event.task);
+        lines.push(
+          `  Current task: ${event.task.label}${taskPercent !== null ? ` (${taskPercent}%)` : ""}${count ? ` — ${count}` : ""}`,
+        );
       }
     }
   }
@@ -215,6 +248,7 @@ export function BuildPanel({
     }
 
     const startedAt = Date.now();
+    let latestPercent = 0;
     setBusy(true);
     setBuildStartedAt(startedAt);
     setNow(startedAt);
@@ -225,6 +259,7 @@ export function BuildPanel({
     setCopyStatus(null);
 
     const onProgress = (event: BuildProgressEvent) => {
+      latestPercent = event.percent;
       setProgress(event);
       setProgressEvents((current) => [...current.slice(-249), event]);
     };
@@ -244,7 +279,13 @@ export function BuildPanel({
         level: "error",
         message: "Build request failed",
         detail: message,
-        percent: progress?.percent ?? 0,
+        task: {
+          label: "Build request",
+          completed: 1,
+          total: 1,
+          percent: 100,
+        },
+        percent: latestPercent,
         timestamp: Date.now(),
       });
     } finally {
@@ -304,6 +345,8 @@ export function BuildPanel({
     ? Math.max(0, Math.floor((now - progress.timestamp) / 1000))
     : 0;
   const longRunningStep = busy && secondsSinceProgress >= 45;
+  const currentTaskPercent = resolveTaskPercent(progress?.task);
+  const currentTaskCount = progress?.task ? taskCountLabel(progress.task) : null;
 
   return (
     <section className="build-panel" aria-label="ROM build tools">
@@ -432,7 +475,7 @@ export function BuildPanel({
           <div
             className="build-progress-track"
             role="progressbar"
-            aria-label="ROM build progress"
+            aria-label="Overall ROM build progress"
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={progress?.percent ?? 0}
@@ -442,6 +485,31 @@ export function BuildPanel({
               style={{ width: `${Math.max(0, Math.min(100, progress?.percent ?? 0))}%` }}
             />
           </div>
+
+          {progress?.task && (
+            <div className="build-task-status">
+              <div className="build-task-heading">
+                <span>Current task</span>
+                <strong>{progress.task.label}</strong>
+                <span>{currentTaskPercent !== null ? `${currentTaskPercent}%` : "Working…"}</span>
+              </div>
+              <div
+                className={`build-progress-track build-task-progress-track ${currentTaskPercent === null ? "indeterminate" : ""}`}
+                role="progressbar"
+                aria-label={`Current task: ${progress.task.label}`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                {...(currentTaskPercent !== null ? { "aria-valuenow": currentTaskPercent } : {})}
+              >
+                <div
+                  className="build-progress-fill build-task-progress-fill"
+                  style={currentTaskPercent !== null ? { width: `${currentTaskPercent}%` } : undefined}
+                />
+              </div>
+              {currentTaskCount && <p className="build-task-count">{currentTaskCount}</p>}
+            </div>
+          )}
+
           {progress?.detail && <code className="build-current-detail">{progress.detail}</code>}
           {progress?.completed !== undefined && progress.total !== undefined && (
             <p className="build-muted">
@@ -450,9 +518,9 @@ export function BuildPanel({
           )}
           {longRunningStep && (
             <p className="build-warning" role="status">
-              This step has not produced a new status update for {secondsSinceProgress}s.
-              A WebAssembly tool may still be working on the command shown above; if the
-              elapsed time keeps growing, copy the build report below so the exact step is recorded.
+              This task has not produced a new status update for {secondsSinceProgress}s.
+              A WebAssembly tool or browser file read may still be working on the task shown above;
+              if the elapsed time keeps growing, copy the build report below so the exact task is recorded.
             </p>
           )}
         </div>
@@ -473,20 +541,31 @@ export function BuildPanel({
             <p className="build-muted">No build activity has been reported yet.</p>
           ) : (
             <ol className="build-activity-list">
-              {progressEvents.map((event, index) => (
-                <li key={`${event.timestamp}-${index}`} className={`level-${event.level}`}>
-                  <div>
-                    <time>
-                      {buildStartedAt
-                        ? `+${formatDuration(event.timestamp - buildStartedAt)}`
-                        : new Date(event.timestamp).toLocaleTimeString()}
-                    </time>
-                    <strong>{event.message}</strong>
-                    <span>{event.percent}%</span>
-                  </div>
-                  {event.detail && <code>{event.detail}</code>}
-                </li>
-              ))}
+              {progressEvents.map((event, index) => {
+                const eventTaskPercent = resolveTaskPercent(event.task);
+                const eventTaskCount = event.task ? taskCountLabel(event.task) : null;
+                return (
+                  <li key={`${event.timestamp}-${index}`} className={`level-${event.level}`}>
+                    <div>
+                      <time>
+                        {buildStartedAt
+                          ? `+${formatDuration(event.timestamp - buildStartedAt)}`
+                          : new Date(event.timestamp).toLocaleTimeString()}
+                      </time>
+                      <strong>{event.message}</strong>
+                      <span>{event.percent}%</span>
+                    </div>
+                    {event.detail && <code>{event.detail}</code>}
+                    {event.task && (
+                      <small className="build-event-task">
+                        Current task: {event.task.label}
+                        {eventTaskPercent !== null ? ` · ${eventTaskPercent}%` : ""}
+                        {eventTaskCount ? ` · ${eventTaskCount}` : ""}
+                      </small>
+                    )}
+                  </li>
+                );
+              })}
             </ol>
           )}
         </details>
