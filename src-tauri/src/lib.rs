@@ -22,6 +22,7 @@ pub fn run() {
             get_pokemon_tmhm_moves,
             get_moves,
             read_project_text,
+            read_project_bytes,
             write_project_text,
             project_path_exists,
             resolve_project_asset,
@@ -154,6 +155,12 @@ fn read_project_text(project_path: String, relative_path: String) -> Result<Stri
     let path = project_relative_path(&project_path, &relative_path)?;
     fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+}
+
+#[tauri::command]
+fn read_project_bytes(project_path: String, relative_path: String) -> Result<Vec<u8>, String> {
+    let path = project_relative_path(&project_path, &relative_path)?;
+    fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
 }
 
 #[tauri::command]
