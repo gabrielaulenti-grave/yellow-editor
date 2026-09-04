@@ -12,13 +12,14 @@ import {
   preparePokemonBaseStatsWrite,
   validatePokemonBaseStats,
 } from "./pokemonEditing";
-import type { ProjectSession, ProjectSource } from "./types";
+import type { BuildService, ProjectSession, ProjectSource } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
 const REQUIRED_DIRS = ["data", "engine", "maps"];
 
 export async function createProjectSession(
   source: ProjectSource,
+  buildService: BuildService,
 ): Promise<ProjectSession> {
   for (const file of REQUIRED_FILES) {
     if (!(await source.exists(file))) {
@@ -74,6 +75,8 @@ export async function createProjectSession(
     saveTextChanges: (label, changes) => history.save(label, changes),
     undoLastSave: () => history.undo(),
     redoLastUndo: () => history.redo(),
+    getBuildEnvironment: () => buildService.inspect(),
+    buildRom: (target) => buildService.build(target),
     dispose: () => source.dispose?.(),
   };
 }
