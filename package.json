@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "prepare:rgbds": "node scripts/prepare-rgbds.mjs",
-    "prepare:wasm-tools": "node scripts/prepare-pret-tools-wasm.mjs",
+    "prepare:pret-wasm": "node scripts/prepare-pret-tools-wasm.mjs",
+    "prepare:rgbds-wasm": "node scripts/prepare-rgbds-wasm.mjs",
+    "prepare:wasm-tools": "npm run prepare:pret-wasm && npm run prepare:rgbds-wasm",
     "tauri": "tauri"
   },
   "dependencies": {
