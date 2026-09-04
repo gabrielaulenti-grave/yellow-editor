@@ -203,9 +203,35 @@ export interface BuildResult {
   artifacts?: BuildArtifact[];
 }
 
+export type BuildProgressStage =
+  | "preparing"
+  | "checking"
+  | "assets"
+  | "assembling"
+  | "linking"
+  | "fixing"
+  | "complete"
+  | "error";
+
+export type BuildProgressLevel = "info" | "warning" | "error";
+
+export interface BuildProgressEvent {
+  stage: BuildProgressStage;
+  level: BuildProgressLevel;
+  message: string;
+  detail?: string;
+  tool?: string;
+  completed?: number;
+  total?: number;
+  percent: number;
+  timestamp: number;
+}
+
+export type BuildProgressListener = (event: BuildProgressEvent) => void;
+
 export interface BuildService {
   inspect(): Promise<BuildEnvironment>;
-  build(target: BuildTarget): Promise<BuildResult>;
+  build(target: BuildTarget, onProgress?: BuildProgressListener): Promise<BuildResult>;
 }
 
 export interface ProjectSource {
@@ -240,6 +266,6 @@ export interface ProjectSession {
   undoLastSave(): Promise<HistorySummary>;
   redoLastUndo(): Promise<HistorySummary>;
   getBuildEnvironment(): Promise<BuildEnvironment>;
-  buildRom(target: BuildTarget): Promise<BuildResult>;
+  buildRom(target: BuildTarget, onProgress?: BuildProgressListener): Promise<BuildResult>;
   dispose(): void;
 }
