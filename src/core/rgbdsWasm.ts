@@ -1,3 +1,4 @@
+import { convertGen1PngToTiles } from "./gen1Graphics";
 import type { BuildToolStatus } from "./types";
 import type {
   BuildToolRuntime,
@@ -6,13 +7,13 @@ import type {
   ToolRuntimeStatus,
 } from "./toolRuntime";
 
-const RGBDS_TOOLS = ["rgbasm", "rgblink", "rgbfix", "rgbgfx"] as const;
+const RGBDS_WASM_TOOLS = ["rgbasm", "rgblink", "rgbfix"] as const;
+const RGBDS_TOOLS = [...RGBDS_WASM_TOOLS, "rgbgfx"] as const;
 
 interface RgbdsWasmToolDefinition {
   module: string;
   wasm: string;
   implementation?: string;
-  adapter?: "yellow-editor-gen1-rgbgfx";
 }
 
 interface RgbdsWasmManifest {
@@ -40,13 +41,7 @@ interface EmscriptenFileSystem {
 
 interface EmscriptenModule {
   FS: EmscriptenFileSystem;
-  callMain?(args: string[]): number | void;
-  ccall?(
-    ident: string,
-    returnType: "number" | null,
-    argTypes: string[],
-    args: Array<string | number>,
-  ): number;
+  callMain(args: string[]): number | void;
 }
 
 type EmscriptenFactory = (options: {
@@ -129,6 +124,15 @@ function unavailableTool(name: string): BuildToolStatus {
   };
 }
 
+function browserRgbgfxStatus(version: string): BuildToolStatus {
+  return {
+    name: "rgbgfx",
+    available: true,
+    path: "browser image decoder",
+    version: `${version} Gen I-compatible subset`,
+  };
+}
+
 export async function inspectRgbdsWasm(
   requiredVersion: string | null,
 ): Promise<RgbdsWasmInspection> {
@@ -153,7 +157,7 @@ export async function inspectRgbdsWasm(
     };
   }
 
-  const tools = RGBDS_TOOLS.map((name): BuildToolStatus => {
+  const wasmTools = RGBDS_WASM_TOOLS.map((name): BuildToolStatus => {
     const definition = manifest.tools[name];
     return definition
       ? {
@@ -166,15 +170,15 @@ export async function inspectRgbdsWasm(
         }
       : unavailableTool(name);
   });
-  const ready = tools.every((tool) => tool.available);
+  const ready = wasmTools.every((tool) => tool.available);
 
   return {
     ready,
     version: manifest.rgbds.version,
     versionMatches: manifest.rgbds.version === requiredVersion,
-    tools,
+    tools: [...wasmTools, browserRgbgfxStatus(manifest.rgbds.version)],
     message: ready
-      ? `RGBDS ${manifest.rgbds.version} is available as WebAssembly.`
+      ? `RGBDS ${manifest.rgbds.version} assembler/linker/fixer are available as WebAssembly; Gen I graphics conversion uses the browser image pipeline.`
       : `The RGBDS ${requiredVersion} WebAssembly bundle is incomplete.`,
   };
 }
@@ -244,7 +248,7 @@ function parseGen1RgbgfxInvocation(args: string[]): Gen1RgbgfxInvocation {
       const value = args[++index];
       if (value !== "dmg") {
         throw new Error(
-          "Yellow Editor's Gen I rgbgfx adapter only supports '--colors dmg'.",
+          "Yellow Editor's Gen I graphics adapter only supports '--colors dmg'.",
         );
       }
       dmgColors = true;
@@ -296,7 +300,7 @@ function parseGen1RgbgfxInvocation(args: string[]): Gen1RgbgfxInvocation {
   }
 
   if (!dmgColors) {
-    throw new Error("The Gen I rgbgfx adapter requires '--colors dmg'.");
+    throw new Error("The Gen I graphics adapter requires '--colors dmg'.");
   }
   if (!input) {
     throw new Error("Gen I rgbgfx is missing its input PNG path.");
@@ -306,6 +310,34 @@ function parseGen1RgbgfxInvocation(args: string[]): Gen1RgbgfxInvocation {
   }
 
   return { input, output, depth, columnMajor };
+}
+
+async function runBrowserRgbgfx(
+  invocation: ToolInvocation,
+): Promise<ToolInvocationResult> {
+  const started = performance.now();
+  const options = parseGen1RgbgfxInvocation(invocation.args);
+  const inputPath = normalizeRelativePath(options.input);
+  const outputPath = normalizeRelativePath(options.output);
+  const input = (invocation.files ?? []).find(
+    (file) => normalizeRelativePath(file.path) === inputPath,
+  );
+  if (!input) {
+    throw new Error(`Gen I rgbgfx input '${inputPath}' was not mounted.`);
+  }
+
+  const data = await convertGen1PngToTiles(input.data, {
+    depth: options.depth,
+    columnMajor: options.columnMajor,
+  });
+
+  return {
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    outputs: [{ path: outputPath, data }],
+    durationMs: Math.round(performance.now() - started),
+  };
 }
 
 async function loadToolFactory(
@@ -353,23 +385,28 @@ export function createRgbdsWasmRuntime(version: string): BuildToolRuntime {
         };
       }
 
+      const ready = RGBDS_WASM_TOOLS.every((tool) => Boolean(manifest.tools[tool]));
       return {
-        available: RGBDS_TOOLS.every((tool) => Boolean(manifest.tools[tool])),
-        tools: RGBDS_TOOLS.filter((tool) => Boolean(manifest.tools[tool])),
+        available: ready,
+        tools: [
+          ...RGBDS_WASM_TOOLS.filter((tool) => Boolean(manifest.tools[tool])),
+          "rgbgfx",
+        ],
         version: manifest.rgbds.version,
-        message: `RGBDS ${manifest.rgbds.version} WebAssembly toolchain.`,
+        message: ready
+          ? `RGBDS ${manifest.rgbds.version} WebAssembly toolchain with browser-native Gen I graphics conversion.`
+          : `RGBDS ${manifest.rgbds.version} WebAssembly bundle is incomplete.`,
       };
     },
 
     async run(invocation: ToolInvocation): Promise<ToolInvocationResult> {
+      if (invocation.tool === "rgbgfx") {
+        return runBrowserRgbgfx(invocation);
+      }
+
       const manifest = await loadManifest(version);
       if (!manifest) {
         throw new Error(`RGBDS ${version} WASM bundle not found.`);
-      }
-
-      const definition = manifest.tools[invocation.tool];
-      if (!definition) {
-        throw new Error(`The RGBDS WASM bundle does not contain '${invocation.tool}'.`);
       }
 
       const { factory, moduleUrl, wasmUrl } = await loadToolFactory(
@@ -415,38 +452,17 @@ export function createRgbdsWasmRuntime(version: string): BuildToolRuntime {
       }
 
       let exitCode = 0;
-      if (definition.adapter === "yellow-editor-gen1-rgbgfx") {
-        if (typeof module.ccall !== "function") {
-          throw new Error("The Gen I rgbgfx WASM adapter did not export ccall().");
+      try {
+        const result = module.callMain(invocation.args);
+        if (typeof result === "number") {
+          exitCode = result;
         }
-        const adapter = parseGen1RgbgfxInvocation(invocation.args);
-        exitCode = module.ccall(
-          "yellow_editor_rgbgfx",
-          "number",
-          ["string", "string", "number", "number"],
-          [
-            adapter.input,
-            adapter.output,
-            adapter.depth,
-            adapter.columnMajor ? 1 : 0,
-          ],
-        );
-      } else {
-        if (typeof module.callMain !== "function") {
-          throw new Error(`The WASM module for '${invocation.tool}' did not export callMain().`);
+      } catch (error) {
+        const status = exitStatus(error);
+        if (status === null) {
+          throw error;
         }
-        try {
-          const result = module.callMain(invocation.args);
-          if (typeof result === "number") {
-            exitCode = result;
-          }
-        } catch (error) {
-          const status = exitStatus(error);
-          if (status === null) {
-            throw error;
-          }
-          exitCode = status;
-        }
+        exitCode = status;
       }
 
       const outputs = (invocation.outputPaths ?? []).map((relativePath) => ({
