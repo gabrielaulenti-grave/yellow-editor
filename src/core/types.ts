@@ -157,6 +157,46 @@ export interface TextWriteRequest {
   expectedHash?: string;
 }
 
+export type BuildTarget = "yellow" | "red" | "blue";
+export type BuildBackend = "desktop-native" | "web-wasm";
+export type BuildToolchainSource = "bundled" | "system" | "unavailable";
+
+export interface BuildToolStatus {
+  name: string;
+  available: boolean;
+  path: string | null;
+  version: string | null;
+}
+
+export interface BuildEnvironment {
+  backend: BuildBackend;
+  ready: boolean;
+  targets: BuildTarget[];
+  requiredRgbdsVersion: string | null;
+  detectedRgbdsVersion: string | null;
+  versionMatches: boolean | null;
+  toolchainSource: BuildToolchainSource;
+  tools: BuildToolStatus[];
+  buildTool: BuildToolStatus;
+  helperCompiler: BuildToolStatus | null;
+  message: string;
+}
+
+export interface BuildResult {
+  success: boolean;
+  target: BuildTarget;
+  romPath: string | null;
+  stdout: string;
+  stderr: string;
+  durationMs: number;
+  exitCode: number | null;
+}
+
+export interface BuildService {
+  inspect(): Promise<BuildEnvironment>;
+  build(target: BuildTarget): Promise<BuildResult>;
+}
+
 export interface ProjectSource {
   displayPath: string;
   readText(relativePath: string): Promise<string>;
@@ -187,5 +227,7 @@ export interface ProjectSession {
   saveTextChanges(label: string, changes: TextWriteRequest[]): Promise<HistorySummary>;
   undoLastSave(): Promise<HistorySummary>;
   redoLastUndo(): Promise<HistorySummary>;
+  getBuildEnvironment(): Promise<BuildEnvironment>;
+  buildRom(target: BuildTarget): Promise<BuildResult>;
   dispose(): void;
 }
