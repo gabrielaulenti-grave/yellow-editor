@@ -8,6 +8,10 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
+  // GitHub Pages serves this repository at /yellow-editor/.
+  // Keep the root path for local/Tauri development.
+  base: process.env.GITHUB_ACTIONS ? "/yellow-editor/" : "/",
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent Vite from obscuring rust errors
