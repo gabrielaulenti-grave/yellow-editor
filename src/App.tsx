@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { invoke, convertFileSrc, open } from "./platform/compat";
+import { useState } from "react";
+import { invoke, open } from "./platform/compat";
+import { PokemonSpritePanel } from "./PokemonSpritePanel";
 import "./App.css";
 
 interface ProjectInfo {
@@ -82,121 +83,10 @@ interface MoveData {
   animationScript: string[];
 }
 
-type Palette = [string, string, string, string];
-
 type Tab = "pokemon" | "moves";
-
-const PALETTE_PRESETS: { name: string; colors: Palette }[] = [
-  { name: "Grayscale", colors: ["#ffffff", "#aaaaaa", "#555555", "#000000"] },
-  { name: "DMG Green", colors: ["#e0f8cf", "#86c06c", "#306850", "#071821"] },
-  { name: "Yellow", colors: ["#fff8cf", "#e8c85a", "#9a6b2f", "#2f241c"] },
-  { name: "Blue", colors: ["#f5fbff", "#9cc7e8", "#477aa8", "#172c45"] },
-];
 
 function formatHex(value: number) {
   return `$${value.toString(16).toUpperCase().padStart(2, "0")}`;
-}
-
-function hexToRgb(hex: string) {
-  const value = hex.replace("#", "");
-  if (!/^[0-9a-fA-F]{6}$/.test(value)) {
-    return { r: 0, g: 0, b: 0 };
-  }
-
-  return {
-    r: parseInt(value.slice(0, 2), 16),
-    g: parseInt(value.slice(2, 4), 16),
-    b: parseInt(value.slice(4, 6), 16),
-  };
-}
-
-function SpritePreview({
-  src,
-  alt,
-  palette,
-}: {
-  src: string | null;
-  alt: string;
-  palette: Palette;
-}) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [fallback, setFallback] = useState(false);
-
-  useEffect(() => {
-    setFallback(false);
-
-    if (!src || !canvasRef.current) {
-      return;
-    }
-
-    const image = new Image();
-    image.src = convertFileSrc(src);
-
-    image.onload = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) {
-        return;
-      }
-
-      try {
-        canvas.width = image.naturalWidth || image.width;
-        canvas.height = image.naturalHeight || image.height;
-
-        const context = canvas.getContext("2d", { willReadFrequently: true });
-        if (!context) {
-          setFallback(true);
-          return;
-        }
-
-        context.imageSmoothingEnabled = false;
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        context.drawImage(image, 0, 0);
-
-        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-        const colors = palette.map(hexToRgb);
-
-        for (let i = 0; i < imageData.data.length; i += 4) {
-          if (imageData.data[i + 3] === 0) {
-            continue;
-          }
-
-          const luminance =
-            imageData.data[i] * 0.2126 +
-            imageData.data[i + 1] * 0.7152 +
-            imageData.data[i + 2] * 0.0722;
-
-          const shade = Math.max(0, Math.min(3, Math.round((255 - luminance) / 85)));
-          const color = colors[shade];
-
-          imageData.data[i] = color.r;
-          imageData.data[i + 1] = color.g;
-          imageData.data[i + 2] = color.b;
-        }
-
-        context.putImageData(imageData, 0, 0);
-      } catch {
-        setFallback(true);
-      }
-    };
-
-    image.onerror = () => setFallback(true);
-  }, [src, palette]);
-
-  if (!src) {
-    return <div className="sprite-empty">No sprite.</div>;
-  }
-
-  if (fallback) {
-    return (
-      <img
-        className="pokemon-sprite"
-        src={convertFileSrc(src)}
-        alt={alt}
-      />
-    );
-  }
-
-  return <canvas ref={canvasRef} className="pokemon-sprite" aria-label={alt} />;
 }
 
 function ReadonlyField({ label, value }: { label: string; value: string | number }) {
@@ -219,7 +109,6 @@ function App() {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
-  const [spritePalette, setSpritePalette] = useState<Palette>(PALETTE_PRESETS[0].colors);
 
   const selectedMove = moves.find((move) => move.id === selectedMoveId) ?? null;
   const selectedPokemonEntry =
@@ -310,14 +199,6 @@ function App() {
     }
   }
 
-  function updatePaletteColor(index: number, color: string) {
-    setSpritePalette((current) => {
-      const next = [...current] as Palette;
-      next[index] = color;
-      return next;
-    });
-  }
-
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -382,77 +263,24 @@ function App() {
 
           {!project && <p>Open a project to browse Pokémon.</p>}
 
-          {selectedPokemon && (
+          {selectedPokemon && selectedPokemonEntry?.sourceSlug && (
             <div className="pokemon-editor">
               <div className="pokemon-title-row">
                 <div>
-                  <h3>{selectedPokemonEntry?.displayName}</h3>
+                  <h3>{selectedPokemonEntry.displayName}</h3>
                   <p className="muted-code">
-                    {selectedPokemonEntry && formatHex(selectedPokemonEntry.internalId)}
-                    {selectedPokemonEntry?.constant ? ` — ${selectedPokemonEntry.constant}` : ""}
+                    {formatHex(selectedPokemonEntry.internalId)}
+                    {selectedPokemonEntry.constant ? ` — ${selectedPokemonEntry.constant}` : ""}
                   </p>
                 </div>
               </div>
 
-              <section className="editor-card sprite-card">
-                <div className="section-heading">
-                  <div>
-                    <h4>Sprites</h4>
-                    <p>Preview the monochrome sprite data with any four-color palette.</p>
-                  </div>
-                  <div className="palette-presets">
-                    {PALETTE_PRESETS.map((preset) => (
-                      <button
-                        key={preset.name}
-                        type="button"
-                        className="small-button"
-                        onClick={() => setSpritePalette([...preset.colors] as Palette)}
-                      >
-                        {preset.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="sprite-layout">
-                  <div className="sprite-preview-grid">
-                    <figure>
-                      <SpritePreview
-                        src={selectedPokemon.sprites.front}
-                        alt={`${selectedPokemonEntry?.displayName ?? "Pokémon"} front sprite`}
-                        palette={spritePalette}
-                      />
-                      <figcaption>Front</figcaption>
-                    </figure>
-                    <figure>
-                      <SpritePreview
-                        src={selectedPokemon.sprites.back}
-                        alt={`${selectedPokemonEntry?.displayName ?? "Pokémon"} back sprite`}
-                        palette={spritePalette}
-                      />
-                      <figcaption>Back</figcaption>
-                    </figure>
-                  </div>
-
-                  <div className="palette-editor">
-                    <span className="field-label">Palette</span>
-                    {spritePalette.map((color, index) => (
-                      <label key={index} className="palette-row">
-                        <span>Shade {index + 1}</span>
-                        <input
-                          type="color"
-                          value={color}
-                          onChange={(event) => updatePaletteColor(index, event.target.value)}
-                        />
-                        <code>{color.toUpperCase()}</code>
-                      </label>
-                    ))}
-                    <p className="help-text">
-                      This is a preview only; palette values are not written to the project yet.
-                    </p>
-                  </div>
-                </div>
-              </section>
+              <PokemonSpritePanel
+                sourceSlug={selectedPokemonEntry.sourceSlug}
+                displayName={selectedPokemonEntry.displayName}
+                front={selectedPokemon.sprites.front}
+                back={selectedPokemon.sprites.back}
+              />
 
               <section className="editor-card">
                 <h4>Base Stats</h4>
