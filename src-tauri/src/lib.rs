@@ -1,5 +1,7 @@
+mod build;
 mod parser;
 
+use build::{build_rom, get_build_environment};
 use parser::pokemon::{PokemonBaseStats, PokemonDetails};
 use serde::Serialize;
 use std::fs;
@@ -24,7 +26,9 @@ pub fn run() {
             project_path_exists,
             resolve_project_asset,
             load_project_history,
-            save_project_history
+            save_project_history,
+            get_build_environment,
+            build_rom
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
