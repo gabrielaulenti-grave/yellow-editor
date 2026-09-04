@@ -17,10 +17,6 @@ const RGBDS_VERSION = "1.0.3";
 const RGBDS_TAG = `v${RGBDS_VERSION}`;
 const RGBDS_COMMIT = "307846b03ea89ee57bf75f179d5f8051175ac60d";
 const TOOLS = ["rgbasm", "rgblink", "rgbfix", "rgbgfx"];
-
-// A tiny original 8x8 grayscale PNG with four two-pixel-wide shade bands.
-// This is intentionally embedded rather than borrowed from a game checkout so
-// CI can prove that the production rgbgfx module can actually decode PNG data.
 const RGBGFX_SMOKE_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAAAAADhZOFXAAAAF0lEQVR4nGP8z7CaYTXDagYmBiggjwEAz4QDEI2ITS0AAAAASUVORK5CYII=";
 
@@ -43,8 +39,7 @@ function run(command, args, options = {}) {
 }
 
 function emscriptenVersionLine() {
-  const output = run(process.env.EMCC || "emcc", ["--version"], { capture: true });
-  return output
+  return run(process.env.EMCC || "emcc", ["--version"], { capture: true })
     .split(/\r?\n/)
     .map((line) => line.trim())
     .find(Boolean) ?? "unknown";
@@ -56,20 +51,9 @@ project(yellow_editor_rgbds_wasm)
 
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 list(PREPEND CMAKE_MODULE_PATH "\${CMAKE_SOURCE_DIR}/cmake-modules")
-
-# RGBDS 1.0.3 pins zlib 1.3.2 and libpng 1.6.58 in cmake/deps.cmake.
-# Do not replace those with Emscripten's generic ports: the port bundled with
-# our Emscripten release currently identifies itself as libpng 1.6.39. Force
-# FetchContent to cross-compile the dependency versions RGBDS itself declares.
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
-
-# Emscripten reports an x86-like processor name to some CMake projects. Do not
-# let libpng select native x86 SIMD sources for a WebAssembly build.
 set(PNG_HARDWARE_OPTIMIZATIONS OFF CACHE BOOL "" FORCE)
 
-# RGBDS enables CMake IPO/LTO automatically for Release configurations. Keep
-# the WASM package on a non-IPO configuration while we validate the portable
-# PNG boundary. The explicit optimization flags retain production codegen.
 add_compile_options(-O2 -g0 -DNDEBUG)
 add_link_options(
   -O2
@@ -110,11 +94,7 @@ endforeach()
 }
 
 function findZlibCmake() {
-  return `# libpng performs its own find_package(ZLIB) even when it is embedded
-# through RGBDS FetchContent. At this point RGBDS has already populated zlib
-# 1.3.2 and created ZLIB::ZLIB; expose that existing target rather than finding
-# a host library or falling back to Emscripten's port.
-if(TARGET ZLIB::ZLIB)
+  return `if(TARGET ZLIB::ZLIB)
   set(ZLIB_FOUND TRUE)
   set(ZLIB_VERSION "1.3.2")
   set(ZLIB_VERSION_STRING "1.3.2")
@@ -125,7 +105,6 @@ if(TARGET ZLIB::ZLIB)
   endif()
   return()
 endif()
-
 set(ZLIB_FOUND FALSE)
 if(ZLIB_FIND_REQUIRED)
   message(FATAL_ERROR "RGBDS pinned zlib target was not available to libpng")
@@ -138,15 +117,14 @@ async function replaceExactlyOnce(filePath, before, after) {
   const index = source.indexOf(before);
   if (index < 0) {
     throw new Error(
-      `RGBDS WASM adaptation could not find its expected source fragment in ${filePath}. The pinned upstream source may have changed.`,
+      `RGBDS WASM adaptation could not find its expected source fragment in ${filePath}.`,
     );
   }
   if (source.indexOf(before, index + before.length) >= 0) {
     throw new Error(
-      `RGBDS WASM adaptation found its source fragment more than once in ${filePath}; refusing an ambiguous edit.`,
+      `RGBDS WASM adaptation found an ambiguous source fragment in ${filePath}.`,
     );
   }
-
   await writeFile(
     filePath,
     `${source.slice(0, index)}${after}${source.slice(index + before.length)}`,
@@ -162,13 +140,13 @@ async function applyRgbgfxMemoryIoAdaptation(sourceDirectory) {
 
   await replaceExactlyOnce(
     pngHeader,
-    `#include <stdint.h>\n#include <streambuf>\n#include <vector>`,
-    `#include <stddef.h>\n#include <stdint.h>\n#include <vector>`,
+    `#include <stdint.h>\n#include <streambuf>`,
+    `#include <stddef.h>\n#include <stdint.h>\n#include <streambuf>`,
   );
   await replaceExactlyOnce(
     pngHeader,
     `\tPng(char const *filename, std::streambuf &file);`,
-    `\tPng(char const *filename, uint8_t const *data, size_t size);`,
+    `\tPng(char const *filename, std::streambuf &file);\n\tPng(char const *filename, uint8_t const *data, size_t size);`,
   );
 
   await replaceExactlyOnce(
@@ -179,12 +157,12 @@ async function applyRgbgfxMemoryIoAdaptation(sourceDirectory) {
   await replaceExactlyOnce(
     pngSource,
     `static void readData(png_structp png, png_bytep data, size_t length) {\n\tInput &input = *reinterpret_cast<Input *>(png_get_io_ptr(png));\n\tstd::streamsize expectedLen = length;\n\tstd::streamsize nbBytesRead = input.file.sgetn(reinterpret_cast<char *>(data), expectedLen);\n\n\tif (nbBytesRead != expectedLen) {\n\t\tfatal(\n\t\t    "Error reading PNG image (\\\"%s\\\"): file too short (expected at least %zd more "\n\t\t    "bytes after reading %zu)",\n\t\t    input.filename,\n\t\t    length - nbBytesRead,\n\t\t    static_cast<size_t>(input.file.pubseekoff(0, std::ios_base::cur))\n\t\t);\n\t}\n}`,
-    `static void readData(png_structp png, png_bytep data, size_t length) {\n\tInput &input = *reinterpret_cast<Input *>(png_get_io_ptr(png));\n\tif (input.offset > input.size || length > input.size - input.offset) {\n\t\tsize_t const available = input.offset <= input.size ? input.size - input.offset : 0;\n\t\tfatal(\n\t\t    "Error reading PNG image (\\\"%s\\\"): file too short (expected at least %zu more "\n\t\t    "bytes after reading %zu)",\n\t\t    input.filename,\n\t\t    length - available,\n\t\t    input.offset\n\t\t);\n\t}\n\n\tmemcpy(data, input.data + input.offset, length);\n\tinput.offset += length;\n}`,
+    `static void readData(png_structp png, png_bytep data, size_t length) {\n\tInput &input = *reinterpret_cast<Input *>(png_get_io_ptr(png));\n\tif (input.offset > input.size || length > input.size - input.offset) {\n\t\tsize_t const available = input.offset <= input.size ? input.size - input.offset : 0;\n\t\tfatal(\n\t\t    "Error reading PNG image (\\\"%s\\\"): file too short (expected at least %zu more "\n\t\t    "bytes after reading %zu)",\n\t\t    input.filename,\n\t\t    length - available,\n\t\t    input.offset\n\t\t);\n\t}\n\tmemcpy(data, input.data + input.offset, length);\n\tinput.offset += length;\n}`,
   );
   await replaceExactlyOnce(
     pngSource,
     `Png::Png(char const *filename, std::streambuf &file) {\n\tInput input(filename, file);`,
-    `Png::Png(char const *filename, uint8_t const *data, size_t size) {\n\tInput input(filename, data, size);`,
+    `Png::Png(char const *filename, std::streambuf &file) {\n\tstd::vector<uint8_t> bytes;\n\tstd::array<uint8_t, 64 * 1024> buffer;\n\tfor (;;) {\n\t\tstd::streamsize const count = file.sgetn(\n\t\t    reinterpret_cast<char *>(buffer.data()),\n\t\t    static_cast<std::streamsize>(buffer.size())\n\t\t);\n\t\tif (count < 0) {\n\t\t\tfatal("Failed to read PNG image \\\"%s\\\"", filename);\n\t\t}\n\t\tbytes.insert(bytes.end(), buffer.begin(), buffer.begin() + static_cast<size_t>(count));\n\t\tif (count != static_cast<std::streamsize>(buffer.size())) {\n\t\t\tbreak;\n\t\t}\n\t}\n\t*this = Png(filename, bytes.data(), bytes.size());\n}\n\nPng::Png(char const *filename, uint8_t const *data, size_t size) {\n\tInput input(filename, data, size);`,
   );
   await replaceExactlyOnce(
     pngSource,
@@ -195,7 +173,7 @@ async function applyRgbgfxMemoryIoAdaptation(sourceDirectory) {
   await replaceExactlyOnce(
     processSource,
     `struct Image {\n`,
-    `static std::vector<uint8_t> readPngBytes(std::string const &path) {\n\tFILE *file = fopen(path.c_str(), "rb");\n\tif (!file) {\n\t\tfatal("Failed to open input image (\\\"%s\\\"): %s", path.c_str(), strerror(errno));\n\t}\n\n\tstd::vector<uint8_t> data;\n\tstd::array<uint8_t, 64 * 1024> buffer;\n\tfor (;;) {\n\t\tsize_t const count = fread(buffer.data(), 1, buffer.size(), file);\n\t\tdata.insert(data.end(), buffer.begin(), buffer.begin() + count);\n\t\tif (count != buffer.size()) {\n\t\t\tif (ferror(file)) {\n\t\t\t\tint const error = errno;\n\t\t\t\tfclose(file);\n\t\t\t\tfatal("Failed to read input image (\\\"%s\\\"): %s", path.c_str(), strerror(error));\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t}\n\n\tfclose(file);\n\treturn data;\n}\n\nstruct Image {\n`,
+    `static std::vector<uint8_t> readPngBytes(std::string const &path) {\n\tFILE *file = fopen(path.c_str(), "rb");\n\tif (!file) {\n\t\tfatal("Failed to open input image (\\\"%s\\\"): %s", path.c_str(), strerror(errno));\n\t}\n\tstd::vector<uint8_t> data;\n\tstd::array<uint8_t, 64 * 1024> buffer;\n\tfor (;;) {\n\t\tsize_t const count = fread(buffer.data(), 1, buffer.size(), file);\n\t\tdata.insert(data.end(), buffer.begin(), buffer.begin() + count);\n\t\tif (count != buffer.size()) {\n\t\t\tif (ferror(file)) {\n\t\t\t\tint const error = errno;\n\t\t\t\tfclose(file);\n\t\t\t\tfatal("Failed to read input image (\\\"%s\\\"): %s", path.c_str(), strerror(error));\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t}\n\tfclose(file);\n\treturn data;\n}\n\nstruct Image {\n`,
   );
   await replaceExactlyOnce(
     processSource,
@@ -225,7 +203,7 @@ async function applyRgbgfxMemoryIoAdaptation(sourceDirectory) {
   );
 
   console.log(
-    `Adapted RGBDS ${RGBDS_VERSION} rgbgfx PNG I/O to pointer+length memory buffers.`,
+    `Adapted RGBDS ${RGBDS_VERSION} rgbgfx PNG I/O to memory-buffered libpng callbacks.`,
   );
 }
 
@@ -235,13 +213,11 @@ async function findBuiltModule(buildOut, tool) {
     (name) => name === `${tool}.js` || name === `${tool}.mjs`,
   );
   const wasmName = entries.find((name) => name === `${tool}.wasm`);
-
   if (!moduleName || !wasmName) {
     throw new Error(
       `RGBDS WASM build did not produce ${tool}.js/.mjs and ${tool}.wasm. Found: ${entries.join(", ")}`,
     );
   }
-
   return { moduleName, wasmName };
 }
 
@@ -280,8 +256,9 @@ function callMain(module, args) {
 async function functionalTestRgbgfx(directory) {
   const modulePath = path.join(directory, "rgbgfx.mjs");
   const wasmPath = path.join(directory, "rgbgfx.wasm");
-  const moduleUrl = `${pathToFileURL(modulePath).href}?smoke=${Date.now()}`;
-  const imported = await import(moduleUrl);
+  const imported = await import(
+    `${pathToFileURL(modulePath).href}?smoke=${Date.now()}`
+  );
   if (typeof imported.default !== "function") {
     throw new Error("rgbgfx.mjs did not export an Emscripten module factory.");
   }
@@ -310,7 +287,6 @@ async function functionalTestRgbgfx(directory) {
     "fixture.png",
     Buffer.from(RGBGFX_SMOKE_PNG, "base64"),
   );
-
   const exitCode = callMain(forward.module, [
     "--colors",
     "dmg",
@@ -323,11 +299,10 @@ async function functionalTestRgbgfx(directory) {
       `rgbgfx PNG smoke test exited with ${exitCode}: ${forward.stderr.join("\n") || forward.stdout.join("\n")}`,
     );
   }
-
   const output = forward.module.FS.readFile("fixture.2bpp");
   if (output.length !== 16) {
     throw new Error(
-      `rgbgfx PNG smoke test produced ${output.length} bytes; expected one 16-byte 2bpp tile.`,
+      `rgbgfx PNG smoke test produced ${output.length} bytes; expected 16.`,
     );
   }
 
@@ -345,26 +320,23 @@ async function functionalTestRgbgfx(directory) {
       `rgbgfx reverse PNG smoke test exited with ${reverseExitCode}: ${reverse.stderr.join("\n") || reverse.stdout.join("\n")}`,
     );
   }
-
   const roundtrip = reverse.module.FS.readFile("roundtrip.png");
   const pngMagic = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
   if (
     roundtrip.length < pngMagic.length ||
     pngMagic.some((byte, index) => roundtrip[index] !== byte)
   ) {
-    throw new Error("rgbgfx reverse PNG smoke test did not produce a valid PNG header.");
+    throw new Error("rgbgfx reverse PNG smoke test did not produce a PNG.");
   }
 
-  console.log(
-    "Verified rgbgfx PNG decode/encode paths use the WASM memory-buffer compatibility boundary.",
-  );
+  console.log("Verified rgbgfx PNG decode and encode paths in WebAssembly.");
 }
 
 async function main() {
   const versionLine = emscriptenVersionLine();
   if (!versionLine.includes(EMSCRIPTEN_VERSION)) {
     throw new Error(
-      `Yellow Editor pins Emscripten ${EMSCRIPTEN_VERSION} for browser tools, but '${versionLine}' is active.`,
+      `Yellow Editor pins Emscripten ${EMSCRIPTEN_VERSION}, but '${versionLine}' is active.`,
     );
   }
 
@@ -398,9 +370,6 @@ async function main() {
 
     await applyRgbgfxMemoryIoAdaptation(sourceDirectory);
 
-    // RGBDS is normally configured as the top-level CMake project. Its CPack
-    // setup resolves these two resources through CMAKE_SOURCE_DIR, so mirror
-    // them into our wrapper root rather than modifying the release metadata.
     await mkdir(cmakeModules, { recursive: true });
     await Promise.all([
       copyFile(path.join(sourceDirectory, "LICENSE"), path.join(tempRoot, "LICENSE")),
@@ -420,7 +389,6 @@ async function main() {
       "-DCMAKE_BUILD_TYPE=Debug",
       "-DBUILD_TESTING=OFF",
     ]);
-
     run("cmake", [
       "--build",
       buildDirectory,
@@ -437,19 +405,15 @@ async function main() {
       const { moduleName, wasmName } = await findBuiltModule(buildOut, tool);
       const moduleDestination = path.join(outputDirectory, `${tool}.mjs`);
       const wasmDestination = path.join(outputDirectory, `${tool}.wasm`);
-
       await copyFile(path.join(buildOut, moduleName), moduleDestination);
       await copyFile(path.join(buildOut, wasmName), wasmDestination);
       await verifyWasmMagic(wasmDestination);
-
       manifestTools[tool] = {
         module: `${tool}.mjs`,
         wasm: `${tool}.wasm`,
       };
     }
 
-    // A valid WASM magic header is not enough for rgbgfx. Exercise both PNG
-    // directions so the compatibility boundary must work before Pages can ship.
     await functionalTestRgbgfx(outputDirectory);
 
     const manifest = {
@@ -475,7 +439,6 @@ async function main() {
       },
       tools: manifestTools,
     };
-
     await writeFile(
       path.join(outputDirectory, "manifest.json"),
       `${JSON.stringify(manifest, null, 2)}\n`,
