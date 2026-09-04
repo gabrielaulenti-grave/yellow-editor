@@ -1,4 +1,5 @@
 import {
+  parseBaseStats,
   parseMoves,
   parsePokemonDetails,
   parsePokemonIndex,
@@ -45,15 +46,10 @@ export async function createProjectSession(
     getPokemonTmhmMoves: (sourceSlug) =>
       parsePokemonTmhmMoves(source, sourceSlug),
     getPokemonPalette: async (sourceSlug) => {
-      const stats = await parseBaseStatsForPalette(source, sourceSlug);
+      const stats = await parseBaseStats(source, sourceSlug);
       return parsePokemonPalette(source, stats.dexConstant);
     },
     getMoves: () => parseMoves(source),
     dispose: () => source.dispose?.(),
   };
-}
-
-async function parseBaseStatsForPalette(source: ProjectSource, sourceSlug: string) {
-  const { parseBaseStats } = await import("./parsers");
-  return parseBaseStats(source, sourceSlug);
 }
