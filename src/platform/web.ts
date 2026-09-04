@@ -1,14 +1,22 @@
 import { createProjectSession } from "../core/project";
-import type { ProjectSource } from "../core/types";
+import type { HistoryStore, ProjectSource } from "../core/types";
 import type { PlatformAdapter } from "./types";
+import { createWebHistoryStore, type WebDirectoryIdentityHandle } from "./webHistory";
+
+interface BrowserWritableFileStream {
+  write(data: string): Promise<void>;
+  close(): Promise<void>;
+  abort?(): Promise<void>;
+}
 
 interface BrowserFileHandle {
   kind: "file";
   name: string;
   getFile(): Promise<File>;
+  createWritable(): Promise<BrowserWritableFileStream>;
 }
 
-interface BrowserDirectoryHandle {
+interface BrowserDirectoryHandle extends WebDirectoryIdentityHandle {
   kind: "directory";
   name: string;
   getDirectoryHandle(name: string): Promise<BrowserDirectoryHandle>;
@@ -60,11 +68,15 @@ async function getFileHandle(
   return directory.getFileHandle(fileName);
 }
 
-function createWebSource(root: BrowserDirectoryHandle): ProjectSource {
+function createWebSource(
+  root: BrowserDirectoryHandle,
+  historyStore: HistoryStore,
+): ProjectSource {
   const objectUrls = new Map<string, string>();
 
   return {
     displayPath: root.name,
+    historyStore,
 
     async readText(relativePath) {
       try {
@@ -73,6 +85,24 @@ function createWebSource(root: BrowserDirectoryHandle): ProjectSource {
         return await file.text();
       } catch (error) {
         throw new Error(`Failed to read ${relativePath}: ${String(error)}`);
+      }
+    },
+
+    async writeText(relativePath, contents) {
+      let writable: BrowserWritableFileStream | null = null;
+
+      try {
+        const handle = await getFileHandle(root, relativePath);
+        writable = await handle.createWritable();
+        await writable.write(contents);
+        await writable.close();
+      } catch (error) {
+        try {
+          await writable?.abort?.();
+        } catch {
+          // Preserve the original write failure.
+        }
+        throw new Error(`Failed to write ${relativePath}: ${String(error)}`);
       }
     },
 
@@ -133,13 +163,14 @@ export const webPlatform: PlatformAdapter = {
     }
 
     try {
-      // Call the picker immediately while the Open Project click still has
-      // transient user activation.
+      // Request write access up front so a project opened for browsing is also
+      // ready for safe, history-backed editing later in the session.
       const root = await picker.call(window, {
         id: "yellow-editor-project",
-        mode: "read",
+        mode: "readwrite",
       });
-      return await createProjectSession(createWebSource(root));
+      const historyStore = await createWebHistoryStore(root);
+      return await createProjectSession(createWebSource(root, historyStore));
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         return null;
