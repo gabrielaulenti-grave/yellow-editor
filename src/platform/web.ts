@@ -1,3 +1,4 @@
+import { createWebBuildService } from "../core/build";
 import { createProjectSession } from "../core/project";
 import type { HistoryStore, ProjectSource } from "../core/types";
 import type { PlatformAdapter } from "./types";
@@ -170,7 +171,8 @@ export const webPlatform: PlatformAdapter = {
         mode: "readwrite",
       });
       const historyStore = await createWebHistoryStore(root);
-      return await createProjectSession(createWebSource(root, historyStore));
+      const source = createWebSource(root, historyStore);
+      return await createProjectSession(source, createWebBuildService(source));
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         return null;
