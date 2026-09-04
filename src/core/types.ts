@@ -25,6 +25,20 @@ export interface PokemonBaseStats {
   baseExp: number;
 }
 
+export interface PokemonBaseStatValues {
+  hp: number;
+  attack: number;
+  defense: number;
+  speed: number;
+  special: number;
+}
+
+export interface PokemonBaseStatsEditDocument {
+  path: string;
+  sourceHash: string;
+  values: PokemonBaseStatValues;
+}
+
 export interface PokemonSprites {
   front: string | null;
   back: string | null;
@@ -162,6 +176,12 @@ export interface ProjectSession {
   ): Promise<PokemonDetails>;
   getPokemonTmhmMoves(sourceSlug: string): Promise<string[]>;
   getPokemonPalette(sourceSlug: string): Promise<PokemonPaletteData | null>;
+  getPokemonBaseStatsEditDocument(sourceSlug: string): Promise<PokemonBaseStatsEditDocument>;
+  savePokemonBaseStats(
+    sourceSlug: string,
+    expectedHash: string,
+    values: PokemonBaseStatValues,
+  ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
   getHistorySummary(): Promise<HistorySummary>;
   saveTextChanges(label: string, changes: TextWriteRequest[]): Promise<HistorySummary>;
