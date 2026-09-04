@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type {
   BuildArtifact,
   BuildEnvironment,
+  BuildProgressEvent,
   BuildResult,
   BuildTarget,
   BuildToolStatus,
@@ -37,6 +38,15 @@ function targetLabel(target: BuildTarget): string {
   }
 }
 
+function formatDuration(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
+}
+
 function ToolRows({ tools }: { tools: BuildToolStatus[] }) {
   return (
     <>
@@ -67,6 +77,58 @@ function downloadArtifact(artifact: BuildArtifact) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+function buildDiagnosticReport(
+  environment: BuildEnvironment | null,
+  target: BuildTarget | null,
+  startedAt: number | null,
+  now: number,
+  events: BuildProgressEvent[],
+  result: BuildResult | null,
+  error: string | null,
+): string {
+  const lines = [
+    "Yellow Editor build report",
+    `Target: ${target ?? "not selected"}`,
+    `Backend: ${environment?.backend ?? "unknown"}`,
+    `Toolchain: ${environment ? toolchainLabel(environment) : "unknown"}`,
+    `Requested RGBDS: ${environment?.requiredRgbdsVersion ?? "not specified"}`,
+    `Detected RGBDS: ${environment?.detectedRgbdsVersion ?? "not detected"}`,
+    `Elapsed: ${startedAt ? formatDuration((result?.durationMs ?? now - startedAt)) : "not started"}`,
+    `Result: ${result ? (result.success ? "success" : "failure") : error ? "error" : "in progress"}`,
+  ];
+
+  if (result?.exitCode !== null && result?.exitCode !== undefined) {
+    lines.push(`Exit code: ${result.exitCode}`);
+  }
+  if (error) {
+    lines.push("", "UI error:", error);
+  }
+
+  lines.push("", "Activity:");
+  if (events.length === 0) {
+    lines.push("(no progress events received)");
+  } else {
+    for (const event of events) {
+      const offset = startedAt ? `+${formatDuration(event.timestamp - startedAt)}` : new Date(event.timestamp).toISOString();
+      lines.push(
+        `[${offset}] ${event.percent}% ${event.level.toUpperCase()} ${event.stage}: ${event.message}`,
+      );
+      if (event.detail) {
+        lines.push(`  ${event.detail}`);
+      }
+    }
+  }
+
+  if (result?.stdout) {
+    lines.push("", "stdout:", result.stdout);
+  }
+  if (result?.stderr) {
+    lines.push("", "stderr:", result.stderr);
+  }
+
+  return lines.join("\n");
+}
+
 export function BuildPanel({
   projectPath,
   hasUnsavedChanges,
@@ -81,6 +143,11 @@ export function BuildPanel({
   const [busy, setBusy] = useState(false);
   const [downloadMap, setDownloadMap] = useState(false);
   const [downloadSym, setDownloadSym] = useState(false);
+  const [progress, setProgress] = useState<BuildProgressEvent | null>(null);
+  const [progressEvents, setProgressEvents] = useState<BuildProgressEvent[]>([]);
+  const [buildStartedAt, setBuildStartedAt] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +159,10 @@ export function BuildPanel({
       setError(null);
       setDownloadMap(false);
       setDownloadSym(false);
+      setProgress(null);
+      setProgressEvents([]);
+      setBuildStartedAt(null);
+      setCopyStatus(null);
 
       try {
         const next = await invoke<BuildEnvironment>("get_build_environment", {
@@ -114,6 +185,15 @@ export function BuildPanel({
     };
   }, [projectPath]);
 
+  useEffect(() => {
+    if (!busy) {
+      return;
+    }
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [busy]);
+
   async function refreshEnvironment() {
     try {
       const next = await invoke<BuildEnvironment>("get_build_environment", {
@@ -134,18 +214,42 @@ export function BuildPanel({
       return;
     }
 
+    const startedAt = Date.now();
     setBusy(true);
+    setBuildStartedAt(startedAt);
+    setNow(startedAt);
     setError(null);
     setResult(null);
+    setProgress(null);
+    setProgressEvents([]);
+    setCopyStatus(null);
+
+    const onProgress = (event: BuildProgressEvent) => {
+      setProgress(event);
+      setProgressEvents((current) => [...current.slice(-249), event]);
+    };
 
     try {
-      const next = await invoke<BuildResult>("build_rom", { target });
+      const next = await invoke<BuildResult>("build_rom", {
+        target,
+        onProgress,
+      });
       setResult(next);
       await refreshEnvironment();
     } catch (buildError) {
-      setError(String(buildError));
+      const message = buildError instanceof Error ? buildError.message : String(buildError);
+      setError(message);
+      onProgress({
+        stage: "error",
+        level: "error",
+        message: "Build request failed",
+        detail: message,
+        percent: progress?.percent ?? 0,
+        timestamp: Date.now(),
+      });
     } finally {
       setBusy(false);
+      setNow(Date.now());
     }
   }
 
@@ -171,10 +275,35 @@ export function BuildPanel({
     }
   }
 
+  async function copyBuildReport() {
+    const report = buildDiagnosticReport(
+      environment,
+      target,
+      buildStartedAt,
+      now,
+      progressEvents,
+      result,
+      error,
+    );
+    try {
+      await navigator.clipboard.writeText(report);
+      setCopyStatus("Copied build report.");
+    } catch (copyError) {
+      setCopyStatus(`Could not copy report: ${String(copyError)}`);
+    }
+  }
+
   const browserArtifacts = result?.artifacts ?? [];
   const hasBrowserRom = browserArtifacts.some((candidate) => candidate.kind === "rom");
   const hasMap = browserArtifacts.some((candidate) => candidate.kind === "map");
   const hasSym = browserArtifacts.some((candidate) => candidate.kind === "sym");
+  const elapsedMs = buildStartedAt
+    ? result?.durationMs ?? Math.max(0, now - buildStartedAt)
+    : 0;
+  const secondsSinceProgress = busy && progress
+    ? Math.max(0, Math.floor((now - progress.timestamp) / 1000))
+    : 0;
+  const longRunningStep = busy && secondsSinceProgress >= 45;
 
   return (
     <section className="build-panel" aria-label="ROM build tools">
@@ -225,7 +354,12 @@ export function BuildPanel({
         </div>
       </div>
 
-      {error && <p className="build-error">{error}</p>}
+      {error && (
+        <div className="build-error" role="alert">
+          <strong>Build error</strong>
+          <pre>{error}</pre>
+        </div>
+      )}
 
       {!environment && !error ? (
         <p className="build-muted">Inspecting build environment…</p>
@@ -289,11 +423,83 @@ export function BuildPanel({
         </>
       ) : null}
 
+      {(busy || progress) && (
+        <div className={`build-live-status ${progress?.level === "error" ? "failure" : ""}`}>
+          <div className="build-live-heading">
+            <strong>{progress?.message ?? "Starting build…"}</strong>
+            <span>{progress?.percent ?? 0}% · {formatDuration(elapsedMs)}</span>
+          </div>
+          <div
+            className="build-progress-track"
+            role="progressbar"
+            aria-label="ROM build progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress?.percent ?? 0}
+          >
+            <div
+              className="build-progress-fill"
+              style={{ width: `${Math.max(0, Math.min(100, progress?.percent ?? 0))}%` }}
+            />
+          </div>
+          {progress?.detail && <code className="build-current-detail">{progress.detail}</code>}
+          {progress?.completed !== undefined && progress.total !== undefined && (
+            <p className="build-muted">
+              {progress.completed} of {progress.total} object groups complete
+            </p>
+          )}
+          {longRunningStep && (
+            <p className="build-warning" role="status">
+              This step has not produced a new status update for {secondsSinceProgress}s.
+              A WebAssembly tool may still be working on the command shown above; if the
+              elapsed time keeps growing, copy the build report below so the exact step is recorded.
+            </p>
+          )}
+        </div>
+      )}
+
+      {(busy || progressEvents.length > 0 || result || error) && (
+        <details className="build-activity" open={busy || Boolean(error) || result?.success === false}>
+          <summary>
+            Build activity report ({progressEvents.length} events)
+          </summary>
+          <div className="build-report-actions">
+            <button type="button" onClick={() => void copyBuildReport()}>
+              Copy build report
+            </button>
+            {copyStatus && <span>{copyStatus}</span>}
+          </div>
+          {progressEvents.length === 0 ? (
+            <p className="build-muted">No build activity has been reported yet.</p>
+          ) : (
+            <ol className="build-activity-list">
+              {progressEvents.map((event, index) => (
+                <li key={`${event.timestamp}-${index}`} className={`level-${event.level}`}>
+                  <div>
+                    <time>
+                      {buildStartedAt
+                        ? `+${formatDuration(event.timestamp - buildStartedAt)}`
+                        : new Date(event.timestamp).toLocaleTimeString()}
+                    </time>
+                    <strong>{event.message}</strong>
+                    <span>{event.percent}%</span>
+                  </div>
+                  {event.detail && <code>{event.detail}</code>}
+                </li>
+              ))}
+            </ol>
+          )}
+        </details>
+      )}
+
       {result && (
-        <div className={`build-result ${result.success ? "success" : "failure"}`}>
+        <div className={`build-result ${result.success ? "success" : "failure"}`} role={!result.success ? "alert" : undefined}>
           <div className="build-result-heading">
             <strong>{result.success ? "Build succeeded" : "Build failed"}</strong>
-            <span>{result.durationMs} ms</span>
+            <span>
+              {formatDuration(result.durationMs)}
+              {result.exitCode !== null ? ` · exit ${result.exitCode}` : ""}
+            </span>
           </div>
           {result.romPath && <code className="build-rom-path">{result.romPath}</code>}
 
@@ -328,7 +534,7 @@ export function BuildPanel({
           )}
 
           <details open={!result.success}>
-            <summary>Build output</summary>
+            <summary>Compiler output</summary>
             {result.stdout && <pre>{result.stdout}</pre>}
             {result.stderr && <pre>{result.stderr}</pre>}
             {!result.stdout && !result.stderr && <p>No build output was produced.</p>}
