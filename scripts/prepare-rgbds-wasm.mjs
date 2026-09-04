@@ -59,8 +59,7 @@ list(PREPEND CMAKE_MODULE_PATH "\${CMAKE_SOURCE_DIR}/cmake-modules")
 
 # RGBDS 1.0.3 pins zlib 1.3.2 and libpng 1.6.58 in cmake/deps.cmake.
 # Do not replace those with Emscripten's generic ports: the port bundled with
-# our Emscripten release currently identifies itself as libpng 1.6.39, and the
-# resulting rgbgfx module traps as soon as PNG processing begins. Force
+# our Emscripten release currently identifies itself as libpng 1.6.39. Force
 # FetchContent to cross-compile the dependency versions RGBDS itself declares.
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
 
@@ -68,10 +67,15 @@ set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
 # let libpng select native x86 SIMD sources for a WebAssembly build.
 set(PNG_HARDWARE_OPTIMIZATIONS OFF CACHE BOOL "" FORCE)
 
-add_compile_options(-O3 -flto)
+# RGBDS enables CMake IPO/LTO automatically for Release configurations. The
+# Emscripten build of rgbgfx traps in its PNG read path with IPO enabled, even
+# with RGBDS's own pinned libpng/zlib. Use the non-IPO configuration but retain
+# normal optimization explicitly. This is a packaging choice, not a debug build
+# exposed to users.
+add_compile_options(-O2 -g0 -DNDEBUG)
 add_link_options(
-  -O3
-  -flto
+  -O2
+  -g0
   "-sEXPORT_ES6=1"
   "-sALLOW_MEMORY_GROWTH=1"
   "-sENVIRONMENT=web,worker"
@@ -284,7 +288,7 @@ async function main() {
       buildDirectory,
       "-G",
       "Ninja",
-      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCMAKE_BUILD_TYPE=Debug",
       "-DBUILD_TESTING=OFF",
     ]);
 
@@ -332,6 +336,7 @@ async function main() {
       emscripten: {
         version: EMSCRIPTEN_VERSION,
         versionLine,
+        optimization: "O2 without CMake IPO/LTO",
       },
       dependencies: {
         zlib: "1.3.2",
