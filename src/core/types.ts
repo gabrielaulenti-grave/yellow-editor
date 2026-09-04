@@ -30,6 +30,20 @@ export interface PokemonSprites {
   back: string | null;
 }
 
+export type PokemonPaletteSource = "cgb" | "sgb";
+
+export interface PokemonPaletteOption {
+  source: PokemonPaletteSource;
+  label: string;
+  colors: [string, string, string, string];
+}
+
+export interface PokemonPaletteData {
+  constant: string;
+  dexNumber: number;
+  options: PokemonPaletteOption[];
+}
+
 export interface LearnsetMove {
   level: number;
   moveConstant: string;
@@ -94,6 +108,7 @@ export interface ProjectSession {
     sourceSlug: string,
   ): Promise<PokemonDetails>;
   getPokemonTmhmMoves(sourceSlug: string): Promise<string[]>;
+  getPokemonPalette(sourceSlug: string): Promise<PokemonPaletteData | null>;
   getMoves(): Promise<MoveData[]>;
   dispose(): void;
 }
