@@ -183,6 +183,15 @@ export interface BuildEnvironment {
   message: string;
 }
 
+export type BuildArtifactKind = "rom" | "map" | "sym";
+
+export interface BuildArtifact {
+  kind: BuildArtifactKind;
+  fileName: string;
+  mimeType: string;
+  bytes: number[];
+}
+
 export interface BuildResult {
   success: boolean;
   target: BuildTarget;
@@ -191,6 +200,7 @@ export interface BuildResult {
   stderr: string;
   durationMs: number;
   exitCode: number | null;
+  artifacts?: BuildArtifact[];
 }
 
 export interface BuildService {
@@ -201,6 +211,7 @@ export interface BuildService {
 export interface ProjectSource {
   displayPath: string;
   readText(relativePath: string): Promise<string>;
+  readBytes(relativePath: string): Promise<Uint8Array>;
   writeText(relativePath: string, contents: string): Promise<void>;
   exists(relativePath: string): Promise<boolean>;
   assetUrl(relativePath: string): Promise<string | null>;
