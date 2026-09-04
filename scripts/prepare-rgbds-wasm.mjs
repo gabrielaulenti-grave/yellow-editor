@@ -179,6 +179,8 @@ async function main() {
 
     await mkdir(cmakeModules, { recursive: true });
     await Promise.all([
+      copyFile(path.join(sourceDirectory, "LICENSE"), path.join(tempRoot, "LICENSE")),
+      copyFile(path.join(sourceDirectory, "README.md"), path.join(tempRoot, "README.md")),
       writeFile(path.join(cmakeModules, "FindZLIB.cmake"), findZlibCmake(), "utf8"),
       writeFile(path.join(tempRoot, "CMakeLists.txt"), wrapperCmake(), "utf8"),
     ]);
