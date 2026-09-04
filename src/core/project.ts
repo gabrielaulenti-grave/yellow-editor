@@ -4,6 +4,7 @@ import {
   parsePokemonIndex,
   parsePokemonTmhmMoves,
 } from "./parsers";
+import { parsePokemonPalette } from "./palettes";
 import type { ProjectSession, ProjectSource } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
@@ -43,7 +44,16 @@ export async function createProjectSession(
       parsePokemonDetails(source, internalId, sourceSlug),
     getPokemonTmhmMoves: (sourceSlug) =>
       parsePokemonTmhmMoves(source, sourceSlug),
+    getPokemonPalette: async (sourceSlug) => {
+      const stats = await parseBaseStatsForPalette(source, sourceSlug);
+      return parsePokemonPalette(source, stats.dexConstant);
+    },
     getMoves: () => parseMoves(source),
     dispose: () => source.dispose?.(),
   };
+}
+
+async function parseBaseStatsForPalette(source: ProjectSource, sourceSlug: string) {
+  const { parseBaseStats } = await import("./parsers");
+  return parseBaseStats(source, sourceSlug);
 }
