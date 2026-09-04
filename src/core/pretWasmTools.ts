@@ -12,7 +12,6 @@ import type {
 
 const MANIFEST_PATH = "wasm-tools/pret-gen1/manifest.json";
 const BASE_HELPER_TOOLS = ["scan_includes", "gfx", "pkmncompress"] as const;
-const OPTIONAL_HELPER_TOOLS = ["make_patch", "pcm"] as const;
 
 interface PretWasmSourceFile {
   gitBlobSha: string;
@@ -124,8 +123,8 @@ async function projectHelperTools(source: ProjectSource): Promise<{
   required: string[];
   visible: string[];
 }> {
-  const required = [...BASE_HELPER_TOOLS];
-  const visible = [...BASE_HELPER_TOOLS];
+  const required: string[] = [...BASE_HELPER_TOOLS];
+  const visible: string[] = [...BASE_HELPER_TOOLS];
 
   if (await source.exists("tools/make_patch.c")) {
     visible.push("make_patch");
