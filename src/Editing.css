@@ -1,0 +1,98 @@
+:root {
+  --danger: #b42318;
+  --danger-soft: #fff1f0;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.edit-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.edit-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.edit-actions button {
+  min-width: 72px;
+}
+
+.primary-action:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.history-status {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.unsaved-indicator {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 3px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.editable-stat-field input:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--panel);
+}
+
+.field-invalid input,
+.field-invalid input:not(:disabled) {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+  outline: 1px solid var(--danger);
+}
+
+.field-error {
+  color: var(--danger);
+  font-size: 0.76rem;
+  line-height: 1.25;
+}
+
+@media (max-width: 760px) {
+  .edit-toolbar {
+    align-items: stretch;
+  }
+
+  .edit-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .edit-actions button {
+    width: 100%;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --danger: #ff8a80;
+    --danger-soft: #4a2422;
+  }
+}
