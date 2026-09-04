@@ -49,19 +49,7 @@ function wrapperCmake() {
 project(yellow_editor_rgbds_wasm)
 
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-
-# Emscripten provides these dependencies as ports. Defining the imported
-# targets before RGBDS is added lets FetchContent's find-package integration
-# use the ports instead of building native zlib/libpng copies when supported.
-set(ZLIB_FOUND TRUE)
-add_library(ZLIB::ZLIB INTERFACE IMPORTED GLOBAL)
-target_compile_options(ZLIB::ZLIB INTERFACE "--use-port=zlib")
-target_link_options(ZLIB::ZLIB INTERFACE "--use-port=zlib")
-
-set(PNG_FOUND TRUE)
-add_library(PNG::PNG INTERFACE IMPORTED GLOBAL)
-target_compile_options(PNG::PNG INTERFACE "--use-port=libpng")
-target_link_options(PNG::PNG INTERFACE "--use-port=libpng")
+list(PREPEND CMAKE_MODULE_PATH "\${CMAKE_SOURCE_DIR}/cmake-modules")
 
 add_compile_options(-O3 -flto)
 add_link_options(
@@ -99,6 +87,30 @@ foreach(TGT rgbasm rgblink rgbfix rgbgfx)
     "-sEXPORTED_RUNTIME_METHODS=['FS','callMain']"
   )
 endforeach()
+`;
+}
+
+function findZlibCmake() {
+  return `set(ZLIB_FOUND TRUE)
+set(ZLIB_VERSION_STRING "1.3.2")
+set(ZLIB_INCLUDE_DIRS "")
+if(NOT TARGET ZLIB::ZLIB)
+  add_library(ZLIB::ZLIB INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET ZLIB::ZLIB PROPERTY INTERFACE_COMPILE_OPTIONS "--use-port=zlib")
+  set_property(TARGET ZLIB::ZLIB PROPERTY INTERFACE_LINK_OPTIONS "--use-port=zlib")
+endif()
+`;
+}
+
+function findPngCmake() {
+  return `set(PNG_FOUND TRUE)
+set(PNG_VERSION_STRING "1.6.58")
+set(PNG_INCLUDE_DIRS "")
+if(NOT TARGET PNG::PNG)
+  add_library(PNG::PNG INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET PNG::PNG PROPERTY INTERFACE_COMPILE_OPTIONS "--use-port=libpng")
+  set_property(TARGET PNG::PNG PROPERTY INTERFACE_LINK_OPTIONS "--use-port=libpng")
+endif()
 `;
 }
 
@@ -143,6 +155,7 @@ async function main() {
   const sourceDirectory = path.join(tempRoot, "rgbds");
   const buildDirectory = path.join(tempRoot, "build");
   const buildOut = path.join(buildDirectory, "out");
+  const cmakeModules = path.join(tempRoot, "cmake-modules");
 
   try {
     run("git", [
@@ -174,7 +187,15 @@ async function main() {
       copyFile(path.join(sourceDirectory, "README.md"), path.join(tempRoot, "README.md")),
     ]);
 
-    await writeFile(path.join(tempRoot, "CMakeLists.txt"), wrapperCmake(), "utf8");
+    // RGBDS uses FetchContent with find_package integration for zlib/libpng.
+    // Supply tiny find modules so its normal dependency hooks resolve to the
+    // Emscripten ports instead of compiling native-oriented dependency trees.
+    await mkdir(cmakeModules, { recursive: true });
+    await Promise.all([
+      writeFile(path.join(cmakeModules, "FindZLIB.cmake"), findZlibCmake(), "utf8"),
+      writeFile(path.join(cmakeModules, "FindPNG.cmake"), findPngCmake(), "utf8"),
+      writeFile(path.join(tempRoot, "CMakeLists.txt"), wrapperCmake(), "utf8"),
+    ]);
 
     run("emcmake", [
       "cmake",
