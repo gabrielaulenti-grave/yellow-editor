@@ -71,6 +71,20 @@ interface PokemonDetails {
   sprites: PokemonSprites;
 }
 
+interface MoveData {
+  id: number;
+  constant: string;
+  name: string;
+  animation: string;
+  effect: string;
+  power: number;
+  moveType: string;
+  accuracy: number;
+  pp: number;
+  animationLabel: string | null;
+  animationScript: string[];
+}
+
 function formatHex(value: number) {
   return `$${value
     .toString(16)
@@ -88,6 +102,23 @@ function App() {
   const [selectedPokemonId, setSelectedPokemonId] = useState<number | null>(null);
   const [selectedPokemon, setSelectedPokemon] = useState<PokemonDetails | null>(null);
   const [tmhmMoves, setTmhmMoves] = useState<string[]>([]);
+  const [moves, setMoves] = useState<MoveData[]>([]);
+  const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
+  const [moveSearch, setMoveSearch] = useState("");
+
+  const selectedMove = moves.find((move) => move.id === selectedMoveId) ?? null;
+  const filteredMoves = moves.filter((move) => {
+    const query = moveSearch.trim().toLowerCase();
+    if (!query) {
+      return true;
+    }
+
+    return (
+      move.name.toLowerCase().includes(query) ||
+      move.constant.toLowerCase().includes(query) ||
+      formatHex(move.id).toLowerCase().includes(query)
+    );
+  });
 
   async function loadPokemon(entry: PokemonIndexEntry) {
     setSelectedPokemonId(entry.internalId);
@@ -137,22 +168,32 @@ function App() {
         path: selected,
       });
 
+      const [index, moveData] = await Promise.all([
+        invoke<PokemonIndexEntry[]>("get_pokemon_index", {
+          projectPath: result.path,
+        }),
+        invoke<MoveData[]>("get_moves", {
+          projectPath: result.path,
+        }),
+      ]);
+
       setProject(result);
+      setPokemonIndex(index);
+      setMoves(moveData);
       setSelectedPokemon(null);
       setSelectedPokemonId(null);
       setTmhmMoves([]);
+      setSelectedMoveId(moveData[0]?.id ?? null);
+      setMoveSearch("");
       setStatus("Project loaded successfully.");
-
-      const index = await invoke<PokemonIndexEntry[]>("get_pokemon_index", {
-        projectPath: result.path,
-      });
-
-      setPokemonIndex(index);
     } catch (error) {
       setProject(null);
+      setPokemonIndex([]);
+      setMoves([]);
       setSelectedPokemon(null);
       setSelectedPokemonId(null);
       setTmhmMoves([]);
+      setSelectedMoveId(null);
       setStatus(String(error));
     }
   }
@@ -379,7 +420,120 @@ function App() {
       {activeTab === "moves" && (
         <section>
           <h2>Moves</h2>
-          <p>Move editor coming soon.</p>
+
+          {!project ? (
+            <p>Open a project to browse moves.</p>
+          ) : (
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "minmax(220px, 320px) minmax(0, 1fr)",
+                gap: 24,
+                alignItems: "start",
+              }}
+            >
+              <aside>
+                <input
+                  type="search"
+                  placeholder="Search moves..."
+                  value={moveSearch}
+                  onChange={(event) => setMoveSearch(event.target.value)}
+                  style={{ width: "100%", boxSizing: "border-box", marginBottom: 12 }}
+                />
+
+                <div
+                  style={{
+                    maxHeight: 520,
+                    overflowY: "auto",
+                    border: "1px solid #888",
+                  }}
+                >
+                  {filteredMoves.map((move) => (
+                    <button
+                      key={move.id}
+                      onClick={() => setSelectedMoveId(move.id)}
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "8px 10px",
+                        fontWeight: move.id === selectedMoveId ? "bold" : "normal",
+                      }}
+                    >
+                      {formatHex(move.id)} — {move.name}
+                    </button>
+                  ))}
+
+                  {filteredMoves.length === 0 && (
+                    <p style={{ padding: 10 }}>No moves match that search.</p>
+                  )}
+                </div>
+              </aside>
+
+              <section>
+                {selectedMove ? (
+                  <>
+                    <h3>{selectedMove.name}</h3>
+                    <p>
+                      {formatHex(selectedMove.id)} — {selectedMove.constant}
+                    </p>
+
+                    <h4>Move Data</h4>
+
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "max-content minmax(160px, 320px)",
+                        gap: "8px 12px",
+                        alignItems: "center",
+                      }}
+                    >
+                      <label htmlFor="move-name">Name</label>
+                      <input id="move-name" value={selectedMove.name} readOnly />
+
+                      <label htmlFor="move-power">Power</label>
+                      <input id="move-power" value={selectedMove.power} readOnly />
+
+                      <label htmlFor="move-accuracy">Accuracy</label>
+                      <input
+                        id="move-accuracy"
+                        value={`${selectedMove.accuracy}%`}
+                        readOnly
+                      />
+
+                      <label htmlFor="move-pp">PP</label>
+                      <input id="move-pp" value={selectedMove.pp} readOnly />
+
+                      <label htmlFor="move-type">Type</label>
+                      <input id="move-type" value={selectedMove.moveType} readOnly />
+
+                      <label htmlFor="move-effect">Effect</label>
+                      <input id="move-effect" value={selectedMove.effect} readOnly />
+                    </div>
+
+                    <h4>Animation</h4>
+                    <p>Animation constant: {selectedMove.animation}</p>
+                    <p>
+                      Animation label: {selectedMove.animationLabel ?? "Not found"}
+                    </p>
+
+                    <details>
+                      <summary>View animation script</summary>
+                      {selectedMove.animationScript.length === 0 ? (
+                        <p>No animation script found.</p>
+                      ) : (
+                        <pre style={{ overflowX: "auto" }}>
+                          {selectedMove.animationScript.join("\n")}
+                        </pre>
+                      )}
+                    </details>
+                  </>
+                ) : (
+                  <p>Select a move.</p>
+                )}
+              </section>
+            </div>
+          )}
         </section>
       )}
     </main>
