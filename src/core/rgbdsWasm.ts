@@ -11,6 +11,8 @@ const RGBDS_TOOLS = ["rgbasm", "rgblink", "rgbfix", "rgbgfx"] as const;
 interface RgbdsWasmToolDefinition {
   module: string;
   wasm: string;
+  implementation?: string;
+  adapter?: "yellow-editor-gen1-rgbgfx";
 }
 
 interface RgbdsWasmManifest {
@@ -38,7 +40,13 @@ interface EmscriptenFileSystem {
 
 interface EmscriptenModule {
   FS: EmscriptenFileSystem;
-  callMain(args: string[]): number | void;
+  callMain?(args: string[]): number | void;
+  ccall?(
+    ident: string,
+    returnType: "number" | null,
+    argTypes: string[],
+    args: Array<string | number>,
+  ): number;
 }
 
 type EmscriptenFactory = (options: {
@@ -54,6 +62,13 @@ export interface RgbdsWasmInspection {
   versionMatches: boolean | null;
   tools: BuildToolStatus[];
   message: string;
+}
+
+interface Gen1RgbgfxInvocation {
+  input: string;
+  output: string;
+  depth: 1 | 2;
+  columnMajor: boolean;
 }
 
 const manifestPromises = new Map<string, Promise<RgbdsWasmManifest | null>>();
@@ -198,6 +213,101 @@ function exitStatus(error: unknown): number | null {
   return null;
 }
 
+function parseDepth(value: string): 1 | 2 {
+  if (value === "1") {
+    return 1;
+  }
+  if (value === "2") {
+    return 2;
+  }
+  throw new Error(`Unsupported Gen I rgbgfx bit depth '${value}'.`);
+}
+
+function parseGen1RgbgfxInvocation(args: string[]): Gen1RgbgfxInvocation {
+  let input: string | null = null;
+  let output: string | null = null;
+  let depth: 1 | 2 = 2;
+  let columnMajor = false;
+  let dmgColors = false;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+
+    if (arg === "-Weverything") {
+      continue;
+    }
+    if (arg === "--columns" || arg === "-Z") {
+      columnMajor = true;
+      continue;
+    }
+    if (arg === "--colors") {
+      const value = args[++index];
+      if (value !== "dmg") {
+        throw new Error(
+          "Yellow Editor's Gen I rgbgfx adapter only supports '--colors dmg'.",
+        );
+      }
+      dmgColors = true;
+      continue;
+    }
+    if (arg === "--colors=dmg") {
+      dmgColors = true;
+      continue;
+    }
+    if (arg === "--depth" || arg === "-d") {
+      const value = args[++index];
+      if (!value) {
+        throw new Error("Missing Gen I rgbgfx bit depth.");
+      }
+      depth = parseDepth(value);
+      continue;
+    }
+    if (arg.startsWith("--depth=")) {
+      depth = parseDepth(arg.slice("--depth=".length));
+      continue;
+    }
+    if (/^-d[12]$/.test(arg)) {
+      depth = parseDepth(arg.slice(2));
+      continue;
+    }
+    if (arg === "-o" || arg === "--output") {
+      const value = args[++index];
+      if (!value) {
+        throw new Error("Missing Gen I rgbgfx output path.");
+      }
+      output = value;
+      continue;
+    }
+    if (arg.startsWith("--output=")) {
+      output = arg.slice("--output=".length);
+      continue;
+    }
+    if (arg.startsWith("-o") && arg.length > 2) {
+      output = arg.slice(2);
+      continue;
+    }
+    if (arg.startsWith("-")) {
+      throw new Error(`Unsupported Gen I rgbgfx option '${arg}'.`);
+    }
+    if (input !== null) {
+      throw new Error("Gen I rgbgfx received more than one input image.");
+    }
+    input = arg;
+  }
+
+  if (!dmgColors) {
+    throw new Error("The Gen I rgbgfx adapter requires '--colors dmg'.");
+  }
+  if (!input) {
+    throw new Error("Gen I rgbgfx is missing its input PNG path.");
+  }
+  if (!output) {
+    throw new Error("Gen I rgbgfx is missing its output tile-data path.");
+  }
+
+  return { input, output, depth, columnMajor };
+}
+
 async function loadToolFactory(
   version: string,
   manifest: RgbdsWasmManifest,
@@ -257,6 +367,11 @@ export function createRgbdsWasmRuntime(version: string): BuildToolRuntime {
         throw new Error(`RGBDS ${version} WASM bundle not found.`);
       }
 
+      const definition = manifest.tools[invocation.tool];
+      if (!definition) {
+        throw new Error(`The RGBDS WASM bundle does not contain '${invocation.tool}'.`);
+      }
+
       const { factory, moduleUrl, wasmUrl } = await loadToolFactory(
         version,
         manifest,
@@ -300,17 +415,38 @@ export function createRgbdsWasmRuntime(version: string): BuildToolRuntime {
       }
 
       let exitCode = 0;
-      try {
-        const result = module.callMain(invocation.args);
-        if (typeof result === "number") {
-          exitCode = result;
+      if (definition.adapter === "yellow-editor-gen1-rgbgfx") {
+        if (typeof module.ccall !== "function") {
+          throw new Error("The Gen I rgbgfx WASM adapter did not export ccall().");
         }
-      } catch (error) {
-        const status = exitStatus(error);
-        if (status === null) {
-          throw error;
+        const adapter = parseGen1RgbgfxInvocation(invocation.args);
+        exitCode = module.ccall(
+          "yellow_editor_rgbgfx",
+          "number",
+          ["string", "string", "number", "number"],
+          [
+            adapter.input,
+            adapter.output,
+            adapter.depth,
+            adapter.columnMajor ? 1 : 0,
+          ],
+        );
+      } else {
+        if (typeof module.callMain !== "function") {
+          throw new Error(`The WASM module for '${invocation.tool}' did not export callMain().`);
         }
-        exitCode = status;
+        try {
+          const result = module.callMain(invocation.args);
+          if (typeof result === "number") {
+            exitCode = result;
+          }
+        } catch (error) {
+          const status = exitStatus(error);
+          if (status === null) {
+            throw error;
+          }
+          exitCode = status;
+        }
       }
 
       const outputs = (invocation.outputPaths ?? []).map((relativePath) => ({

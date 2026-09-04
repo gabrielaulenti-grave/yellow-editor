@@ -14,14 +14,20 @@
 // objects at the PNG decoder boundary, which are unreliable in our Emscripten
 // build. The tile serialization below follows RGBDS 1.0.3's DMG grayscale
 // mapping, tile order, and bitplane order for this supported subset.
+//
+// This WASM module is built as a library-style reactor instead of a command-
+// line program. JavaScript calls yellow_editor_rgbgfx directly through ccall,
+// which avoids Emscripten's main()/exit teardown path while still using its
+// virtual filesystem for input and output files.
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstdio>
-#include <cstring>
 #include <string>
 #include <vector>
+
+#include <emscripten/emscripten.h>
 
 #include "lodepng.h"
 
@@ -30,7 +36,6 @@ namespace {
 struct Options {
     bool columnMajor = false;
     unsigned depth = 2;
-    bool dmgColors = false;
     std::string input;
     std::string output;
 };
@@ -41,114 +46,6 @@ void printError(char const *message) {
 
 void printError(std::string const &message) {
     printError(message.c_str());
-}
-
-bool parseUnsigned(char const *text, unsigned &value) {
-    if (!text || !*text) {
-        return false;
-    }
-    unsigned parsed = 0;
-    for (char const *cursor = text; *cursor; ++cursor) {
-        if (*cursor < '0' || *cursor > '9') {
-            return false;
-        }
-        parsed = parsed * 10 + static_cast<unsigned>(*cursor - '0');
-    }
-    value = parsed;
-    return true;
-}
-
-bool parseOptions(int argc, char **argv, Options &options) {
-    for (int index = 1; index < argc; ++index) {
-        std::string const arg = argv[index];
-
-        if (arg == "-Weverything") {
-            // The pret Makefiles enable all RGBDS warnings. This compatibility
-            // converter performs the validations relevant to the supported
-            // Gen I conversion subset below.
-            continue;
-        }
-        if (arg == "--columns" || arg == "-Z") {
-            options.columnMajor = true;
-            continue;
-        }
-        if (arg == "--colors") {
-            if (++index >= argc || std::strcmp(argv[index], "dmg") != 0) {
-                printError("Yellow Editor's Gen I rgbgfx adapter only supports '--colors dmg'.");
-                return false;
-            }
-            options.dmgColors = true;
-            continue;
-        }
-        if (arg == "--colors=dmg") {
-            options.dmgColors = true;
-            continue;
-        }
-        if (arg == "--depth" || arg == "-d") {
-            if (++index >= argc || !parseUnsigned(argv[index], options.depth)) {
-                printError("Missing or invalid bit depth.");
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("--depth=", 0) == 0) {
-            if (!parseUnsigned(arg.c_str() + std::strlen("--depth="), options.depth)) {
-                printError("Invalid bit depth.");
-                return false;
-            }
-            continue;
-        }
-        if (arg.rfind("-d", 0) == 0 && arg.size() > 2) {
-            if (!parseUnsigned(arg.c_str() + 2, options.depth)) {
-                printError("Invalid bit depth.");
-                return false;
-            }
-            continue;
-        }
-        if (arg == "-o" || arg == "--output") {
-            if (++index >= argc) {
-                printError("Missing output path.");
-                return false;
-            }
-            options.output = argv[index];
-            continue;
-        }
-        if (arg.rfind("--output=", 0) == 0) {
-            options.output = arg.substr(std::strlen("--output="));
-            continue;
-        }
-        if (arg.rfind("-o", 0) == 0 && arg.size() > 2) {
-            options.output = arg.substr(2);
-            continue;
-        }
-        if (!arg.empty() && arg[0] == '-') {
-            printError("Unsupported rgbgfx option for the Gen I browser build: " + arg);
-            return false;
-        }
-        if (!options.input.empty()) {
-            printError("Input image specified more than once.");
-            return false;
-        }
-        options.input = arg;
-    }
-
-    if (!options.dmgColors) {
-        printError("The Gen I browser build requires '--colors dmg'.");
-        return false;
-    }
-    if (options.depth != 1 && options.depth != 2) {
-        printError("The Gen I browser build only supports 1bpp and 2bpp graphics.");
-        return false;
-    }
-    if (options.input.empty()) {
-        printError("Missing input PNG path.");
-        return false;
-    }
-    if (options.output.empty()) {
-        printError("Missing output tile-data path.");
-        return false;
-    }
-    return true;
 }
 
 bool readFile(std::string const &path, std::vector<unsigned char> &bytes) {
@@ -340,10 +237,29 @@ bool convert(Options const &options) {
 
 } // namespace
 
-int main(int argc, char **argv) {
-    Options options;
-    if (!parseOptions(argc, argv, options)) {
+extern "C" EMSCRIPTEN_KEEPALIVE int yellow_editor_rgbgfx(
+    char const *input,
+    char const *output,
+    int depth,
+    int columnMajor
+) {
+    if (!input || !*input) {
+        printError("Missing input PNG path.");
         return 1;
     }
+    if (!output || !*output) {
+        printError("Missing output tile-data path.");
+        return 1;
+    }
+    if (depth != 1 && depth != 2) {
+        printError("The Gen I browser build only supports 1bpp and 2bpp graphics.");
+        return 1;
+    }
+
+    Options options;
+    options.columnMajor = columnMajor != 0;
+    options.depth = static_cast<unsigned>(depth);
+    options.input = input;
+    options.output = output;
     return convert(options) ? 0 : 1;
 }

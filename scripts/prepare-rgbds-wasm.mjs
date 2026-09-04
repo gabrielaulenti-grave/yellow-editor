@@ -207,33 +207,15 @@ function compileGen1Rgbgfx(lodepngDirectory) {
     "-sEXPORT_ES6=1",
     "-sEXPORT_NAME=createRgbGfx",
     "-sENVIRONMENT=web,worker",
-    "-sINVOKE_RUN=0",
+    "-sIGNORE_MISSING_MAIN=1",
     "-sEXIT_RUNTIME=0",
     "-sFORCE_FILESYSTEM=1",
     "-sALLOW_MEMORY_GROWTH=1",
-    '-sEXPORTED_RUNTIME_METHODS=["FS","callMain"]',
+    '-sEXPORTED_FUNCTIONS=["_yellow_editor_rgbgfx"]',
+    '-sEXPORTED_RUNTIME_METHODS=["FS","ccall"]',
     "-o",
     path.join(outputDirectory, "rgbgfx.mjs"),
   ]);
-}
-
-function exitStatus(error) {
-  return error && typeof error === "object" && typeof error.status === "number"
-    ? error.status
-    : null;
-}
-
-function callMain(module, args) {
-  try {
-    const result = module.callMain(args);
-    return typeof result === "number" ? result : 0;
-  } catch (error) {
-    const status = exitStatus(error);
-    if (status === null) {
-      throw error;
-    }
-    return status;
-  }
 }
 
 async function loadRgbgfxForTest(directory) {
@@ -262,6 +244,18 @@ async function loadRgbgfxForTest(directory) {
   return { module, stdout, stderr };
 }
 
+function invokeGen1Rgbgfx(module, input, output, depth = 2, columnMajor = false) {
+  if (typeof module.ccall !== "function") {
+    throw new Error("rgbgfx.mjs did not export ccall().");
+  }
+  return module.ccall(
+    "yellow_editor_rgbgfx",
+    "number",
+    ["string", "string", "number", "number"],
+    [input, output, depth, columnMajor ? 1 : 0],
+  );
+}
+
 function assertBytes(actual, expected, description) {
   if (
     actual.length !== expected.length ||
@@ -281,14 +275,13 @@ async function functionalTestRgbgfx(directory) {
     "fixture.png",
     Buffer.from(RGBGFX_SMOKE_PNG, "base64"),
   );
-  let exitCode = callMain(twoBpp.module, [
-    "--colors",
-    "dmg",
-    "-Weverything",
-    "-o",
-    "fixture.2bpp",
+  let exitCode = invokeGen1Rgbgfx(
+    twoBpp.module,
     "fixture.png",
-  ]);
+    "fixture.2bpp",
+    2,
+    false,
+  );
   if (exitCode !== 0) {
     throw new Error(
       `Gen I rgbgfx 2bpp smoke test exited with ${exitCode}: ${twoBpp.stderr.join("\n") || twoBpp.stdout.join("\n")}`,
@@ -307,15 +300,13 @@ async function functionalTestRgbgfx(directory) {
     "fixture.png",
     Buffer.from(RGBGFX_1BPP_PNG, "base64"),
   );
-  exitCode = callMain(oneBpp.module, [
-    "--colors",
-    "dmg",
-    "--depth",
-    "1",
-    "-o",
-    "fixture.1bpp",
+  exitCode = invokeGen1Rgbgfx(
+    oneBpp.module,
     "fixture.png",
-  ]);
+    "fixture.1bpp",
+    1,
+    false,
+  );
   if (exitCode !== 0) {
     throw new Error(
       `Gen I rgbgfx 1bpp smoke test exited with ${exitCode}: ${oneBpp.stderr.join("\n") || oneBpp.stdout.join("\n")}`,
@@ -334,14 +325,13 @@ async function functionalTestRgbgfx(directory) {
     "columns.png",
     Buffer.from(RGBGFX_COLUMNS_PNG, "base64"),
   );
-  exitCode = callMain(columns.module, [
-    "--colors",
-    "dmg",
-    "--columns",
-    "-o",
-    "columns.2bpp",
+  exitCode = invokeGen1Rgbgfx(
+    columns.module,
     "columns.png",
-  ]);
+    "columns.2bpp",
+    2,
+    true,
+  );
   if (exitCode !== 0) {
     throw new Error(
       `Gen I rgbgfx column-order smoke test exited with ${exitCode}: ${columns.stderr.join("\n") || columns.stdout.join("\n")}`,
@@ -360,7 +350,7 @@ async function functionalTestRgbgfx(directory) {
   );
 
   console.log(
-    "Verified the libpng-free Gen I rgbgfx compatibility module for 2bpp, 1bpp, and column-major output.",
+    "Verified the libpng-free Gen I rgbgfx reactor for 2bpp, 1bpp, and column-major output.",
   );
 }
 
@@ -472,6 +462,7 @@ async function main() {
       module: "rgbgfx.mjs",
       wasm: "rgbgfx.wasm",
       implementation: "Yellow Editor Gen I compatibility adapter",
+      adapter: "yellow-editor-gen1-rgbgfx",
     };
 
     await functionalTestRgbgfx(outputDirectory);
@@ -492,6 +483,7 @@ async function main() {
       },
       graphicsCompatibility: {
         reason: "RGBDS 1.0.3 libpng PNG processing traps under the pinned Emscripten runtime",
+        entrypoint: "yellow_editor_rgbgfx reactor export",
         supportedRgbgfxSubset: [
           "--colors dmg",
           "--columns",
@@ -517,7 +509,7 @@ async function main() {
     }
 
     console.log(
-      `Prepared RGBDS ${RGBDS_VERSION} browser toolchain: official ${OFFICIAL_RGBDS_TOOLS.join(", ")} plus the Gen I rgbgfx compatibility module.`,
+      `Prepared RGBDS ${RGBDS_VERSION} browser toolchain: official ${OFFICIAL_RGBDS_TOOLS.join(", ")} plus the Gen I rgbgfx compatibility reactor.`,
     );
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
