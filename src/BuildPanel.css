@@ -129,15 +129,20 @@
   border-color: #b3261e;
 }
 
-.build-live-heading {
+.build-live-heading,
+.build-task-heading {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
+}
+
+.build-live-heading {
   margin-bottom: 8px;
 }
 
-.build-live-heading span {
+.build-live-heading span,
+.build-task-heading > span:last-child {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
@@ -157,6 +162,64 @@
   border-radius: inherit;
   background: var(--accent);
   transition: width 180ms ease-out;
+}
+
+.build-task-status {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.build-task-heading {
+  margin-bottom: 6px;
+  font-size: 0.86rem;
+}
+
+.build-task-heading > span:first-child {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.build-task-heading strong {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.build-task-progress-track {
+  height: 8px;
+}
+
+.build-task-progress-fill {
+  transition: width 120ms ease-out;
+}
+
+.build-task-progress-track.indeterminate .build-task-progress-fill {
+  width: 32%;
+  min-width: 32%;
+  animation: build-task-indeterminate 1.2s ease-in-out infinite;
+}
+
+.build-task-count {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes build-task-indeterminate {
+  0% {
+    transform: translateX(-115%);
+  }
+  50% {
+    transform: translateX(105%);
+  }
+  100% {
+    transform: translateX(315%);
+  }
 }
 
 .build-current-detail {
@@ -227,12 +290,18 @@
   font-variant-numeric: tabular-nums;
 }
 
-.build-activity-list code {
+.build-activity-list code,
+.build-event-task {
   display: block;
   margin-top: 3px;
   color: var(--muted);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.build-event-task {
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .build-activity-list .level-warning {
@@ -311,6 +380,18 @@
   word-break: break-word;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .build-progress-fill {
+    transition: none;
+  }
+
+  .build-task-progress-track.indeterminate .build-task-progress-fill {
+    animation: none;
+    width: 50%;
+    transform: translateX(50%);
+  }
+}
+
 @media (max-width: 760px) {
   .build-panel-heading,
   .build-actions {
@@ -331,7 +412,8 @@
     grid-template-columns: 1fr;
   }
 
-  .build-live-heading {
+  .build-live-heading,
+  .build-task-heading {
     align-items: flex-start;
     flex-direction: column;
   }
