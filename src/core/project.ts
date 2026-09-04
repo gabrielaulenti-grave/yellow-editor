@@ -76,7 +76,7 @@ export async function createProjectSession(
     undoLastSave: () => history.undo(),
     redoLastUndo: () => history.redo(),
     getBuildEnvironment: () => buildService.inspect(),
-    buildRom: (target) => buildService.build(target),
+    buildRom: (target, onProgress) => buildService.build(target, onProgress),
     dispose: () => source.dispose?.(),
   };
 }
