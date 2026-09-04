@@ -1,4 +1,5 @@
 import { inspectPretWasmTools } from "./pretWasmTools";
+import { inspectRgbdsWasm } from "./rgbdsWasm";
 import type {
   BuildEnvironment,
   BuildResult,
@@ -7,6 +8,7 @@ import type {
   BuildToolStatus,
   ProjectSource,
 } from "./types";
+import { buildWebRom } from "./webBuildGraph";
 
 function unavailableTool(name: string): BuildToolStatus {
   return {
@@ -33,41 +35,61 @@ async function detectBuildTargets(source: ProjectSource): Promise<BuildTarget[]>
 }
 
 export function createWebBuildService(source: ProjectSource): BuildService {
+  async function inspectEnvironment(): Promise<BuildEnvironment> {
+    const [requiredRgbdsVersion, targets, helperInspection] = await Promise.all([
+      readRequiredRgbdsVersion(source),
+      detectBuildTargets(source),
+      inspectPretWasmTools(source),
+    ]);
+    const rgbdsInspection = await inspectRgbdsWasm(requiredRgbdsVersion);
+    const ready = helperInspection.readyForRomBuild && rgbdsInspection.ready;
+
+    return {
+      backend: "web-wasm",
+      ready,
+      targets,
+      requiredRgbdsVersion,
+      detectedRgbdsVersion: rgbdsInspection.version,
+      versionMatches: rgbdsInspection.versionMatches,
+      toolchainSource: rgbdsInspection.ready ? "bundled" : "unavailable",
+      tools: rgbdsInspection.tools,
+      buildTool: ready
+        ? {
+            name: "Yellow Editor build graph",
+            available: true,
+            path: "browser memory",
+            version: "Gen I Yellow + Red/Blue",
+          }
+        : unavailableTool("Yellow Editor build graph"),
+      helperCompiler: null,
+      helperTools: helperInspection.tools,
+      message: [rgbdsInspection.message, helperInspection.message].join(" "),
+    };
+  }
+
   return {
-    async inspect(): Promise<BuildEnvironment> {
-      const [requiredRgbdsVersion, targets, helperInspection] = await Promise.all([
-        readRequiredRgbdsVersion(source),
-        detectBuildTargets(source),
-        inspectPretWasmTools(source),
-      ]);
+    inspect: inspectEnvironment,
 
-      return {
-        backend: "web-wasm",
-        ready: false,
-        targets,
-        requiredRgbdsVersion,
-        detectedRgbdsVersion: null,
-        versionMatches: null,
-        toolchainSource: "unavailable",
-        tools: [
-          unavailableTool("rgbasm"),
-          unavailableTool("rgblink"),
-          unavailableTool("rgbfix"),
-          unavailableTool("rgbgfx"),
-        ],
-        buildTool: unavailableTool("Yellow Editor build graph"),
-        helperCompiler: null,
-        helperTools: helperInspection.tools,
-        message: requiredRgbdsVersion
-          ? `This checkout requests RGBDS ${requiredRgbdsVersion}. ${helperInspection.message}`
-          : helperInspection.message,
-      };
-    },
+    async build(target: BuildTarget): Promise<BuildResult> {
+      const environment = await inspectEnvironment();
+      if (!environment.targets.includes(target)) {
+        throw new Error(`Build target '${target}' does not belong to this project.`);
+      }
 
-    async build(_target: BuildTarget): Promise<BuildResult> {
-      throw new Error(
-        "ROM building is not available in the web version yet. The pret helper WASM runtime is in place; RGBDS/WASM and the browser build graph are the remaining build stages.",
-      );
+      if (!environment.ready || !environment.requiredRgbdsVersion) {
+        return {
+          success: false,
+          target,
+          romPath: null,
+          stdout: "",
+          stderr: environment.message,
+          durationMs: 0,
+          exitCode: null,
+          artifacts: [],
+        };
+      }
+
+      return buildWebRom(source, target, environment.requiredRgbdsVersion);
     },
   };
 }
