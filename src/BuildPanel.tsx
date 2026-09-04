@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type {
+  BuildArtifact,
   BuildEnvironment,
   BuildResult,
   BuildTarget,
@@ -9,6 +10,10 @@ import { invoke } from "./platform/compat";
 import "./BuildPanel.css";
 
 function toolchainLabel(environment: BuildEnvironment): string {
+  if (environment.backend === "web-wasm" && environment.toolchainSource === "bundled") {
+    return "RGBDS / WASM";
+  }
+
   switch (environment.toolchainSource) {
     case "bundled":
       return "Bundled RGBDS";
@@ -16,7 +21,7 @@ function toolchainLabel(environment: BuildEnvironment): string {
       return "System RGBDS";
     default:
       return environment.backend === "web-wasm"
-        ? "RGBDS/WASM pending"
+        ? "RGBDS/WASM unavailable"
         : "RGBDS unavailable";
   }
 }
@@ -47,6 +52,21 @@ function ToolRows({ tools }: { tools: BuildToolStatus[] }) {
   );
 }
 
+function downloadArtifact(artifact: BuildArtifact) {
+  const blob = new Blob([new Uint8Array(artifact.bytes)], {
+    type: artifact.mimeType,
+  });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = artifact.fileName;
+  anchor.style.display = "none";
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export function BuildPanel({
   projectPath,
   hasUnsavedChanges,
@@ -59,6 +79,8 @@ export function BuildPanel({
   const [result, setResult] = useState<BuildResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [downloadMap, setDownloadMap] = useState(false);
+  const [downloadSym, setDownloadSym] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +90,8 @@ export function BuildPanel({
       setTarget(null);
       setResult(null);
       setError(null);
+      setDownloadMap(false);
+      setDownloadSym(false);
 
       try {
         const next = await invoke<BuildEnvironment>("get_build_environment", {
@@ -125,15 +149,42 @@ export function BuildPanel({
     }
   }
 
+  function downloadBuildOutputs() {
+    const artifacts = result?.artifacts ?? [];
+    const rom = artifacts.find((candidate) => candidate.kind === "rom");
+    if (!rom) {
+      return;
+    }
+
+    downloadArtifact(rom);
+    if (downloadMap) {
+      const map = artifacts.find((candidate) => candidate.kind === "map");
+      if (map) {
+        downloadArtifact(map);
+      }
+    }
+    if (downloadSym) {
+      const sym = artifacts.find((candidate) => candidate.kind === "sym");
+      if (sym) {
+        downloadArtifact(sym);
+      }
+    }
+  }
+
+  const browserArtifacts = result?.artifacts ?? [];
+  const hasBrowserRom = browserArtifacts.some((candidate) => candidate.kind === "rom");
+  const hasMap = browserArtifacts.some((candidate) => candidate.kind === "map");
+  const hasSym = browserArtifacts.some((candidate) => candidate.kind === "sym");
+
   return (
     <section className="build-panel" aria-label="ROM build tools">
       <div className="build-panel-heading">
         <div>
           <h2>Build ROM</h2>
           <p>
-            Yellow Editor keeps the build API shared across desktop and web. Desktop
-            uses native RGBDS today; the web backend is assembling the same pipeline
-            from precompiled WebAssembly tools.
+            Yellow Editor supports the normal Pokémon Yellow and Pokémon Red/Blue
+            build layouts. Desktop uses native RGBDS; the web version runs RGBDS and
+            the pret helper utilities as WebAssembly.
           </p>
         </div>
 
@@ -208,8 +259,7 @@ export function BuildPanel({
           {environment.versionMatches === false && (
             <p className="build-warning">
               The detected RGBDS version does not match the checkout's requested version.
-              Builds are allowed during this integration phase, but the eventual bundled
-              toolchain will use the pinned project version.
+              Yellow Editor will not enable the browser build with a mismatched compiler.
             </p>
           )}
 
@@ -246,6 +296,37 @@ export function BuildPanel({
             <span>{result.durationMs} ms</span>
           </div>
           {result.romPath && <code className="build-rom-path">{result.romPath}</code>}
+
+          {result.success && hasBrowserRom && (
+            <div className="build-downloads">
+              <div className="build-download-options">
+                {hasMap && (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={downloadMap}
+                      onChange={(event) => setDownloadMap(event.target.checked)}
+                    />
+                    Also download map (.map)
+                  </label>
+                )}
+                {hasSym && (
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={downloadSym}
+                      onChange={(event) => setDownloadSym(event.target.checked)}
+                    />
+                    Also download symbols (.sym)
+                  </label>
+                )}
+              </div>
+              <button type="button" className="primary-action" onClick={downloadBuildOutputs}>
+                Download ROM
+              </button>
+            </div>
+          )}
+
           <details open={!result.success}>
             <summary>Build output</summary>
             {result.stdout && <pre>{result.stdout}</pre>}
