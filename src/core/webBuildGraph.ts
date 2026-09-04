@@ -2,6 +2,9 @@ import { createPretWasmToolRuntime } from "./pretWasmTools";
 import { createRgbdsWasmRuntime } from "./rgbdsWasm";
 import type {
   BuildArtifact,
+  BuildProgressLevel,
+  BuildProgressListener,
+  BuildProgressStage,
   BuildResult,
   BuildTarget,
   ProjectSource,
@@ -257,11 +260,14 @@ class WebBuildWorkspace {
   private readonly rgbdsRuntime: BuildToolRuntime;
   private readonly stdout: string[] = [];
   private readonly stderr: string[] = [];
+  private stage: BuildProgressStage = "preparing";
+  private percent = 5;
 
   constructor(
     private readonly source: ProjectSource,
     private readonly profile: BuildProfile,
     rgbdsVersion: string,
+    private readonly onProgress?: BuildProgressListener,
   ) {
     this.rgbdsRuntime = createRgbdsWasmRuntime(rgbdsVersion);
   }
@@ -272,6 +278,35 @@ class WebBuildWorkspace {
 
   getStderr(): string {
     return this.stderr.join("\n");
+  }
+
+  getPercent(): number {
+    return this.percent;
+  }
+
+  report(
+    stage: BuildProgressStage,
+    message: string,
+    percent: number,
+    detail?: string,
+    level: BuildProgressLevel = "info",
+    tool?: string,
+    completed?: number,
+    total?: number,
+  ): void {
+    this.stage = stage;
+    this.percent = Math.max(this.percent, Math.min(100, Math.round(percent)));
+    this.onProgress?.({
+      stage,
+      level,
+      message,
+      detail,
+      tool,
+      completed,
+      total,
+      percent: this.percent,
+      timestamp: Date.now(),
+    });
   }
 
   private exists(path: string): Promise<boolean> {
@@ -311,14 +346,36 @@ class WebBuildWorkspace {
     files: ToolRuntimeFile[],
     outputPaths: string[],
   ): Promise<ToolInvocationResult> {
-    this.stdout.push(`> ${tool} ${args.join(" ")}`);
-    const result = await runtime.run({
-      tool,
-      args,
-      files,
-      outputPaths,
-      workingDirectory: "/workspace",
-    });
+    const command = `${tool} ${args.join(" ")}`;
+    this.stdout.push(`> ${command}`);
+    this.report(this.stage, `Running ${tool}`, this.percent, command, "info", tool);
+
+    // Give React a chance to paint the current command before a synchronous
+    // WebAssembly call occupies the browser main thread.
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+
+    let result: ToolInvocationResult;
+    try {
+      result = await runtime.run({
+        tool,
+        args,
+        files,
+        outputPaths,
+        workingDirectory: "/workspace",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.stderr.push(message);
+      this.report(
+        "error",
+        `${tool} could not complete`,
+        this.percent,
+        message,
+        "error",
+        tool,
+      );
+      throw new BuildFailure(`${tool} failed to run: ${message}`);
+    }
 
     if (result.stdout) {
       this.stdout.push(result.stdout);
@@ -327,6 +384,15 @@ class WebBuildWorkspace {
       this.stderr.push(result.stderr);
     }
     if (result.exitCode !== 0) {
+      const detail = result.stderr || result.stdout || `${command} exited with code ${result.exitCode}.`;
+      this.report(
+        "error",
+        `${tool} exited with code ${result.exitCode}`,
+        this.percent,
+        detail,
+        "error",
+        tool,
+      );
       throw new BuildFailure(`${tool} exited with code ${result.exitCode}.`, result.exitCode);
     }
     return result;
@@ -362,6 +428,13 @@ class WebBuildWorkspace {
     }
     await this.collectAsmClosure(entryPath, textPaths, binaryPaths);
 
+    this.report(
+      this.stage,
+      `Resolving inputs for ${entryPath}`,
+      this.percent,
+      `${textPaths.size} source files and ${binaryPaths.size} binary/generated inputs`,
+    );
+
     const files: ToolRuntimeFile[] = [];
     for (const path of textPaths) {
       files.push({ path, data: await this.readBytes(path) });
@@ -395,6 +468,12 @@ class WebBuildWorkspace {
       const pngPath = replaceExtension(path, ".png");
       if ((await this.exists(pngPath)) || (await this.exists(twoBppPath))) {
         const twoBpp = await this.resolveBuildFile(twoBppPath);
+        this.report(
+          "assets",
+          "Compressing Pokémon graphic",
+          this.percent,
+          `${twoBppPath} → ${path}`,
+        );
         const result = await this.runTool(
           this.helperRuntime,
           "pkmncompress",
@@ -410,6 +489,12 @@ class WebBuildWorkspace {
       const wavPath = replaceExtension(path, ".wav");
       if (await this.exists(wavPath)) {
         const wav = await this.readBytes(wavPath);
+        this.report(
+          "assets",
+          "Converting audio",
+          this.percent,
+          `${wavPath} → ${path}`,
+        );
         const result = await this.runTool(
           this.helperRuntime,
           "pcm",
@@ -434,6 +519,12 @@ class WebBuildWorkspace {
     depth: 1 | 2,
   ): Promise<Uint8Array> {
     const png = await this.readBytes(pngPath);
+    this.report(
+      "assets",
+      "Converting graphic",
+      this.percent,
+      `${pngPath} → ${outputPath}`,
+    );
     const rgbgfxArgs = [
       "--colors",
       "dmg",
@@ -459,6 +550,12 @@ class WebBuildWorkspace {
       if (helperFlags.some((flag) => flag.startsWith("--png="))) {
         helperFiles.push({ path: pngPath, data: png });
       }
+      this.report(
+        "assets",
+        "Applying pret graphics transform",
+        this.percent,
+        `${outputPath} ${helperFlags.join(" ")}`,
+      );
       const processed = await this.runTool(
         this.helperRuntime,
         "gfx",
@@ -473,7 +570,9 @@ class WebBuildWorkspace {
   }
 
   private async checkRgbds(): Promise<void> {
+    this.report("checking", "Checking RGBDS compatibility", 8, "Assembling rgbdscheck.asm");
     if (!(await this.exists("rgbdscheck.asm"))) {
+      this.report("checking", "No rgbdscheck.asm found; continuing", 10);
       return;
     }
     const outputName = "rgbdscheck.o";
@@ -484,16 +583,30 @@ class WebBuildWorkspace {
       await this.assemblyFiles("rgbdscheck.asm", false),
       [outputName],
     );
+    this.report("checking", "RGBDS compatibility check passed", 12);
   }
 
   private async assembleObjects(): Promise<ToolRuntimeFile[]> {
     const objects: ToolRuntimeFile[] = [];
     const defineArgs = this.profile.defines.flatMap((define) => ["-D", define]);
+    const total = this.profile.objects.length;
 
-    for (let index = 0; index < this.profile.objects.length; index += 1) {
+    for (let index = 0; index < total; index += 1) {
       const stem = this.profile.objects[index];
       const entryPath = `${stem}.asm`;
       const outputName = `yellow-editor-${String(index).padStart(2, "0")}.o`;
+      const startPercent = 14 + (index / total) * 68;
+      const endPercent = 14 + ((index + 1) / total) * 68;
+      this.report(
+        "assembling",
+        `Preparing object ${index + 1} of ${total}`,
+        startPercent,
+        entryPath,
+        "info",
+        undefined,
+        index,
+        total,
+      );
       const args = [
         "-Weverything",
         "-Wtruncation=1",
@@ -505,14 +618,35 @@ class WebBuildWorkspace {
         outputName,
         entryPath,
       ];
+      const files = await this.assemblyFiles(entryPath, true);
+      this.report(
+        "assembling",
+        `Assembling object ${index + 1} of ${total}`,
+        startPercent + 1,
+        entryPath,
+        "info",
+        "rgbasm",
+        index,
+        total,
+      );
       const result = await this.runTool(
         this.rgbdsRuntime,
         "rgbasm",
         args,
-        await this.assemblyFiles(entryPath, true),
+        files,
         [outputName],
       );
       objects.push({ path: outputName, data: result.outputs[0].data });
+      this.report(
+        "assembling",
+        `Finished object ${index + 1} of ${total}`,
+        endPercent,
+        entryPath,
+        "info",
+        "rgbasm",
+        index + 1,
+        total,
+      );
     }
 
     return objects;
@@ -523,6 +657,14 @@ class WebBuildWorkspace {
     map: Uint8Array;
     sym: Uint8Array;
   }> {
+    this.report(
+      "linking",
+      "Linking ROM",
+      86,
+      `${objects.length} object files using layout.link`,
+      "info",
+      "rgblink",
+    );
     const layout = await this.readBytes("layout.link");
     const args = [
       "-Weverything",
@@ -554,10 +696,19 @@ class WebBuildWorkspace {
     if (!rom || !map || !sym) {
       throw new BuildFailure("rgblink did not produce all expected output files.");
     }
+    this.report("linking", "Link complete", 93, this.profile.romName, "info", "rgblink");
     return { rom, map, sym };
   }
 
   private async fix(rom: Uint8Array): Promise<Uint8Array> {
+    this.report(
+      "fixing",
+      "Finalizing ROM header and checksums",
+      95,
+      this.profile.romName,
+      "info",
+      "rgbfix",
+    );
     const result = await this.runTool(
       this.rgbdsRuntime,
       "rgbfix",
@@ -565,14 +716,22 @@ class WebBuildWorkspace {
       [{ path: this.profile.romName, data: rom }],
       [this.profile.romName],
     );
+    this.report("fixing", "ROM finalized", 99, this.profile.romName, "info", "rgbfix");
     return result.outputs[0].data;
   }
 
   async build(): Promise<BuildArtifact[]> {
+    this.report(
+      "preparing",
+      `Building ${this.profile.target}`,
+      6,
+      `${this.profile.objects.length} source object groups will be assembled in the browser.`,
+    );
     await this.checkRgbds();
     const objects = await this.assembleObjects();
     const linked = await this.link(objects);
     const rom = await this.fix(linked.rom);
+    this.report("complete", "Build complete", 100, this.profile.romName);
     return [
       artifact("rom", this.profile.romName, rom),
       artifact("map", this.profile.mapName, linked.map),
@@ -585,10 +744,11 @@ export async function buildWebRom(
   source: ProjectSource,
   target: BuildTarget,
   rgbdsVersion: string,
+  onProgress?: BuildProgressListener,
 ): Promise<BuildResult> {
   const started = performance.now();
   const profile = profileFor(target);
-  const workspace = new WebBuildWorkspace(source, profile, rgbdsVersion);
+  const workspace = new WebBuildWorkspace(source, profile, rgbdsVersion, onProgress);
 
   try {
     const artifacts = await workspace.build();
@@ -606,6 +766,13 @@ export async function buildWebRom(
     const failure = error instanceof BuildFailure ? error : null;
     const message = error instanceof Error ? error.message : String(error);
     const stderr = [workspace.getStderr(), message].filter(Boolean).join("\n");
+    workspace.report(
+      "error",
+      "Build failed",
+      workspace.getPercent(),
+      message,
+      "error",
+    );
     return {
       success: false,
       target,
