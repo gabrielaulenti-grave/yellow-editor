@@ -1,4 +1,4 @@
-import type { ProjectSession } from "../core/types";
+import type { ProjectSession, TextWriteRequest } from "../core/types";
 import { webPlatform } from "./web";
 
 let activeSession: ProjectSession | null = null;
@@ -61,6 +61,34 @@ function stringArg(args: InvokeArgs | undefined, name: string): string {
   return value;
 }
 
+function textChangesArg(args: InvokeArgs | undefined): TextWriteRequest[] {
+  const value = args?.changes;
+  if (!Array.isArray(value)) {
+    throw new Error("Missing text change list 'changes'.");
+  }
+
+  return value.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new Error("Invalid text change request.");
+    }
+
+    const record = item as Record<string, unknown>;
+    if (typeof record.path !== "string" || typeof record.contents !== "string") {
+      throw new Error("Each text change requires string 'path' and 'contents' values.");
+    }
+
+    if (record.expectedHash !== undefined && typeof record.expectedHash !== "string") {
+      throw new Error("Text change 'expectedHash' must be a string when provided.");
+    }
+
+    return {
+      path: record.path,
+      contents: record.contents,
+      expectedHash: record.expectedHash as string | undefined,
+    };
+  });
+}
+
 export async function invoke<T>(
   command: string,
   args?: InvokeArgs,
@@ -92,6 +120,21 @@ export async function invoke<T>(
 
     case "get_moves":
       return (await session.getMoves()) as T;
+
+    case "get_history_summary":
+      return (await session.getHistorySummary()) as T;
+
+    case "save_text_changes":
+      return (await session.saveTextChanges(
+        stringArg(args, "label"),
+        textChangesArg(args),
+      )) as T;
+
+    case "undo_last_save":
+      return (await session.undoLastSave()) as T;
+
+    case "redo_last_undo":
+      return (await session.redoLastUndo()) as T;
 
     default:
       throw new Error(`Unsupported project command: ${command}`);
