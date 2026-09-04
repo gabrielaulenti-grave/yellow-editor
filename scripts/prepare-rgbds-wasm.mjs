@@ -55,6 +55,7 @@ function wrapperCmake() {
 project(yellow_editor_rgbds_wasm)
 
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+list(PREPEND CMAKE_MODULE_PATH "\${CMAKE_SOURCE_DIR}/cmake-modules")
 
 # RGBDS 1.0.3 pins zlib 1.3.2 and libpng 1.6.58 in cmake/deps.cmake.
 # Do not replace those with Emscripten's generic ports: the port bundled with
@@ -62,6 +63,10 @@ set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
 # resulting rgbgfx module traps as soon as PNG processing begins. Force
 # FetchContent to cross-compile the dependency versions RGBDS itself declares.
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
+
+# Emscripten reports an x86-like processor name to some CMake projects. Do not
+# let libpng select native x86 SIMD sources for a WebAssembly build.
+set(PNG_HARDWARE_OPTIMIZATIONS OFF CACHE BOOL "" FORCE)
 
 add_compile_options(-O3 -flto)
 add_link_options(
@@ -99,6 +104,30 @@ foreach(TGT rgbasm rgblink rgbfix rgbgfx)
     "-sEXPORTED_RUNTIME_METHODS=['FS','callMain']"
   )
 endforeach()
+`;
+}
+
+function findZlibCmake() {
+  return `# libpng performs its own find_package(ZLIB) even when it is embedded
+# through RGBDS FetchContent. At this point RGBDS has already populated zlib
+# 1.3.2 and created ZLIB::ZLIB; expose that existing target rather than finding
+# a host library or falling back to Emscripten's port.
+if(TARGET ZLIB::ZLIB)
+  set(ZLIB_FOUND TRUE)
+  set(ZLIB_VERSION "1.3.2")
+  set(ZLIB_VERSION_STRING "1.3.2")
+  set(ZLIB_LIBRARIES ZLIB::ZLIB)
+  if(DEFINED zlib_SOURCE_DIR)
+    set(ZLIB_INCLUDE_DIR "\${zlib_SOURCE_DIR}")
+    set(ZLIB_INCLUDE_DIRS "\${zlib_SOURCE_DIR};\${zlib_BINARY_DIR}")
+  endif()
+  return()
+endif()
+
+set(ZLIB_FOUND FALSE)
+if(ZLIB_FIND_REQUIRED)
+  message(FATAL_ERROR "RGBDS pinned zlib target was not available to libpng")
+endif()
 `;
 }
 
@@ -212,6 +241,7 @@ async function main() {
   const sourceDirectory = path.join(tempRoot, "rgbds");
   const buildDirectory = path.join(tempRoot, "build");
   const buildOut = path.join(buildDirectory, "out");
+  const cmakeModules = path.join(tempRoot, "cmake-modules");
 
   try {
     run("git", [
@@ -238,9 +268,11 @@ async function main() {
     // RGBDS is normally configured as the top-level CMake project. Its CPack
     // setup resolves these two resources through CMAKE_SOURCE_DIR, so mirror
     // them into our wrapper root rather than patching any RGBDS source.
+    await mkdir(cmakeModules, { recursive: true });
     await Promise.all([
       copyFile(path.join(sourceDirectory, "LICENSE"), path.join(tempRoot, "LICENSE")),
       copyFile(path.join(sourceDirectory, "README.md"), path.join(tempRoot, "README.md")),
+      writeFile(path.join(cmakeModules, "FindZLIB.cmake"), findZlibCmake(), "utf8"),
       writeFile(path.join(tempRoot, "CMakeLists.txt"), wrapperCmake(), "utf8"),
     ]);
 
