@@ -32,12 +32,6 @@ const outputDirectory = path.join(
   "rgbds",
   RGBDS_VERSION,
 );
-const compatibilityPatch = path.join(
-  repoRoot,
-  "scripts",
-  "patches",
-  `rgbds-${RGBDS_VERSION}-wasm-memory-png.patch`,
-);
 
 function run(command, args, options = {}) {
   return execFileSync(command, args, {
@@ -137,6 +131,102 @@ if(ZLIB_FIND_REQUIRED)
   message(FATAL_ERROR "RGBDS pinned zlib target was not available to libpng")
 endif()
 `;
+}
+
+async function replaceExactlyOnce(filePath, before, after) {
+  const source = await readFile(filePath, "utf8");
+  const index = source.indexOf(before);
+  if (index < 0) {
+    throw new Error(
+      `RGBDS WASM adaptation could not find its expected source fragment in ${filePath}. The pinned upstream source may have changed.`,
+    );
+  }
+  if (source.indexOf(before, index + before.length) >= 0) {
+    throw new Error(
+      `RGBDS WASM adaptation found its source fragment more than once in ${filePath}; refusing an ambiguous edit.`,
+    );
+  }
+
+  await writeFile(
+    filePath,
+    `${source.slice(0, index)}${after}${source.slice(index + before.length)}`,
+    "utf8",
+  );
+}
+
+async function applyRgbgfxMemoryIoAdaptation(sourceDirectory) {
+  const pngHeader = path.join(sourceDirectory, "include", "gfx", "png.hpp");
+  const pngSource = path.join(sourceDirectory, "src", "gfx", "png.cpp");
+  const processSource = path.join(sourceDirectory, "src", "gfx", "process.cpp");
+  const reverseSource = path.join(sourceDirectory, "src", "gfx", "reverse.cpp");
+
+  await replaceExactlyOnce(
+    pngHeader,
+    `#include <stdint.h>\n#include <streambuf>\n#include <vector>`,
+    `#include <stddef.h>\n#include <stdint.h>\n#include <vector>`,
+  );
+  await replaceExactlyOnce(
+    pngHeader,
+    `\tPng(char const *filename, std::streambuf &file);`,
+    `\tPng(char const *filename, uint8_t const *data, size_t size);`,
+  );
+
+  await replaceExactlyOnce(
+    pngSource,
+    `struct Input {\n\tchar const *filename;\n\tstd::streambuf &file;\n\n\tInput(char const *filename_, std::streambuf &file_) : filename(filename_), file(file_) {}\n};`,
+    `struct Input {\n\tchar const *filename;\n\tuint8_t const *data;\n\tsize_t size;\n\tsize_t offset = 0;\n\n\tInput(char const *filename_, uint8_t const *data_, size_t size_)\n\t    : filename(filename_), data(data_), size(size_) {}\n};`,
+  );
+  await replaceExactlyOnce(
+    pngSource,
+    `static void readData(png_structp png, png_bytep data, size_t length) {\n\tInput &input = *reinterpret_cast<Input *>(png_get_io_ptr(png));\n\tstd::streamsize expectedLen = length;\n\tstd::streamsize nbBytesRead = input.file.sgetn(reinterpret_cast<char *>(data), expectedLen);\n\n\tif (nbBytesRead != expectedLen) {\n\t\tfatal(\n\t\t    "Error reading PNG image (\\\"%s\\\"): file too short (expected at least %zd more "\n\t\t    "bytes after reading %zu)",\n\t\t    input.filename,\n\t\t    length - nbBytesRead,\n\t\t    static_cast<size_t>(input.file.pubseekoff(0, std::ios_base::cur))\n\t\t);\n\t}\n}`,
+    `static void readData(png_structp png, png_bytep data, size_t length) {\n\tInput &input = *reinterpret_cast<Input *>(png_get_io_ptr(png));\n\tif (input.offset > input.size || length > input.size - input.offset) {\n\t\tsize_t const available = input.offset <= input.size ? input.size - input.offset : 0;\n\t\tfatal(\n\t\t    "Error reading PNG image (\\\"%s\\\"): file too short (expected at least %zu more "\n\t\t    "bytes after reading %zu)",\n\t\t    input.filename,\n\t\t    length - available,\n\t\t    input.offset\n\t\t);\n\t}\n\n\tmemcpy(data, input.data + input.offset, length);\n\tinput.offset += length;\n}`,
+  );
+  await replaceExactlyOnce(
+    pngSource,
+    `Png::Png(char const *filename, std::streambuf &file) {\n\tInput input(filename, file);`,
+    `Png::Png(char const *filename, uint8_t const *data, size_t size) {\n\tInput input(filename, data, size);`,
+  );
+  await replaceExactlyOnce(
+    pngSource,
+    `\tstd::array<unsigned char, 8> pngHeader;\n\tif (input.file.sgetn(reinterpret_cast<char *>(pngHeader.data()), pngHeader.size())\n\t        != static_cast<std::streamsize>(pngHeader.size()) // Not enough bytes?\n\t    || png_sig_cmp(pngHeader.data(), 0, pngHeader.size()) != 0) {\n\t\tfatal("File \\\"%s\\\" is not a valid PNG image", input.filename); // LCOV_EXCL_LINE\n\t}`,
+    `\tstd::array<unsigned char, 8> pngHeader;\n\tif (input.size < pngHeader.size()) {\n\t\tfatal("File \\\"%s\\\" is not a valid PNG image", input.filename); // LCOV_EXCL_LINE\n\t}\n\tmemcpy(pngHeader.data(), input.data, pngHeader.size());\n\tinput.offset = pngHeader.size();\n\tif (png_sig_cmp(pngHeader.data(), 0, pngHeader.size()) != 0) {\n\t\tfatal("File \\\"%s\\\" is not a valid PNG image", input.filename); // LCOV_EXCL_LINE\n\t}`,
+  );
+
+  await replaceExactlyOnce(
+    processSource,
+    `struct Image {\n`,
+    `static std::vector<uint8_t> readPngBytes(std::string const &path) {\n\tFILE *file = fopen(path.c_str(), "rb");\n\tif (!file) {\n\t\tfatal("Failed to open input image (\\\"%s\\\"): %s", path.c_str(), strerror(errno));\n\t}\n\n\tstd::vector<uint8_t> data;\n\tstd::array<uint8_t, 64 * 1024> buffer;\n\tfor (;;) {\n\t\tsize_t const count = fread(buffer.data(), 1, buffer.size(), file);\n\t\tdata.insert(data.end(), buffer.begin(), buffer.begin() + count);\n\t\tif (count != buffer.size()) {\n\t\t\tif (ferror(file)) {\n\t\t\t\tint const error = errno;\n\t\t\t\tfclose(file);\n\t\t\t\tfatal("Failed to read input image (\\\"%s\\\"): %s", path.c_str(), strerror(error));\n\t\t\t}\n\t\t\tbreak;\n\t\t}\n\t}\n\n\tfclose(file);\n\treturn data;\n}\n\nstruct Image {\n`,
+  );
+  await replaceExactlyOnce(
+    processSource,
+    `\texplicit Image(std::string const &path) {\n\t\tFile input;\n\t\tif (input.open(path, std::ios_base::in | std::ios_base::binary) == nullptr) {\n\t\t\tfatal("Failed to open input image (\\\"%s\\\"): %s", input.c_str(path), strerror(errno));\n\t\t}\n\n\t\tpng = Png(input.c_str(path), *input);`,
+    `\texplicit Image(std::string const &path) {\n\t\tstd::vector<uint8_t> const input = readPngBytes(path);\n\t\tpng = Png(path.c_str(), input.data(), input.size());`,
+  );
+
+  await replaceExactlyOnce(
+    reverseSource,
+    `[[noreturn]]\nstatic void pngError(png_structp png, char const *msg) {\n\tfatal(\n\t    "libpng error while writing reversed image (\\\"%s\\\"): %s",\n\t    reinterpret_cast<char const *>(png_get_error_ptr(png)),\n\t    msg\n\t);\n}\n\nstatic void pngWarning(png_structp png, char const *msg) {\n\twarnx(\n\t    "libpng found while writing reversed image (\\\"%s\\\"): %s",\n\t    reinterpret_cast<char const *>(png_get_error_ptr(png)),\n\t    msg\n\t);\n}\n\nstatic void writePng(png_structp png, png_bytep data, size_t length) {\n\tFile &pngFile = *static_cast<File *>(png_get_io_ptr(png));\n\tpngFile->sputn(reinterpret_cast<char *>(data), length);\n}\n\nstatic void flushPng(png_structp png) {\n\tFile &pngFile = *static_cast<File *>(png_get_io_ptr(png));\n\tpngFile->pubsync();\n}`,
+    `struct PngOutput {\n\tchar const *filename;\n\tstd::vector<uint8_t> bytes;\n};\n\n[[noreturn]]\nstatic void pngError(png_structp png, char const *msg) {\n\tPngOutput &output = *static_cast<PngOutput *>(png_get_error_ptr(png));\n\tfatal(\n\t    "libpng error while writing reversed image (\\\"%s\\\"): %s",\n\t    output.filename,\n\t    msg\n\t);\n}\n\nstatic void pngWarning(png_structp png, char const *msg) {\n\tPngOutput &output = *static_cast<PngOutput *>(png_get_error_ptr(png));\n\twarnx(\n\t    "libpng found while writing reversed image (\\\"%s\\\"): %s",\n\t    output.filename,\n\t    msg\n\t);\n}\n\nstatic void writePng(png_structp png, png_bytep data, size_t length) {\n\tPngOutput &output = *static_cast<PngOutput *>(png_get_io_ptr(png));\n\toutput.bytes.insert(output.bytes.end(), data, data + length);\n}\n\nstatic void flushPng(png_structp) {}\n\nstatic void writePngBytes(std::string const &path, std::vector<uint8_t> const &bytes) {\n\tFILE *file = fopen(path.c_str(), "wb");\n\tif (!file) {\n\t\tfatal("Failed to create \\\"%s\\\": %s", path.c_str(), strerror(errno));\n\t}\n\tif (!bytes.empty() && fwrite(bytes.data(), 1, bytes.size(), file) != bytes.size()) {\n\t\tint const error = errno;\n\t\tfclose(file);\n\t\tfatal("Failed to write \\\"%s\\\": %s", path.c_str(), strerror(error));\n\t}\n\tif (fclose(file) != 0) {\n\t\tfatal("Failed to close \\\"%s\\\": %s", path.c_str(), strerror(errno));\n\t}\n}`,
+  );
+  await replaceExactlyOnce(
+    reverseSource,
+    `\tverbosePrint(VERB_NOTICE, "Writing image...\\n");\n\tFile pngFile;\n\tif (!pngFile.open(options.input, std::ios::out | std::ios::binary)) {\n\t\t// LCOV_EXCL_START\n\t\tfatal("Failed to create \\\"%s\\\": %s", pngFile.c_str(options.input), strerror(errno));\n\t\t// LCOV_EXCL_STOP\n\t}\n\tpng_structp png = png_create_write_struct(\n\t    PNG_LIBPNG_VER_STRING,\n\t    const_cast<char *>(pngFile.c_str(options.input)),\n\t    pngError,\n\t    pngWarning\n\t);`,
+    `\tverbosePrint(VERB_NOTICE, "Writing image...\\n");\n\tPngOutput pngOutput{options.input.c_str(), {}};\n\tpng_structp png = png_create_write_struct(\n\t    PNG_LIBPNG_VER_STRING,\n\t    &pngOutput,\n\t    pngError,\n\t    pngWarning\n\t);`,
+  );
+  await replaceExactlyOnce(
+    reverseSource,
+    `\tpng_set_write_fn(png, &pngFile, writePng, flushPng);`,
+    `\tpng_set_write_fn(png, &pngOutput, writePng, flushPng);`,
+  );
+  await replaceExactlyOnce(
+    reverseSource,
+    `\tpng_destroy_write_struct(&png, &pngInfo);\n}`,
+    `\tpng_destroy_write_struct(&png, &pngInfo);\n\twritePngBytes(options.input, pngOutput.bytes);\n}`,
+  );
+
+  console.log(
+    `Adapted RGBDS ${RGBDS_VERSION} rgbgfx PNG I/O to pointer+length memory buffers.`,
+  );
 }
 
 async function findBuiltModule(buildOut, tool) {
@@ -306,14 +396,7 @@ async function main() {
       );
     }
 
-    // Keep the upstream version pin intact, but adapt rgbgfx's libpng boundary
-    // for WASM. The patch removes C++ streambuf objects from libpng callbacks;
-    // PNG input/output crosses that boundary as pointer+length byte buffers.
-    run("git", ["apply", "--check", compatibilityPatch], { cwd: sourceDirectory });
-    run("git", ["apply", compatibilityPatch], { cwd: sourceDirectory });
-    console.log(
-      `Applied ${path.basename(compatibilityPatch)} to RGBDS ${RGBDS_VERSION}.`,
-    );
+    await applyRgbgfxMemoryIoAdaptation(sourceDirectory);
 
     // RGBDS is normally configured as the top-level CMake project. Its CPack
     // setup resolves these two resources through CMAKE_SOURCE_DIR, so mirror
@@ -382,8 +465,8 @@ async function main() {
         version: EMSCRIPTEN_VERSION,
         versionLine,
         optimization: "O2 without CMake IPO/LTO",
-        compatibilityPatch: path.basename(compatibilityPatch),
-        pngIoBoundary: "memory buffers",
+        sourceAdaptation: "rgbgfx memory-buffer PNG I/O",
+        pngIoBoundary: "pointer + length",
       },
       dependencies: {
         zlib: "1.3.2",
