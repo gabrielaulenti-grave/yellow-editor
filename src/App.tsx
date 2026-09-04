@@ -149,17 +149,17 @@ function App() {
   }
 
   async function selectProject() {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Select Pokémon disassembly project",
-    });
-
-    if (!selected) {
-      return;
-    }
-
     try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Pokémon disassembly project",
+      });
+
+      if (!selected) {
+        return;
+      }
+
       const result = await invoke<ProjectInfo>("open_project", {
         path: selected,
       });
