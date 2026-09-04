@@ -97,9 +97,9 @@ function emscriptenVersionLine() {
   }
 }
 
-function compileTool(name, sourceRoot) {
+function compileTool(name, sourceRoot, destinationDirectory, environment) {
   const source = path.join(sourceRoot, `${name}.c`);
-  const output = path.join(outputDirectory, `${name}.mjs`);
+  const output = path.join(destinationDirectory, `${name}.mjs`);
 
   execFileSync(
     emcc,
@@ -111,7 +111,7 @@ function compileTool(name, sourceRoot) {
       "-std=c17",
       "-sMODULARIZE=1",
       "-sEXPORT_ES6=1",
-      "-sENVIRONMENT=web,worker,node",
+      `-sENVIRONMENT=${environment}`,
       "-sINVOKE_RUN=0",
       "-sEXIT_RUNTIME=1",
       "-sFORCE_FILESYSTEM=1",
@@ -133,8 +133,8 @@ function exitStatus(error) {
     : null;
 }
 
-async function instantiateTool(name, stdout, stderr) {
-  const modulePath = path.join(outputDirectory, `${name}.mjs`);
+async function instantiateNodeTestTool(name, directory, stdout, stderr) {
+  const modulePath = path.join(directory, `${name}.mjs`);
   const moduleUrl = `${pathToFileURL(modulePath).href}?test=${Date.now()}-${Math.random()}`;
   const imported = await import(moduleUrl);
   if (typeof imported.default !== "function") {
@@ -144,7 +144,7 @@ async function instantiateTool(name, stdout, stderr) {
   return imported.default({
     noInitialRun: true,
     locateFile(fileName) {
-      return path.join(outputDirectory, fileName);
+      return path.join(directory, fileName);
     },
     print(text) {
       stdout.push(String(text));
@@ -168,20 +168,15 @@ function callMain(module, args) {
   }
 }
 
-async function smokeTestTool(name) {
+async function functionalTestScanIncludes(directory) {
   const stdout = [];
   const stderr = [];
-  const module = await instantiateTool(name, stdout, stderr);
-  const exitCode = callMain(module, ["--help"]);
-  if (exitCode !== 0) {
-    throw new Error(`${name} --help exited with ${exitCode}: ${stderr.join("\n")}`);
-  }
-}
-
-async function functionalTestScanIncludes() {
-  const stdout = [];
-  const stderr = [];
-  const module = await instantiateTool("scan_includes", stdout, stderr);
+  const module = await instantiateNodeTestTool(
+    "scan_includes",
+    directory,
+    stdout,
+    stderr,
+  );
 
   module.FS.mkdirTree("/workspace");
   module.FS.chdir("/workspace");
@@ -221,9 +216,11 @@ async function main() {
 
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "yellow-editor-pret-wasm-"));
   const sourceRoot = path.join(tempRoot, "tools");
+  const nodeTestDirectory = path.join(tempRoot, "node-test");
 
   try {
     await mkdir(sourceRoot, { recursive: true });
+    await mkdir(nodeTestDirectory, { recursive: true });
     await rm(outputDirectory, { recursive: true, force: true });
     await mkdir(outputDirectory, { recursive: true });
 
@@ -237,14 +234,15 @@ async function main() {
     }
 
     for (const tool of TOOL_NAMES) {
-      console.log(`Compiling ${tool}.c -> WebAssembly`);
-      compileTool(tool, sourceRoot);
+      console.log(`Compiling ${tool}.c -> browser WebAssembly`);
+      compileTool(tool, sourceRoot, outputDirectory, "web,worker");
     }
 
-    for (const tool of TOOL_NAMES) {
-      await smokeTestTool(tool);
-    }
-    await functionalTestScanIncludes();
+    // Build one Node-targeted copy solely for a functional smoke test. The
+    // production modules stay browser-only, which avoids Node imports in the
+    // modules served directly by GitHub Pages and later by the Tauri WebView.
+    compileTool("scan_includes", sourceRoot, nodeTestDirectory, "node");
+    await functionalTestScanIncludes(nodeTestDirectory);
 
     const tools = Object.fromEntries(
       TOOL_NAMES.map((name) => [
@@ -279,9 +277,18 @@ async function main() {
       "utf8",
     );
 
-    // Ensure every generated binary exists before reporting success.
+    // Ensure every generated browser binary exists before reporting success.
     for (const tool of TOOL_NAMES) {
-      await readFile(path.join(outputDirectory, `${tool}.wasm`));
+      const wasm = await readFile(path.join(outputDirectory, `${tool}.wasm`));
+      if (
+        wasm.length < 8 ||
+        wasm[0] !== 0x00 ||
+        wasm[1] !== 0x61 ||
+        wasm[2] !== 0x73 ||
+        wasm[3] !== 0x6d
+      ) {
+        throw new Error(`${tool}.wasm is not a valid WebAssembly binary.`);
+      }
     }
 
     console.log(
