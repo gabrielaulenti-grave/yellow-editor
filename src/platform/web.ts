@@ -89,6 +89,16 @@ function createWebSource(
       }
     },
 
+    async readBytes(relativePath) {
+      try {
+        const handle = await getFileHandle(root, relativePath);
+        const file = await handle.getFile();
+        return new Uint8Array(await file.arrayBuffer());
+      } catch (error) {
+        throw new Error(`Failed to read ${relativePath}: ${String(error)}`);
+      }
+    },
+
     async writeText(relativePath, contents) {
       let writable: BrowserWritableFileStream | null = null;
 
