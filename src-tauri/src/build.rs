@@ -282,9 +282,9 @@ fn resolve_build_environment(
 
     let mut notes = Vec::new();
     match toolchain_source.as_str() {
-        "bundled" => notes.push("Yellow Editor's bundled RGBDS toolchain is available.".to_string()),
-        "system" => notes.push("RGBDS was found on the system PATH. Bundled RGBDS binaries have not been added yet.".to_string()),
-        _ => notes.push("RGBDS is not available yet. Yellow Editor will prefer a bundled toolchain, then fall back to the system PATH during this integration phase.".to_string()),
+        "bundled" => notes.push("Yellow Editor's pinned RGBDS toolchain is bundled and available.".to_string()),
+        "system" => notes.push("A compatible bundled RGBDS directory was not found for this checkout, so Yellow Editor is using RGBDS from the system PATH.".to_string()),
+        _ => notes.push("No compatible bundled RGBDS directory was found for this checkout, and RGBDS is not available on the system PATH.".to_string()),
     }
 
     if !build_tool.available {
