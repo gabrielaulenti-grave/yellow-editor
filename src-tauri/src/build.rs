@@ -30,6 +30,7 @@ pub struct BuildEnvironment {
     tools: Vec<BuildToolStatus>,
     build_tool: BuildToolStatus,
     helper_compiler: Option<BuildToolStatus>,
+    helper_tools: Vec<BuildToolStatus>,
     message: String,
 }
 
@@ -319,6 +320,7 @@ fn resolve_build_environment(
             tools,
             build_tool,
             helper_compiler: Some(helper_compiler),
+            helper_tools: Vec::new(),
             message: notes.join(" "),
         },
         rgbds_paths,
