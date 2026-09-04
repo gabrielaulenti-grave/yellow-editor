@@ -136,6 +136,33 @@
   overflow-wrap: anywhere;
 }
 
+.build-downloads {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin: 10px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-soft);
+}
+
+.build-download-options {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.build-download-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
 .build-result pre {
   max-height: 320px;
   overflow: auto;
@@ -160,5 +187,23 @@
 
   .build-tool-list > div {
     grid-template-columns: 1fr;
+  }
+
+  .build-downloads,
+  .build-download-options {
+    align-items: stretch;
+  }
+
+  .build-downloads {
+    flex-direction: column;
+  }
+
+  .build-download-options {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .build-downloads button {
+    width: 100%;
   }
 }
