@@ -107,10 +107,18 @@ export interface HistoryEntry {
   files: HistoryFileChange[];
 }
 
+export interface HistoryPendingOperation {
+  entryId: string;
+  fromCursor: number;
+  toCursor: number;
+  direction: "before" | "after";
+}
+
 export interface HistoryState {
   version: number;
   entries: HistoryEntry[];
   cursor: number;
+  pending?: HistoryPendingOperation | null;
 }
 
 export interface HistorySummary {
