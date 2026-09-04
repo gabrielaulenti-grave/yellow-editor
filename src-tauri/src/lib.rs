@@ -1,12 +1,9 @@
 mod parser;
 
-use parser::pokemon::{
-    PokemonBaseStats,
-    PokemonDetails,
-};
-use std::fs;
-use std::path::Path;
+use parser::pokemon::{PokemonBaseStats, PokemonDetails};
 use serde::Serialize;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -19,7 +16,10 @@ pub fn run() {
             get_pokemon_index,
             get_pokemon_details,
             get_pokemon_tmhm_moves,
-            get_moves
+            get_moves,
+            read_project_text,
+            project_path_exists,
+            resolve_project_asset
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -31,6 +31,53 @@ struct ProjectInfo {
     path: String,
     valid: bool,
     project_name: String,
+}
+
+fn project_relative_path(project_path: &str, relative_path: &str) -> Result<PathBuf, String> {
+    let relative = Path::new(relative_path);
+
+    if relative.is_absolute()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err(format!(
+            "Project paths must be relative to the selected project: {}",
+            relative_path
+        ));
+    }
+
+    Ok(Path::new(project_path).join(relative))
+}
+
+#[tauri::command]
+fn read_project_text(project_path: String, relative_path: String) -> Result<String, String> {
+    let path = project_relative_path(&project_path, &relative_path)?;
+    fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+}
+
+#[tauri::command]
+fn project_path_exists(project_path: String, relative_path: String) -> Result<bool, String> {
+    let path = project_relative_path(&project_path, &relative_path)?;
+    Ok(path.exists())
+}
+
+#[tauri::command]
+fn resolve_project_asset(
+    project_path: String,
+    relative_path: String,
+) -> Result<Option<String>, String> {
+    let path = project_relative_path(&project_path, &relative_path)?;
+
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    Ok(Some(path.to_string_lossy().to_string()))
 }
 
 #[tauri::command]
@@ -45,10 +92,7 @@ fn open_project(path: String) -> Result<ProjectInfo, String> {
         return Err("The selected path is not a folder.".into());
     }
 
-    let required_files = [
-        "main.asm",
-        "Makefile",
-    ];
+    let required_files = ["main.asm", "Makefile"];
 
     for file in required_files {
         if !root.join(file).exists() {
@@ -59,11 +103,7 @@ fn open_project(path: String) -> Result<ProjectInfo, String> {
         }
     }
 
-    let required_dirs = [
-        "data",
-        "engine",
-        "maps",
-    ];
+    let required_dirs = ["data", "engine", "maps"];
 
     for dir in required_dirs {
         if !root.join(dir).is_dir() {
@@ -119,11 +159,7 @@ fn get_pokemon_tmhm_moves(
     let mut collecting = false;
 
     for raw_line in contents.lines() {
-        let line = raw_line
-            .split(';')
-            .next()
-            .unwrap_or("")
-            .trim();
+        let line = raw_line.split(';').next().unwrap_or("").trim();
 
         if line.is_empty() {
             continue;
@@ -204,14 +240,11 @@ fn get_pokemon_details(
         .join("base_stats")
         .join(format!("{}.asm", source_slug));
 
-    let stats =
-        parser::pokemon::parse_base_stats(&stats_path)?;
+    let stats = parser::pokemon::parse_base_stats(&stats_path)?;
 
-    let (evolutions, learnset) =
-        parser::pokemon::parse_evos_moves(root, internal_id)?;
+    let (evolutions, learnset) = parser::pokemon::parse_evos_moves(root, internal_id)?;
 
-    let pokedex =
-        parser::pokemon::parse_pokedex_info(root, internal_id)?;
+    let pokedex = parser::pokemon::parse_pokedex_info(root, internal_id)?;
 
     let front_path = root
         .join("gfx")
@@ -229,7 +262,6 @@ fn get_pokemon_details(
         front: front_path
             .exists()
             .then(|| front_path.to_string_lossy().to_string()),
-
         back: back_path
             .exists()
             .then(|| back_path.to_string_lossy().to_string()),

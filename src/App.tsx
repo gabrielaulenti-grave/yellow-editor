@@ -1,9 +1,5 @@
 import { useState } from "react";
-import {
-  invoke,
-  convertFileSrc,
-} from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { invoke, convertFileSrc, open } from "./platform/compat";
 
 interface ProjectInfo {
   path: string;
@@ -153,17 +149,17 @@ function App() {
   }
 
   async function selectProject() {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: "Select Pokémon disassembly project",
-    });
-
-    if (!selected) {
-      return;
-    }
-
     try {
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select Pokémon disassembly project",
+      });
+
+      if (!selected) {
+        return;
+      }
+
       const result = await invoke<ProjectInfo>("open_project", {
         path: selected,
       });
