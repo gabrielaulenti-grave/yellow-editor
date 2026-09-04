@@ -1,7 +1,15 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { createProjectSession } from "../core/project";
-import type { HistoryState, HistoryStore, ProjectSource } from "../core/types";
+import type {
+  BuildEnvironment,
+  BuildResult,
+  BuildService,
+  BuildTarget,
+  HistoryState,
+  HistoryStore,
+  ProjectSource,
+} from "../core/types";
 import type { PlatformAdapter } from "./types";
 
 function createDesktopHistoryStore(projectPath: string): HistoryStore {
@@ -70,6 +78,23 @@ function createDesktopSource(projectPath: string): ProjectSource {
   };
 }
 
+function createDesktopBuildService(projectPath: string): BuildService {
+  return {
+    inspect() {
+      return invoke<BuildEnvironment>("get_build_environment", {
+        projectPath,
+      });
+    },
+
+    build(target: BuildTarget) {
+      return invoke<BuildResult>("build_rom", {
+        projectPath,
+        target,
+      });
+    },
+  };
+}
+
 export const desktopPlatform: PlatformAdapter = {
   async openProject() {
     const selected = await open({
@@ -86,6 +111,9 @@ export const desktopPlatform: PlatformAdapter = {
       throw new Error("Expected a single project folder.");
     }
 
-    return createProjectSession(createDesktopSource(selected));
+    return createProjectSession(
+      createDesktopSource(selected),
+      createDesktopBuildService(selected),
+    );
   },
 };
