@@ -18,16 +18,19 @@
       }
     ],
     "security": {
-	  "csp": null,
-	  "assetProtocol": {
-		"enable": true,
-		"scope": ["**"]
-	  }
-	}
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    }
   },
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": [
+      "resources/rgbds/**/*"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
