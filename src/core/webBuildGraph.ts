@@ -7,6 +7,7 @@ import type {
   BuildProgressStage,
   BuildResult,
   BuildTarget,
+  BuildTaskProgress,
   ProjectSource,
 } from "./types";
 import type {
@@ -51,8 +52,12 @@ const RED_COLUMNS_GRAPHICS = new Set([
   "gfx/intro/gengar.2bpp",
 ]);
 
-const ASM_SCAN_BATCH_SIZE = 32;
-const PROJECT_READ_TIMEOUT_MS = 30_000;
+// Chromium's File System Access implementation can become slower rather than
+// faster when hundreds of small files are opened with high concurrency. Keep
+// enough reads in flight to avoid serial directory walking without saturating
+// the browser's file-handle queue.
+const ASM_SCAN_BATCH_SIZE = 12;
+const PROJECT_READ_TIMEOUT_MS = 90_000;
 
 interface BuildProfile {
   family: "yellow" | "redblue";
@@ -259,6 +264,19 @@ function artifact(kind: BuildArtifact["kind"], fileName: string, bytes: Uint8Arr
   };
 }
 
+function taskProgress(
+  label: string,
+  completed?: number,
+  total?: number,
+  unit?: string,
+): BuildTaskProgress {
+  const percent =
+    completed !== undefined && total !== undefined && total > 0
+      ? Math.max(0, Math.min(100, Math.round((completed / total) * 100)))
+      : undefined;
+  return { label, completed, total, percent, unit };
+}
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -323,6 +341,7 @@ class WebBuildWorkspace {
     tool?: string,
     completed?: number,
     total?: number,
+    task?: BuildTaskProgress,
   ): void {
     this.stage = stage;
     this.percent = Math.max(this.percent, Math.min(100, Math.round(percent)));
@@ -334,6 +353,7 @@ class WebBuildWorkspace {
       tool,
       completed,
       total,
+      task,
       percent: this.percent,
       timestamp: Date.now(),
     });
@@ -385,7 +405,17 @@ class WebBuildWorkspace {
   ): Promise<ToolInvocationResult> {
     const command = `${tool} ${args.join(" ")}`;
     this.stdout.push(`> ${command}`);
-    this.report(this.stage, `Running ${tool}`, this.percent, command, "info", tool);
+    this.report(
+      this.stage,
+      `Running ${tool}`,
+      this.percent,
+      command,
+      "info",
+      tool,
+      undefined,
+      undefined,
+      taskProgress(command),
+    );
 
     // Give React a chance to paint the current command before a synchronous
     // WebAssembly call occupies the browser main thread.
@@ -410,6 +440,9 @@ class WebBuildWorkspace {
         message,
         "error",
         tool,
+        undefined,
+        undefined,
+        taskProgress(command),
       );
       throw new BuildFailure(`${tool} failed to run: ${message}`);
     }
@@ -429,6 +462,9 @@ class WebBuildWorkspace {
         detail,
         "error",
         tool,
+        undefined,
+        undefined,
+        taskProgress(command),
       );
       throw new BuildFailure(`${tool} exited with code ${result.exitCode}.`, result.exitCode);
     }
@@ -443,6 +479,7 @@ class WebBuildWorkspace {
   ): Promise<void> {
     const queued = new Set(textPaths);
     const queue: string[] = [];
+    const taskLabel = `Scan ${context} dependencies`;
 
     for (const root of roots) {
       const normalized = normalizeProjectPath(root);
@@ -455,11 +492,17 @@ class WebBuildWorkspace {
     let scanned = 0;
     while (queue.length > 0) {
       const batch = queue.splice(0, ASM_SCAN_BATCH_SIZE);
+      const knownBefore = scanned + batch.length + queue.length;
       this.report(
         this.stage,
         `Scanning dependencies for ${context}`,
         this.percent,
         `${textPaths.size} source files indexed; reading ${batch.length} more (${batch[0]}${batch.length > 1 ? ` … ${batch[batch.length - 1]}` : ""})`,
+        "info",
+        undefined,
+        undefined,
+        undefined,
+        taskProgress(taskLabel, scanned, knownBefore, "files"),
       );
 
       const results = await Promise.all(
@@ -484,11 +527,17 @@ class WebBuildWorkspace {
         }
       }
 
+      const knownAfter = scanned + queue.length;
       this.report(
         this.stage,
         `Indexed dependencies for ${context}`,
         this.percent,
         `${textPaths.size} source files, ${binaryPaths.size} binary/generated inputs; ${queue.length} source files remain queued`,
+        "info",
+        undefined,
+        undefined,
+        undefined,
+        taskProgress(taskLabel, scanned, knownAfter, "files"),
       );
 
       // Keep the status UI responsive while a large entry point such as
@@ -502,6 +551,11 @@ class WebBuildWorkspace {
         `Dependencies already cached for ${context}`,
         this.percent,
         `${textPaths.size} source files and ${binaryPaths.size} binary/generated inputs`,
+        "info",
+        undefined,
+        undefined,
+        undefined,
+        taskProgress(taskLabel, 1, 1, "cache"),
       );
     }
   }
@@ -516,6 +570,11 @@ class WebBuildWorkspace {
           "Indexing shared assembler includes",
           this.percent,
           "Scanning includes.asm once; this dependency set will be reused for every object.",
+          "info",
+          undefined,
+          undefined,
+          undefined,
+          taskProgress("Scan shared assembler includes", 0, 1, "phase"),
         );
         await this.collectAsmClosure(
           ["includes.asm"],
@@ -548,22 +607,56 @@ class WebBuildWorkspace {
 
     await this.collectAsmClosure([entryPath], textPaths, binaryPaths, entryPath);
 
+    const inputTaskLabel = `Resolve ${entryPath} build inputs`;
+    const binaryTotal = binaryPaths.size;
     this.report(
       this.stage,
       `Resolving inputs for ${entryPath}`,
       this.percent,
-      `${textPaths.size} source files and ${binaryPaths.size} binary/generated inputs`,
+      `${textPaths.size} source files and ${binaryTotal} binary/generated inputs`,
+      "info",
+      undefined,
+      undefined,
+      undefined,
+      taskProgress(inputTaskLabel, 0, Math.max(1, binaryTotal), "inputs"),
     );
 
     // All text source bytes were already read during dependency discovery, so
-    // this Promise.all mostly resolves from cache. Keeping it parallel also
-    // avoids a second serial walk if a future source adapter changes caching.
+    // this Promise.all resolves from the byte cache. The browser adapter also
+    // caches directory and file handles, avoiding repeated path traversal.
     const files: ToolRuntimeFile[] = await Promise.all(
       [...textPaths].map(async (path) => ({ path, data: await this.readBytes(path) })),
     );
 
+    let resolvedBinary = 0;
     for (const path of binaryPaths) {
       files.push({ path, data: await this.resolveBuildFile(path) });
+      resolvedBinary += 1;
+      this.report(
+        this.stage,
+        `Resolved build input for ${entryPath}`,
+        this.percent,
+        path,
+        "info",
+        undefined,
+        undefined,
+        undefined,
+        taskProgress(inputTaskLabel, resolvedBinary, Math.max(1, binaryTotal), "inputs"),
+      );
+    }
+
+    if (binaryTotal === 0) {
+      this.report(
+        this.stage,
+        `Inputs ready for ${entryPath}`,
+        this.percent,
+        `${textPaths.size} cached source files`,
+        "info",
+        undefined,
+        undefined,
+        undefined,
+        taskProgress(inputTaskLabel, 1, 1, "phase"),
+      );
     }
     return files;
   }
@@ -591,11 +684,17 @@ class WebBuildWorkspace {
       const pngPath = replaceExtension(path, ".png");
       if ((await this.exists(pngPath)) || (await this.exists(twoBppPath))) {
         const twoBpp = await this.resolveBuildFile(twoBppPath);
+        const label = `Compress ${path}`;
         this.report(
           "assets",
           "Compressing Pokémon graphic",
           this.percent,
           `${twoBppPath} → ${path}`,
+          "info",
+          "pkmncompress",
+          undefined,
+          undefined,
+          taskProgress(label),
         );
         const result = await this.runTool(
           this.helperRuntime,
@@ -612,11 +711,17 @@ class WebBuildWorkspace {
       const wavPath = replaceExtension(path, ".wav");
       if (await this.exists(wavPath)) {
         const wav = await this.readBytes(wavPath);
+        const label = `Convert ${path}`;
         this.report(
           "assets",
           "Converting audio",
           this.percent,
           `${wavPath} → ${path}`,
+          "info",
+          "pcm",
+          undefined,
+          undefined,
+          taskProgress(label),
         );
         const result = await this.runTool(
           this.helperRuntime,
@@ -642,11 +747,17 @@ class WebBuildWorkspace {
     depth: 1 | 2,
   ): Promise<Uint8Array> {
     const png = await this.readBytes(pngPath);
+    const label = `Convert ${outputPath}`;
     this.report(
       "assets",
       "Converting graphic",
       this.percent,
       `${pngPath} → ${outputPath}`,
+      "info",
+      "rgbgfx",
+      undefined,
+      undefined,
+      taskProgress(label),
     );
     const rgbgfxArgs = [
       "--colors",
@@ -678,6 +789,11 @@ class WebBuildWorkspace {
         "Applying pret graphics transform",
         this.percent,
         `${outputPath} ${helperFlags.join(" ")}`,
+        "info",
+        "gfx",
+        undefined,
+        undefined,
+        taskProgress(`Transform ${outputPath}`),
       );
       const processed = await this.runTool(
         this.helperRuntime,
@@ -693,9 +809,29 @@ class WebBuildWorkspace {
   }
 
   private async checkRgbds(): Promise<void> {
-    this.report("checking", "Checking RGBDS compatibility", 8, "Assembling rgbdscheck.asm");
+    this.report(
+      "checking",
+      "Checking RGBDS compatibility",
+      8,
+      "Assembling rgbdscheck.asm",
+      "info",
+      "rgbasm",
+      undefined,
+      undefined,
+      taskProgress("RGBDS compatibility check", 0, 1, "check"),
+    );
     if (!(await this.exists("rgbdscheck.asm"))) {
-      this.report("checking", "No rgbdscheck.asm found; continuing", 10);
+      this.report(
+        "checking",
+        "No rgbdscheck.asm found; continuing",
+        10,
+        undefined,
+        "info",
+        undefined,
+        undefined,
+        undefined,
+        taskProgress("RGBDS compatibility check", 1, 1, "check"),
+      );
       return;
     }
     const outputName = "rgbdscheck.o";
@@ -706,7 +842,17 @@ class WebBuildWorkspace {
       await this.assemblyFiles("rgbdscheck.asm", false),
       [outputName],
     );
-    this.report("checking", "RGBDS compatibility check passed", 12);
+    this.report(
+      "checking",
+      "RGBDS compatibility check passed",
+      12,
+      undefined,
+      "info",
+      "rgbasm",
+      undefined,
+      undefined,
+      taskProgress("RGBDS compatibility check", 1, 1, "check"),
+    );
   }
 
   private async assembleObjects(): Promise<ToolRuntimeFile[]> {
@@ -729,6 +875,7 @@ class WebBuildWorkspace {
         undefined,
         index,
         total,
+        taskProgress(`Prepare ${entryPath}`),
       );
       const args = [
         "-Weverything",
@@ -751,6 +898,7 @@ class WebBuildWorkspace {
         "rgbasm",
         index,
         total,
+        taskProgress(`Assemble ${entryPath}`),
       );
       const result = await this.runTool(
         this.rgbdsRuntime,
@@ -769,6 +917,7 @@ class WebBuildWorkspace {
         "rgbasm",
         index + 1,
         total,
+        taskProgress(`Assemble ${entryPath}`, 1, 1, "object"),
       );
     }
 
@@ -787,6 +936,9 @@ class WebBuildWorkspace {
       `${objects.length} object files using layout.link`,
       "info",
       "rgblink",
+      undefined,
+      undefined,
+      taskProgress(`Link ${this.profile.romName}`),
     );
     const layout = await this.readBytes("layout.link");
     const args = [
@@ -819,7 +971,17 @@ class WebBuildWorkspace {
     if (!rom || !map || !sym) {
       throw new BuildFailure("rgblink did not produce all expected output files.");
     }
-    this.report("linking", "Link complete", 93, this.profile.romName, "info", "rgblink");
+    this.report(
+      "linking",
+      "Link complete",
+      93,
+      this.profile.romName,
+      "info",
+      "rgblink",
+      undefined,
+      undefined,
+      taskProgress(`Link ${this.profile.romName}`, 1, 1, "ROM"),
+    );
     return { rom, map, sym };
   }
 
@@ -831,6 +993,9 @@ class WebBuildWorkspace {
       this.profile.romName,
       "info",
       "rgbfix",
+      undefined,
+      undefined,
+      taskProgress(`Finalize ${this.profile.romName}`),
     );
     const result = await this.runTool(
       this.rgbdsRuntime,
@@ -839,7 +1004,17 @@ class WebBuildWorkspace {
       [{ path: this.profile.romName, data: rom }],
       [this.profile.romName],
     );
-    this.report("fixing", "ROM finalized", 99, this.profile.romName, "info", "rgbfix");
+    this.report(
+      "fixing",
+      "ROM finalized",
+      99,
+      this.profile.romName,
+      "info",
+      "rgbfix",
+      undefined,
+      undefined,
+      taskProgress(`Finalize ${this.profile.romName}`, 1, 1, "ROM"),
+    );
     return result.outputs[0].data;
   }
 
@@ -849,12 +1024,27 @@ class WebBuildWorkspace {
       `Building ${this.profile.target}`,
       6,
       `${this.profile.objects.length} source object groups will be assembled in the browser.`,
+      "info",
+      undefined,
+      undefined,
+      undefined,
+      taskProgress("Prepare browser build", 0, 1, "phase"),
     );
     await this.checkRgbds();
     const objects = await this.assembleObjects();
     const linked = await this.link(objects);
     const rom = await this.fix(linked.rom);
-    this.report("complete", "Build complete", 100, this.profile.romName);
+    this.report(
+      "complete",
+      "Build complete",
+      100,
+      this.profile.romName,
+      "info",
+      undefined,
+      undefined,
+      undefined,
+      taskProgress("Build complete", 1, 1, "build"),
+    );
     return [
       artifact("rom", this.profile.romName, rom),
       artifact("map", this.profile.mapName, linked.map),
@@ -895,6 +1085,10 @@ export async function buildWebRom(
       workspace.getPercent(),
       message,
       "error",
+      undefined,
+      undefined,
+      undefined,
+      taskProgress("Build failed", 1, 1, "build"),
     );
     return {
       success: false,
