@@ -51,6 +51,9 @@ const RED_COLUMNS_GRAPHICS = new Set([
   "gfx/intro/gengar.2bpp",
 ]);
 
+const ASM_SCAN_BATCH_SIZE = 32;
+const PROJECT_READ_TIMEOUT_MS = 30_000;
+
 interface BuildProfile {
   family: "yellow" | "redblue";
   target: BuildTarget;
@@ -65,6 +68,11 @@ interface BuildProfile {
 interface AsmReference {
   kind: "include" | "incbin";
   path: string;
+}
+
+interface AsmClosure {
+  textPaths: string[];
+  binaryPaths: string[];
 }
 
 class BuildFailure extends Error {
@@ -251,6 +259,27 @@ function artifact(kind: BuildArtifact["kind"], fileName: string, bytes: Uint8Arr
   };
 }
 
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  description: string,
+): Promise<T> {
+  let timeoutId: number | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = window.setTimeout(() => {
+      reject(new BuildFailure(`${description} did not complete within ${Math.round(timeoutMs / 1000)} seconds.`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+    }
+  }
+}
+
 class WebBuildWorkspace {
   private readonly sourceBytes = new Map<string, Promise<Uint8Array>>();
   private readonly sourceText = new Map<string, Promise<string>>();
@@ -260,6 +289,7 @@ class WebBuildWorkspace {
   private readonly rgbdsRuntime: BuildToolRuntime;
   private readonly stdout: string[] = [];
   private readonly stderr: string[] = [];
+  private preincludeClosure: Promise<AsmClosure> | null = null;
   private stage: BuildProgressStage = "preparing";
   private percent = 5;
 
@@ -323,7 +353,11 @@ class WebBuildWorkspace {
     const normalized = normalizeProjectPath(path);
     let promise = this.sourceBytes.get(normalized);
     if (!promise) {
-      promise = this.source.readBytes(normalized);
+      promise = withTimeout(
+        this.source.readBytes(normalized),
+        PROJECT_READ_TIMEOUT_MS,
+        `Reading '${normalized}'`,
+      );
       this.sourceBytes.set(normalized, promise);
     }
     return promise;
@@ -333,7 +367,10 @@ class WebBuildWorkspace {
     const normalized = normalizeProjectPath(path);
     let promise = this.sourceText.get(normalized);
     if (!promise) {
-      promise = this.source.readText(normalized);
+      // Dependency discovery ultimately needs the same file bytes that are
+      // mounted into Emscripten. Decode the cached byte read instead of opening
+      // every source file a second time through the File System Access API.
+      promise = this.readBytes(normalized).then((bytes) => new TextDecoder().decode(bytes));
       this.sourceText.set(normalized, promise);
     }
     return promise;
@@ -399,24 +436,100 @@ class WebBuildWorkspace {
   }
 
   private async collectAsmClosure(
-    path: string,
+    roots: string[],
     textPaths: Set<string>,
     binaryPaths: Set<string>,
+    context: string,
   ): Promise<void> {
-    const normalized = normalizeProjectPath(path);
-    if (textPaths.has(normalized)) {
-      return;
-    }
-    textPaths.add(normalized);
+    const queued = new Set(textPaths);
+    const queue: string[] = [];
 
-    const contents = await this.readText(normalized);
-    for (const reference of parseAsmReferences(contents)) {
-      if (reference.kind === "include") {
-        await this.collectAsmClosure(reference.path, textPaths, binaryPaths);
-      } else {
-        binaryPaths.add(reference.path);
+    for (const root of roots) {
+      const normalized = normalizeProjectPath(root);
+      if (!queued.has(normalized)) {
+        queued.add(normalized);
+        queue.push(normalized);
       }
     }
+
+    let scanned = 0;
+    while (queue.length > 0) {
+      const batch = queue.splice(0, ASM_SCAN_BATCH_SIZE);
+      this.report(
+        this.stage,
+        `Scanning dependencies for ${context}`,
+        this.percent,
+        `${textPaths.size} source files indexed; reading ${batch.length} more (${batch[0]}${batch.length > 1 ? ` … ${batch[batch.length - 1]}` : ""})`,
+      );
+
+      const results = await Promise.all(
+        batch.map(async (path) => ({
+          path,
+          references: parseAsmReferences(await this.readText(path)),
+        })),
+      );
+
+      for (const result of results) {
+        textPaths.add(result.path);
+        scanned += 1;
+        for (const reference of result.references) {
+          if (reference.kind === "include") {
+            if (!queued.has(reference.path)) {
+              queued.add(reference.path);
+              queue.push(reference.path);
+            }
+          } else {
+            binaryPaths.add(reference.path);
+          }
+        }
+      }
+
+      this.report(
+        this.stage,
+        `Indexed dependencies for ${context}`,
+        this.percent,
+        `${textPaths.size} source files, ${binaryPaths.size} binary/generated inputs; ${queue.length} source files remain queued`,
+      );
+
+      // Keep the status UI responsive while a large entry point such as
+      // audio.asm expands into hundreds of INCLUDE files.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    }
+
+    if (scanned === 0) {
+      this.report(
+        this.stage,
+        `Dependencies already cached for ${context}`,
+        this.percent,
+        `${textPaths.size} source files and ${binaryPaths.size} binary/generated inputs`,
+      );
+    }
+  }
+
+  private getPreincludeClosure(): Promise<AsmClosure> {
+    if (!this.preincludeClosure) {
+      this.preincludeClosure = (async () => {
+        const textPaths = new Set<string>();
+        const binaryPaths = new Set<string>();
+        this.report(
+          this.stage,
+          "Indexing shared assembler includes",
+          this.percent,
+          "Scanning includes.asm once; this dependency set will be reused for every object.",
+        );
+        await this.collectAsmClosure(
+          ["includes.asm"],
+          textPaths,
+          binaryPaths,
+          "includes.asm",
+        );
+        return {
+          textPaths: [...textPaths],
+          binaryPaths: [...binaryPaths],
+        };
+      })();
+    }
+    return this.preincludeClosure;
   }
 
   private async assemblyFiles(entryPath: string, usePreinclude: boolean): Promise<ToolRuntimeFile[]> {
@@ -424,9 +537,16 @@ class WebBuildWorkspace {
     const binaryPaths = new Set<string>();
 
     if (usePreinclude) {
-      await this.collectAsmClosure("includes.asm", textPaths, binaryPaths);
+      const shared = await this.getPreincludeClosure();
+      for (const path of shared.textPaths) {
+        textPaths.add(path);
+      }
+      for (const path of shared.binaryPaths) {
+        binaryPaths.add(path);
+      }
     }
-    await this.collectAsmClosure(entryPath, textPaths, binaryPaths);
+
+    await this.collectAsmClosure([entryPath], textPaths, binaryPaths, entryPath);
 
     this.report(
       this.stage,
@@ -435,10 +555,13 @@ class WebBuildWorkspace {
       `${textPaths.size} source files and ${binaryPaths.size} binary/generated inputs`,
     );
 
-    const files: ToolRuntimeFile[] = [];
-    for (const path of textPaths) {
-      files.push({ path, data: await this.readBytes(path) });
-    }
+    // All text source bytes were already read during dependency discovery, so
+    // this Promise.all mostly resolves from cache. Keeping it parallel also
+    // avoids a second serial walk if a future source adapter changes caching.
+    const files: ToolRuntimeFile[] = await Promise.all(
+      [...textPaths].map(async (path) => ({ path, data: await this.readBytes(path) })),
+    );
+
     for (const path of binaryPaths) {
       files.push({ path, data: await this.resolveBuildFile(path) });
     }
