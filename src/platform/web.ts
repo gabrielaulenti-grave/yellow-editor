@@ -44,29 +44,8 @@ function pathParts(relativePath: string): string[] {
   return parts;
 }
 
-async function getDirectoryHandle(
-  root: BrowserDirectoryHandle,
-  parts: string[],
-): Promise<BrowserDirectoryHandle> {
-  let current = root;
-  for (const part of parts) {
-    current = await current.getDirectoryHandle(part);
-  }
-  return current;
-}
-
-async function getFileHandle(
-  root: BrowserDirectoryHandle,
-  relativePath: string,
-): Promise<BrowserFileHandle> {
-  const parts = pathParts(relativePath);
-  const fileName = parts.pop();
-  if (!fileName) {
-    throw new Error(`Expected file path, got '${relativePath}'`);
-  }
-
-  const directory = await getDirectoryHandle(root, parts);
-  return directory.getFileHandle(fileName);
+function normalizePath(relativePath: string): string {
+  return pathParts(relativePath).join("/");
 }
 
 function createWebSource(
@@ -74,6 +53,55 @@ function createWebSource(
   historyStore: HistoryStore,
 ): ProjectSource {
   const objectUrls = new Map<string, string>();
+  const directoryHandles = new Map<string, Promise<BrowserDirectoryHandle>>();
+  const fileHandles = new Map<string, Promise<BrowserFileHandle>>();
+  directoryHandles.set("", Promise.resolve(root));
+
+  function cachedDirectoryHandle(parts: string[]): Promise<BrowserDirectoryHandle> {
+    const key = parts.join("/");
+    const cached = directoryHandles.get(key);
+    if (cached) {
+      return cached;
+    }
+
+    const parentParts = parts.slice(0, -1);
+    const directoryName = parts[parts.length - 1];
+    if (!directoryName) {
+      return Promise.resolve(root);
+    }
+
+    const promise = cachedDirectoryHandle(parentParts)
+      .then((parent) => parent.getDirectoryHandle(directoryName))
+      .catch((error) => {
+        directoryHandles.delete(key);
+        throw error;
+      });
+    directoryHandles.set(key, promise);
+    return promise;
+  }
+
+  function cachedFileHandle(relativePath: string): Promise<BrowserFileHandle> {
+    const normalized = normalizePath(relativePath);
+    const cached = fileHandles.get(normalized);
+    if (cached) {
+      return cached;
+    }
+
+    const parts = pathParts(normalized);
+    const fileName = parts.pop();
+    if (!fileName) {
+      return Promise.reject(new Error(`Expected file path, got '${relativePath}'`));
+    }
+
+    const promise = cachedDirectoryHandle(parts)
+      .then((directory) => directory.getFileHandle(fileName))
+      .catch((error) => {
+        fileHandles.delete(normalized);
+        throw error;
+      });
+    fileHandles.set(normalized, promise);
+    return promise;
+  }
 
   return {
     displayPath: root.name,
@@ -81,7 +109,7 @@ function createWebSource(
 
     async readText(relativePath) {
       try {
-        const handle = await getFileHandle(root, relativePath);
+        const handle = await cachedFileHandle(relativePath);
         const file = await handle.getFile();
         return await file.text();
       } catch (error) {
@@ -91,7 +119,7 @@ function createWebSource(
 
     async readBytes(relativePath) {
       try {
-        const handle = await getFileHandle(root, relativePath);
+        const handle = await cachedFileHandle(relativePath);
         const file = await handle.getFile();
         return new Uint8Array(await file.arrayBuffer());
       } catch (error) {
@@ -103,7 +131,7 @@ function createWebSource(
       let writable: BrowserWritableFileStream | null = null;
 
       try {
-        const handle = await getFileHandle(root, relativePath);
+        const handle = await cachedFileHandle(relativePath);
         writable = await handle.createWritable();
         await writable.write(contents);
         await writable.close();
@@ -124,14 +152,14 @@ function createWebSource(
       }
 
       try {
-        await getFileHandle(root, relativePath);
+        await cachedFileHandle(relativePath);
         return true;
       } catch {
         // It may be a directory rather than a file.
       }
 
       try {
-        await getDirectoryHandle(root, parts);
+        await cachedDirectoryHandle(parts);
         return true;
       } catch {
         return false;
@@ -139,16 +167,17 @@ function createWebSource(
     },
 
     async assetUrl(relativePath) {
-      const cached = objectUrls.get(relativePath);
+      const normalized = normalizePath(relativePath);
+      const cached = objectUrls.get(normalized);
       if (cached) {
         return cached;
       }
 
       try {
-        const handle = await getFileHandle(root, relativePath);
+        const handle = await cachedFileHandle(normalized);
         const file = await handle.getFile();
         const url = URL.createObjectURL(file);
-        objectUrls.set(relativePath, url);
+        objectUrls.set(normalized, url);
         return url;
       } catch {
         return null;
@@ -160,6 +189,8 @@ function createWebSource(
         URL.revokeObjectURL(url);
       }
       objectUrls.clear();
+      fileHandles.clear();
+      directoryHandles.clear();
     },
   };
 }
