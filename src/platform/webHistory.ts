@@ -67,10 +67,11 @@ async function resolveProjectId(
   root: WebDirectoryIdentityHandle,
 ): Promise<string> {
   const readTransaction = database.transaction(PROJECT_STORE, "readonly");
+  const readDone = transactionDone(readTransaction);
   const stored = await requestResult(
     readTransaction.objectStore(PROJECT_STORE).getAll() as IDBRequest<StoredProjectIdentity[]>,
   );
-  await transactionDone(readTransaction);
+  await readDone;
 
   for (const candidate of stored) {
     try {
@@ -84,12 +85,13 @@ async function resolveProjectId(
 
   const id = createId();
   const writeTransaction = database.transaction(PROJECT_STORE, "readwrite");
+  const writeDone = transactionDone(writeTransaction);
   writeTransaction.objectStore(PROJECT_STORE).put({
     id,
     name: root.name,
     handle: root,
   } satisfies StoredProjectIdentity);
-  await transactionDone(writeTransaction);
+  await writeDone;
   return id;
 }
 
@@ -104,20 +106,22 @@ export async function createWebHistoryStore(
 
     async load() {
       const transaction = database.transaction(HISTORY_STORE, "readonly");
+      const done = transactionDone(transaction);
       const record = await requestResult(
         transaction.objectStore(HISTORY_STORE).get(projectId) as IDBRequest<StoredHistory | undefined>,
       );
-      await transactionDone(transaction);
+      await done;
       return record?.state ?? null;
     },
 
     async save(state) {
       const transaction = database.transaction(HISTORY_STORE, "readwrite");
+      const done = transactionDone(transaction);
       transaction.objectStore(HISTORY_STORE).put({
         projectId,
         state,
       } satisfies StoredHistory);
-      await transactionDone(transaction);
+      await done;
     },
   };
 }
