@@ -10,13 +10,19 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const EMSCRIPTEN_VERSION = "4.0.15";
 const RGBDS_VERSION = "1.0.3";
 const RGBDS_TAG = `v${RGBDS_VERSION}`;
 const RGBDS_COMMIT = "307846b03ea89ee57bf75f179d5f8051175ac60d";
 const TOOLS = ["rgbasm", "rgblink", "rgbfix", "rgbgfx"];
+
+// A tiny original 8x8 grayscale PNG with four two-pixel-wide shade bands.
+// This is intentionally embedded rather than borrowed from a game checkout so
+// CI can prove that the production rgbgfx module can actually decode PNG data.
+const RGBGFX_SMOKE_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAAAAADhZOFXAAAAF0lEQVR4nGP8z7CaYTXDagYmBiggjwEAz4QDEI2ITS0AAAAASUVORK5CYII=";
 
 const repoRoot = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
 const outputDirectory = path.join(
@@ -49,7 +55,13 @@ function wrapperCmake() {
 project(yellow_editor_rgbds_wasm)
 
 set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-list(PREPEND CMAKE_MODULE_PATH "\${CMAKE_SOURCE_DIR}/cmake-modules")
+
+# RGBDS 1.0.3 pins zlib 1.3.2 and libpng 1.6.58 in cmake/deps.cmake.
+# Do not replace those with Emscripten's generic ports: the port bundled with
+# our Emscripten release currently identifies itself as libpng 1.6.39, and the
+# resulting rgbgfx module traps as soon as PNG processing begins. Force
+# FetchContent to cross-compile the dependency versions RGBDS itself declares.
+set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
 
 add_compile_options(-O3 -flto)
 add_link_options(
@@ -90,30 +102,6 @@ endforeach()
 `;
 }
 
-function findZlibCmake() {
-  return `set(ZLIB_FOUND TRUE)
-set(ZLIB_VERSION_STRING "1.3.2")
-set(ZLIB_INCLUDE_DIRS "")
-if(NOT TARGET ZLIB::ZLIB)
-  add_library(ZLIB::ZLIB INTERFACE IMPORTED GLOBAL)
-  set_property(TARGET ZLIB::ZLIB PROPERTY INTERFACE_COMPILE_OPTIONS "--use-port=zlib")
-  set_property(TARGET ZLIB::ZLIB PROPERTY INTERFACE_LINK_OPTIONS "--use-port=zlib")
-endif()
-`;
-}
-
-function findPngCmake() {
-  return `set(PNG_FOUND TRUE)
-set(PNG_VERSION_STRING "1.6.58")
-set(PNG_INCLUDE_DIRS "")
-if(NOT TARGET PNG::PNG)
-  add_library(PNG::PNG INTERFACE IMPORTED GLOBAL)
-  set_property(TARGET PNG::PNG PROPERTY INTERFACE_COMPILE_OPTIONS "--use-port=libpng")
-  set_property(TARGET PNG::PNG PROPERTY INTERFACE_LINK_OPTIONS "--use-port=libpng")
-endif()
-`;
-}
-
 async function findBuiltModule(buildOut, tool) {
   const entries = await readdir(buildOut);
   const moduleName = entries.find(
@@ -143,6 +131,75 @@ async function verifyWasmMagic(filePath) {
   }
 }
 
+function exitStatus(error) {
+  return error && typeof error === "object" && typeof error.status === "number"
+    ? error.status
+    : null;
+}
+
+function callMain(module, args) {
+  try {
+    const result = module.callMain(args);
+    return typeof result === "number" ? result : 0;
+  } catch (error) {
+    const status = exitStatus(error);
+    if (status === null) {
+      throw error;
+    }
+    return status;
+  }
+}
+
+async function functionalTestRgbgfx(directory) {
+  const modulePath = path.join(directory, "rgbgfx.mjs");
+  const wasmPath = path.join(directory, "rgbgfx.wasm");
+  const moduleUrl = `${pathToFileURL(modulePath).href}?smoke=${Date.now()}`;
+  const imported = await import(moduleUrl);
+  if (typeof imported.default !== "function") {
+    throw new Error("rgbgfx.mjs did not export an Emscripten module factory.");
+  }
+
+  const stdout = [];
+  const stderr = [];
+  const wasmBinary = await readFile(wasmPath);
+  const module = await imported.default({
+    noInitialRun: true,
+    wasmBinary,
+    print(text) {
+      stdout.push(String(text));
+    },
+    printErr(text) {
+      stderr.push(String(text));
+    },
+  });
+
+  module.FS.mkdirTree("/workspace");
+  module.FS.chdir("/workspace");
+  module.FS.writeFile("fixture.png", Buffer.from(RGBGFX_SMOKE_PNG, "base64"));
+
+  const exitCode = callMain(module, [
+    "--colors",
+    "dmg",
+    "-o",
+    "fixture.2bpp",
+    "fixture.png",
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(
+      `rgbgfx PNG smoke test exited with ${exitCode}: ${stderr.join("\n") || stdout.join("\n")}`,
+    );
+  }
+
+  const output = module.FS.readFile("fixture.2bpp");
+  if (output.length !== 16) {
+    throw new Error(
+      `rgbgfx PNG smoke test produced ${output.length} bytes; expected one 16-byte 2bpp tile.`,
+    );
+  }
+
+  console.log("Verified rgbgfx can decode and convert PNG input in WebAssembly.");
+}
+
 async function main() {
   const versionLine = emscriptenVersionLine();
   if (!versionLine.includes(EMSCRIPTEN_VERSION)) {
@@ -155,7 +212,6 @@ async function main() {
   const sourceDirectory = path.join(tempRoot, "rgbds");
   const buildDirectory = path.join(tempRoot, "build");
   const buildOut = path.join(buildDirectory, "out");
-  const cmakeModules = path.join(tempRoot, "cmake-modules");
 
   try {
     run("git", [
@@ -185,15 +241,6 @@ async function main() {
     await Promise.all([
       copyFile(path.join(sourceDirectory, "LICENSE"), path.join(tempRoot, "LICENSE")),
       copyFile(path.join(sourceDirectory, "README.md"), path.join(tempRoot, "README.md")),
-    ]);
-
-    // RGBDS uses FetchContent with find_package integration for zlib/libpng.
-    // Supply tiny find modules so its normal dependency hooks resolve to the
-    // Emscripten ports instead of compiling native-oriented dependency trees.
-    await mkdir(cmakeModules, { recursive: true });
-    await Promise.all([
-      writeFile(path.join(cmakeModules, "FindZLIB.cmake"), findZlibCmake(), "utf8"),
-      writeFile(path.join(cmakeModules, "FindPNG.cmake"), findPngCmake(), "utf8"),
       writeFile(path.join(tempRoot, "CMakeLists.txt"), wrapperCmake(), "utf8"),
     ]);
 
@@ -236,6 +283,11 @@ async function main() {
       };
     }
 
+    // A valid WASM magic header is not enough for rgbgfx: our first port could
+    // instantiate but trapped on every PNG. Exercise the exact production
+    // module here so a broken graphics converter can never deploy green again.
+    await functionalTestRgbgfx(outputDirectory);
+
     const manifest = {
       schemaVersion: 1,
       family: "rgbds",
@@ -248,6 +300,11 @@ async function main() {
       emscripten: {
         version: EMSCRIPTEN_VERSION,
         versionLine,
+      },
+      dependencies: {
+        zlib: "1.3.2",
+        libpng: "1.6.58",
+        source: "RGBDS FetchContent pins",
       },
       tools: manifestTools,
     };
