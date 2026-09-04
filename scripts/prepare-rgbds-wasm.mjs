@@ -32,6 +32,12 @@ const outputDirectory = path.join(
   "rgbds",
   RGBDS_VERSION,
 );
+const compatibilityPatch = path.join(
+  repoRoot,
+  "scripts",
+  "patches",
+  `rgbds-${RGBDS_VERSION}-wasm-memory-png.patch`,
+);
 
 function run(command, args, options = {}) {
   return execFileSync(command, args, {
@@ -67,11 +73,9 @@ set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
 # let libpng select native x86 SIMD sources for a WebAssembly build.
 set(PNG_HARDWARE_OPTIMIZATIONS OFF CACHE BOOL "" FORCE)
 
-# RGBDS enables CMake IPO/LTO automatically for Release configurations. The
-# Emscripten build of rgbgfx traps in its PNG read path with IPO enabled, even
-# with RGBDS's own pinned libpng/zlib. Use the non-IPO configuration but retain
-# normal optimization explicitly. This is a packaging choice, not a debug build
-# exposed to users.
+# RGBDS enables CMake IPO/LTO automatically for Release configurations. Keep
+# the WASM package on a non-IPO configuration while we validate the portable
+# PNG boundary. The explicit optimization flags retain production codegen.
 add_compile_options(-O2 -g0 -DNDEBUG)
 add_link_options(
   -O2
@@ -192,25 +196,32 @@ async function functionalTestRgbgfx(directory) {
     throw new Error("rgbgfx.mjs did not export an Emscripten module factory.");
   }
 
-  const stdout = [];
-  const stderr = [];
   const wasmBinary = await readFile(wasmPath);
-  const module = await imported.default({
-    noInitialRun: true,
-    wasmBinary,
-    print(text) {
-      stdout.push(String(text));
-    },
-    printErr(text) {
-      stderr.push(String(text));
-    },
-  });
+  const instantiate = async () => {
+    const stdout = [];
+    const stderr = [];
+    const module = await imported.default({
+      noInitialRun: true,
+      wasmBinary,
+      print(text) {
+        stdout.push(String(text));
+      },
+      printErr(text) {
+        stderr.push(String(text));
+      },
+    });
+    module.FS.mkdirTree("/workspace");
+    module.FS.chdir("/workspace");
+    return { module, stdout, stderr };
+  };
 
-  module.FS.mkdirTree("/workspace");
-  module.FS.chdir("/workspace");
-  module.FS.writeFile("fixture.png", Buffer.from(RGBGFX_SMOKE_PNG, "base64"));
+  const forward = await instantiate();
+  forward.module.FS.writeFile(
+    "fixture.png",
+    Buffer.from(RGBGFX_SMOKE_PNG, "base64"),
+  );
 
-  const exitCode = callMain(module, [
+  const exitCode = callMain(forward.module, [
     "--colors",
     "dmg",
     "-o",
@@ -219,18 +230,44 @@ async function functionalTestRgbgfx(directory) {
   ]);
   if (exitCode !== 0) {
     throw new Error(
-      `rgbgfx PNG smoke test exited with ${exitCode}: ${stderr.join("\n") || stdout.join("\n")}`,
+      `rgbgfx PNG smoke test exited with ${exitCode}: ${forward.stderr.join("\n") || forward.stdout.join("\n")}`,
     );
   }
 
-  const output = module.FS.readFile("fixture.2bpp");
+  const output = forward.module.FS.readFile("fixture.2bpp");
   if (output.length !== 16) {
     throw new Error(
       `rgbgfx PNG smoke test produced ${output.length} bytes; expected one 16-byte 2bpp tile.`,
     );
   }
 
-  console.log("Verified rgbgfx can decode and convert PNG input in WebAssembly.");
+  const reverse = await instantiate();
+  reverse.module.FS.writeFile("fixture.2bpp", output);
+  const reverseExitCode = callMain(reverse.module, [
+    "-r",
+    "1",
+    "-o",
+    "fixture.2bpp",
+    "roundtrip.png",
+  ]);
+  if (reverseExitCode !== 0) {
+    throw new Error(
+      `rgbgfx reverse PNG smoke test exited with ${reverseExitCode}: ${reverse.stderr.join("\n") || reverse.stdout.join("\n")}`,
+    );
+  }
+
+  const roundtrip = reverse.module.FS.readFile("roundtrip.png");
+  const pngMagic = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (
+    roundtrip.length < pngMagic.length ||
+    pngMagic.some((byte, index) => roundtrip[index] !== byte)
+  ) {
+    throw new Error("rgbgfx reverse PNG smoke test did not produce a valid PNG header.");
+  }
+
+  console.log(
+    "Verified rgbgfx PNG decode/encode paths use the WASM memory-buffer compatibility boundary.",
+  );
 }
 
 async function main() {
@@ -269,9 +306,18 @@ async function main() {
       );
     }
 
+    // Keep the upstream version pin intact, but adapt rgbgfx's libpng boundary
+    // for WASM. The patch removes C++ streambuf objects from libpng callbacks;
+    // PNG input/output crosses that boundary as pointer+length byte buffers.
+    run("git", ["apply", "--check", compatibilityPatch], { cwd: sourceDirectory });
+    run("git", ["apply", compatibilityPatch], { cwd: sourceDirectory });
+    console.log(
+      `Applied ${path.basename(compatibilityPatch)} to RGBDS ${RGBDS_VERSION}.`,
+    );
+
     // RGBDS is normally configured as the top-level CMake project. Its CPack
     // setup resolves these two resources through CMAKE_SOURCE_DIR, so mirror
-    // them into our wrapper root rather than patching any RGBDS source.
+    // them into our wrapper root rather than modifying the release metadata.
     await mkdir(cmakeModules, { recursive: true });
     await Promise.all([
       copyFile(path.join(sourceDirectory, "LICENSE"), path.join(tempRoot, "LICENSE")),
@@ -319,9 +365,8 @@ async function main() {
       };
     }
 
-    // A valid WASM magic header is not enough for rgbgfx: our first port could
-    // instantiate but trapped on every PNG. Exercise the exact production
-    // module here so a broken graphics converter can never deploy green again.
+    // A valid WASM magic header is not enough for rgbgfx. Exercise both PNG
+    // directions so the compatibility boundary must work before Pages can ship.
     await functionalTestRgbgfx(outputDirectory);
 
     const manifest = {
@@ -337,6 +382,8 @@ async function main() {
         version: EMSCRIPTEN_VERSION,
         versionLine,
         optimization: "O2 without CMake IPO/LTO",
+        compatibilityPatch: path.basename(compatibilityPatch),
+        pngIoBoundary: "memory buffers",
       },
       dependencies: {
         zlib: "1.3.2",
