@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { createProjectSession } from "../core/project";
 import type {
   BuildEnvironment,
+  BuildProgressListener,
   BuildResult,
   BuildService,
   BuildTarget,
@@ -94,11 +95,49 @@ function createDesktopBuildService(projectPath: string): BuildService {
       });
     },
 
-    build(target: BuildTarget) {
-      return invoke<BuildResult>("build_rom", {
-        projectPath,
-        target,
+    async build(target: BuildTarget, onProgress?: BuildProgressListener) {
+      onProgress?.({
+        stage: "preparing",
+        level: "info",
+        message: "Starting native build",
+        detail: `Preparing ${target} build in ${projectPath}`,
+        percent: 5,
+        timestamp: Date.now(),
       });
+      onProgress?.({
+        stage: "assembling",
+        level: "info",
+        message: "Running the project build",
+        detail: "The desktop backend is running make with the selected RGBDS toolchain.",
+        percent: 30,
+        timestamp: Date.now(),
+      });
+
+      try {
+        const result = await invoke<BuildResult>("build_rom", {
+          projectPath,
+          target,
+        });
+        onProgress?.({
+          stage: result.success ? "complete" : "error",
+          level: result.success ? "info" : "error",
+          message: result.success ? "Native build complete" : "Native build failed",
+          detail: result.success ? result.romPath ?? undefined : result.stderr || undefined,
+          percent: 100,
+          timestamp: Date.now(),
+        });
+        return result;
+      } catch (error) {
+        onProgress?.({
+          stage: "error",
+          level: "error",
+          message: "Native build failed",
+          detail: error instanceof Error ? error.message : String(error),
+          percent: 100,
+          timestamp: Date.now(),
+        });
+        throw error;
+      }
     },
   };
 }
