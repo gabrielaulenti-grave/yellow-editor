@@ -12,6 +12,11 @@ dist
 dist-ssr
 *.local
 
+# RGBDS desktop resources are downloaded from the pinned upstream release by
+# scripts/prepare-rgbds.mjs before Tauri dev/build runs.
+src-tauri/resources/rgbds/*/bin/
+src-tauri/resources/rgbds/*/bundle.json
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
