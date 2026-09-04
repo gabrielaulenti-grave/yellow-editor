@@ -1,4 +1,5 @@
 import type {
+  BuildTarget,
   PokemonBaseStatValues,
   ProjectSession,
   TextWriteRequest,
@@ -61,6 +62,14 @@ function stringArg(args: InvokeArgs | undefined, name: string): string {
   const value = args?.[name];
   if (typeof value !== "string") {
     throw new Error(`Missing string argument '${name}'.`);
+  }
+  return value;
+}
+
+function buildTargetArg(args: InvokeArgs | undefined): BuildTarget {
+  const value = stringArg(args, "target");
+  if (value !== "yellow" && value !== "red" && value !== "blue") {
+    throw new Error(`Unsupported build target '${value}'.`);
   }
   return value;
 }
@@ -172,6 +181,12 @@ export async function invoke<T>(
 
     case "redo_last_undo":
       return (await session.redoLastUndo()) as T;
+
+    case "get_build_environment":
+      return (await session.getBuildEnvironment()) as T;
+
+    case "build_rom":
+      return (await session.buildRom(buildTargetArg(args))) as T;
 
     default:
       throw new Error(`Unsupported project command: ${command}`);
