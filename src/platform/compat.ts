@@ -1,4 +1,8 @@
-import type { ProjectSession, TextWriteRequest } from "../core/types";
+import type {
+  PokemonBaseStatValues,
+  ProjectSession,
+  TextWriteRequest,
+} from "../core/types";
 import { webPlatform } from "./web";
 
 let activeSession: ProjectSession | null = null;
@@ -61,6 +65,27 @@ function stringArg(args: InvokeArgs | undefined, name: string): string {
   return value;
 }
 
+function baseStatValuesArg(args: InvokeArgs | undefined): PokemonBaseStatValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing Pokémon base stat values.");
+  }
+
+  const record = value as Record<string, unknown>;
+  const keys = ["hp", "attack", "defense", "speed", "special"] as const;
+  const result = {} as PokemonBaseStatValues;
+
+  for (const key of keys) {
+    const stat = record[key];
+    if (typeof stat !== "number") {
+      throw new Error(`Pokémon base stat '${key}' must be numeric.`);
+    }
+    result[key] = stat;
+  }
+
+  return result;
+}
+
 function textChangesArg(args: InvokeArgs | undefined): TextWriteRequest[] {
   const value = args?.changes;
   if (!Array.isArray(value)) {
@@ -116,6 +141,18 @@ export async function invoke<T>(
     case "get_pokemon_palette":
       return (await session.getPokemonPalette(
         stringArg(args, "sourceSlug"),
+      )) as T;
+
+    case "get_pokemon_base_stats_edit_document":
+      return (await session.getPokemonBaseStatsEditDocument(
+        stringArg(args, "sourceSlug"),
+      )) as T;
+
+    case "save_pokemon_base_stats":
+      return (await session.savePokemonBaseStats(
+        stringArg(args, "sourceSlug"),
+        stringArg(args, "expectedHash"),
+        baseStatValuesArg(args),
       )) as T;
 
     case "get_moves":
