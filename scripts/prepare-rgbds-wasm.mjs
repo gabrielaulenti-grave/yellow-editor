@@ -35,6 +35,8 @@ const LODEPNG_FILES = {
 // Original test fixtures generated specifically for Yellow Editor CI.
 const RGBGFX_SMOKE_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAAAAADhZOFXAAAAF0lEQVR4nGP8z7CaYTXDagYmBiggjwEAz4QDEI2ITS0AAAAASUVORK5CYII=";
+const RGBGFX_1BPP_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAAAAADhZOFXAAAAFklEQVR4nGP8z8DAwMjAwMDEAAXkMQBJhAEQTymQjQAAAABJRU5ErkJggg==";
 const RGBGFX_COLUMNS_PNG =
   "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAAAAAA6mKC9AAAAHUlEQVR4nGP8zwABjFCaiQEN0EeAZTWUETqw7gAApn8CIseRcjoAAAAASUVORK5CYII=";
 
@@ -105,7 +107,9 @@ set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
 set(PNG_HARDWARE_OPTIMIZATIONS OFF CACHE BOOL "" FORCE)
 
 # Keep the browser package off RGBDS's release-only IPO/LTO path while retaining
-# normal optimization explicitly.
+# normal optimization explicitly. Each tool invocation gets a fresh Emscripten
+# module instance, and Yellow Editor must read output files after callMain
+# returns, so do not run the C/C++ shutdown path at main() return.
 add_compile_options(-O2 -g0 -DNDEBUG)
 add_link_options(
   -O2
@@ -115,7 +119,7 @@ add_link_options(
   "-sENVIRONMENT=web,worker"
   "-sMODULARIZE=1"
   "-sINVOKE_RUN=0"
-  "-sEXIT_RUNTIME=1"
+  "-sEXIT_RUNTIME=0"
   "-sFORCE_FILESYSTEM=1"
 )
 
@@ -204,7 +208,7 @@ function compileGen1Rgbgfx(lodepngDirectory) {
     "-sEXPORT_NAME=createRgbGfx",
     "-sENVIRONMENT=web,worker",
     "-sINVOKE_RUN=0",
-    "-sEXIT_RUNTIME=1",
+    "-sEXIT_RUNTIME=0",
     "-sFORCE_FILESYSTEM=1",
     "-sALLOW_MEMORY_GROWTH=1",
     '-sEXPORTED_RUNTIME_METHODS=["FS","callMain"]',
@@ -296,11 +300,12 @@ async function functionalTestRgbgfx(directory) {
     "Gen I rgbgfx 2bpp smoke test",
   );
 
-  // 1bpp uses the same RGBDS four-bin DMG mapping reduced to two shades.
+  // 1bpp needs a two-color source because RGBDS rejects more than two unique
+  // DMG shades at depth 1. White/black halves yield 0x0f on every row.
   const oneBpp = await loadRgbgfxForTest(directory);
   oneBpp.module.FS.writeFile(
     "fixture.png",
-    Buffer.from(RGBGFX_SMOKE_PNG, "base64"),
+    Buffer.from(RGBGFX_1BPP_PNG, "base64"),
   );
   exitCode = callMain(oneBpp.module, [
     "--colors",
