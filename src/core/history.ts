@@ -1,6 +1,7 @@
 import type {
   HistoryEntry,
   HistoryFileChange,
+  HistoryPendingOperation,
   HistoryState,
   HistorySummary,
   ProjectSource,
@@ -10,11 +11,37 @@ import type {
 const HISTORY_VERSION = 1;
 const MAX_HISTORY_ENTRIES = 100;
 
+type HistorySide = "before" | "after";
+
 function emptyHistory(): HistoryState {
   return {
     version: HISTORY_VERSION,
     entries: [],
     cursor: 0,
+    pending: null,
+  };
+}
+
+function normalizePending(
+  pending: HistoryState["pending"],
+  entries: HistoryEntry[],
+): HistoryPendingOperation | null {
+  if (
+    !pending ||
+    typeof pending.entryId !== "string" ||
+    !Number.isInteger(pending.fromCursor) ||
+    !Number.isInteger(pending.toCursor) ||
+    (pending.direction !== "before" && pending.direction !== "after") ||
+    !entries.some((entry) => entry.id === pending.entryId)
+  ) {
+    return null;
+  }
+
+  return {
+    entryId: pending.entryId,
+    fromCursor: Math.max(0, Math.min(pending.fromCursor, entries.length)),
+    toCursor: Math.max(0, Math.min(pending.toCursor, entries.length)),
+    direction: pending.direction,
   };
 }
 
@@ -39,6 +66,7 @@ function normalizeHistory(state: HistoryState | null): HistoryState {
     version: HISTORY_VERSION,
     entries,
     cursor,
+    pending: normalizePending(state.pending, entries),
   };
 }
 
@@ -48,8 +76,8 @@ function summarize(state: HistoryState, persistent: boolean): HistorySummary {
   return {
     entryCount: state.entries.length,
     appliedCount: state.cursor,
-    canUndo: state.cursor > 0,
-    canRedo: state.cursor < state.entries.length,
+    canUndo: !state.pending && state.cursor > 0,
+    canRedo: !state.pending && state.cursor < state.entries.length,
     latestLabel: latest?.label ?? null,
     latestTimestamp: latest?.timestamp ?? null,
     persistent,
@@ -87,10 +115,33 @@ function newEntryId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+async function inspectEntrySide(
+  source: ProjectSource,
+  changes: HistoryFileChange[],
+): Promise<HistorySide | "mixed"> {
+  let allBefore = true;
+  let allAfter = true;
+
+  for (const change of changes) {
+    const current = await source.readText(change.path);
+    const currentHash = await hashText(current);
+    allBefore &&= currentHash === change.beforeHash;
+    allAfter &&= currentHash === change.afterHash;
+  }
+
+  if (allBefore) {
+    return "before";
+  }
+  if (allAfter) {
+    return "after";
+  }
+  return "mixed";
+}
+
 async function verifyCurrentContents(
   source: ProjectSource,
   changes: HistoryFileChange[],
-  expectedSide: "before" | "after",
+  expectedSide: HistorySide,
 ): Promise<void> {
   for (const change of changes) {
     const current = await source.readText(change.path);
@@ -108,7 +159,7 @@ async function verifyCurrentContents(
 async function writeChanges(
   source: ProjectSource,
   changes: HistoryFileChange[],
-  direction: "before" | "after",
+  direction: HistorySide,
 ): Promise<void> {
   const written: HistoryFileChange[] = [];
 
@@ -125,12 +176,49 @@ async function writeChanges(
         const rollbackContents = direction === "before" ? change.after : change.before;
         await source.writeText(change.path, rollbackContents);
       } catch {
-        // Preserve the original write error. The persisted history still has
-        // both versions so a future recovery UI can help if rollback failed.
+        // The journal was persisted before writing, so both versions remain
+        // available even if an interrupted multi-file write needs recovery.
       }
     }
     throw error;
   }
+}
+
+async function recoverPendingOperation(
+  source: ProjectSource,
+  state: HistoryState,
+): Promise<HistoryState> {
+  const pending = state.pending;
+  if (!pending) {
+    return state;
+  }
+
+  const entry = state.entries.find((candidate) => candidate.id === pending.entryId);
+  if (!entry) {
+    throw new Error("Yellow Editor history contains an invalid pending operation.");
+  }
+
+  const currentSide = await inspectEntrySide(source, entry.files);
+  const originalSide: HistorySide = pending.direction === "after" ? "before" : "after";
+
+  if (currentSide === "mixed") {
+    throw new Error(
+      `Yellow Editor found an interrupted save (${entry.label}) where only some files were written. The before/after snapshots are preserved in history, but automatic recovery was stopped to avoid overwriting possible external edits.`,
+    );
+  }
+
+  const recovered: HistoryState = {
+    ...state,
+    cursor: currentSide === pending.direction ? pending.toCursor : pending.fromCursor,
+    pending: null,
+  };
+
+  if (currentSide !== pending.direction && currentSide !== originalSide) {
+    throw new Error(`Could not determine the state of interrupted history entry '${entry.label}'.`);
+  }
+
+  await source.historyStore.save(recovered);
+  return recovered;
 }
 
 export interface ProjectHistoryManager {
@@ -146,7 +234,8 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
 
   async function getState(): Promise<HistoryState> {
     if (!cachedState) {
-      cachedState = normalizeHistory(await source.historyStore.load());
+      const loaded = normalizeHistory(await source.historyStore.load());
+      cachedState = await recoverPendingOperation(source, loaded);
     }
     return cachedState;
   }
@@ -154,6 +243,73 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
   async function persist(nextState: HistoryState): Promise<void> {
     await source.historyStore.save(nextState);
     cachedState = nextState;
+  }
+
+  async function prepareOperation(
+    state: HistoryState,
+    entry: HistoryEntry,
+    fromCursor: number,
+    toCursor: number,
+    direction: HistorySide,
+    entries = state.entries,
+  ): Promise<HistoryState> {
+    const prepared: HistoryState = {
+      version: HISTORY_VERSION,
+      entries,
+      cursor: fromCursor,
+      pending: {
+        entryId: entry.id,
+        fromCursor,
+        toCursor,
+        direction,
+      },
+    };
+    await persist(prepared);
+    return prepared;
+  }
+
+  async function clearFailedOperation(
+    originalState: HistoryState,
+    preparedState: HistoryState,
+    entry: HistoryEntry,
+  ): Promise<void> {
+    const side = await inspectEntrySide(source, entry.files);
+    const pending = preparedState.pending;
+    if (!pending) {
+      return;
+    }
+
+    const originalSide: HistorySide = pending.direction === "after" ? "before" : "after";
+    if (side === originalSide) {
+      await persist({ ...originalState, pending: null });
+      return;
+    }
+
+    // Keep the durable pending journal when the filesystem is mixed or already
+    // reached the target side. Reopening the project will reconcile it safely.
+    cachedState = null;
+  }
+
+  async function finalizeOperation(
+    preparedState: HistoryState,
+    toCursor: number,
+  ): Promise<HistoryState> {
+    const finalState: HistoryState = {
+      ...preparedState,
+      cursor: toCursor,
+      pending: null,
+    };
+
+    try {
+      await persist(finalState);
+    } catch (error) {
+      cachedState = null;
+      throw new Error(
+        `Files were written, but Yellow Editor could not finalize the history journal. Reopen the project to reconcile the saved snapshot. ${String(error)}`,
+      );
+    }
+
+    return finalState;
   }
 
   async function save(label: string, requests: TextWriteRequest[]): Promise<HistorySummary> {
@@ -205,26 +361,29 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
       files: changes,
     };
 
-    await writeChanges(source, changes, "after");
-
     const appliedEntries = state.entries.slice(0, state.cursor);
     appliedEntries.push(entry);
     const entries = appliedEntries.slice(-MAX_HISTORY_ENTRIES);
-    const nextState: HistoryState = {
-      version: HISTORY_VERSION,
+    const fromCursor = Math.max(0, entries.length - 1);
+    const toCursor = entries.length;
+    const prepared = await prepareOperation(
+      state,
+      entry,
+      fromCursor,
+      toCursor,
+      "after",
       entries,
-      cursor: entries.length,
-    };
+    );
 
     try {
-      await persist(nextState);
+      await writeChanges(source, changes, "after");
     } catch (error) {
-      // A save is only considered successful if its undo record is durable.
-      await writeChanges(source, changes, "before");
-      throw new Error(`Could not store Yellow Editor history; changes were rolled back. ${String(error)}`);
+      await clearFailedOperation(state, prepared, entry);
+      throw error;
     }
 
-    return summarize(nextState, source.historyStore.persistent);
+    const finalState = await finalizeOperation(prepared, toCursor);
+    return summarize(finalState, source.historyStore.persistent);
   }
 
   async function undo(): Promise<HistorySummary> {
@@ -235,21 +394,23 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
 
     const entry = state.entries[state.cursor - 1];
     await verifyCurrentContents(source, entry.files, "after");
-    await writeChanges(source, entry.files, "before");
-
-    const nextState: HistoryState = {
-      ...state,
-      cursor: state.cursor - 1,
-    };
+    const prepared = await prepareOperation(
+      state,
+      entry,
+      state.cursor,
+      state.cursor - 1,
+      "before",
+    );
 
     try {
-      await persist(nextState);
+      await writeChanges(source, entry.files, "before");
     } catch (error) {
-      await writeChanges(source, entry.files, "after");
-      throw new Error(`Could not update Yellow Editor history; undo was rolled back. ${String(error)}`);
+      await clearFailedOperation(state, prepared, entry);
+      throw error;
     }
 
-    return summarize(nextState, source.historyStore.persistent);
+    const finalState = await finalizeOperation(prepared, state.cursor - 1);
+    return summarize(finalState, source.historyStore.persistent);
   }
 
   async function redo(): Promise<HistorySummary> {
@@ -260,21 +421,23 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
 
     const entry = state.entries[state.cursor];
     await verifyCurrentContents(source, entry.files, "before");
-    await writeChanges(source, entry.files, "after");
-
-    const nextState: HistoryState = {
-      ...state,
-      cursor: state.cursor + 1,
-    };
+    const prepared = await prepareOperation(
+      state,
+      entry,
+      state.cursor,
+      state.cursor + 1,
+      "after",
+    );
 
     try {
-      await persist(nextState);
+      await writeChanges(source, entry.files, "after");
     } catch (error) {
-      await writeChanges(source, entry.files, "before");
-      throw new Error(`Could not update Yellow Editor history; redo was rolled back. ${String(error)}`);
+      await clearFailedOperation(state, prepared, entry);
+      throw error;
     }
 
-    return summarize(nextState, source.historyStore.persistent);
+    const finalState = await finalizeOperation(prepared, state.cursor + 1);
+    return summarize(finalState, source.historyStore.persistent);
   }
 
   return {
