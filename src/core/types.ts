@@ -179,6 +179,7 @@ export interface BuildEnvironment {
   tools: BuildToolStatus[];
   buildTool: BuildToolStatus;
   helperCompiler: BuildToolStatus | null;
+  helperTools: BuildToolStatus[];
   message: string;
 }
 
