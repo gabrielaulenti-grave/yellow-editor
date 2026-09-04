@@ -24,7 +24,7 @@ type PickerWindow = Window & {
 
 function pathParts(relativePath: string): string[] {
   const parts = relativePath
-    .replaceAll("\\", "/")
+    .replace(/\\/g, "/")
     .split("/")
     .filter(Boolean);
 
