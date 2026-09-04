@@ -215,6 +215,14 @@ export type BuildProgressStage =
 
 export type BuildProgressLevel = "info" | "warning" | "error";
 
+export interface BuildTaskProgress {
+  label: string;
+  completed?: number;
+  total?: number;
+  percent?: number;
+  unit?: string;
+}
+
 export interface BuildProgressEvent {
   stage: BuildProgressStage;
   level: BuildProgressLevel;
@@ -223,6 +231,7 @@ export interface BuildProgressEvent {
   tool?: string;
   completed?: number;
   total?: number;
+  task?: BuildTaskProgress;
   percent: number;
   timestamp: number;
 }
