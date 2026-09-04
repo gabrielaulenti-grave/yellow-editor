@@ -13,18 +13,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-			open_project,
-			get_pokemon_base_stats,
-			get_pokemon_index,
-			get_pokemon_details
-		])
+            open_project,
+            get_pokemon_base_stats,
+            get_pokemon_index,
+            get_pokemon_details
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-
 struct ProjectInfo {
     path: String,
     valid: bool,
@@ -51,7 +50,7 @@ fn open_project(path: String) -> Result<ProjectInfo, String> {
     for file in required_files {
         if !root.join(file).exists() {
             return Err(format!(
-                "This does not appear to be a pokeyellow project: missing {}",
+                "This does not appear to be a Pokémon disassembly project: missing {}",
                 file
             ));
         }
@@ -66,18 +65,25 @@ fn open_project(path: String) -> Result<ProjectInfo, String> {
     for dir in required_dirs {
         if !root.join(dir).is_dir() {
             return Err(format!(
-                "This does not appear to be a pokeyellow project: missing {} directory",
+                "This does not appear to be a Pokémon disassembly project: missing {} directory",
                 dir
             ));
         }
     }
 
+    let project_name = if root.join("data").join("pokemon").join("mew.asm").exists() {
+        "pokered"
+    } else {
+        "pokeyellow"
+    };
+
     Ok(ProjectInfo {
         path,
         valid: true,
-        project_name: "pokeyellow".into(),
+        project_name: project_name.into(),
     })
 }
+
 #[tauri::command]
 fn get_pokemon_base_stats(
     project_path: String,
@@ -91,14 +97,37 @@ fn get_pokemon_base_stats(
 
     parser::pokemon::parse_base_stats(&path)
 }
+
 #[tauri::command]
 fn get_pokemon_index(
     project_path: String,
 ) -> Result<Vec<parser::pokemon::PokemonIndexEntry>, String> {
     let root = Path::new(&project_path);
+    let mut entries = parser::pokemon::parse_pokemon_index(root)?;
 
-    parser::pokemon::parse_pokemon_index(root)
+    // pokered intentionally excludes Mew from data/pokemon/base_stats.asm,
+    // even though data/pokemon/base_stats/mew.asm exists. If the checkout
+    // contains that standalone file, expose it as Mew's normal source slug.
+    let mew_stats_path = root
+        .join("data")
+        .join("pokemon")
+        .join("base_stats")
+        .join("mew.asm");
+
+    if mew_stats_path.exists() {
+        if let Some(mew) = entries
+            .iter_mut()
+            .find(|entry| entry.constant.as_deref() == Some("MEW"))
+        {
+            if mew.source_slug.is_none() {
+                mew.source_slug = Some("mew".to_string());
+            }
+        }
+    }
+
+    Ok(entries)
 }
+
 #[tauri::command]
 fn get_pokemon_details(
     project_path: String,
@@ -121,34 +150,34 @@ fn get_pokemon_details(
 
     let pokedex =
         parser::pokemon::parse_pokedex_info(root, internal_id)?;
-	
-	let front_path = root
-    .join("gfx")
-    .join("pokemon")
-    .join("front")
-    .join(format!("{}.png", source_slug));
 
-	let back_path = root
-		.join("gfx")
-		.join("pokemon")
-		.join("back")
-		.join(format!("{}b.png", source_slug));
+    let front_path = root
+        .join("gfx")
+        .join("pokemon")
+        .join("front")
+        .join(format!("{}.png", source_slug));
 
-	let sprites = parser::pokemon::PokemonSprites {
-		front: front_path
-			.exists()
-			.then(|| front_path.to_string_lossy().to_string()),
+    let back_path = root
+        .join("gfx")
+        .join("pokemon")
+        .join("back")
+        .join(format!("{}b.png", source_slug));
 
-		back: back_path
-			.exists()
-			.then(|| back_path.to_string_lossy().to_string()),
-	};
+    let sprites = parser::pokemon::PokemonSprites {
+        front: front_path
+            .exists()
+            .then(|| front_path.to_string_lossy().to_string()),
+
+        back: back_path
+            .exists()
+            .then(|| back_path.to_string_lossy().to_string()),
+    };
 
     Ok(PokemonDetails {
         stats,
         evolutions,
         learnset,
         pokedex,
-		sprites,
+        sprites,
     })
 }
