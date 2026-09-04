@@ -1,92 +1,78 @@
 import { useState } from "react";
+import type {
+  HistorySummary,
+  MoveData,
+  PokemonBaseStatsEditDocument,
+  PokemonBaseStatValues,
+  PokemonDetails,
+  PokemonIndexEntry,
+  ProjectInfo,
+} from "./core/types";
 import { invoke, open } from "./platform/compat";
 import { PokemonSpritePanel } from "./PokemonSpritePanel";
 import "./App.css";
 
-interface ProjectInfo {
-  path: string;
-  valid: boolean;
-  projectName: string;
-}
-
-interface PokemonIndexEntry {
-  internalId: number;
-  constant: string | null;
-  displayName: string;
-  kind: "pokemon" | "missingno" | "special" | "system";
-  sourceSlug: string | null;
-}
-
-interface PokemonBaseStats {
-  dexConstant: string;
-  hp: number;
-  attack: number;
-  defense: number;
-  speed: number;
-  special: number;
-  type1: string;
-  type2: string;
-  catchRate: number;
-  baseExp: number;
-}
-
-interface PokemonSprites {
-  front: string | null;
-  back: string | null;
-}
-
-interface LearnsetMove {
-  level: number;
-  moveConstant: string;
-}
-
-interface Evolution {
-  method: "level" | "item" | "trade";
-  level: number | null;
-  item: string | null;
-  target: string;
-}
-
-interface PokedexTextLine {
-  kind: "text" | "next" | "page";
-  text: string;
-}
-
-interface PokedexInfo {
-  category: string;
-  heightFeet: number;
-  heightInches: number;
-  weightTenthsLb: number;
-  textLabel: string;
-  textLines: PokedexTextLine[];
-}
-
-interface PokemonDetails {
-  stats: PokemonBaseStats;
-  evolutions: Evolution[];
-  learnset: LearnsetMove[];
-  pokedex: PokedexInfo | null;
-  sprites: PokemonSprites;
-}
-
-interface MoveData {
-  id: number;
-  constant: string;
-  name: string;
-  animation: string;
-  effect: string;
-  power: number;
-  moveType: string;
-  accuracy: number;
-  pp: number;
-  animationLabel: string | null;
-  animationScript: string[];
-}
-
 type Tab = "pokemon" | "moves";
+type BaseStatKey = keyof PokemonBaseStatValues;
+type BaseStatsDraft = Record<BaseStatKey, string>;
+
+const BASE_STAT_FIELDS: { key: BaseStatKey; label: string }[] = [
+  { key: "hp", label: "HP" },
+  { key: "attack", label: "Attack" },
+  { key: "defense", label: "Defense" },
+  { key: "speed", label: "Speed" },
+  { key: "special", label: "Special" },
+];
+
+const EMPTY_BASE_STATS_DRAFT: BaseStatsDraft = {
+  hp: "",
+  attack: "",
+  defense: "",
+  speed: "",
+  special: "",
+};
 
 function formatHex(value: number) {
   return `$${value.toString(16).toUpperCase().padStart(2, "0")}`;
+}
+
+function draftFromValues(values: PokemonBaseStatValues): BaseStatsDraft {
+  return {
+    hp: String(values.hp),
+    attack: String(values.attack),
+    defense: String(values.defense),
+    speed: String(values.speed),
+    special: String(values.special),
+  };
+}
+
+function validateBaseStatInput(value: string): string | null {
+  if (!/^\d+$/.test(value)) {
+    return "Enter a whole number.";
+  }
+
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 255) {
+    return "Must be between 1 and 255.";
+  }
+
+  return null;
+}
+
+function parseBaseStatsDraft(draft: BaseStatsDraft): PokemonBaseStatValues | null {
+  for (const field of BASE_STAT_FIELDS) {
+    if (validateBaseStatInput(draft[field.key])) {
+      return null;
+    }
+  }
+
+  return {
+    hp: Number(draft.hp),
+    attack: Number(draft.attack),
+    defense: Number(draft.defense),
+    speed: Number(draft.speed),
+    special: Number(draft.special),
+  };
 }
 
 function ReadonlyField({ label, value }: { label: string; value: string | number }) {
@@ -94,6 +80,37 @@ function ReadonlyField({ label, value }: { label: string; value: string | number
     <label className="editor-field">
       <span>{label}</span>
       <input value={value} readOnly />
+    </label>
+  );
+}
+
+function EditableStatField({
+  label,
+  value,
+  error,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  error: string | null;
+  disabled: boolean;
+  onChange(value: string): void;
+}) {
+  return (
+    <label className={`editor-field editable-stat-field${error ? " field-invalid" : ""}`}>
+      <span>{label}</span>
+      <input
+        type="number"
+        min={1}
+        max={255}
+        step={1}
+        value={value}
+        disabled={disabled}
+        aria-invalid={error ? "true" : "false"}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {error && <small className="field-error">{error}</small>}
     </label>
   );
 }
@@ -109,6 +126,12 @@ function App() {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
+  const [baseStatsDocument, setBaseStatsDocument] =
+    useState<PokemonBaseStatsEditDocument | null>(null);
+  const [baseStatsDraft, setBaseStatsDraft] =
+    useState<BaseStatsDraft>(EMPTY_BASE_STATS_DRAFT);
+  const [historySummary, setHistorySummary] = useState<HistorySummary | null>(null);
+  const [editBusy, setEditBusy] = useState(false);
 
   const selectedMove = moves.find((move) => move.id === selectedMoveId) ?? null;
   const selectedPokemonEntry =
@@ -127,17 +150,42 @@ function App() {
     );
   });
 
-  async function loadPokemon(entry: PokemonIndexEntry) {
+  const baseStatErrors = Object.fromEntries(
+    BASE_STAT_FIELDS.map((field) => [field.key, validateBaseStatInput(baseStatsDraft[field.key])]),
+  ) as Record<BaseStatKey, string | null>;
+
+  const baseStatsValid = BASE_STAT_FIELDS.every((field) => !baseStatErrors[field.key]);
+  const baseStatsDirty = Boolean(
+    baseStatsDocument &&
+      BASE_STAT_FIELDS.some(
+        (field) => baseStatsDraft[field.key] !== String(baseStatsDocument.values[field.key]),
+      ),
+  );
+
+  function clearPokemonEditor() {
+    setSelectedPokemon(null);
+    setSelectedPokemonId(null);
+    setTmhmMoves([]);
+    setBaseStatsDocument(null);
+    setBaseStatsDraft(EMPTY_BASE_STATS_DRAFT);
+  }
+
+  async function loadPokemon(
+    entry: PokemonIndexEntry,
+    successMessage = "Pokémon loaded successfully.",
+  ) {
     setSelectedPokemonId(entry.internalId);
 
     if (!project || !entry.sourceSlug) {
       setSelectedPokemon(null);
       setTmhmMoves([]);
+      setBaseStatsDocument(null);
+      setBaseStatsDraft(EMPTY_BASE_STATS_DRAFT);
       return;
     }
 
     try {
-      const [details, compatibleMoves] = await Promise.all([
+      const [details, compatibleMoves, editDocument] = await Promise.all([
         invoke<PokemonDetails>("get_pokemon_details", {
           projectPath: project.path,
           internalId: entry.internalId,
@@ -147,19 +195,33 @@ function App() {
           projectPath: project.path,
           sourceSlug: entry.sourceSlug,
         }),
+        invoke<PokemonBaseStatsEditDocument>("get_pokemon_base_stats_edit_document", {
+          sourceSlug: entry.sourceSlug,
+        }),
       ]);
 
       setSelectedPokemon(details);
       setTmhmMoves(compatibleMoves);
-      setStatus("Pokémon loaded successfully.");
+      setBaseStatsDocument(editDocument);
+      setBaseStatsDraft(draftFromValues(editDocument.values));
+      setStatus(successMessage);
     } catch (error) {
       setSelectedPokemon(null);
       setTmhmMoves([]);
+      setBaseStatsDocument(null);
+      setBaseStatsDraft(EMPTY_BASE_STATS_DRAFT);
       setStatus(String(error));
     }
   }
 
   async function selectProject() {
+    if (
+      baseStatsDirty &&
+      !window.confirm("Discard the unsaved base stat changes and open another project?")
+    ) {
+      return;
+    }
+
     try {
       const selected = await open({
         directory: true,
@@ -173,29 +235,134 @@ function App() {
 
       const result = await invoke<ProjectInfo>("open_project", { path: selected });
 
-      const [index, moveData] = await Promise.all([
+      const [index, moveData, history] = await Promise.all([
         invoke<PokemonIndexEntry[]>("get_pokemon_index", { projectPath: result.path }),
         invoke<MoveData[]>("get_moves", { projectPath: result.path }),
+        invoke<HistorySummary>("get_history_summary"),
       ]);
 
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
-      setSelectedPokemon(null);
-      setSelectedPokemonId(null);
-      setTmhmMoves([]);
+      clearPokemonEditor();
       setSelectedMoveId(moveData[0]?.id ?? null);
       setMoveSearch("");
+      setHistorySummary(history);
       setStatus("Project loaded successfully.");
     } catch (error) {
       setProject(null);
       setPokemonIndex([]);
       setMoves([]);
-      setSelectedPokemon(null);
-      setSelectedPokemonId(null);
-      setTmhmMoves([]);
+      clearPokemonEditor();
       setSelectedMoveId(null);
+      setHistorySummary(null);
       setStatus(String(error));
+    }
+  }
+
+  async function selectPokemon(entry: PokemonIndexEntry) {
+    if (
+      baseStatsDirty &&
+      entry.internalId !== selectedPokemonId &&
+      !window.confirm("Discard the unsaved base stat changes and switch Pokémon?")
+    ) {
+      return;
+    }
+
+    await loadPokemon(entry);
+  }
+
+  function updateBaseStat(key: BaseStatKey, value: string) {
+    setBaseStatsDraft((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }
+
+  async function saveBaseStats() {
+    if (
+      !selectedPokemonEntry?.sourceSlug ||
+      !baseStatsDocument ||
+      !baseStatsDirty ||
+      !baseStatsValid
+    ) {
+      return;
+    }
+
+    const values = parseBaseStatsDraft(baseStatsDraft);
+    if (!values) {
+      setStatus("Base stats must be integer values between 1 and 255.");
+      return;
+    }
+
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("save_pokemon_base_stats", {
+        sourceSlug: selectedPokemonEntry.sourceSlug,
+        expectedHash: baseStatsDocument.sourceHash,
+        values,
+      });
+      setHistorySummary(history);
+      await loadPokemon(selectedPokemonEntry, "Base stats saved successfully.");
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function undoLastSave() {
+    if (!historySummary?.canUndo || baseStatsDirty || editBusy) {
+      return;
+    }
+
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("undo_last_save");
+      setHistorySummary(history);
+      if (selectedPokemonEntry?.sourceSlug) {
+        await loadPokemon(selectedPokemonEntry, "Undid the last saved change.");
+      } else {
+        setStatus("Undid the last saved change.");
+      }
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function redoLastUndo() {
+    if (!historySummary?.canRedo || baseStatsDirty || editBusy) {
+      return;
+    }
+
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("redo_last_undo");
+      setHistorySummary(history);
+      if (selectedPokemonEntry?.sourceSlug) {
+        await loadPokemon(selectedPokemonEntry, "Redid the last saved change.");
+      } else {
+        setStatus("Redid the last saved change.");
+      }
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function revertUnsavedChanges() {
+    if (!baseStatsDirty || !selectedPokemonEntry?.sourceSlug || editBusy) {
+      return;
+    }
+
+    setEditBusy(true);
+    try {
+      await loadPokemon(selectedPokemonEntry, "Unsaved base stat changes reverted.");
+    } finally {
+      setEditBusy(false);
     }
   }
 
@@ -210,10 +377,54 @@ function App() {
       </header>
 
       {project && (
-        <section className="project-strip">
-          <strong>{project.projectName}</strong>
-          <span>{project.path}</span>
-        </section>
+        <>
+          <section className="project-strip">
+            <strong>{project.projectName}</strong>
+            <span>{project.path}</span>
+          </section>
+
+          <section className="edit-toolbar" aria-label="Editing history controls">
+            <div className="edit-actions">
+              <button
+                className="primary-action"
+                disabled={editBusy || !baseStatsDirty || !baseStatsValid}
+                onClick={saveBaseStats}
+              >
+                Save
+              </button>
+              <button
+                disabled={editBusy || baseStatsDirty || !historySummary?.canUndo}
+                onClick={undoLastSave}
+                title={baseStatsDirty ? "Save or revert unsaved changes before undoing." : undefined}
+              >
+                Undo
+              </button>
+              <button
+                disabled={editBusy || baseStatsDirty || !historySummary?.canRedo}
+                onClick={redoLastUndo}
+                title={baseStatsDirty ? "Save or revert unsaved changes before redoing." : undefined}
+              >
+                Redo
+              </button>
+              <button
+                disabled={editBusy || !baseStatsDirty}
+                onClick={revertUnsavedChanges}
+                title="Discard unsaved edits and reload the selected Pokémon from the project."
+              >
+                Revert
+              </button>
+            </div>
+            <div className="history-status">
+              {baseStatsDirty ? (
+                <strong className="unsaved-indicator">Unsaved changes</strong>
+              ) : historySummary?.latestLabel ? (
+                <span>Latest saved change: {historySummary.latestLabel}</span>
+              ) : (
+                <span>No Yellow Editor saves yet.</span>
+              )}
+            </div>
+          </section>
+        </>
       )}
 
       <nav className="tab-bar">
@@ -236,7 +447,7 @@ function App() {
           <div className="tab-heading-row">
             <div>
               <h2>Pokémon</h2>
-              <p>Read-only layout prepared for the upcoming editor.</p>
+              <p>Base stats are editable; the remaining fields are still read-only.</p>
             </div>
             <select
               value={selectedPokemonId ?? ""}
@@ -244,7 +455,7 @@ function App() {
                 const id = Number(event.target.value);
                 const entry = pokemonIndex.find((pokemon) => pokemon.internalId === id);
                 if (entry) {
-                  loadPokemon(entry);
+                  void selectPokemon(entry);
                 }
               }}
             >
@@ -283,13 +494,25 @@ function App() {
               />
 
               <section className="editor-card">
-                <h4>Base Stats</h4>
+                <div className="section-heading">
+                  <div>
+                    <h4>Base Stats</h4>
+                    <p>Each editable stat must be a whole number from 1 to 255.</p>
+                  </div>
+                  {baseStatsDirty && <span className="unsaved-indicator">Modified</span>}
+                </div>
+
                 <div className="field-grid stat-grid">
-                  <ReadonlyField label="HP" value={selectedPokemon.stats.hp} />
-                  <ReadonlyField label="Attack" value={selectedPokemon.stats.attack} />
-                  <ReadonlyField label="Defense" value={selectedPokemon.stats.defense} />
-                  <ReadonlyField label="Speed" value={selectedPokemon.stats.speed} />
-                  <ReadonlyField label="Special" value={selectedPokemon.stats.special} />
+                  {BASE_STAT_FIELDS.map((field) => (
+                    <EditableStatField
+                      key={field.key}
+                      label={field.label}
+                      value={baseStatsDraft[field.key]}
+                      error={baseStatErrors[field.key]}
+                      disabled={editBusy}
+                      onChange={(value) => updateBaseStat(field.key, value)}
+                    />
+                  ))}
                   <ReadonlyField label="Catch Rate" value={selectedPokemon.stats.catchRate} />
                   <ReadonlyField label="Base EXP" value={selectedPokemon.stats.baseExp} />
                   <ReadonlyField label="Dex Constant" value={selectedPokemon.stats.dexConstant} />
