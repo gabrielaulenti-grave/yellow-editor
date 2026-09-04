@@ -5,6 +5,7 @@ import {
   parsePokemonIndex,
   parsePokemonTmhmMoves,
 } from "./parsers";
+import { createProjectHistoryManager } from "./history";
 import { parsePokemonPalette } from "./palettes";
 import type { ProjectSession, ProjectSource } from "./types";
 
@@ -33,6 +34,7 @@ export async function createProjectSession(
   const projectName = (await source.exists("data/pokemon/mew.asm"))
     ? "pokered"
     : "pokeyellow";
+  const history = createProjectHistoryManager(source);
 
   return {
     info: {
@@ -50,6 +52,10 @@ export async function createProjectSession(
       return parsePokemonPalette(source, stats.dexConstant);
     },
     getMoves: () => parseMoves(source),
+    getHistorySummary: () => history.getSummary(),
+    saveTextChanges: (label, changes) => history.save(label, changes),
+    undoLastSave: () => history.undo(),
+    redoLastUndo: () => history.redo(),
     dispose: () => source.dispose?.(),
   };
 }
