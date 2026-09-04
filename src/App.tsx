@@ -9,6 +9,7 @@ import type {
   ProjectInfo,
 } from "./core/types";
 import { invoke, open } from "./platform/compat";
+import { BuildPanel } from "./BuildPanel";
 import { PokemonSpritePanel } from "./PokemonSpritePanel";
 import "./App.css";
 
@@ -424,6 +425,11 @@ function App() {
               )}
             </div>
           </section>
+
+          <BuildPanel
+            projectPath={project.path}
+            hasUnsavedChanges={baseStatsDirty}
+          />
         </>
       )}
 
