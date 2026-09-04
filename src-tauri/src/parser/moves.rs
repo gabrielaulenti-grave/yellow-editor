@@ -20,6 +20,7 @@ pub struct MoveData {
 
 pub fn parse_moves(project_root: &Path) -> Result<Vec<MoveData>, String> {
     let move_rows = parse_move_rows(project_root)?;
+    let constants = parse_move_constants(project_root)?;
     let names = parse_move_names(project_root)?;
     let animation_labels = parse_animation_labels(project_root)?;
 
@@ -29,10 +30,15 @@ pub fn parse_moves(project_root: &Path) -> Result<Vec<MoveData>, String> {
         let id = u8::try_from(index + 1)
             .map_err(|_| "Move index does not fit in a byte".to_string())?;
 
+        let constant = constants
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| row.animation.clone());
+
         let name = names
             .get(index)
             .cloned()
-            .unwrap_or_else(|| row.constant.clone());
+            .unwrap_or_else(|| constant.clone());
 
         let animation_label = animation_labels.get(index).cloned();
         let animation_script = match animation_label.as_deref() {
@@ -42,7 +48,7 @@ pub fn parse_moves(project_root: &Path) -> Result<Vec<MoveData>, String> {
 
         moves.push(MoveData {
             id,
-            constant: row.constant,
+            constant,
             name,
             animation: row.animation,
             effect: row.effect,
@@ -59,7 +65,6 @@ pub fn parse_moves(project_root: &Path) -> Result<Vec<MoveData>, String> {
 }
 
 struct MoveRow {
-    constant: String,
     animation: String,
     effect: String,
     power: u8,
@@ -90,28 +95,20 @@ fn parse_move_rows(project_root: &Path) -> Result<Vec<MoveRow>, String> {
             continue;
         };
 
-        // Ignore the macro definition line: `move` rows in the table have six
+        // Ignore the macro definition line: move rows in the table have six
         // comma-separated arguments.
         let fields: Vec<&str> = values.split(',').map(str::trim).collect();
         if fields.len() != 6 {
             continue;
         }
 
-        let animation = fields[0].to_string();
-        let effect = fields[1].to_string();
-        let power = parse_u8(fields[2], "power")?;
-        let move_type = fields[3].to_string();
-        let accuracy = parse_u8(fields[4], "accuracy")?;
-        let pp = parse_u8(fields[5], "PP")?;
-
         rows.push(MoveRow {
-            constant: animation.clone(),
-            animation,
-            effect,
-            power,
-            move_type,
-            accuracy,
-            pp,
+            animation: fields[0].to_string(),
+            effect: fields[1].to_string(),
+            power: parse_u8(fields[2], "power")?,
+            move_type: fields[3].to_string(),
+            accuracy: parse_u8(fields[4], "accuracy")?,
+            pp: parse_u8(fields[5], "PP")?,
         });
     }
 
@@ -120,6 +117,54 @@ fn parse_move_rows(project_root: &Path) -> Result<Vec<MoveRow>, String> {
     }
 
     Ok(rows)
+}
+
+fn parse_move_constants(project_root: &Path) -> Result<Vec<String>, String> {
+    let path = project_root
+        .join("constants")
+        .join("move_constants.asm");
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+
+    let mut constants = Vec::new();
+    let mut in_move_ids = false;
+
+    for raw_line in contents.lines() {
+        let line = raw_line
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
+
+        if line == "const_def" && !in_move_ids {
+            in_move_ids = true;
+            continue;
+        }
+
+        if !in_move_ids {
+            continue;
+        }
+
+        if let Some(name) = line.strip_prefix("const ") {
+            let name = name.trim();
+
+            // NO_MOVE is id $00. Moves: starts at id $01, so skip it.
+            if name == "NO_MOVE" && constants.is_empty() {
+                continue;
+            }
+
+            constants.push(name.to_string());
+            continue;
+        }
+
+        // Stop when the first contiguous move-constant section ends.
+        if !constants.is_empty() && !line.is_empty() {
+            break;
+        }
+    }
+
+    Ok(constants)
 }
 
 fn parse_move_names(project_root: &Path) -> Result<Vec<String>, String> {
