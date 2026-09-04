@@ -2,6 +2,7 @@ import { inspectPretWasmTools } from "./pretWasmTools";
 import { inspectRgbdsWasm } from "./rgbdsWasm";
 import type {
   BuildEnvironment,
+  BuildProgressListener,
   BuildResult,
   BuildService,
   BuildTarget,
@@ -17,6 +18,22 @@ function unavailableTool(name: string): BuildToolStatus {
     path: null,
     version: null,
   };
+}
+
+function report(
+  onProgress: BuildProgressListener | undefined,
+  message: string,
+  percent: number,
+  detail?: string,
+) {
+  onProgress?.({
+    stage: "preparing",
+    level: "info",
+    message,
+    detail,
+    percent,
+    timestamp: Date.now(),
+  });
 }
 
 async function readRequiredRgbdsVersion(source: ProjectSource): Promise<string | null> {
@@ -70,13 +87,40 @@ export function createWebBuildService(source: ProjectSource): BuildService {
   return {
     inspect: inspectEnvironment,
 
-    async build(target: BuildTarget): Promise<BuildResult> {
+    async build(
+      target: BuildTarget,
+      onProgress?: BuildProgressListener,
+    ): Promise<BuildResult> {
+      report(onProgress, "Inspecting the build environment", 2);
       const environment = await inspectEnvironment();
+      report(
+        onProgress,
+        "Build environment ready",
+        5,
+        `RGBDS ${environment.detectedRgbdsVersion ?? "not detected"}; target ${target}`,
+      );
+
       if (!environment.targets.includes(target)) {
-        throw new Error(`Build target '${target}' does not belong to this project.`);
+        const message = `Build target '${target}' does not belong to this project.`;
+        onProgress?.({
+          stage: "error",
+          level: "error",
+          message,
+          percent: 5,
+          timestamp: Date.now(),
+        });
+        throw new Error(message);
       }
 
       if (!environment.ready || !environment.requiredRgbdsVersion) {
+        onProgress?.({
+          stage: "error",
+          level: "error",
+          message: "The browser build environment is not ready.",
+          detail: environment.message,
+          percent: 5,
+          timestamp: Date.now(),
+        });
         return {
           success: false,
           target,
@@ -89,7 +133,12 @@ export function createWebBuildService(source: ProjectSource): BuildService {
         };
       }
 
-      return buildWebRom(source, target, environment.requiredRgbdsVersion);
+      return buildWebRom(
+        source,
+        target,
+        environment.requiredRgbdsVersion,
+        onProgress,
+      );
     },
   };
 }
