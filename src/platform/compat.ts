@@ -1,4 +1,5 @@
 import type {
+  BuildProgressListener,
   BuildTarget,
   PokemonBaseStatValues,
   ProjectSession,
@@ -72,6 +73,19 @@ function buildTargetArg(args: InvokeArgs | undefined): BuildTarget {
     throw new Error(`Unsupported build target '${value}'.`);
   }
   return value;
+}
+
+function buildProgressArg(
+  args: InvokeArgs | undefined,
+): BuildProgressListener | undefined {
+  const value = args?.onProgress;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "function") {
+    throw new Error("Build progress callback must be a function.");
+  }
+  return value as BuildProgressListener;
 }
 
 function baseStatValuesArg(args: InvokeArgs | undefined): PokemonBaseStatValues {
@@ -186,7 +200,10 @@ export async function invoke<T>(
       return (await session.getBuildEnvironment()) as T;
 
     case "build_rom":
-      return (await session.buildRom(buildTargetArg(args))) as T;
+      return (await session.buildRom(
+        buildTargetArg(args),
+        buildProgressArg(args),
+      )) as T;
 
     default:
       throw new Error(`Unsupported project command: ${command}`);
