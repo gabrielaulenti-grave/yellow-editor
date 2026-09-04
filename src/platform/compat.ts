@@ -85,6 +85,11 @@ export async function invoke<T>(
         stringArg(args, "sourceSlug"),
       )) as T;
 
+    case "get_pokemon_palette":
+      return (await session.getPokemonPalette(
+        stringArg(args, "sourceSlug"),
+      )) as T;
+
     case "get_moves":
       return (await session.getMoves()) as T;
 
