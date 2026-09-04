@@ -3,6 +3,7 @@ import type {
   BuildEnvironment,
   BuildResult,
   BuildTarget,
+  BuildToolStatus,
 } from "./core/types";
 import { invoke } from "./platform/compat";
 import "./BuildPanel.css";
@@ -29,6 +30,21 @@ function targetLabel(target: BuildTarget): string {
     case "blue":
       return "Pokémon Blue";
   }
+}
+
+function ToolRows({ tools }: { tools: BuildToolStatus[] }) {
+  return (
+    <>
+      {tools.map((tool) => (
+        <div key={`${tool.name}-${tool.path ?? "missing"}`}>
+          <strong>{tool.name}</strong>
+          <span>{tool.available ? "Available" : "Missing"}</span>
+          {tool.version && <code>{tool.version}</code>}
+          {tool.path && <code>{tool.path}</code>}
+        </div>
+      ))}
+    </>
+  );
 }
 
 export function BuildPanel({
@@ -115,9 +131,9 @@ export function BuildPanel({
         <div>
           <h2>Build ROM</h2>
           <p>
-            RGBDS integration now detects the checkout's requested compiler version and
-            can run the desktop project's existing Makefile when the required native
-            tools are available.
+            Yellow Editor keeps the build API shared across desktop and web. Desktop
+            uses native RGBDS today; the web backend is assembling the same pipeline
+            from precompiled WebAssembly tools.
           </p>
         </div>
 
@@ -204,17 +220,21 @@ export function BuildPanel({
           <details className="build-tool-details">
             <summary>Tool details</summary>
             <div className="build-tool-list">
-              {[...environment.tools, environment.buildTool]
-                .concat(environment.helperCompiler ? [environment.helperCompiler] : [])
-                .map((tool) => (
-                  <div key={`${tool.name}-${tool.path ?? "missing"}`}>
-                    <strong>{tool.name}</strong>
-                    <span>{tool.available ? "Available" : "Missing"}</span>
-                    {tool.version && <code>{tool.version}</code>}
-                    {tool.path && <code>{tool.path}</code>}
-                  </div>
-                ))}
+              <ToolRows
+                tools={[...environment.tools, environment.buildTool].concat(
+                  environment.helperCompiler ? [environment.helperCompiler] : [],
+                )}
+              />
             </div>
+
+            {environment.helperTools.length > 0 && (
+              <>
+                <h4>Pret helper tools</h4>
+                <div className="build-tool-list">
+                  <ToolRows tools={environment.helperTools} />
+                </div>
+              </>
+            )}
           </details>
         </>
       ) : null}
