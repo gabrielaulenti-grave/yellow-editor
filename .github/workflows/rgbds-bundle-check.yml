@@ -1,0 +1,36 @@
+name: Check RGBDS bundles
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "scripts/prepare-rgbds.mjs"
+      - "src-tauri/resources/rgbds/**"
+      - "package.json"
+      - ".github/workflows/rgbds-bundle-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Prepare pinned RGBDS
+        run: npm run prepare:rgbds
+
+      - name: Verify cached preparation
+        run: npm run prepare:rgbds
