@@ -18,7 +18,8 @@ pub fn run() {
             get_pokemon_base_stats,
             get_pokemon_index,
             get_pokemon_details,
-            get_pokemon_tmhm_moves
+            get_pokemon_tmhm_moves,
+            get_moves
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -241,4 +242,11 @@ fn get_pokemon_details(
         pokedex,
         sprites,
     })
+}
+
+#[tauri::command]
+fn get_moves(
+    project_path: String,
+) -> Result<Vec<parser::moves::MoveData>, String> {
+    parser::moves::parse_moves(Path::new(&project_path))
 }
