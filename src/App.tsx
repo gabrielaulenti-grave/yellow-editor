@@ -1,9 +1,5 @@
 import { useState } from "react";
-import {
-  invoke,
-  convertFileSrc,
-} from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
+import { invoke, convertFileSrc, open } from "./platform/compat";
 
 interface ProjectInfo {
   path: string;
