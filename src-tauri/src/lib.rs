@@ -4,6 +4,7 @@ use parser::pokemon::{
     PokemonBaseStats,
     PokemonDetails,
 };
+use std::fs;
 use std::path::Path;
 use serde::Serialize;
 
@@ -16,7 +17,8 @@ pub fn run() {
             open_project,
             get_pokemon_base_stats,
             get_pokemon_index,
-            get_pokemon_details
+            get_pokemon_details,
+            get_pokemon_tmhm_moves
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -96,6 +98,65 @@ fn get_pokemon_base_stats(
         .join(format!("{}.asm", pokemon));
 
     parser::pokemon::parse_base_stats(&path)
+}
+
+#[tauri::command]
+fn get_pokemon_tmhm_moves(
+    project_path: String,
+    source_slug: String,
+) -> Result<Vec<String>, String> {
+    let path = Path::new(&project_path)
+        .join("data")
+        .join("pokemon")
+        .join("base_stats")
+        .join(format!("{}.asm", source_slug));
+
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+
+    let mut moves = Vec::new();
+    let mut collecting = false;
+
+    for raw_line in contents.lines() {
+        let line = raw_line
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim();
+
+        if line.is_empty() {
+            continue;
+        }
+
+        let values = if let Some(rest) = line.strip_prefix("tmhm ") {
+            collecting = true;
+            Some(rest)
+        } else if collecting {
+            Some(line)
+        } else {
+            None
+        };
+
+        let Some(values) = values else {
+            continue;
+        };
+
+        let continues = values.trim_end().ends_with('\\');
+        let values = values.trim_end_matches('\\').trim();
+
+        for value in values.split(',') {
+            let value = value.trim();
+            if !value.is_empty() {
+                moves.push(value.to_string());
+            }
+        }
+
+        if !continues {
+            break;
+        }
+    }
+
+    Ok(moves)
 }
 
 #[tauri::command]
