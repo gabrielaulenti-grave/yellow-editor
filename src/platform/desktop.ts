@@ -53,6 +53,14 @@ function createDesktopSource(projectPath: string): ProjectSource {
       });
     },
 
+    async readBytes(relativePath) {
+      const bytes = await invoke<number[]>("read_project_bytes", {
+        projectPath,
+        relativePath,
+      });
+      return Uint8Array.from(bytes);
+    },
+
     writeText(relativePath, contents) {
       return invoke<void>("write_project_text", {
         projectPath,
