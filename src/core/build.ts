@@ -1,3 +1,4 @@
+import { inspectPretWasmTools } from "./pretWasmTools";
 import type {
   BuildEnvironment,
   BuildResult,
@@ -34,9 +35,10 @@ async function detectBuildTargets(source: ProjectSource): Promise<BuildTarget[]>
 export function createWebBuildService(source: ProjectSource): BuildService {
   return {
     async inspect(): Promise<BuildEnvironment> {
-      const [requiredRgbdsVersion, targets] = await Promise.all([
+      const [requiredRgbdsVersion, targets, helperInspection] = await Promise.all([
         readRequiredRgbdsVersion(source),
         detectBuildTargets(source),
+        inspectPretWasmTools(source),
       ]);
 
       return {
@@ -53,17 +55,18 @@ export function createWebBuildService(source: ProjectSource): BuildService {
           unavailableTool("rgbfix"),
           unavailableTool("rgbgfx"),
         ],
-        buildTool: unavailableTool("make"),
+        buildTool: unavailableTool("Yellow Editor build graph"),
         helperCompiler: null,
+        helperTools: helperInspection.tools,
         message: requiredRgbdsVersion
-          ? `This checkout requests RGBDS ${requiredRgbdsVersion}. The browser RGBDS/WASM backend is the next integration step.`
-          : "The browser RGBDS/WASM backend is the next integration step.",
+          ? `This checkout requests RGBDS ${requiredRgbdsVersion}. ${helperInspection.message}`
+          : helperInspection.message,
       };
     },
 
     async build(_target: BuildTarget): Promise<BuildResult> {
       throw new Error(
-        "ROM building is not available in the web version yet. The shared build API is ready for the RGBDS/WASM backend.",
+        "ROM building is not available in the web version yet. The pret helper WASM runtime is in place; RGBDS/WASM and the browser build graph are the remaining build stages.",
       );
     },
   };
