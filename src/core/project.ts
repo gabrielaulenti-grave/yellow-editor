@@ -7,6 +7,11 @@ import {
 } from "./parsers";
 import { createProjectHistoryManager } from "./history";
 import { parsePokemonPalette } from "./palettes";
+import {
+  loadPokemonBaseStatsEditDocument,
+  preparePokemonBaseStatsWrite,
+  validatePokemonBaseStats,
+} from "./pokemonEditing";
 import type { ProjectSession, ProjectSource } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
@@ -50,6 +55,19 @@ export async function createProjectSession(
     getPokemonPalette: async (sourceSlug) => {
       const stats = await parseBaseStats(source, sourceSlug);
       return parsePokemonPalette(source, stats.dexConstant);
+    },
+    getPokemonBaseStatsEditDocument: (sourceSlug) =>
+      loadPokemonBaseStatsEditDocument(source, sourceSlug),
+    savePokemonBaseStats: async (sourceSlug, expectedHash, values) => {
+      validatePokemonBaseStats(values);
+      const change = await preparePokemonBaseStatsWrite(source, sourceSlug, values);
+      return history.save(`Edit ${sourceSlug} base stats`, [
+        {
+          path: change.path,
+          contents: change.contents,
+          expectedHash,
+        },
+      ]);
     },
     getMoves: () => parseMoves(source),
     getHistorySummary: () => history.getSummary(),
