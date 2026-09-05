@@ -133,12 +133,49 @@ export function createWebBuildService(source: ProjectSource): BuildService {
         };
       }
 
-      return buildWebRom(
+      let handleIndexDurationMs = 0;
+      if (source.prepareBuildReads) {
+        report(
+          onProgress,
+          "Indexing project file handles",
+          6,
+          "Enumerating the checkout once so subsequent build reads can reuse browser file handles.",
+        );
+        const preparation = await source.prepareBuildReads();
+        handleIndexDurationMs = preparation.durationMs;
+        onProgress?.({
+          stage: "preparing",
+          level: preparation.indexed ? "info" : "warning",
+          message: preparation.indexed
+            ? "Project file index ready"
+            : "Project file index incomplete",
+          detail: preparation.indexed
+            ? `${preparation.fileCount} files in ${preparation.directoryCount} directories indexed in ${(preparation.durationMs / 1000).toFixed(1)}s.`
+            : preparation.message,
+          task: {
+            label: "Index project file handles",
+            completed: 1,
+            total: 1,
+            percent: 100,
+            unit: "index",
+          },
+          percent: 6,
+          timestamp: Date.now(),
+        });
+      }
+
+      const result = await buildWebRom(
         source,
         target,
         environment.requiredRgbdsVersion,
         onProgress,
       );
+      if (handleIndexDurationMs > 0) {
+        result.durationMs += handleIndexDurationMs;
+        const profileLine = `Project file handle index: ${(handleIndexDurationMs / 1000).toFixed(1)}s before build graph execution.`;
+        result.stdout = [result.stdout, profileLine].filter(Boolean).join("\n");
+      }
+      return result;
     },
   };
 }
