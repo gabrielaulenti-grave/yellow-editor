@@ -243,6 +243,14 @@ export interface BuildService {
   build(target: BuildTarget, onProgress?: BuildProgressListener): Promise<BuildResult>;
 }
 
+export interface ProjectBuildReadPreparation {
+  indexed: boolean;
+  fileCount: number;
+  directoryCount: number;
+  durationMs: number;
+  message?: string;
+}
+
 export interface ProjectSource {
   displayPath: string;
   readText(relativePath: string): Promise<string>;
@@ -250,6 +258,7 @@ export interface ProjectSource {
   writeText(relativePath: string, contents: string): Promise<void>;
   exists(relativePath: string): Promise<boolean>;
   assetUrl(relativePath: string): Promise<string | null>;
+  prepareBuildReads?(): Promise<ProjectBuildReadPreparation>;
   historyStore: HistoryStore;
   dispose?(): void;
 }
