@@ -57,6 +57,10 @@ const RED_COLUMNS_GRAPHICS = new Set([
 // enough reads in flight to avoid serial directory walking without saturating
 // the browser's file-handle queue.
 const ASM_SCAN_BATCH_SIZE = 12;
+// Generated assets are independent, but some of them instantiate pret helper
+// WASM modules. Keep this deliberately modest to overlap browser I/O and image
+// decoding without recreating the memory pressure we eliminated earlier.
+const GENERATED_INPUT_CONCURRENCY = 4;
 const PROJECT_READ_TIMEOUT_MS = 90_000;
 
 interface BuildProfile {
@@ -78,6 +82,12 @@ interface AsmReference {
 interface AsmClosure {
   textPaths: string[];
   binaryPaths: string[];
+}
+
+interface TimingBucket {
+  totalMs: number;
+  count: number;
+  maxMs: number;
 }
 
 class BuildFailure extends Error {
@@ -277,6 +287,47 @@ function taskProgress(
   return { label, completed, total, percent, unit };
 }
 
+function formatProfileDuration(milliseconds: number): string {
+  if (milliseconds < 1000) {
+    return `${Math.round(milliseconds)}ms`;
+  }
+  const seconds = milliseconds / 1000;
+  return seconds < 10 ? `${seconds.toFixed(2)}s` : `${seconds.toFixed(1)}s`;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  mapper: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  if (items.length === 0) {
+    return results;
+  }
+
+  let nextIndex = 0;
+  let failed = false;
+  const worker = async () => {
+    while (!failed) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) {
+        return;
+      }
+      try {
+        results[index] = await mapper(items[index], index);
+      } catch (error) {
+        failed = true;
+        throw error;
+      }
+    }
+  };
+
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
 async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -301,15 +352,19 @@ async function withTimeout<T>(
 class WebBuildWorkspace {
   private readonly sourceBytes = new Map<string, Promise<Uint8Array>>();
   private readonly sourceText = new Map<string, Promise<string>>();
+  private readonly asmReferences = new Map<string, Promise<AsmReference[]>>();
   private readonly existsCache = new Map<string, Promise<boolean>>();
   private readonly generated = new Map<string, Promise<Uint8Array>>();
   private readonly helperRuntime = createPretWasmToolRuntime();
   private readonly rgbdsRuntime: BuildToolRuntime;
   private readonly stdout: string[] = [];
   private readonly stderr: string[] = [];
+  private readonly timingBuckets = new Map<string, TimingBucket>();
+  private readonly stepTimings: Array<{ label: string; durationMs: number }> = [];
   private preincludeClosure: Promise<AsmClosure> | null = null;
   private stage: BuildProgressStage = "preparing";
   private percent = 5;
+  private timingProfileReported = false;
 
   constructor(
     private readonly source: ProjectSource,
@@ -330,6 +385,79 @@ class WebBuildWorkspace {
 
   getPercent(): number {
     return this.percent;
+  }
+
+  private addTiming(label: string, durationMs: number): void {
+    const bucket = this.timingBuckets.get(label) ?? {
+      totalMs: 0,
+      count: 0,
+      maxMs: 0,
+    };
+    bucket.totalMs += durationMs;
+    bucket.count += 1;
+    bucket.maxMs = Math.max(bucket.maxMs, durationMs);
+    this.timingBuckets.set(label, bucket);
+  }
+
+  private recordStep(label: string, startedAt: number): void {
+    this.stepTimings.push({
+      label,
+      durationMs: performance.now() - startedAt,
+    });
+  }
+
+  private timingProfile(): string {
+    const buckets = [...this.timingBuckets.entries()].sort(
+      (left, right) => right[1].totalMs - left[1].totalMs,
+    );
+    const slowestSteps = [...this.stepTimings]
+      .sort((left, right) => right.durationMs - left.durationMs)
+      .slice(0, 8);
+    const lines = [
+      "Build timing profile (categories can overlap when work is nested or concurrent):",
+    ];
+
+    for (const [label, bucket] of buckets) {
+      lines.push(
+        `- ${label}: ${formatProfileDuration(bucket.totalMs)} across ${bucket.count} operation${bucket.count === 1 ? "" : "s"}; slowest ${formatProfileDuration(bucket.maxMs)}`,
+      );
+    }
+
+    if (slowestSteps.length > 0) {
+      lines.push("Slowest object steps:");
+      for (const step of slowestSteps) {
+        lines.push(`- ${step.label}: ${formatProfileDuration(step.durationMs)}`);
+      }
+    }
+
+    lines.push(
+      `Unique project files read: ${this.sourceBytes.size}`,
+      `ASM files parsed for dependencies: ${this.asmReferences.size}`,
+      `Binary/generated inputs cached: ${this.generated.size}`,
+      `ASM scan batch size: ${ASM_SCAN_BATCH_SIZE}`,
+      `Generated-input concurrency: ${GENERATED_INPUT_CONCURRENCY}`,
+    );
+    return lines.join("\n");
+  }
+
+  reportTimingProfile(stage: "complete" | "error"): void {
+    if (this.timingProfileReported) {
+      return;
+    }
+    this.timingProfileReported = true;
+    const detail = this.timingProfile();
+    this.stdout.push("", detail);
+    this.report(
+      stage,
+      "Build timing profile",
+      stage === "complete" ? 99 : this.percent,
+      detail,
+      stage === "complete" ? "info" : "warning",
+      undefined,
+      undefined,
+      undefined,
+      taskProgress("Build timing profile", 1, 1, "profile"),
+    );
   }
 
   report(
@@ -373,11 +501,21 @@ class WebBuildWorkspace {
     const normalized = normalizeProjectPath(path);
     let promise = this.sourceBytes.get(normalized);
     if (!promise) {
-      promise = withTimeout(
-        this.source.readBytes(normalized),
-        PROJECT_READ_TIMEOUT_MS,
-        `Reading '${normalized}'`,
-      );
+      promise = (async () => {
+        const startedAt = performance.now();
+        try {
+          return await withTimeout(
+            this.source.readBytes(normalized),
+            PROJECT_READ_TIMEOUT_MS,
+            `Reading '${normalized}'`,
+          );
+        } finally {
+          this.addTiming(
+            "Project file reads (aggregate)",
+            performance.now() - startedAt,
+          );
+        }
+      })();
       this.sourceBytes.set(normalized, promise);
     }
     return promise;
@@ -392,6 +530,26 @@ class WebBuildWorkspace {
       // every source file a second time through the File System Access API.
       promise = this.readBytes(normalized).then((bytes) => new TextDecoder().decode(bytes));
       this.sourceText.set(normalized, promise);
+    }
+    return promise;
+  }
+
+  private readAsmReferences(path: string): Promise<AsmReference[]> {
+    const normalized = normalizeProjectPath(path);
+    let promise = this.asmReferences.get(normalized);
+    if (!promise) {
+      promise = this.readText(normalized).then((contents) => {
+        const startedAt = performance.now();
+        try {
+          return parseAsmReferences(contents);
+        } finally {
+          this.addTiming(
+            "ASM dependency parsing",
+            performance.now() - startedAt,
+          );
+        }
+      });
+      this.asmReferences.set(normalized, promise);
     }
     return promise;
   }
@@ -422,6 +580,7 @@ class WebBuildWorkspace {
     await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
 
     let result: ToolInvocationResult;
+    const startedAt = performance.now();
     try {
       result = await runtime.run({
         tool,
@@ -445,6 +604,8 @@ class WebBuildWorkspace {
         taskProgress(command),
       );
       throw new BuildFailure(`${tool} failed to run: ${message}`);
+    } finally {
+      this.addTiming(`Tool ${tool}`, performance.now() - startedAt);
     }
 
     if (result.stdout) {
@@ -477,6 +638,7 @@ class WebBuildWorkspace {
     binaryPaths: Set<string>,
     context: string,
   ): Promise<void> {
+    const scanStartedAt = performance.now();
     const queued = new Set(textPaths);
     const queue: string[] = [];
     const taskLabel = `Scan ${context} dependencies`;
@@ -508,7 +670,7 @@ class WebBuildWorkspace {
       const results = await Promise.all(
         batch.map(async (path) => ({
           path,
-          references: parseAsmReferences(await this.readText(path)),
+          references: await this.readAsmReferences(path),
         })),
       );
 
@@ -558,6 +720,10 @@ class WebBuildWorkspace {
         taskProgress(taskLabel, 1, 1, "cache"),
       );
     }
+    this.addTiming(
+      "Dependency scanning (wall)",
+      performance.now() - scanStartedAt,
+    );
   }
 
   private getPreincludeClosure(): Promise<AsmClosure> {
@@ -592,6 +758,7 @@ class WebBuildWorkspace {
   }
 
   private async assemblyFiles(entryPath: string, usePreinclude: boolean): Promise<ToolRuntimeFile[]> {
+    const preparationStartedAt = performance.now();
     const textPaths = new Set<string>();
     const binaryPaths = new Set<string>();
 
@@ -613,7 +780,7 @@ class WebBuildWorkspace {
       this.stage,
       `Resolving inputs for ${entryPath}`,
       this.percent,
-      `${textPaths.size} source files and ${binaryTotal} binary/generated inputs`,
+      `${textPaths.size} source files and ${binaryTotal} binary/generated inputs${binaryTotal > 1 ? `; resolving up to ${GENERATED_INPUT_CONCURRENCY} generated inputs concurrently` : ""}`,
       "info",
       undefined,
       undefined,
@@ -629,21 +796,28 @@ class WebBuildWorkspace {
     );
 
     let resolvedBinary = 0;
-    for (const path of binaryPaths) {
-      files.push({ path, data: await this.resolveBuildFile(path) });
-      resolvedBinary += 1;
-      this.report(
-        this.stage,
-        `Resolved build input for ${entryPath}`,
-        this.percent,
-        path,
-        "info",
-        undefined,
-        undefined,
-        undefined,
-        taskProgress(inputTaskLabel, resolvedBinary, Math.max(1, binaryTotal), "inputs"),
-      );
-    }
+    const binaryList = [...binaryPaths];
+    const resolvedBinaryFiles = await mapWithConcurrency(
+      binaryList,
+      GENERATED_INPUT_CONCURRENCY,
+      async (path) => {
+        const data = await this.resolveBuildFile(path);
+        resolvedBinary += 1;
+        this.report(
+          this.stage,
+          `Resolved build input for ${entryPath}`,
+          this.percent,
+          path,
+          "info",
+          undefined,
+          undefined,
+          undefined,
+          taskProgress(inputTaskLabel, resolvedBinary, Math.max(1, binaryTotal), "inputs"),
+        );
+        return { path, data };
+      },
+    );
+    files.push(...resolvedBinaryFiles);
 
     if (binaryTotal === 0) {
       this.report(
@@ -658,6 +832,10 @@ class WebBuildWorkspace {
         taskProgress(inputTaskLabel, 1, 1, "phase"),
       );
     }
+    this.addTiming(
+      "Assembly input preparation (wall)",
+      performance.now() - preparationStartedAt,
+    );
     return files;
   }
 
@@ -888,7 +1066,9 @@ class WebBuildWorkspace {
         outputName,
         entryPath,
       ];
+      const prepareStartedAt = performance.now();
       const files = await this.assemblyFiles(entryPath, true);
+      this.recordStep(`Prepare ${entryPath}`, prepareStartedAt);
       this.report(
         "assembling",
         `Assembling object ${index + 1} of ${total}`,
@@ -900,6 +1080,7 @@ class WebBuildWorkspace {
         total,
         taskProgress(`Assemble ${entryPath}`),
       );
+      const assembleStartedAt = performance.now();
       const result = await this.runTool(
         this.rgbdsRuntime,
         "rgbasm",
@@ -907,6 +1088,7 @@ class WebBuildWorkspace {
         files,
         [outputName],
       );
+      this.recordStep(`Assemble ${entryPath}`, assembleStartedAt);
       objects.push({ path: outputName, data: result.outputs[0].data });
       this.report(
         "assembling",
@@ -957,6 +1139,7 @@ class WebBuildWorkspace {
       this.profile.romName,
       ...objects.map((file) => file.path),
     ];
+    const linkStartedAt = performance.now();
     const result = await this.runTool(
       this.rgbdsRuntime,
       "rgblink",
@@ -964,6 +1147,7 @@ class WebBuildWorkspace {
       [{ path: "layout.link", data: layout }, ...objects],
       [this.profile.romName, this.profile.mapName, this.profile.symName],
     );
+    this.recordStep(`Link ${this.profile.romName}`, linkStartedAt);
     const byPath = new Map(result.outputs.map((file) => [file.path, file.data]));
     const rom = byPath.get(this.profile.romName);
     const map = byPath.get(this.profile.mapName);
@@ -997,6 +1181,7 @@ class WebBuildWorkspace {
       undefined,
       taskProgress(`Finalize ${this.profile.romName}`),
     );
+    const fixStartedAt = performance.now();
     const result = await this.runTool(
       this.rgbdsRuntime,
       "rgbfix",
@@ -1004,6 +1189,7 @@ class WebBuildWorkspace {
       [{ path: this.profile.romName, data: rom }],
       [this.profile.romName],
     );
+    this.recordStep(`Finalize ${this.profile.romName}`, fixStartedAt);
     this.report(
       "fixing",
       "ROM finalized",
@@ -1034,6 +1220,7 @@ class WebBuildWorkspace {
     const objects = await this.assembleObjects();
     const linked = await this.link(objects);
     const rom = await this.fix(linked.rom);
+    this.reportTimingProfile("complete");
     this.report(
       "complete",
       "Build complete",
@@ -1078,6 +1265,7 @@ export async function buildWebRom(
   } catch (error) {
     const failure = error instanceof BuildFailure ? error : null;
     const message = error instanceof Error ? error.message : String(error);
+    workspace.reportTimingProfile("error");
     const stderr = [workspace.getStderr(), message].filter(Boolean).join("\n");
     workspace.report(
       "error",
