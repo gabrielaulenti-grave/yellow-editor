@@ -1,6 +1,10 @@
 import { createWebBuildService } from "../core/build";
 import { createProjectSession } from "../core/project";
-import type { HistoryStore, ProjectSource } from "../core/types";
+import type {
+  HistoryStore,
+  ProjectBuildReadPreparation,
+  ProjectSource,
+} from "../core/types";
 import type { PlatformAdapter } from "./types";
 import { createWebHistoryStore, type WebDirectoryIdentityHandle } from "./webHistory";
 
@@ -17,11 +21,14 @@ interface BrowserFileHandle {
   createWritable(): Promise<BrowserWritableFileStream>;
 }
 
+type BrowserEntryHandle = BrowserFileHandle | BrowserDirectoryHandle;
+
 interface BrowserDirectoryHandle extends WebDirectoryIdentityHandle {
   kind: "directory";
   name: string;
   getDirectoryHandle(name: string): Promise<BrowserDirectoryHandle>;
   getFileHandle(name: string): Promise<BrowserFileHandle>;
+  entries?(): AsyncIterableIterator<[string, BrowserEntryHandle]>;
 }
 
 type PickerWindow = Window & {
@@ -103,9 +110,86 @@ function createWebSource(
     return promise;
   }
 
+  async function prepareBuildReads(): Promise<ProjectBuildReadPreparation> {
+    const startedAt = performance.now();
+    if (typeof root.entries !== "function") {
+      return {
+        indexed: false,
+        fileCount: 0,
+        directoryCount: 0,
+        durationMs: Math.round(performance.now() - startedAt),
+        message: "This browser does not expose directory iteration; direct file-handle lookup will be used.",
+      };
+    }
+
+    // Rebuild the positive handle cache at the start of every build. This keeps
+    // the index aligned with the current checkout without changing the behavior
+    // of missing-path checks, which still fall back to direct filesystem access.
+    fileHandles.clear();
+    directoryHandles.clear();
+    directoryHandles.set("", Promise.resolve(root));
+
+    const queue: Array<{ path: string; handle: BrowserDirectoryHandle }> = [
+      { path: "", handle: root },
+    ];
+    let fileCount = 0;
+    let directoryCount = 1;
+
+    try {
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current) {
+          break;
+        }
+        const iterator = current.handle.entries?.();
+        if (!iterator) {
+          throw new Error("Directory iteration became unavailable while indexing the project.");
+        }
+
+        for await (const [name, handle] of iterator) {
+          if (current.path === "" && name === ".git") {
+            continue;
+          }
+          const relativePath = current.path ? `${current.path}/${name}` : name;
+          if (handle.kind === "file") {
+            fileHandles.set(relativePath, Promise.resolve(handle));
+            fileCount += 1;
+          } else {
+            directoryHandles.set(relativePath, Promise.resolve(handle));
+            queue.push({ path: relativePath, handle });
+            directoryCount += 1;
+          }
+        }
+
+        // Directory enumeration is much cheaper than thousands of individual
+        // getFileHandle calls, but still yield periodically so the status UI can
+        // repaint on very large checkouts.
+        if (directoryCount % 24 === 0) {
+          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+        }
+      }
+
+      return {
+        indexed: true,
+        fileCount,
+        directoryCount,
+        durationMs: Math.round(performance.now() - startedAt),
+      };
+    } catch (error) {
+      return {
+        indexed: false,
+        fileCount,
+        directoryCount,
+        durationMs: Math.round(performance.now() - startedAt),
+        message: `Project handle indexing was incomplete; direct lookup will be used as needed: ${String(error)}`,
+      };
+    }
+  }
+
   return {
     displayPath: root.name,
     historyStore,
+    prepareBuildReads,
 
     async readText(relativePath) {
       try {
