@@ -106,6 +106,23 @@ function compatibilityStatus(
   return "compatible";
 }
 
+async function getExactSave(
+  database: IDBDatabase,
+  projectStorageKey: string,
+  target: BuildTarget,
+  descriptor: SaveCompatibilityDescriptor,
+): Promise<StoredBatterySave | undefined> {
+  const transaction = database.transaction(SAVE_STORE, "readonly");
+  const done = transactionDone(transaction);
+  const record = await requestResult(
+    transaction.objectStore(SAVE_STORE).get(
+      recordId(projectStorageKey, target, descriptor),
+    ) as IDBRequest<StoredBatterySave | undefined>,
+  );
+  await done;
+  return record;
+}
+
 export async function requestPersistentEmulatorStorage(): Promise<boolean | null> {
   try {
     if (!navigator.storage?.persist) {
@@ -123,14 +140,7 @@ export async function loadBatterySave(
   descriptor: SaveCompatibilityDescriptor,
 ): Promise<BatterySaveLookup> {
   const database = await openDatabase();
-  const exactId = recordId(projectStorageKey, target, descriptor);
-
-  const exactTransaction = database.transaction(SAVE_STORE, "readonly");
-  const exactDone = transactionDone(exactTransaction);
-  const exact = await requestResult(
-    exactTransaction.objectStore(SAVE_STORE).get(exactId) as IDBRequest<StoredBatterySave | undefined>,
-  );
-  await exactDone;
+  const exact = await getExactSave(database, projectStorageKey, target, descriptor);
   if (exact) {
     return {
       ram: new Uint8Array(exact.ram.slice(0)),
@@ -170,6 +180,39 @@ export async function saveBatteryRam(
   const transaction = database.transaction(SAVE_STORE, "readwrite");
   const done = transactionDone(transaction);
   transaction.objectStore(SAVE_STORE).put({
+    id: recordId(projectStorageKey, target, descriptor),
+    projectTarget: projectTargetKey(projectStorageKey, target),
+    projectStorageKey,
+    target,
+    compatibility: descriptor,
+    ram: ram.slice().buffer,
+    updatedAt,
+  } satisfies StoredBatterySave);
+  await done;
+  return updatedAt;
+}
+
+export async function importBatteryRam(
+  projectStorageKey: string,
+  target: BuildTarget,
+  descriptor: SaveCompatibilityDescriptor,
+  ram: Uint8Array,
+): Promise<string> {
+  const database = await openDatabase();
+  const existing = await getExactSave(database, projectStorageKey, target, descriptor);
+  const updatedAt = new Date().toISOString();
+  const transaction = database.transaction(SAVE_STORE, "readwrite");
+  const done = transactionDone(transaction);
+  const store = transaction.objectStore(SAVE_STORE);
+
+  if (existing) {
+    store.put({
+      ...existing,
+      id: `${existing.id}\u0000backup\u0000${Date.now()}`,
+    } satisfies StoredBatterySave);
+  }
+
+  store.put({
     id: recordId(projectStorageKey, target, descriptor),
     projectTarget: projectTargetKey(projectStorageKey, target),
     projectStorageKey,
