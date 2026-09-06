@@ -9,6 +9,7 @@ const AUDIO_FRAMES = 4096;
 const AUDIO_SAMPLE_RATE = 44_100;
 const MAX_UPDATE_SEC = 5 / 60;
 const MAX_ROM_BYTES = 8 * 1024 * 1024;
+const RESULT_OK = 0;
 
 export type EmulatorButton =
   | "up"
@@ -33,6 +34,7 @@ interface BinjgbModule {
   _emulator_delete(emulator: number): void;
   _emulator_get_ticks_f64(emulator: number): number;
   _emulator_run_until_f64(emulator: number, ticks: number): number;
+  _emulator_was_ext_ram_updated(emulator: number): boolean;
   _get_frame_buffer_ptr(emulator: number): number;
   _get_frame_buffer_size(emulator: number): number;
   _joypad_new(): number;
@@ -46,6 +48,12 @@ interface BinjgbModule {
   _set_joyp_B(emulator: number, pressed: boolean): void;
   _set_joyp_start(emulator: number, pressed: boolean): void;
   _set_joyp_select(emulator: number, pressed: boolean): void;
+  _ext_ram_file_data_new(emulator: number): number;
+  _get_file_data_ptr(fileData: number): number;
+  _get_file_data_size(fileData: number): number;
+  _file_data_delete(fileData: number): void;
+  _emulator_write_ext_ram(emulator: number, fileData: number): number;
+  _emulator_read_ext_ram(emulator: number, fileData: number): number;
 }
 
 type BinjgbFactory = (options?: {
@@ -292,6 +300,43 @@ export class BinjgbEmulator {
     }
   }
 
+  consumeBatteryRamUpdated(): boolean {
+    if (this.destroyed) {
+      return false;
+    }
+    return Boolean(this.module._emulator_was_ext_ram_updated(this.emulator));
+  }
+
+  loadBatteryRam(ram: Uint8Array): boolean {
+    if (this.destroyed) {
+      return false;
+    }
+    return this.withExternalRamBuffer((fileData, buffer) => {
+      if (buffer.byteLength !== ram.byteLength) {
+        return false;
+      }
+      buffer.set(ram);
+      const result = this.module._emulator_read_ext_ram(this.emulator, fileData);
+      if (result !== RESULT_OK) {
+        throw new Error(`binjgb rejected the battery save (result ${result}).`);
+      }
+      return true;
+    });
+  }
+
+  getBatteryRam(): Uint8Array {
+    if (this.destroyed) {
+      throw new Error("The emulator is no longer running.");
+    }
+    return this.withExternalRamBuffer((fileData, buffer) => {
+      const result = this.module._emulator_write_ext_ram(this.emulator, fileData);
+      if (result !== RESULT_OK) {
+        throw new Error(`binjgb could not serialize battery RAM (result ${result}).`);
+      }
+      return new Uint8Array(buffer);
+    });
+  }
+
   destroy(): void {
     if (this.destroyed) {
       return;
@@ -306,6 +351,23 @@ export class BinjgbEmulator {
     }
     if (this.romPointer) {
       this.module._free(this.romPointer);
+    }
+  }
+
+  private withExternalRamBuffer<T>(
+    callback: (fileData: number, buffer: Uint8Array) => T,
+  ): T {
+    const fileData = this.module._ext_ram_file_data_new(this.emulator);
+    if (!fileData) {
+      throw new Error("binjgb could not allocate battery save data.");
+    }
+    try {
+      const pointer = this.module._get_file_data_ptr(fileData);
+      const size = this.module._get_file_data_size(fileData);
+      const buffer = new Uint8Array(this.module.HEAP8.buffer, pointer, size);
+      return callback(fileData, buffer);
+    } finally {
+      this.module._file_data_delete(fileData);
     }
   }
 

@@ -12,6 +12,7 @@ import {
   preparePokemonBaseStatsWrite,
   validatePokemonBaseStats,
 } from "./pokemonEditing";
+import { getSaveCompatibilityDescriptor } from "./saveCompatibility";
 import type { BuildService, ProjectSession, ProjectSource } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
@@ -47,6 +48,7 @@ export async function createProjectSession(
       path: source.displayPath,
       valid: true,
       projectName,
+      storageKey: source.storageKey,
     },
     getPokemonIndex: () => parsePokemonIndex(source),
     getPokemonDetails: (internalId, sourceSlug) =>
@@ -76,6 +78,7 @@ export async function createProjectSession(
     undoLastSave: () => history.undo(),
     redoLastUndo: () => history.redo(),
     getBuildEnvironment: () => buildService.inspect(),
+    getSaveCompatibility: (target) => getSaveCompatibilityDescriptor(source, target),
     buildRom: (target, onProgress) => buildService.build(target, onProgress),
     dispose: () => source.dispose?.(),
   };

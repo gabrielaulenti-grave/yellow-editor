@@ -10,6 +10,11 @@ export interface WebDirectoryIdentityHandle {
   isSameEntry(other: WebDirectoryIdentityHandle): Promise<boolean>;
 }
 
+export interface WebProjectStorageContext {
+  projectId: string;
+  historyStore: HistoryStore;
+}
+
 interface StoredProjectIdentity {
   id: string;
   name: string;
@@ -95,12 +100,7 @@ async function resolveProjectId(
   return id;
 }
 
-export async function createWebHistoryStore(
-  root: WebDirectoryIdentityHandle,
-): Promise<HistoryStore> {
-  const database = await openDatabase();
-  const projectId = await resolveProjectId(database, root);
-
+function historyStoreForProject(database: IDBDatabase, projectId: string): HistoryStore {
   return {
     persistent: true,
 
@@ -124,4 +124,21 @@ export async function createWebHistoryStore(
       await done;
     },
   };
+}
+
+export async function createWebProjectStorage(
+  root: WebDirectoryIdentityHandle,
+): Promise<WebProjectStorageContext> {
+  const database = await openDatabase();
+  const projectId = await resolveProjectId(database, root);
+  return {
+    projectId,
+    historyStore: historyStoreForProject(database, projectId),
+  };
+}
+
+export async function createWebHistoryStore(
+  root: WebDirectoryIdentityHandle,
+): Promise<HistoryStore> {
+  return (await createWebProjectStorage(root)).historyStore;
 }
