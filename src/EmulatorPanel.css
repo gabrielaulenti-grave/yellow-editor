@@ -4,6 +4,7 @@
   border: 1px solid var(--border-color, #d6d6d6);
   border-radius: 0.75rem;
   background: var(--panel-background, rgba(255, 255, 255, 0.03));
+  min-width: 0;
 }
 
 .emulator-heading {
@@ -42,6 +43,7 @@
   gap: 1.25rem;
   align-items: center;
   margin-top: 1rem;
+  min-width: 0;
 }
 
 .emulator-screen-frame {
@@ -69,6 +71,8 @@
   gap: clamp(0.65rem, 2vw, 1.25rem);
   align-items: center;
   justify-items: center;
+  width: 100%;
+  min-width: 0;
   user-select: none;
   -webkit-user-select: none;
   touch-action: none;
@@ -152,6 +156,7 @@
 }
 
 .emulator-status,
+.emulator-save-status,
 .emulator-hint,
 .emulator-error {
   margin: 0.75rem 0 0;
@@ -159,6 +164,13 @@
 
 .emulator-status {
   font-weight: 600;
+}
+
+.emulator-save-status {
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.5rem;
+  background: rgba(127, 127, 127, 0.12);
+  font-size: 0.85rem;
 }
 
 .emulator-hint {
@@ -192,32 +204,83 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 520px) {
   .emulator-panel {
     padding: 0.75rem;
   }
 
   .emulator-controller {
-    gap: 0.35rem;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas:
+      "dpad actions"
+      "center center";
+    gap: 0.55rem 0.75rem;
+    align-items: center;
   }
 
-  .emulator-center-buttons {
-    flex-direction: column;
-    gap: 0.35rem;
-  }
-
-  .emulator-center-buttons .system-button {
-    min-width: 3.8rem;
+  .emulator-dpad {
+    grid-area: dpad;
+    justify-self: start;
+    grid-template-columns: repeat(3, min(15vw, 3.05rem));
+    grid-template-rows: repeat(3, min(15vw, 3.05rem));
   }
 
   .emulator-action-buttons {
-    gap: 0.35rem;
+    grid-area: actions;
+    justify-self: end;
+    gap: clamp(0.25rem, 2vw, 0.55rem);
+  }
+
+  .emulator-center-buttons {
+    grid-area: center;
+    justify-self: center;
+    align-self: center;
+    padding-bottom: 0;
+  }
+
+  .emulator-button {
+    min-width: min(15vw, 3.05rem);
+    min-height: min(15vw, 3.05rem);
+  }
+
+  .emulator-center-buttons .system-button {
+    min-width: 4rem;
+    min-height: 2.1rem;
   }
 
   .emulator-action-buttons .round-button {
-    width: 3.5rem;
-    height: 3.5rem;
-    min-width: 3.5rem;
-    min-height: 3.5rem;
+    width: clamp(3rem, 16vw, 3.55rem);
+    height: clamp(3rem, 16vw, 3.55rem);
+    min-width: clamp(3rem, 16vw, 3.55rem);
+    min-height: clamp(3rem, 16vw, 3.55rem);
+  }
+}
+
+@media (max-width: 360px) {
+  .emulator-controller {
+    gap: 0.4rem 0.5rem;
+  }
+
+  .emulator-dpad {
+    grid-template-columns: repeat(3, 2.65rem);
+    grid-template-rows: repeat(3, 2.65rem);
+  }
+
+  .emulator-dpad .emulator-button {
+    min-width: 2.65rem;
+    min-height: 2.65rem;
+    padding: 0.35rem;
+  }
+
+  .emulator-action-buttons .round-button {
+    width: 2.9rem;
+    height: 2.9rem;
+    min-width: 2.9rem;
+    min-height: 2.9rem;
+  }
+
+  .emulator-center-buttons .system-button {
+    min-width: 3.6rem;
+    padding-inline: 0.45rem;
   }
 }
