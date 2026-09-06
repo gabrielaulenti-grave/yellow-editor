@@ -199,6 +199,9 @@ export async function invoke<T>(
     case "get_build_environment":
       return (await session.getBuildEnvironment()) as T;
 
+    case "get_save_compatibility":
+      return (await session.getSaveCompatibility(buildTargetArg(args))) as T;
+
     case "build_rom":
       return (await session.buildRom(
         buildTargetArg(args),
@@ -210,8 +213,6 @@ export async function invoke<T>(
   }
 }
 
-// The shared project layer already resolves sprites to a browser-safe URL on
-// both platforms, so callers can treat this like Tauri's convertFileSrc.
 export function convertFileSrc(path: string): string {
   return path;
 }
