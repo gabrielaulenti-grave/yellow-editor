@@ -585,32 +585,34 @@ export function BuildPanel({
           </div>
           {result.romPath && <code className="build-rom-path">{result.romPath}</code>}
 
-          {result.success && environment?.backend === "web-wasm" && romArtifact && (
+          {result.success && romArtifact && (
             <div className="build-downloads">
-              <div className="build-download-options">
-                {hasMap && (
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={downloadMap}
-                      onChange={(event) => setDownloadMap(event.target.checked)}
-                    />
-                    Also download map (.map)
-                  </label>
-                )}
-                {hasSym && (
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={downloadSym}
-                      onChange={(event) => setDownloadSym(event.target.checked)}
-                    />
-                    Also download symbols (.sym)
-                  </label>
-                )}
-              </div>
+              {environment?.backend === "web-wasm" && (
+                <div className="build-download-options">
+                  {hasMap && (
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={downloadMap}
+                        onChange={(event) => setDownloadMap(event.target.checked)}
+                      />
+                      Also download map (.map)
+                    </label>
+                  )}
+                  {hasSym && (
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={downloadSym}
+                        onChange={(event) => setDownloadSym(event.target.checked)}
+                      />
+                      Also download symbols (.sym)
+                    </label>
+                  )}
+                </div>
+              )}
               <button type="button" className="primary-action" onClick={downloadBuildOutputs}>
-                Download ROM
+                {environment?.backend === "desktop-native" ? "Export ROM" : "Download ROM"}
               </button>
             </div>
           )}
