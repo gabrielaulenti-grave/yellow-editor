@@ -45,6 +45,7 @@ function createDesktopHistoryStore(projectPath: string): HistoryStore {
 function createDesktopSource(projectPath: string): ProjectSource {
   return {
     displayPath: projectPath,
+    storageKey: `desktop:${projectPath}`,
     historyStore: createDesktopHistoryStore(projectPath),
 
     readText(relativePath) {
