@@ -36,6 +36,15 @@ pub struct BuildEnvironment {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct BuildArtifact {
+    kind: String,
+    file_name: String,
+    mime_type: String,
+    bytes: Vec<u8>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct BuildResult {
     success: bool,
     target: String,
@@ -44,6 +53,7 @@ pub struct BuildResult {
     stderr: String,
     duration_ms: u128,
     exit_code: Option<i32>,
+    artifacts: Vec<BuildArtifact>,
 }
 
 struct ResolvedBuildEnvironment {
@@ -376,6 +386,7 @@ pub fn build_rom(
             stderr: resolved.public.message,
             duration_ms: started.elapsed().as_millis(),
             exit_code: None,
+            artifacts: Vec::new(),
         });
     }
 
@@ -410,10 +421,26 @@ pub fn build_rom(
         .map_err(|error| format!("Failed to start project build: {}", error))?;
 
     let success = output.status.success();
-    let rom_path = rom_filename(&target)
+    let rom_file_path = rom_filename(&target)
         .map(|filename| project_root.join(filename))
-        .filter(|path| success && path.is_file())
+        .filter(|path| success && path.is_file());
+    let rom_path = rom_file_path
+        .as_ref()
         .map(|path| path.to_string_lossy().to_string());
+    let artifacts = rom_file_path
+        .as_ref()
+        .and_then(|path| {
+            let bytes = fs::read(path).ok()?;
+            let file_name = path.file_name()?.to_string_lossy().to_string();
+            Some(BuildArtifact {
+                kind: "rom".to_string(),
+                file_name,
+                mime_type: "application/octet-stream".to_string(),
+                bytes,
+            })
+        })
+        .into_iter()
+        .collect();
 
     Ok(BuildResult {
         success,
@@ -423,5 +450,6 @@ pub fn build_rom(
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         duration_ms: started.elapsed().as_millis(),
         exit_code: output.status.code(),
+        artifacts,
     })
 }
