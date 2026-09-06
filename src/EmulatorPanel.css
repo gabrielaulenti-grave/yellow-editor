@@ -155,6 +155,38 @@
   transform: rotate(12deg);
 }
 
+.emulator-save-tools {
+  display: flex;
+  gap: 0.75rem 1rem;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color, #d6d6d6);
+  border-radius: 0.65rem;
+}
+
+.emulator-save-tools > div:first-child {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.emulator-save-tools span {
+  opacity: 0.75;
+  font-size: 0.82rem;
+}
+
+.emulator-save-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.emulator-save-file-input {
+  display: none;
+}
+
 .emulator-status,
 .emulator-save-status,
 .emulator-hint,
@@ -253,6 +285,18 @@
     height: clamp(3rem, 16vw, 3.55rem);
     min-width: clamp(3rem, 16vw, 3.55rem);
     min-height: clamp(3rem, 16vw, 3.55rem);
+  }
+
+  .emulator-save-tools {
+    align-items: stretch;
+  }
+
+  .emulator-save-actions {
+    width: 100%;
+  }
+
+  .emulator-save-actions button {
+    flex: 1 1 8rem;
   }
 }
 
