@@ -31,8 +31,12 @@ function parseAsmInteger(token: string): number | null {
   return null;
 }
 
-function eventStorageBits(contents: string): number {
+function parseEventSchema(contents: string): {
+  eventBits: number;
+  signature: string;
+} {
   let value = 0;
+  const mapping: string[] = [];
 
   for (const rawLine of contents.split("\n")) {
     const line = rawLine.split(";", 1)[0].trim();
@@ -40,7 +44,10 @@ function eventStorageBits(contents: string): number {
       continue;
     }
     if (/^DEF\s+NUM_EVENTS\s+EQU\s+const_value\b/i.test(line)) {
-      return value;
+      return {
+        eventBits: value,
+        signature: mapping.join("\n"),
+      };
     }
 
     let match = line.match(/^const_def(?:\s+([^,\s]+))?/i);
@@ -69,7 +76,9 @@ function eventStorageBits(contents: string): number {
       continue;
     }
 
-    if (/^const\s+EVENT_[A-Z0-9_]+\b/i.test(line)) {
+    match = line.match(/^const\s+(EVENT_[A-Z0-9_]+)\b/i);
+    if (match) {
+      mapping.push(`${match[1].toUpperCase()}=${value}`);
       value += 1;
     }
   }
@@ -110,12 +119,12 @@ export async function getSaveCompatibilityDescriptor(
     }),
   );
   const eventContents = normalizeText(await source.readText(EVENT_SCHEMA_PATH));
-  const eventBits = eventStorageBits(eventContents);
-  structuralParts.push(`event-storage-bits\n${eventBits}`);
+  const eventSchema = parseEventSchema(eventContents);
+  structuralParts.push(`event-storage-bits\n${eventSchema.eventBits}`);
 
   const [structuralHash, eventSchemaHash] = await Promise.all([
     hashText(structuralParts.join("\n\0\n")),
-    hashText(`${EVENT_SCHEMA_PATH}\n${eventContents}`),
+    hashText(eventSchema.signature),
   ]);
 
   return {
