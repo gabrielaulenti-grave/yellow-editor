@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import type {
   BuildArtifact,
   BuildTarget,
+  ProjectInfo,
   SaveCompatibilityDescriptor,
 } from "./core/types";
 import {
@@ -11,6 +12,7 @@ import {
   loadBinjgbModule,
   type EmulatorButton,
 } from "./core/binjgb";
+import { invoke } from "./platform/compat";
 import {
   loadBatterySave,
   requestPersistentEmulatorStorage,
@@ -32,6 +34,26 @@ const KEY_BUTTONS: Record<string, EmulatorButton> = {
   Enter: "start",
   Tab: "select",
 };
+
+interface SaveContext {
+  projectStorageKey: string;
+  target: BuildTarget;
+  compatibility: SaveCompatibilityDescriptor;
+}
+
+function targetFromRom(rom: BuildArtifact): BuildTarget {
+  const name = rom.fileName.toLowerCase();
+  if (name.includes("yellow")) {
+    return "yellow";
+  }
+  if (name.includes("red")) {
+    return "red";
+  }
+  if (name.includes("blue")) {
+    return "blue";
+  }
+  throw new Error(`Could not determine the build target from ${rom.fileName}.`);
+}
 
 function isTypingTarget(target: EventTarget | null): boolean {
   return (
@@ -62,19 +84,10 @@ function incompatibleSaveMessage(status: BatterySaveCompatibility): string {
   }
 }
 
-export function EmulatorPanel({
-  rom,
-  target,
-  projectStorageKey,
-  compatibility,
-}: {
-  rom: BuildArtifact;
-  target: BuildTarget;
-  projectStorageKey: string;
-  compatibility: SaveCompatibilityDescriptor;
-}) {
+export function EmulatorPanel({ rom }: { rom: BuildArtifact }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const emulatorRef = useRef<BinjgbEmulator | null>(null);
+  const saveContextRef = useRef<SaveContext | null>(null);
   const loadTokenRef = useRef(0);
   const saveInFlightRef = useRef<Promise<void> | null>(null);
   const [status, setStatus] = useState("Ready to test the generated ROM.");
@@ -86,7 +99,8 @@ export function EmulatorPanel({
   const [error, setError] = useState<string | null>(null);
 
   function queueBatterySave(emulator = emulatorRef.current, message = true): Promise<void> {
-    if (!emulator) {
+    const context = saveContextRef.current;
+    if (!emulator || !context) {
       return Promise.resolve();
     }
 
@@ -103,9 +117,9 @@ export function EmulatorPanel({
       .catch(() => undefined)
       .then(async () => {
         const updatedAt = await saveBatteryRam(
-          projectStorageKey,
-          target,
-          compatibility,
+          context.projectStorageKey,
+          context.target,
+          context.compatibility,
           ram,
         );
         if (message) {
@@ -132,6 +146,7 @@ export function EmulatorPanel({
       previous.destroy();
     }
     emulatorRef.current = null;
+    saveContextRef.current = null;
     setStarted(false);
     setPaused(false);
     setLoading(false);
@@ -156,8 +171,9 @@ export function EmulatorPanel({
         emulator.destroy();
       }
       emulatorRef.current = null;
+      saveContextRef.current = null;
     };
-  }, [rom, target, projectStorageKey, compatibility.structuralHash, compatibility.eventSchemaHash]);
+  }, [rom]);
 
   useEffect(() => {
     if (!started) {
@@ -225,7 +241,7 @@ export function EmulatorPanel({
       document.removeEventListener("visibilitychange", flushWhenHidden);
       window.removeEventListener("pagehide", flushOnPageHide);
     };
-  }, [started, projectStorageKey, target, compatibility]);
+  }, [started]);
 
   async function launch() {
     const canvas = canvasRef.current;
@@ -240,14 +256,24 @@ export function EmulatorPanel({
     setSaveStatus("Checking persistent battery save storage…");
 
     try {
-      const [module, lookup, persistence] = await Promise.all([
+      const target = targetFromRom(rom);
+      const project = await invoke<ProjectInfo>("open_project");
+      const [module, compatibility, persistence] = await Promise.all([
         loadBinjgbModule(),
-        loadBatterySave(projectStorageKey, target, compatibility),
+        invoke<SaveCompatibilityDescriptor>("get_save_compatibility", { target }),
         requestPersistentEmulatorStorage(),
       ]);
+      const lookup = await loadBatterySave(project.storageKey, target, compatibility);
+
       if (token !== loadTokenRef.current || !canvasRef.current) {
         return;
       }
+
+      saveContextRef.current = {
+        projectStorageKey: project.storageKey,
+        target,
+        compatibility,
+      };
 
       emulatorRef.current?.destroy();
       const emulator = new BinjgbEmulator(
@@ -288,6 +314,7 @@ export function EmulatorPanel({
       setStatus("Could not start the integrated emulator.");
       emulatorRef.current?.destroy();
       emulatorRef.current = null;
+      saveContextRef.current = null;
       setStarted(false);
       setPaused(false);
     } finally {
