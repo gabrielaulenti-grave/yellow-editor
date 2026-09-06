@@ -20,6 +20,63 @@ function normalizeText(contents: string): string {
   return contents.replace(/\r\n/g, "\n");
 }
 
+function parseAsmInteger(token: string): number | null {
+  const value = token.trim();
+  if (/^\$[0-9a-f]+$/i.test(value)) {
+    return Number.parseInt(value.slice(1), 16);
+  }
+  if (/^\d+$/.test(value)) {
+    return Number.parseInt(value, 10);
+  }
+  return null;
+}
+
+function eventStorageBits(contents: string): number {
+  let value = 0;
+
+  for (const rawLine of contents.split("\n")) {
+    const line = rawLine.split(";", 1)[0].trim();
+    if (!line) {
+      continue;
+    }
+    if (/^DEF\s+NUM_EVENTS\s+EQU\s+const_value\b/i.test(line)) {
+      return value;
+    }
+
+    let match = line.match(/^const_def(?:\s+([^,\s]+))?/i);
+    if (match) {
+      value = match[1] ? (parseAsmInteger(match[1]) ?? 0) : 0;
+      continue;
+    }
+
+    match = line.match(/^const_next\s+([^,\s]+)/i);
+    if (match) {
+      const next = parseAsmInteger(match[1]);
+      if (next === null) {
+        throw new Error(`Could not parse event const_next value '${match[1]}'.`);
+      }
+      value = next;
+      continue;
+    }
+
+    match = line.match(/^const_skip(?:\s+([^,\s]+))?/i);
+    if (match) {
+      const count = match[1] ? parseAsmInteger(match[1]) : 1;
+      if (count === null) {
+        throw new Error(`Could not parse event const_skip value '${match[1]}'.`);
+      }
+      value += count;
+      continue;
+    }
+
+    if (/^const\s+EVENT_[A-Z0-9_]+\b/i.test(line)) {
+      value += 1;
+    }
+  }
+
+  throw new Error("Could not determine NUM_EVENTS from constants/event_constants.asm.");
+}
+
 function fnv1a(input: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < input.length; index += 1) {
@@ -53,6 +110,8 @@ export async function getSaveCompatibilityDescriptor(
     }),
   );
   const eventContents = normalizeText(await source.readText(EVENT_SCHEMA_PATH));
+  const eventBits = eventStorageBits(eventContents);
+  structuralParts.push(`event-storage-bits\n${eventBits}`);
 
   const [structuralHash, eventSchemaHash] = await Promise.all([
     hashText(structuralParts.join("\n\0\n")),
