@@ -2,6 +2,7 @@ export interface ProjectInfo {
   path: string;
   valid: boolean;
   projectName: string;
+  storageKey: string;
 }
 
 export interface PokemonIndexEntry {
@@ -161,6 +162,14 @@ export type BuildTarget = "yellow" | "red" | "blue";
 export type BuildBackend = "desktop-native" | "web-wasm";
 export type BuildToolchainSource = "bundled" | "system" | "unavailable";
 
+export interface SaveCompatibilityDescriptor {
+  formatVersion: number;
+  saveEpoch: number;
+  target: BuildTarget;
+  structuralHash: string;
+  eventSchemaHash: string;
+}
+
 export interface BuildToolStatus {
   name: string;
   available: boolean;
@@ -253,6 +262,7 @@ export interface ProjectBuildReadPreparation {
 
 export interface ProjectSource {
   displayPath: string;
+  storageKey: string;
   readText(relativePath: string): Promise<string>;
   readBytes(relativePath: string): Promise<Uint8Array>;
   writeText(relativePath: string, contents: string): Promise<void>;
@@ -284,6 +294,7 @@ export interface ProjectSession {
   undoLastSave(): Promise<HistorySummary>;
   redoLastUndo(): Promise<HistorySummary>;
   getBuildEnvironment(): Promise<BuildEnvironment>;
+  getSaveCompatibility(target: BuildTarget): Promise<SaveCompatibilityDescriptor>;
   buildRom(target: BuildTarget, onProgress?: BuildProgressListener): Promise<BuildResult>;
   dispose(): void;
 }
