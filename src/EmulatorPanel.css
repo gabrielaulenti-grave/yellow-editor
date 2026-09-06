@@ -1,0 +1,223 @@
+.emulator-panel {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border-color, #d6d6d6);
+  border-radius: 0.75rem;
+  background: var(--panel-background, rgba(255, 255, 255, 0.03));
+}
+
+.emulator-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.emulator-heading h3 {
+  margin: 0 0 0.35rem;
+}
+
+.emulator-heading p {
+  margin: 0;
+  max-width: 48rem;
+}
+
+.emulator-toolbar {
+  display: flex;
+  align-items: end;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.emulator-toolbar label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+
+.emulator-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.75fr);
+  gap: 1.25rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.emulator-screen-frame {
+  display: flex;
+  justify-content: center;
+  min-width: 0;
+  padding: clamp(0.5rem, 2vw, 1rem);
+  border-radius: 0.9rem;
+  background: #171717;
+}
+
+.emulator-screen {
+  display: block;
+  width: min(100%, 40rem);
+  height: auto;
+  aspect-ratio: 10 / 9;
+  background: #000;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.emulator-controller {
+  display: grid;
+  grid-template-columns: auto minmax(7rem, 1fr) auto;
+  gap: clamp(0.65rem, 2vw, 1.25rem);
+  align-items: center;
+  justify-items: center;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.emulator-button {
+  min-width: 3.25rem;
+  min-height: 3.25rem;
+  padding: 0.5rem;
+  font-weight: 700;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.emulator-button:active:not(:disabled) {
+  transform: translateY(1px) scale(0.98);
+}
+
+.emulator-dpad {
+  display: grid;
+  grid-template-columns: repeat(3, 3.25rem);
+  grid-template-rows: repeat(3, 3.25rem);
+  gap: 0.1rem;
+}
+
+.emulator-dpad .emulator-button {
+  border-radius: 0.5rem;
+}
+
+.dpad-up {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.dpad-left {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.dpad-right {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.dpad-down {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.emulator-center-buttons {
+  display: flex;
+  gap: 0.55rem;
+  align-self: end;
+  padding-bottom: 0.4rem;
+}
+
+.emulator-center-buttons .system-button {
+  min-width: 4.25rem;
+  min-height: 2.25rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+}
+
+.emulator-action-buttons {
+  display: flex;
+  gap: 0.65rem;
+  transform: rotate(-12deg);
+}
+
+.emulator-action-buttons .round-button {
+  width: 4rem;
+  height: 4rem;
+  min-width: 4rem;
+  min-height: 4rem;
+  border-radius: 50%;
+  font-size: 1.15rem;
+}
+
+.emulator-action-buttons .round-button > * {
+  transform: rotate(12deg);
+}
+
+.emulator-status,
+.emulator-hint,
+.emulator-error {
+  margin: 0.75rem 0 0;
+}
+
+.emulator-status {
+  font-weight: 600;
+}
+
+.emulator-hint {
+  opacity: 0.75;
+  font-size: 0.85rem;
+}
+
+.emulator-error {
+  color: var(--error-color, #c83a3a);
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .emulator-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .emulator-controller {
+    width: 100%;
+    grid-template-columns: auto 1fr auto;
+  }
+
+  .emulator-dpad {
+    grid-template-columns: repeat(3, min(18vw, 3.25rem));
+    grid-template-rows: repeat(3, min(18vw, 3.25rem));
+  }
+
+  .emulator-button {
+    min-width: min(18vw, 3.25rem);
+    min-height: min(18vw, 3.25rem);
+  }
+}
+
+@media (max-width: 480px) {
+  .emulator-panel {
+    padding: 0.75rem;
+  }
+
+  .emulator-controller {
+    gap: 0.35rem;
+  }
+
+  .emulator-center-buttons {
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .emulator-center-buttons .system-button {
+    min-width: 3.8rem;
+  }
+
+  .emulator-action-buttons {
+    gap: 0.35rem;
+  }
+
+  .emulator-action-buttons .round-button {
+    width: 3.5rem;
+    height: 3.5rem;
+    min-width: 3.5rem;
+    min-height: 3.5rem;
+  }
+}
