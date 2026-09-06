@@ -6,7 +6,7 @@ import type {
   ProjectSource,
 } from "../core/types";
 import type { PlatformAdapter } from "./types";
-import { createWebHistoryStore, type WebDirectoryIdentityHandle } from "./webHistory";
+import { createWebProjectStorage, type WebDirectoryIdentityHandle } from "./webHistory";
 
 interface BrowserWritableFileStream {
   write(data: string): Promise<void>;
@@ -58,6 +58,7 @@ function normalizePath(relativePath: string): string {
 function createWebSource(
   root: BrowserDirectoryHandle,
   historyStore: HistoryStore,
+  storageKey: string,
 ): ProjectSource {
   const objectUrls = new Map<string, string>();
   const directoryHandles = new Map<string, Promise<BrowserDirectoryHandle>>();
@@ -122,9 +123,6 @@ function createWebSource(
       };
     }
 
-    // Rebuild the positive handle cache at the start of every build. This keeps
-    // the index aligned with the current checkout without changing the behavior
-    // of missing-path checks, which still fall back to direct filesystem access.
     fileHandles.clear();
     directoryHandles.clear();
     directoryHandles.set("", Promise.resolve(root));
@@ -161,9 +159,6 @@ function createWebSource(
           }
         }
 
-        // Directory enumeration is much cheaper than thousands of individual
-        // getFileHandle calls, but still yield periodically so the status UI can
-        // repaint on very large checkouts.
         if (directoryCount % 24 === 0) {
           await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
         }
@@ -188,6 +183,7 @@ function createWebSource(
 
   return {
     displayPath: root.name,
+    storageKey,
     historyStore,
     prepareBuildReads,
 
@@ -289,14 +285,16 @@ export const webPlatform: PlatformAdapter = {
     }
 
     try {
-      // Request write access up front so a project opened for browsing is also
-      // ready for safe, history-backed editing later in the session.
       const root = await picker.call(window, {
         id: "yellow-editor-project",
         mode: "readwrite",
       });
-      const historyStore = await createWebHistoryStore(root);
-      const source = createWebSource(root, historyStore);
+      const storage = await createWebProjectStorage(root);
+      const source = createWebSource(
+        root,
+        storage.historyStore,
+        `web:${storage.projectId}`,
+      );
       return await createProjectSession(source, createWebBuildService(source));
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
