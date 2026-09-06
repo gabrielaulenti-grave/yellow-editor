@@ -9,6 +9,7 @@ import type {
   BuildToolStatus,
 } from "./core/types";
 import { invoke } from "./platform/compat";
+import { EmulatorPanel } from "./EmulatorPanel";
 import "./BuildPanel.css";
 
 function toolchainLabel(environment: BuildEnvironment): string {
@@ -135,7 +136,9 @@ function buildDiagnosticReport(
     lines.push("(no progress events received)");
   } else {
     for (const event of events) {
-      const offset = startedAt ? `+${formatDuration(event.timestamp - startedAt)}` : new Date(event.timestamp).toISOString();
+      const offset = startedAt
+        ? `+${formatDuration(event.timestamp - startedAt)}`
+        : new Date(event.timestamp).toISOString();
       lines.push(
         `[${offset}] ${event.percent}% ${event.level.toUpperCase()} ${event.stage}: ${event.message}`,
       );
@@ -334,10 +337,10 @@ export function BuildPanel({
     }
   }
 
-  const browserArtifacts = result?.artifacts ?? [];
-  const hasBrowserRom = browserArtifacts.some((candidate) => candidate.kind === "rom");
-  const hasMap = browserArtifacts.some((candidate) => candidate.kind === "map");
-  const hasSym = browserArtifacts.some((candidate) => candidate.kind === "sym");
+  const buildArtifacts = result?.artifacts ?? [];
+  const romArtifact = buildArtifacts.find((candidate) => candidate.kind === "rom") ?? null;
+  const hasMap = buildArtifacts.some((candidate) => candidate.kind === "map");
+  const hasSym = buildArtifacts.some((candidate) => candidate.kind === "sym");
   const elapsedMs = buildStartedAt
     ? result?.durationMs ?? Math.max(0, now - buildStartedAt)
     : 0;
@@ -582,7 +585,7 @@ export function BuildPanel({
           </div>
           {result.romPath && <code className="build-rom-path">{result.romPath}</code>}
 
-          {result.success && hasBrowserRom && (
+          {result.success && environment?.backend === "web-wasm" && romArtifact && (
             <div className="build-downloads">
               <div className="build-download-options">
                 {hasMap && (
@@ -620,6 +623,8 @@ export function BuildPanel({
           </details>
         </div>
       )}
+
+      {result?.success && romArtifact && <EmulatorPanel rom={romArtifact} />}
     </section>
   );
 }
