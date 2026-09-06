@@ -31,6 +31,29 @@ function parseAsmInteger(token: string): number | null {
   return null;
 }
 
+function parseAsmIntegerExpression(expression: string): number | null {
+  const parts = expression.trim().split(/\s*([+-])\s*/).filter(Boolean);
+  if (parts.length === 0) {
+    return null;
+  }
+
+  let value = parseAsmInteger(parts[0]);
+  if (value === null) {
+    return null;
+  }
+
+  for (let index = 1; index < parts.length; index += 2) {
+    const operator = parts[index];
+    const operand = parseAsmInteger(parts[index + 1] ?? "");
+    if ((operator !== "+" && operator !== "-") || operand === null) {
+      return null;
+    }
+    value = operator === "+" ? value + operand : value - operand;
+  }
+
+  return value;
+}
+
 function parseEventSchema(contents: string): {
   eventBits: number;
   signature: string;
@@ -50,15 +73,15 @@ function parseEventSchema(contents: string): {
       };
     }
 
-    let match = line.match(/^const_def(?:\s+([^,\s]+))?/i);
+    let match = line.match(/^const_def(?:\s+(.+?))?(?:\s*,.*)?$/i);
     if (match) {
-      value = match[1] ? (parseAsmInteger(match[1]) ?? 0) : 0;
+      value = match[1] ? (parseAsmIntegerExpression(match[1]) ?? 0) : 0;
       continue;
     }
 
-    match = line.match(/^const_next\s+([^,\s]+)/i);
+    match = line.match(/^const_next\s+(.+)$/i);
     if (match) {
-      const next = parseAsmInteger(match[1]);
+      const next = parseAsmIntegerExpression(match[1]);
       if (next === null) {
         throw new Error(`Could not parse event const_next value '${match[1]}'.`);
       }
@@ -66,9 +89,9 @@ function parseEventSchema(contents: string): {
       continue;
     }
 
-    match = line.match(/^const_skip(?:\s+([^,\s]+))?/i);
+    match = line.match(/^const_skip(?:\s+(.+))?$/i);
     if (match) {
-      const count = match[1] ? parseAsmInteger(match[1]) : 1;
+      const count = match[1] ? parseAsmIntegerExpression(match[1]) : 1;
       if (count === null) {
         throw new Error(`Could not parse event const_skip value '${match[1]}'.`);
       }
