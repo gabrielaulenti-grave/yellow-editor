@@ -251,6 +251,50 @@ export async function parseBaseStats(
   };
 }
 
+async function parseStartingMoves(
+  source: ProjectSource,
+  sourceSlug: string,
+): Promise<LearnsetMove[]> {
+  const contents = await source.readText(
+    `data/pokemon/base_stats/${sourceSlug}.asm`,
+  );
+  let foundSpritePointers = false;
+
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = codeOnly(rawLine);
+    if (!line) {
+      continue;
+    }
+
+    if (!foundSpritePointers) {
+      if (line.startsWith("dw ")) {
+        foundSpritePointers = true;
+      }
+      continue;
+    }
+
+    if (!line.startsWith("db ")) {
+      continue;
+    }
+
+    const values = parseDbValues(line);
+    if (values.length !== 4) {
+      throw new Error(
+        `Expected 4 starting-move slots for ${sourceSlug}, found ${values.length}`,
+      );
+    }
+
+    return values
+      .filter((move) => move !== "NO_MOVE" && move !== "0")
+      .map((moveConstant) => ({
+        level: 1,
+        moveConstant,
+      }));
+  }
+
+  throw new Error(`Missing starting moves for ${sourceSlug}`);
+}
+
 export async function parsePokemonTmhmMoves(
   source: ProjectSource,
   sourceSlug: string,
@@ -551,8 +595,9 @@ export async function parsePokemonDetails(
   internalId: number,
   sourceSlug: string,
 ): Promise<PokemonDetails> {
-  const [stats, evolutionData, pokedex, front, back] = await Promise.all([
+  const [stats, startingMoves, evolutionData, pokedex, front, back] = await Promise.all([
     parseBaseStats(source, sourceSlug),
+    parseStartingMoves(source, sourceSlug),
     parseEvosMoves(source, internalId),
     parsePokedexInfo(source, internalId),
     source.assetUrl(`gfx/pokemon/front/${sourceSlug}.png`),
@@ -562,7 +607,7 @@ export async function parsePokemonDetails(
   return {
     stats,
     evolutions: evolutionData.evolutions,
-    learnset: evolutionData.learnset,
+    learnset: [...startingMoves, ...evolutionData.learnset],
     pokedex,
     sprites: { front, back },
   };
