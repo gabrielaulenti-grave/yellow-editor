@@ -90,6 +90,33 @@ input[readonly] {
   color: var(--muted);
 }
 
+.project-loading-panel {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.project-loading-panel > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.project-loading-panel span,
+.project-loading-panel small {
+  color: var(--muted);
+}
+
+.project-loading-panel progress {
+  width: 100%;
+  height: 12px;
+  accent-color: var(--accent);
+}
+
 .project-strip {
   display: flex;
   gap: 12px;

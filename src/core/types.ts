@@ -177,6 +177,23 @@ export interface TrainerCatalog {
   warnings: string[];
 }
 
+export type TrainerLoadStage =
+  | "tables"
+  | "maps"
+  | "scripts"
+  | "dialogue"
+  | "complete";
+
+export interface TrainerLoadProgress {
+  stage: TrainerLoadStage;
+  message: string;
+  completed: number;
+  total: number;
+  percent: number;
+}
+
+export type TrainerLoadProgressListener = (progress: TrainerLoadProgress) => void;
+
 export type EncounterVersion = "yellow" | "red" | "blue";
 export type EncounterTerrain = "grass" | "water";
 
@@ -429,7 +446,7 @@ export interface ProjectSession {
     values: PokemonBaseStatValues,
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
-  getTrainers(): Promise<TrainerCatalog>;
+  getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getEncounterIndex(): Promise<EncounterTableIndexEntry[]>;
   getEncounterTable(path: string): Promise<EncounterTableEditDocument>;
   saveEncounterTable(

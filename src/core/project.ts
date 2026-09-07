@@ -85,7 +85,7 @@ export async function createProjectSession(
       ]);
     },
     getMoves: () => parseMoves(source),
-    getTrainers: () => parseTrainerCatalog(source, projectName),
+    getTrainers: (onProgress) => parseTrainerCatalog(source, projectName, onProgress),
     getEncounterIndex: () => parseEncounterIndex(source, projectName),
     getEncounterTable: (path) =>
       loadEncounterTableEditDocument(source, projectName, path),

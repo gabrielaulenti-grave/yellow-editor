@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type {
   EncounterTableEditDocument,
   EncounterTableIndexEntry,
@@ -12,6 +12,7 @@ import type {
   PokemonIndexEntry,
   ProjectInfo,
   TrainerCatalog,
+  TrainerLoadProgress,
   TrainerPartyEntry,
 } from "./core/types";
 import { BuildTestTab } from "./BuildTestTab";
@@ -70,6 +71,8 @@ function App() {
   const [trainerWarnings, setTrainerWarnings] = useState<string[]>([]);
   const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(null);
   const [trainerSearch, setTrainerSearch] = useState("");
+  const [projectLoadProgress, setProjectLoadProgress] =
+    useState<TrainerLoadProgress | null>(null);
   const [encounters, setEncounters] = useState<EncounterTableIndexEntry[]>([]);
   const [selectedEncounterPath, setSelectedEncounterPath] = useState<string | null>(null);
   const [encounterDocument, setEncounterDocument] =
@@ -88,6 +91,7 @@ function App() {
     useState<BaseStatsDraft>(EMPTY_BASE_STATS_DRAFT);
   const [historySummary, setHistorySummary] = useState<HistorySummary | null>(null);
   const [editBusy, setEditBusy] = useState(false);
+  const projectLoadGeneration = useRef(0);
 
   const selectedPokemonEntry =
     pokemonIndex.find((entry) => entry.internalId === selectedPokemonId) ?? null;
@@ -166,6 +170,45 @@ function App() {
     }
   }
 
+  async function loadTrainerCatalog(
+    loadGeneration: number,
+    fishingLoadError: string | null,
+  ) {
+    try {
+      const catalog = await invoke<TrainerCatalog>("get_trainers", {
+        onProgress: (progress: TrainerLoadProgress) => {
+          if (projectLoadGeneration.current === loadGeneration) {
+            setProjectLoadProgress(progress);
+            setStatus(progress.message);
+          }
+        },
+      });
+      if (projectLoadGeneration.current !== loadGeneration) {
+        return;
+      }
+      setTrainers(catalog.trainers);
+      setTrainerWarnings(catalog.warnings);
+      setSelectedTrainerId(catalog.trainers[0]?.id ?? null);
+      setStatus(
+        fishingLoadError
+          ? `Project loaded, but fishing data is unavailable. ${fishingLoadError}`
+          : "Project and trainer index loaded successfully.",
+      );
+    } catch (error) {
+      if (projectLoadGeneration.current !== loadGeneration) {
+        return;
+      }
+      setTrainers([]);
+      setTrainerWarnings([String(error)]);
+      setSelectedTrainerId(null);
+      setStatus(`Project loaded, but trainer data is unavailable. ${String(error)}`);
+    } finally {
+      if (projectLoadGeneration.current === loadGeneration) {
+        setProjectLoadProgress(null);
+      }
+    }
+  }
+
   async function loadPokemon(
     entry: PokemonIndexEntry,
     successMessage = "Pokémon loaded successfully.",
@@ -218,6 +261,16 @@ function App() {
       return;
     }
 
+    let loadGeneration = projectLoadGeneration.current;
+    setProjectLoadProgress({
+      stage: "tables",
+      message: "Waiting for a project folder",
+      completed: 0,
+      total: 1,
+      percent: 1,
+    });
+    setStatus("Waiting for a project folder.");
+
     try {
       const selected = await open({
         directory: true,
@@ -226,17 +279,28 @@ function App() {
       });
 
       if (!selected) {
+        setProjectLoadProgress(null);
+        setStatus(project ? "Project selection cancelled." : "No project loaded.");
         return;
       }
 
+      loadGeneration = projectLoadGeneration.current + 1;
+      projectLoadGeneration.current = loadGeneration;
+
+      setProjectLoadProgress({
+        stage: "tables",
+        message: "Reading core project data",
+        completed: 0,
+        total: 1,
+        percent: 5,
+      });
+      setStatus("Reading core project data.");
+
       const result = await invoke<ProjectInfo>("open_project", { path: selected });
 
-      const [index, moveData, trainerResult, encounterData, fishingResult, history] = await Promise.all([
+      const [index, moveData, encounterData, fishingResult, history] = await Promise.all([
         invoke<PokemonIndexEntry[]>("get_pokemon_index", { projectPath: result.path }),
         invoke<MoveData[]>("get_moves", { projectPath: result.path }),
-        invoke<TrainerCatalog>("get_trainers")
-          .then((catalog) => ({ catalog, error: null }))
-          .catch((error) => ({ catalog: null, error: String(error) })),
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         invoke<FishingEditDocument>("get_fishing")
           .then((document) => ({ document, error: null }))
@@ -247,11 +311,8 @@ function App() {
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
-      setTrainers(trainerResult.catalog?.trainers ?? []);
-      setTrainerWarnings([
-        ...(trainerResult.catalog?.warnings ?? []),
-        ...(trainerResult.error ? [trainerResult.error] : []),
-      ]);
+      setTrainers([]);
+      setTrainerWarnings([]);
       setEncounters(encounterData);
       clearPokemonEditor();
       clearEncounterEditor();
@@ -261,7 +322,7 @@ function App() {
       );
       setFishingError(fishingResult.error);
       setSelectedMoveId(moveData[0]?.id ?? null);
-      setSelectedTrainerId(trainerResult.catalog?.trainers[0]?.id ?? null);
+      setSelectedTrainerId(null);
       setMoveSearch("");
       setTrainerSearch("");
       setEncounterSearch("");
@@ -274,10 +335,22 @@ function App() {
       }
       if (fishingResult.error) {
         setStatus(`Project loaded, but fishing data is unavailable. ${fishingResult.error}`);
-      } else if (trainerResult.error) {
-        setStatus(`Project loaded, but trainer data is unavailable. ${trainerResult.error}`);
+      }
+      if (projectLoadGeneration.current === loadGeneration) {
+        setProjectLoadProgress({
+          stage: "tables",
+          message: "Core editor ready; indexing trainers in the background",
+          completed: 0,
+          total: 1,
+          percent: 8,
+        });
+        setStatus("Core editor ready; indexing trainers in the background.");
+        void loadTrainerCatalog(loadGeneration, fishingResult.error);
       }
     } catch (error) {
+      if (projectLoadGeneration.current !== loadGeneration) {
+        return;
+      }
       setProject(null);
       setPokemonIndex([]);
       setMoves([]);
@@ -289,6 +362,7 @@ function App() {
       setSelectedMoveId(null);
       setSelectedTrainerId(null);
       setHistorySummary(null);
+      setProjectLoadProgress(null);
       setStatus(String(error));
     }
   }
@@ -655,6 +729,21 @@ function App() {
         </div>
         <button onClick={selectProject}>Open Project</button>
       </header>
+
+      {projectLoadProgress && (
+        <section className="project-loading-panel" aria-live="polite">
+          <div>
+            <strong>{projectLoadProgress.message}</strong>
+            <span>{projectLoadProgress.percent}%</span>
+          </div>
+          <progress max="100" value={projectLoadProgress.percent} />
+          {projectLoadProgress.total > 1 && (
+            <small>
+              {projectLoadProgress.completed} of {projectLoadProgress.total} files in this stage
+            </small>
+          )}
+        </section>
+      )}
 
       {project && (
         <>

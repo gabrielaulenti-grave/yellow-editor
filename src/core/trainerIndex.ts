@@ -4,6 +4,7 @@ import type {
   TrainerCatalog,
   TrainerDialogue,
   TrainerInstance,
+  TrainerLoadProgressListener,
   TrainerPartyEntry,
   TrainerSpecialMove,
 } from "./types";
@@ -401,19 +402,41 @@ function objectConstants(contents: string): string[] {
     .map((match) => match[1]);
 }
 
-async function parseMapInstances(
+async function readTextFiles(
   source: ProjectSource,
+  paths: string[],
+  onProgress: (completed: number, total: number) => void,
+): Promise<Map<string, string>> {
+  const files = new Map<string, string>();
+  let nextIndex = 0;
+  let completed = 0;
+  const workerCount = Math.min(12, paths.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < paths.length) {
+      const path = paths[nextIndex];
+      nextIndex += 1;
+      files.set(path, await source.readText(path));
+      completed += 1;
+      const updateInterval = Math.max(1, Math.ceil(paths.length / 20));
+      if (completed === paths.length || completed % updateInterval === 0) {
+        onProgress(completed, paths.length);
+      }
+    }
+  });
+  await Promise.all(workers);
+  return files;
+}
+
+function parseMapInstances(
   objectPath: string,
+  objectContents: string,
+  scriptPath: string | null,
+  scriptContents: string,
   textBlocks: Map<string, TextSourceBlock>,
-): Promise<Array<{ partyId: string; instance: TrainerInstance; loneMoveIndex: number | null }>> {
-  const objectContents = await source.readText(objectPath);
+): Array<{ partyId: string; instance: TrainerInstance; loneMoveIndex: number | null }> {
   const mapConstant = objectContents.match(/^\s*def_warps_to\s+([A-Z][A-Z0-9_]*)\b/m)?.[1]
     ?? objectPath.split("/").pop()?.replace(/\.asm$/, "").toUpperCase()
     ?? "UNKNOWN_MAP";
-  const basename = objectPath.split("/").pop() ?? "";
-  const scriptPath = `scripts/${basename}`;
-  const hasScript = await source.exists(scriptPath);
-  const scriptContents = hasScript ? await source.readText(scriptPath) : "";
   const scriptBlocks = labelBlocks(scriptContents);
   const headers = parseHeaders(scriptContents);
   const pointers = textPointerLabels(scriptContents);
@@ -456,7 +479,7 @@ async function parseMapInstances(
         locationName: mapConstantDisplayName(mapConstant),
         objectConstant,
         objectPath,
-        scriptPath: hasScript ? scriptPath : null,
+        scriptPath,
         x,
         y,
         spriteConstant: values[2],
@@ -473,10 +496,47 @@ async function parseMapInstances(
   return results;
 }
 
+function pathStem(path: string): string {
+  return path.split("/").pop()?.replace(/\.asm$/, "") ?? "";
+}
+
+function addTextBlocks(
+  textBlocks: Map<string, TextSourceBlock>,
+  files: Map<string, string>,
+): void {
+  for (const [path, contents] of files) {
+    for (const [label, block] of labelBlocks(contents)) {
+      textBlocks.set(label, { block, path });
+    }
+  }
+}
+
+function unresolvedDialogueLabels(
+  mapResults: Array<Array<{ partyId: string; instance: TrainerInstance; loneMoveIndex: number | null }>>,
+): Set<string> {
+  const labels = new Set<string>();
+  for (const result of mapResults.flat()) {
+    for (const dialogue of Object.values(result.instance.dialogue)) {
+      if (dialogue?.textLabel && !dialogue.sourcePath) {
+        labels.add(dialogue.textLabel);
+      }
+    }
+  }
+  return labels;
+}
+
 export async function parseTrainerCatalog(
   source: ProjectSource,
   projectName: string,
+  onProgress?: TrainerLoadProgressListener,
 ): Promise<TrainerCatalog> {
+  onProgress?.({
+    stage: "tables",
+    message: "Reading trainer tables",
+    completed: 0,
+    total: 1,
+    percent: 10,
+  });
   const required = [PARTIES_PATH, NAMES_PATH, MONEY_PATH, AI_PATH, MOVE_CHOICES_PATH, MAPS_PATH];
   for (const path of required) {
     if (!(await source.exists(path))) {
@@ -513,28 +573,97 @@ export async function parseTrainerCatalog(
     ? parseSpecialMoves(await source.readText(SPECIAL_MOVES_PATH), projectName)
     : new Map<string, TrainerSpecialMove[]>();
   applySpecialMoves(trainers, specialMoves);
+  onProgress?.({
+    stage: "tables",
+    message: `${trainers.length} trainer parties found`,
+    completed: 1,
+    total: 1,
+    percent: 15,
+  });
 
   const byId = new Map(trainers.map((trainer) => [trainer.id, trainer]));
   const objectPaths = includedPaths(mapsContents, "data/maps/objects/");
+  const objectFiles = await readTextFiles(source, objectPaths, (completed, total) => {
+    onProgress?.({
+      stage: "maps",
+      message: "Scanning maps for trainer instances",
+      completed,
+      total,
+      percent: 15 + Math.round((completed / Math.max(total, 1)) * 30),
+    });
+  });
+  const trainerObjectPaths = objectPaths.filter((path) =>
+    /^\s*object_event\b.*\bOPP_[A-Z0-9_]+\b/m.test(objectFiles.get(path) ?? ""),
+  );
+
+  const scriptPaths = includedPaths(mapsContents, "scripts/");
+  const scriptPathByStem = new Map(scriptPaths.map((path) => [pathStem(path), path]));
+  const trainerScriptPaths = [...new Set(trainerObjectPaths
+    .map((path) => scriptPathByStem.get(pathStem(path)))
+    .filter((path): path is string => Boolean(path)))];
+  const scriptFiles = await readTextFiles(source, trainerScriptPaths, (completed, total) => {
+    onProgress?.({
+      stage: "scripts",
+      message: "Resolving trainer triggers and event flags",
+      completed,
+      total,
+      percent: 45 + Math.round((completed / Math.max(total, 1)) * 20),
+    });
+  });
+
   const textBlocks = new Map<string, TextSourceBlock>();
+  let textPaths: string[] = [];
   if (await source.exists("text.asm")) {
     const textIndex = await source.readText("text.asm");
-    const textPaths = includedPaths(textIndex, "text/");
-    const textFiles = await Promise.all(textPaths.map(async (path) => ({
-      path,
-      blocks: labelBlocks(await source.readText(path)),
-    })));
-    for (const textFile of textFiles) {
-      for (const [label, block] of textFile.blocks) {
-        textBlocks.set(label, { block, path: textFile.path });
-      }
-    }
+    textPaths = includedPaths(textIndex, "text/");
+    const trainerMapStems = trainerObjectPaths.map(pathStem);
+    const likelyTextPaths = textPaths.filter((path) => {
+      const stem = pathStem(path);
+      return trainerMapStems.some((mapStem) =>
+        stem === mapStem || stem.startsWith(`${mapStem}_`),
+      );
+    });
+    const textFiles = await readTextFiles(source, likelyTextPaths, (completed, total) => {
+      onProgress?.({
+        stage: "dialogue",
+        message: "Loading trainer dialogue",
+        completed,
+        total,
+        percent: 65 + Math.round((completed / Math.max(total, 1)) * 28),
+      });
+    });
+    addTextBlocks(textBlocks, textFiles);
   } else {
     warnings.push("Could not resolve trainer dialogue because text.asm is missing.");
   }
-  const mapResults = await Promise.all(
-    objectPaths.map((path) => parseMapInstances(source, path, textBlocks)),
-  );
+
+  const parseMaps = () => trainerObjectPaths.map((path) => {
+    const scriptPath = scriptPathByStem.get(pathStem(path)) ?? null;
+    return parseMapInstances(
+      path,
+      objectFiles.get(path) ?? "",
+      scriptPath,
+      scriptPath ? scriptFiles.get(scriptPath) ?? "" : "",
+      textBlocks,
+    );
+  });
+  let mapResults = parseMaps();
+  const unresolvedLabels = unresolvedDialogueLabels(mapResults);
+  if (unresolvedLabels.size > 0 && textPaths.length > 0) {
+    const loadedPaths = new Set([...textBlocks.values()].map((entry) => entry.path));
+    const fallbackPaths = textPaths.filter((path) => !loadedPaths.has(path));
+    const fallbackFiles = await readTextFiles(source, fallbackPaths, (completed, total) => {
+      onProgress?.({
+        stage: "dialogue",
+        message: `Searching for ${unresolvedLabels.size} relocated dialogue label${unresolvedLabels.size === 1 ? "" : "s"}`,
+        completed,
+        total,
+        percent: 93 + Math.round((completed / Math.max(total, 1)) * 6),
+      });
+    });
+    addTextBlocks(textBlocks, fallbackFiles);
+    mapResults = parseMaps();
+  }
   for (const result of mapResults.flat()) {
     const trainer = byId.get(result.partyId);
     if (trainer) {
@@ -559,5 +688,12 @@ export async function parseTrainerCatalog(
     }
   }
   trainers.forEach((trainer) => trainer.instances.sort((left, right) => left.locationName.localeCompare(right.locationName)));
+  onProgress?.({
+    stage: "complete",
+    message: `${trainers.length} trainer parties indexed`,
+    completed: trainers.length,
+    total: trainers.length,
+    percent: 100,
+  });
   return { trainers, warnings };
 }

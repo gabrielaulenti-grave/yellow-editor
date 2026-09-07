@@ -7,6 +7,7 @@ import type {
   PokemonBaseStatValues,
   ProjectSession,
   TextWriteRequest,
+  TrainerLoadProgressListener,
 } from "../core/types";
 import { webPlatform } from "./web";
 
@@ -89,6 +90,19 @@ function buildProgressArg(
     throw new Error("Build progress callback must be a function.");
   }
   return value as BuildProgressListener;
+}
+
+function trainerProgressArg(
+  args: InvokeArgs | undefined,
+): TrainerLoadProgressListener | undefined {
+  const value = args?.onProgress;
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "function") {
+    throw new Error("Trainer progress callback must be a function.");
+  }
+  return value as TrainerLoadProgressListener;
 }
 
 function baseStatValuesArg(args: InvokeArgs | undefined): PokemonBaseStatValues {
@@ -217,7 +231,7 @@ export async function invoke<T>(
       return (await session.getMoves()) as T;
 
     case "get_trainers":
-      return (await session.getTrainers()) as T;
+      return (await session.getTrainers(trainerProgressArg(args))) as T;
 
     case "get_encounter_index":
       return (await session.getEncounterIndex()) as T;
