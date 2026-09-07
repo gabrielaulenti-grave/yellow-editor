@@ -1,5 +1,9 @@
 import { useState } from "react";
 import type {
+  EncounterTableEditDocument,
+  EncounterTableIndexEntry,
+  EncounterTerrain,
+  EncounterVersion,
   HistorySummary,
   MoveData,
   PokemonBaseStatsEditDocument,
@@ -8,6 +12,7 @@ import type {
   ProjectInfo,
 } from "./core/types";
 import { BuildTestTab } from "./BuildTestTab";
+import { EncountersTab } from "./EncountersTab";
 import { EditorToolbar } from "./EditorToolbar";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
@@ -21,10 +26,21 @@ import {
   validateBaseStatInput,
 } from "./editor/pokemonBaseStatsForm";
 import type { EditorController } from "./editor/types";
+import {
+  disableEncounterArea,
+  enableEncounterArea,
+  encounterDraftFromDocument,
+  encounterDraftIsDirty,
+  encounterDraftIsValid,
+  parseEncounterDraft,
+  updateEncounterRate,
+  updateEncounterSlot,
+  type EncounterDraft,
+} from "./editor/encounterForm";
 import { invoke, open } from "./platform/compat";
 import "./App.css";
 
-type Tab = "pokemon" | "moves" | "build";
+type Tab = "pokemon" | "moves" | "encounters" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -37,6 +53,12 @@ function App() {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
+  const [encounters, setEncounters] = useState<EncounterTableIndexEntry[]>([]);
+  const [selectedEncounterPath, setSelectedEncounterPath] = useState<string | null>(null);
+  const [encounterDocument, setEncounterDocument] =
+    useState<EncounterTableEditDocument | null>(null);
+  const [encounterDraft, setEncounterDraft] = useState<EncounterDraft>([]);
+  const [encounterSearch, setEncounterSearch] = useState("");
   const [baseStatsDocument, setBaseStatsDocument] =
     useState<PokemonBaseStatsEditDocument | null>(null);
   const [baseStatsDraft, setBaseStatsDraft] =
@@ -58,6 +80,9 @@ function App() {
         (field) => baseStatsDraft[field.key] !== String(baseStatsDocument.values[field.key]),
       ),
   );
+  const encounterDirty = encounterDraftIsDirty(encounterDraft, encounterDocument);
+  const encounterValid = encounterDraftIsValid(encounterDraft);
+  const hasUnsavedChanges = baseStatsDirty || encounterDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -65,6 +90,37 @@ function App() {
     setTmhmMoves([]);
     setBaseStatsDocument(null);
     setBaseStatsDraft(EMPTY_BASE_STATS_DRAFT);
+  }
+
+  function clearEncounterEditor() {
+    setSelectedEncounterPath(null);
+    setEncounterDocument(null);
+    setEncounterDraft([]);
+  }
+
+  async function loadEncounter(
+    entry: EncounterTableIndexEntry,
+    successMessage = "Encounter table loaded successfully.",
+  ) {
+    setSelectedEncounterPath(entry.path);
+    if (entry.error) {
+      setEncounterDocument(null);
+      setEncounterDraft([]);
+      setStatus(entry.error);
+      return;
+    }
+    try {
+      const document = await invoke<EncounterTableEditDocument>("get_encounter_table", {
+        path: entry.path,
+      });
+      setEncounterDocument(document);
+      setEncounterDraft(encounterDraftFromDocument(document));
+      setStatus(successMessage);
+    } catch (error) {
+      setEncounterDocument(null);
+      setEncounterDraft([]);
+      setStatus(String(error));
+    }
   }
 
   async function loadPokemon(
@@ -113,8 +169,8 @@ function App() {
 
   async function selectProject() {
     if (
-      baseStatsDirty &&
-      !window.confirm("Discard the unsaved base stat changes and open another project?")
+      hasUnsavedChanges &&
+      !window.confirm("Discard the unsaved changes and open another project?")
     ) {
       return;
     }
@@ -132,29 +188,50 @@ function App() {
 
       const result = await invoke<ProjectInfo>("open_project", { path: selected });
 
-      const [index, moveData, history] = await Promise.all([
+      const [index, moveData, encounterData, history] = await Promise.all([
         invoke<PokemonIndexEntry[]>("get_pokemon_index", { projectPath: result.path }),
         invoke<MoveData[]>("get_moves", { projectPath: result.path }),
+        invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         invoke<HistorySummary>("get_history_summary"),
       ]);
 
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
+      setEncounters(encounterData);
       clearPokemonEditor();
+      clearEncounterEditor();
       setSelectedMoveId(moveData[0]?.id ?? null);
       setMoveSearch("");
+      setEncounterSearch("");
       setHistorySummary(history);
-      setStatus("Project loaded successfully.");
+      if (encounterData[0]) {
+        await loadEncounter(encounterData[0], "Project loaded successfully.");
+      } else {
+        setStatus("Project loaded successfully.");
+      }
     } catch (error) {
       setProject(null);
       setPokemonIndex([]);
       setMoves([]);
+      setEncounters([]);
       clearPokemonEditor();
+      clearEncounterEditor();
       setSelectedMoveId(null);
       setHistorySummary(null);
       setStatus(String(error));
     }
+  }
+
+  async function selectEncounter(entry: EncounterTableIndexEntry) {
+    if (
+      encounterDirty &&
+      entry.path !== selectedEncounterPath &&
+      !window.confirm("Discard the unsaved encounter changes and switch locations?")
+    ) {
+      return;
+    }
+    await loadEncounter(entry);
   }
 
   async function selectPokemon(entry: PokemonIndexEntry) {
@@ -208,8 +285,51 @@ function App() {
     }
   }
 
+  async function saveEncounters() {
+    if (!encounterDocument || !encounterDirty || !encounterValid) {
+      return;
+    }
+    const versions = parseEncounterDraft(encounterDraft);
+    if (!versions) {
+      setStatus("Fix the invalid encounter rate or slot values before saving.");
+      return;
+    }
+    const selected = encounters.find((entry) => entry.path === encounterDocument.path);
+    if (!selected) {
+      return;
+    }
+
+    setEditBusy(true);
+    try {
+      const knownSpecies = pokemonIndex
+        .filter((entry) => entry.kind === "pokemon" && entry.constant)
+        .map((entry) => entry.constant as string);
+      const history = await invoke<HistorySummary>("save_encounter_table", {
+        path: encounterDocument.path,
+        expectedHash: encounterDocument.sourceHash,
+        versions,
+        knownSpecies,
+      });
+      setHistorySummary(history);
+      await loadEncounter(selected, "Wild encounters saved successfully.");
+      setEncounters((current) => current.map((entry) =>
+        entry.path === selected.path
+          ? {
+              ...entry,
+              hasGrass: versions.some((item) => item.grass.rate > 0),
+              hasWater: versions.some((item) => item.water.rate > 0),
+            }
+          : entry,
+      ));
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function undoLastSave() {
-    if (!historySummary?.canUndo || baseStatsDirty || editBusy) {
+    if (!historySummary?.canUndo || hasUnsavedChanges || editBusy) {
       return;
     }
 
@@ -217,8 +337,16 @@ function App() {
     try {
       const history = await invoke<HistorySummary>("undo_last_save");
       setHistorySummary(history);
+      const refreshedEncounters = await invoke<EncounterTableIndexEntry[]>("get_encounter_index");
+      setEncounters(refreshedEncounters);
       if (selectedPokemonEntry?.sourceSlug) {
         await loadPokemon(selectedPokemonEntry, "Undid the last saved change.");
+      }
+      const selectedEncounter = refreshedEncounters.find(
+        (entry) => entry.path === selectedEncounterPath,
+      );
+      if (selectedEncounter) {
+        await loadEncounter(selectedEncounter, "Undid the last saved change.");
       } else {
         setStatus("Undid the last saved change.");
       }
@@ -230,7 +358,7 @@ function App() {
   }
 
   async function redoLastUndo() {
-    if (!historySummary?.canRedo || baseStatsDirty || editBusy) {
+    if (!historySummary?.canRedo || hasUnsavedChanges || editBusy) {
       return;
     }
 
@@ -238,8 +366,16 @@ function App() {
     try {
       const history = await invoke<HistorySummary>("redo_last_undo");
       setHistorySummary(history);
+      const refreshedEncounters = await invoke<EncounterTableIndexEntry[]>("get_encounter_index");
+      setEncounters(refreshedEncounters);
       if (selectedPokemonEntry?.sourceSlug) {
         await loadPokemon(selectedPokemonEntry, "Redid the last saved change.");
+      }
+      const selectedEncounter = refreshedEncounters.find(
+        (entry) => entry.path === selectedEncounterPath,
+      );
+      if (selectedEncounter) {
+        await loadEncounter(selectedEncounter, "Redid the last saved change.");
       } else {
         setStatus("Redid the last saved change.");
       }
@@ -263,13 +399,103 @@ function App() {
     }
   }
 
-  const editorController: EditorController = {
+  async function revertEncounterChanges() {
+    if (!encounterDirty || !encounterDocument || editBusy) {
+      return;
+    }
+    const selected = encounters.find((entry) => entry.path === encounterDocument.path);
+    if (!selected) {
+      return;
+    }
+    setEditBusy(true);
+    try {
+      await loadEncounter(selected, "Unsaved encounter changes reverted.");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  function changeEncounterRate(terrain: EncounterTerrain, value: string) {
+    setEncounterDraft((current) => updateEncounterRate(current, terrain, value));
+  }
+
+  function changeEncounterSlot(
+    version: EncounterVersion,
+    terrain: EncounterTerrain,
+    index: number,
+    field: "level" | "speciesConstant",
+    value: string,
+  ) {
+    setEncounterDraft((current) =>
+      updateEncounterSlot(current, version, terrain, index, field, value),
+    );
+  }
+
+  function enableEncounters(terrain: EncounterTerrain) {
+    const otherTerrain = terrain === "grass" ? "water" : "grass";
+    const defaultSpecies = encounterDraft[0]?.[otherTerrain].slots[0]?.speciesConstant ?? pokemonIndex.find(
+      (entry) => entry.kind === "pokemon" && entry.constant,
+    )?.constant;
+    if (defaultSpecies) {
+      setEncounterDraft((current) => enableEncounterArea(current, terrain, defaultSpecies));
+    }
+  }
+
+  function disableEncounters(terrain: EncounterTerrain) {
+    if (
+      window.confirm(
+        `Disable all ${terrain === "water" ? "surfing" : "grass"} encounters for this location?`,
+      )
+    ) {
+      setEncounterDraft((current) => disableEncounterArea(current, terrain));
+    }
+  }
+
+  const pokemonEditorController: EditorController = {
     dirty: baseStatsDirty,
     valid: baseStatsValid,
     busy: editBusy,
     save: saveBaseStats,
     revert: revertUnsavedChanges,
   };
+  const encounterEditorController: EditorController = {
+    dirty: encounterDirty,
+    valid: encounterValid,
+    busy: editBusy,
+    save: saveEncounters,
+    revert: revertEncounterChanges,
+  };
+  const readOnlyEditorController: EditorController = {
+    dirty: false,
+    valid: true,
+    busy: editBusy,
+    save: async () => undefined,
+    revert: async () => undefined,
+  };
+  const editorController = activeTab === "pokemon"
+    ? pokemonEditorController
+    : activeTab === "encounters"
+      ? encounterEditorController
+      : readOnlyEditorController;
+
+  async function selectTab(nextTab: Tab) {
+    if (nextTab === activeTab) {
+      return;
+    }
+    if (
+      hasUnsavedChanges &&
+      !window.confirm("Discard the unsaved changes and switch tabs?")
+    ) {
+      return;
+    }
+    if (baseStatsDirty) {
+      await revertUnsavedChanges();
+    }
+    if (encounterDirty) {
+      await revertEncounterChanges();
+    }
+    setActiveTab(nextTab);
+  }
 
   return (
     <main className="app-shell">
@@ -300,19 +526,25 @@ function App() {
       <nav className="tab-bar">
         <button
           className={activeTab === "pokemon" ? "active" : ""}
-          onClick={() => setActiveTab("pokemon")}
+          onClick={() => void selectTab("pokemon")}
         >
           Pokémon
         </button>
         <button
           className={activeTab === "moves" ? "active" : ""}
-          onClick={() => setActiveTab("moves")}
+          onClick={() => void selectTab("moves")}
         >
           Moves
         </button>
         <button
+          className={activeTab === "encounters" ? "active" : ""}
+          onClick={() => void selectTab("encounters")}
+        >
+          Wild Encounters
+        </button>
+        <button
           className={activeTab === "build" ? "active" : ""}
-          onClick={() => setActiveTab("build")}
+          onClick={() => void selectTab("build")}
         >
           Build &amp; Test
         </button>
@@ -346,9 +578,29 @@ function App() {
         />
       )}
 
+      {activeTab === "encounters" && (
+        <EncountersTab
+          project={project}
+          encounters={encounters}
+          selectedPath={selectedEncounterPath}
+          document={encounterDocument}
+          draft={encounterDraft}
+          pokemonIndex={pokemonIndex}
+          search={encounterSearch}
+          dirty={encounterDirty}
+          busy={editBusy}
+          onSearchChange={setEncounterSearch}
+          onSelect={selectEncounter}
+          onUpdateRate={changeEncounterRate}
+          onUpdateSlot={changeEncounterSlot}
+          onEnable={enableEncounters}
+          onDisable={disableEncounters}
+        />
+      )}
+
       <BuildTestTab
         project={project}
-        hasUnsavedChanges={editorController.dirty}
+        hasUnsavedChanges={hasUnsavedChanges}
         hidden={activeTab !== "build"}
       />
     </main>

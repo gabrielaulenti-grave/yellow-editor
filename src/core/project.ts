@@ -13,6 +13,12 @@ import {
   validatePokemonBaseStats,
 } from "./pokemonEditing";
 import { getSaveCompatibilityDescriptor } from "./saveCompatibility";
+import {
+  loadEncounterTableEditDocument,
+  parseEncounterIndex,
+  prepareEncounterTableWrite,
+  validateEncounterVersions,
+} from "./encounterEditing";
 import type { BuildService, ProjectSession, ProjectSource } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
@@ -73,6 +79,24 @@ export async function createProjectSession(
       ]);
     },
     getMoves: () => parseMoves(source),
+    getEncounterIndex: () => parseEncounterIndex(source, projectName),
+    getEncounterTable: (path) =>
+      loadEncounterTableEditDocument(source, projectName, path),
+    saveEncounterTable: async (path, expectedHash, versions, knownSpecies) => {
+      const species = new Set(knownSpecies);
+      validateEncounterVersions(versions, species);
+      const change = await prepareEncounterTableWrite(
+        source,
+        projectName,
+        path,
+        versions,
+        species,
+      );
+      const label = path.split("/").pop()?.replace(/\.asm$/, "") ?? path;
+      return history.save(`Edit ${label} wild encounters`, [
+        { path: change.path, contents: change.contents, expectedHash },
+      ]);
+    },
     getHistorySummary: () => history.getSummary(),
     saveTextChanges: (label, changes) => history.save(label, changes),
     undoLastSave: () => history.undo(),

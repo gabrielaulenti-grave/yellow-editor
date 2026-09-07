@@ -107,6 +107,44 @@ export interface MoveData {
   animationScript: string[];
 }
 
+export type EncounterVersion = "yellow" | "red" | "blue";
+export type EncounterTerrain = "grass" | "water";
+
+export interface EncounterSlot {
+  level: number;
+  speciesConstant: string;
+  sourceLine: number | null;
+}
+
+export interface EncounterArea {
+  rate: number;
+  slots: EncounterSlot[];
+}
+
+export interface EncounterVersionData {
+  version: EncounterVersion;
+  grass: EncounterArea;
+  water: EncounterArea;
+}
+
+export interface EncounterTableIndexEntry {
+  path: string;
+  tableLabel: string;
+  displayName: string;
+  versions: EncounterVersion[];
+  hasGrass: boolean;
+  hasWater: boolean;
+  error: string | null;
+}
+
+export interface EncounterTableEditDocument {
+  path: string;
+  sourceHash: string;
+  tableLabel: string;
+  displayName: string;
+  versions: EncounterVersionData[];
+}
+
 export interface HistoryFileChange {
   path: string;
   before: string;
@@ -289,6 +327,14 @@ export interface ProjectSession {
     values: PokemonBaseStatValues,
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
+  getEncounterIndex(): Promise<EncounterTableIndexEntry[]>;
+  getEncounterTable(path: string): Promise<EncounterTableEditDocument>;
+  saveEncounterTable(
+    path: string,
+    expectedHash: string,
+    versions: EncounterVersionData[],
+    knownSpecies: string[],
+  ): Promise<HistorySummary>;
   getHistorySummary(): Promise<HistorySummary>;
   saveTextChanges(label: string, changes: TextWriteRequest[]): Promise<HistorySummary>;
   undoLastSave(): Promise<HistorySummary>;

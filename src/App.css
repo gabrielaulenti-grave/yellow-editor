@@ -391,7 +391,8 @@ input[readonly] {
   color: var(--muted);
 }
 
-.move-browser {
+.move-browser,
+.encounter-browser {
   display: grid;
   grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
   gap: 24px;
@@ -403,7 +404,8 @@ input[readonly] {
   margin-bottom: 10px;
 }
 
-.move-list {
+.move-list,
+.encounter-list {
   max-height: 520px;
   overflow-y: auto;
   border: 1px solid var(--border);
@@ -411,7 +413,8 @@ input[readonly] {
   background: var(--panel);
 }
 
-.move-list button {
+.move-list button,
+.encounter-list button {
   width: 100%;
   display: block;
   text-align: left;
@@ -420,13 +423,90 @@ input[readonly] {
   border-radius: 0;
 }
 
-.move-list button.active {
+.move-list button.active,
+.encounter-list button.active {
   background: var(--accent-soft);
   font-weight: 700;
 }
 
-.move-list p {
+.move-list p,
+.encounter-list p {
   padding: 10px;
+}
+
+.encounter-list button {
+  display: grid;
+  gap: 2px;
+}
+
+.encounter-list button small {
+  color: var(--muted);
+}
+
+.encounter-editor h3 {
+  margin: 0 0 2px;
+  font-size: 1.4rem;
+}
+
+.segmented-control {
+  display: flex;
+  gap: 6px;
+  margin: 18px 0;
+}
+
+.segmented-control button {
+  padding: 0.45rem 0.8rem;
+}
+
+.segmented-control button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 700;
+}
+
+.encounter-settings {
+  display: grid;
+  grid-template-columns: minmax(150px, 210px) minmax(180px, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 18px;
+}
+
+.encounter-settings .help-text {
+  align-self: center;
+}
+
+.encounter-empty-state {
+  padding: 24px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.encounter-empty-state h4 {
+  margin-bottom: 4px;
+}
+
+.encounter-empty-state p {
+  color: var(--muted);
+}
+
+.encounter-table td:first-child,
+.encounter-table td:nth-child(2) {
+  white-space: nowrap;
+}
+
+.encounter-table select {
+  width: 100%;
+  min-width: 190px;
+}
+
+.encounter-table td:last-child {
+  width: 110px;
+}
+
+.danger-action {
+  color: #a1261c;
 }
 
 pre {
@@ -450,8 +530,14 @@ pre {
   }
 
   .sprite-layout,
-  .move-browser {
+  .move-browser,
+  .encounter-browser {
     grid-template-columns: 1fr;
+  }
+
+  .encounter-settings {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 
   .sprite-preview-grid {

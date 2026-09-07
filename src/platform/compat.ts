@@ -1,6 +1,7 @@
 import type {
   BuildProgressListener,
   BuildTarget,
+  EncounterVersionData,
   PokemonBaseStatValues,
   ProjectSession,
   TextWriteRequest,
@@ -137,6 +138,22 @@ function textChangesArg(args: InvokeArgs | undefined): TextWriteRequest[] {
   });
 }
 
+function encounterVersionsArg(args: InvokeArgs | undefined): EncounterVersionData[] {
+  const value = args?.versions;
+  if (!Array.isArray(value)) {
+    throw new Error("Missing encounter version data.");
+  }
+  return value as EncounterVersionData[];
+}
+
+function stringListArg(args: InvokeArgs | undefined, name: string): string[] {
+  const value = args?.[name];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`Missing string list '${name}'.`);
+  }
+  return value as string[];
+}
+
 export async function invoke<T>(
   command: string,
   args?: InvokeArgs,
@@ -180,6 +197,20 @@ export async function invoke<T>(
 
     case "get_moves":
       return (await session.getMoves()) as T;
+
+    case "get_encounter_index":
+      return (await session.getEncounterIndex()) as T;
+
+    case "get_encounter_table":
+      return (await session.getEncounterTable(stringArg(args, "path"))) as T;
+
+    case "save_encounter_table":
+      return (await session.saveEncounterTable(
+        stringArg(args, "path"),
+        stringArg(args, "expectedHash"),
+        encounterVersionsArg(args),
+        stringListArg(args, "knownSpecies"),
+      )) as T;
 
     case "get_history_summary":
       return (await session.getHistorySummary()) as T;
