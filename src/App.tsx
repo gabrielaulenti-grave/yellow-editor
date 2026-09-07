@@ -11,12 +11,15 @@ import type {
   PokemonDetails,
   PokemonIndexEntry,
   ProjectInfo,
+  TrainerCatalog,
+  TrainerPartyEntry,
 } from "./core/types";
 import { BuildTestTab } from "./BuildTestTab";
 import { EncountersTab, type EncounterSection } from "./EncountersTab";
 import { EditorToolbar } from "./EditorToolbar";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
+import { TrainersTab } from "./TrainersTab";
 import {
   BASE_STAT_FIELDS,
   EMPTY_BASE_STATS_DRAFT,
@@ -50,7 +53,7 @@ import {
 import { invoke, open } from "./platform/compat";
 import "./App.css";
 
-type Tab = "pokemon" | "moves" | "encounters" | "build";
+type Tab = "pokemon" | "moves" | "trainers" | "encounters" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -63,6 +66,10 @@ function App() {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
+  const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
+  const [trainerWarnings, setTrainerWarnings] = useState<string[]>([]);
+  const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(null);
+  const [trainerSearch, setTrainerSearch] = useState("");
   const [encounters, setEncounters] = useState<EncounterTableIndexEntry[]>([]);
   const [selectedEncounterPath, setSelectedEncounterPath] = useState<string | null>(null);
   const [encounterDocument, setEncounterDocument] =
@@ -224,9 +231,12 @@ function App() {
 
       const result = await invoke<ProjectInfo>("open_project", { path: selected });
 
-      const [index, moveData, encounterData, fishingResult, history] = await Promise.all([
+      const [index, moveData, trainerResult, encounterData, fishingResult, history] = await Promise.all([
         invoke<PokemonIndexEntry[]>("get_pokemon_index", { projectPath: result.path }),
         invoke<MoveData[]>("get_moves", { projectPath: result.path }),
+        invoke<TrainerCatalog>("get_trainers")
+          .then((catalog) => ({ catalog, error: null }))
+          .catch((error) => ({ catalog: null, error: String(error) })),
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         invoke<FishingEditDocument>("get_fishing")
           .then((document) => ({ document, error: null }))
@@ -237,6 +247,11 @@ function App() {
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
+      setTrainers(trainerResult.catalog?.trainers ?? []);
+      setTrainerWarnings([
+        ...(trainerResult.catalog?.warnings ?? []),
+        ...(trainerResult.error ? [trainerResult.error] : []),
+      ]);
       setEncounters(encounterData);
       clearPokemonEditor();
       clearEncounterEditor();
@@ -246,7 +261,9 @@ function App() {
       );
       setFishingError(fishingResult.error);
       setSelectedMoveId(moveData[0]?.id ?? null);
+      setSelectedTrainerId(trainerResult.catalog?.trainers[0]?.id ?? null);
       setMoveSearch("");
+      setTrainerSearch("");
       setEncounterSearch("");
       setEncounterSection("walking");
       setHistorySummary(history);
@@ -257,15 +274,20 @@ function App() {
       }
       if (fishingResult.error) {
         setStatus(`Project loaded, but fishing data is unavailable. ${fishingResult.error}`);
+      } else if (trainerResult.error) {
+        setStatus(`Project loaded, but trainer data is unavailable. ${trainerResult.error}`);
       }
     } catch (error) {
       setProject(null);
       setPokemonIndex([]);
       setMoves([]);
+      setTrainers([]);
+      setTrainerWarnings([]);
       setEncounters([]);
       clearPokemonEditor();
       clearEncounterEditor();
       setSelectedMoveId(null);
+      setSelectedTrainerId(null);
       setHistorySummary(null);
       setStatus(String(error));
     }
@@ -664,6 +686,12 @@ function App() {
           Moves
         </button>
         <button
+          className={activeTab === "trainers" ? "active" : ""}
+          onClick={() => void selectTab("trainers")}
+        >
+          Trainers
+        </button>
+        <button
           className={activeTab === "encounters" ? "active" : ""}
           onClick={() => void selectTab("encounters")}
         >
@@ -702,6 +730,18 @@ function App() {
           moveSearch={moveSearch}
           onSelectMove={setSelectedMoveId}
           onSearchChange={setMoveSearch}
+        />
+      )}
+
+      {activeTab === "trainers" && (
+        <TrainersTab
+          project={project}
+          trainers={trainers}
+          warnings={trainerWarnings}
+          selectedTrainerId={selectedTrainerId}
+          search={trainerSearch}
+          onSelectTrainer={setSelectedTrainerId}
+          onSearchChange={setTrainerSearch}
         />
       )}
 

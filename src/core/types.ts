@@ -107,6 +107,76 @@ export interface MoveData {
   animationScript: string[];
 }
 
+export type TrainerPartyFormat = "shared-level" | "individual-levels";
+export type TrainerTriggerKind = "sight" | "talk" | "scripted";
+export type TrainerSpecialMoveScope = "party" | "class";
+
+export interface TrainerSpecialMove {
+  scope: TrainerSpecialMoveScope;
+  pokemonIndex: number | null;
+  moveSlot: number | null;
+  moveConstant: string;
+}
+
+export interface TrainerPokemon {
+  level: number;
+  speciesConstant: string;
+  specialMoves: TrainerSpecialMove[];
+}
+
+export interface TrainerDialogue {
+  wrapperLabel: string;
+  textLabel: string | null;
+  text: string | null;
+  sourcePath: string | null;
+}
+
+export interface TrainerInstance {
+  id: string;
+  mapConstant: string;
+  locationName: string;
+  objectConstant: string | null;
+  objectPath: string;
+  scriptPath: string | null;
+  x: number;
+  y: number;
+  spriteConstant: string;
+  facingConstant: string;
+  textConstant: string;
+  triggerKind: TrainerTriggerKind;
+  viewRange: number | null;
+  eventFlag: string | null;
+  trainerHeaderLabel: string | null;
+  dialogue: {
+    before: TrainerDialogue | null;
+    defeat: TrainerDialogue | null;
+    after: TrainerDialogue | null;
+  };
+}
+
+export interface TrainerPartyEntry {
+  id: string;
+  classConstant: string;
+  className: string;
+  partyNumber: number;
+  partyFormat: TrainerPartyFormat;
+  pokemon: TrainerPokemon[];
+  instances: TrainerInstance[];
+  baseRewardPerLevel: number | null;
+  calculatedPrize: number | null;
+  aiRoutine: string | null;
+  aiUsesPerPokemon: number | null;
+  moveChoiceModifiers: number[];
+  specialMoves: TrainerSpecialMove[];
+  sourcePath: string;
+  sourceLine: number;
+}
+
+export interface TrainerCatalog {
+  trainers: TrainerPartyEntry[];
+  warnings: string[];
+}
+
 export type EncounterVersion = "yellow" | "red" | "blue";
 export type EncounterTerrain = "grass" | "water";
 
@@ -359,6 +429,7 @@ export interface ProjectSession {
     values: PokemonBaseStatValues,
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
+  getTrainers(): Promise<TrainerCatalog>;
   getEncounterIndex(): Promise<EncounterTableIndexEntry[]>;
   getEncounterTable(path: string): Promise<EncounterTableEditDocument>;
   saveEncounterTable(

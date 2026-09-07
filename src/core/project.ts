@@ -24,6 +24,7 @@ import {
   prepareFishingWrites,
   validateFishingData,
 } from "./fishingEditing";
+import { parseTrainerCatalog } from "./trainerIndex";
 import type { BuildService, ProjectSession, ProjectSource } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
@@ -84,6 +85,7 @@ export async function createProjectSession(
       ]);
     },
     getMoves: () => parseMoves(source),
+    getTrainers: () => parseTrainerCatalog(source, projectName),
     getEncounterIndex: () => parseEncounterIndex(source, projectName),
     getEncounterTable: (path) =>
       loadEncounterTableEditDocument(source, projectName, path),

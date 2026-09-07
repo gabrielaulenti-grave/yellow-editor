@@ -216,6 +216,9 @@ export async function invoke<T>(
     case "get_moves":
       return (await session.getMoves()) as T;
 
+    case "get_trainers":
+      return (await session.getTrainers()) as T;
+
     case "get_encounter_index":
       return (await session.getEncounterIndex()) as T;
 
