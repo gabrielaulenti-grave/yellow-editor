@@ -4,6 +4,7 @@ import type {
   EncounterTableIndexEntry,
   EncounterTerrain,
   EncounterVersion,
+  FishingEditDocument,
   HistorySummary,
   MoveData,
   PokemonBaseStatsEditDocument,
@@ -12,7 +13,7 @@ import type {
   ProjectInfo,
 } from "./core/types";
 import { BuildTestTab } from "./BuildTestTab";
-import { EncountersTab } from "./EncountersTab";
+import { EncountersTab, type EncounterSection } from "./EncountersTab";
 import { EditorToolbar } from "./EditorToolbar";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
@@ -37,6 +38,15 @@ import {
   updateEncounterSlot,
   type EncounterDraft,
 } from "./editor/encounterForm";
+import {
+  fishingDraftFromDocument,
+  fishingDraftIsDirty,
+  fishingDraftIsValid,
+  parseFishingDraft,
+  updateFishingSlot,
+  type FishingDraft,
+  type FishingRod,
+} from "./editor/fishingForm";
 import { invoke, open } from "./platform/compat";
 import "./App.css";
 
@@ -59,6 +69,12 @@ function App() {
     useState<EncounterTableEditDocument | null>(null);
   const [encounterDraft, setEncounterDraft] = useState<EncounterDraft>([]);
   const [encounterSearch, setEncounterSearch] = useState("");
+  const [encounterSection, setEncounterSection] =
+    useState<EncounterSection>("walking");
+  const [fishingDocument, setFishingDocument] =
+    useState<FishingEditDocument | null>(null);
+  const [fishingDraft, setFishingDraft] = useState<FishingDraft | null>(null);
+  const [fishingError, setFishingError] = useState<string | null>(null);
   const [baseStatsDocument, setBaseStatsDocument] =
     useState<PokemonBaseStatsEditDocument | null>(null);
   const [baseStatsDraft, setBaseStatsDraft] =
@@ -82,7 +98,9 @@ function App() {
   );
   const encounterDirty = encounterDraftIsDirty(encounterDraft, encounterDocument);
   const encounterValid = encounterDraftIsValid(encounterDraft);
-  const hasUnsavedChanges = baseStatsDirty || encounterDirty;
+  const fishingDirty = fishingDraftIsDirty(fishingDraft, fishingDocument);
+  const fishingValid = fishingDraftIsValid(fishingDraft);
+  const hasUnsavedChanges = baseStatsDirty || encounterDirty || fishingDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -96,6 +114,24 @@ function App() {
     setSelectedEncounterPath(null);
     setEncounterDocument(null);
     setEncounterDraft([]);
+    setFishingDocument(null);
+    setFishingDraft(null);
+    setFishingError(null);
+  }
+
+  async function loadFishing(successMessage = "Fishing encounters loaded successfully.") {
+    try {
+      const document = await invoke<FishingEditDocument>("get_fishing");
+      setFishingDocument(document);
+      setFishingDraft(fishingDraftFromDocument(document));
+      setFishingError(null);
+      setStatus(successMessage);
+    } catch (error) {
+      setFishingDocument(null);
+      setFishingDraft(null);
+      setFishingError(String(error));
+      setStatus(String(error));
+    }
   }
 
   async function loadEncounter(
@@ -188,10 +224,13 @@ function App() {
 
       const result = await invoke<ProjectInfo>("open_project", { path: selected });
 
-      const [index, moveData, encounterData, history] = await Promise.all([
+      const [index, moveData, encounterData, fishingResult, history] = await Promise.all([
         invoke<PokemonIndexEntry[]>("get_pokemon_index", { projectPath: result.path }),
         invoke<MoveData[]>("get_moves", { projectPath: result.path }),
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
+        invoke<FishingEditDocument>("get_fishing")
+          .then((document) => ({ document, error: null }))
+          .catch((error) => ({ document: null, error: String(error) })),
         invoke<HistorySummary>("get_history_summary"),
       ]);
 
@@ -201,14 +240,23 @@ function App() {
       setEncounters(encounterData);
       clearPokemonEditor();
       clearEncounterEditor();
+      setFishingDocument(fishingResult.document);
+      setFishingDraft(
+        fishingResult.document ? fishingDraftFromDocument(fishingResult.document) : null,
+      );
+      setFishingError(fishingResult.error);
       setSelectedMoveId(moveData[0]?.id ?? null);
       setMoveSearch("");
       setEncounterSearch("");
+      setEncounterSection("walking");
       setHistorySummary(history);
       if (encounterData[0]) {
         await loadEncounter(encounterData[0], "Project loaded successfully.");
       } else {
         setStatus("Project loaded successfully.");
+      }
+      if (fishingResult.error) {
+        setStatus(`Project loaded, but fishing data is unavailable. ${fishingResult.error}`);
       }
     } catch (error) {
       setProject(null);
@@ -328,6 +376,34 @@ function App() {
     }
   }
 
+  async function saveFishing() {
+    if (!fishingDocument || !fishingDirty || !fishingValid) {
+      return;
+    }
+    const data = parseFishingDraft(fishingDraft);
+    if (!data) {
+      setStatus("Fix the invalid fishing levels or Pokémon before saving.");
+      return;
+    }
+    setEditBusy(true);
+    try {
+      const knownSpecies = pokemonIndex
+        .filter((entry) => entry.kind === "pokemon" && entry.constant)
+        .map((entry) => entry.constant as string);
+      const history = await invoke<HistorySummary>("save_fishing", {
+        sources: fishingDocument.sources,
+        data,
+        knownSpecies,
+      });
+      setHistorySummary(history);
+      await loadFishing("Fishing encounters saved successfully.");
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function undoLastSave() {
     if (!historySummary?.canUndo || hasUnsavedChanges || editBusy) {
       return;
@@ -339,6 +415,7 @@ function App() {
       setHistorySummary(history);
       const refreshedEncounters = await invoke<EncounterTableIndexEntry[]>("get_encounter_index");
       setEncounters(refreshedEncounters);
+      await loadFishing("Undid the last saved change.");
       if (selectedPokemonEntry?.sourceSlug) {
         await loadPokemon(selectedPokemonEntry, "Undid the last saved change.");
       }
@@ -368,6 +445,7 @@ function App() {
       setHistorySummary(history);
       const refreshedEncounters = await invoke<EncounterTableIndexEntry[]>("get_encounter_index");
       setEncounters(refreshedEncounters);
+      await loadFishing("Redid the last saved change.");
       if (selectedPokemonEntry?.sourceSlug) {
         await loadPokemon(selectedPokemonEntry, "Redid the last saved change.");
       }
@@ -415,6 +493,18 @@ function App() {
     }
   }
 
+  async function revertFishingChanges() {
+    if (!fishingDirty || !fishingDocument || editBusy) {
+      return;
+    }
+    setEditBusy(true);
+    try {
+      await loadFishing("Unsaved fishing changes reverted.");
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   function changeEncounterRate(terrain: EncounterTerrain, value: string) {
     setEncounterDraft((current) => updateEncounterRate(current, terrain, value));
   }
@@ -451,6 +541,40 @@ function App() {
     }
   }
 
+  function changeFishingSlot(
+    rod: FishingRod,
+    tableId: string | null,
+    slotIndex: number,
+    field: "level" | "speciesConstant",
+    value: string,
+  ) {
+    setFishingDraft((current) =>
+      current
+        ? updateFishingSlot(current, rod, tableId, slotIndex, field, value)
+        : current,
+    );
+  }
+
+  async function selectEncounterSection(nextSection: EncounterSection) {
+    if (nextSection === encounterSection) {
+      return;
+    }
+    const currentDirty = encounterSection === "walking" ? encounterDirty : fishingDirty;
+    if (
+      currentDirty &&
+      !window.confirm("Discard the unsaved changes and switch encounter sections?")
+    ) {
+      return;
+    }
+    if (encounterSection === "walking" && encounterDirty) {
+      await revertEncounterChanges();
+    }
+    if (encounterSection === "fishing" && fishingDirty) {
+      await revertFishingChanges();
+    }
+    setEncounterSection(nextSection);
+  }
+
   const pokemonEditorController: EditorController = {
     dirty: baseStatsDirty,
     valid: baseStatsValid,
@@ -459,11 +583,11 @@ function App() {
     revert: revertUnsavedChanges,
   };
   const encounterEditorController: EditorController = {
-    dirty: encounterDirty,
-    valid: encounterValid,
+    dirty: encounterSection === "walking" ? encounterDirty : fishingDirty,
+    valid: encounterSection === "walking" ? encounterValid : fishingValid,
     busy: editBusy,
-    save: saveEncounters,
-    revert: revertEncounterChanges,
+    save: encounterSection === "walking" ? saveEncounters : saveFishing,
+    revert: encounterSection === "walking" ? revertEncounterChanges : revertFishingChanges,
   };
   const readOnlyEditorController: EditorController = {
     dirty: false,
@@ -493,6 +617,9 @@ function App() {
     }
     if (encounterDirty) {
       await revertEncounterChanges();
+    }
+    if (fishingDirty) {
+      await revertFishingChanges();
     }
     setActiveTab(nextTab);
   }
@@ -581,18 +708,25 @@ function App() {
       {activeTab === "encounters" && (
         <EncountersTab
           project={project}
+          section={encounterSection}
           encounters={encounters}
           selectedPath={selectedEncounterPath}
           document={encounterDocument}
           draft={encounterDraft}
+          fishingDocument={fishingDocument}
+          fishingDraft={fishingDraft}
+          fishingError={fishingError}
           pokemonIndex={pokemonIndex}
           search={encounterSearch}
           dirty={encounterDirty}
+          fishingDirty={fishingDirty}
           busy={editBusy}
+          onSectionChange={selectEncounterSection}
           onSearchChange={setEncounterSearch}
           onSelect={selectEncounter}
           onUpdateRate={changeEncounterRate}
           onUpdateSlot={changeEncounterSlot}
+          onUpdateFishingSlot={changeFishingSlot}
           onEnable={enableEncounters}
           onDisable={disableEncounters}
         />

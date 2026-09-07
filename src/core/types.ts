@@ -134,6 +134,7 @@ export interface EncounterTableIndexEntry {
   versions: EncounterVersion[];
   hasGrass: boolean;
   hasWater: boolean;
+  affectedLocations: string[];
   error: string | null;
 }
 
@@ -143,6 +144,37 @@ export interface EncounterTableEditDocument {
   tableLabel: string;
   displayName: string;
   versions: EncounterVersionData[];
+}
+
+export type FishingFormat = "yellow" | "red-blue";
+
+export interface FishingSlot {
+  level: number;
+  speciesConstant: string;
+  sourceLine: number;
+}
+
+export interface SuperRodTable {
+  id: string;
+  displayName: string;
+  affectedLocations: string[];
+  slots: FishingSlot[];
+}
+
+export interface FishingData {
+  format: FishingFormat;
+  oldRod: FishingSlot;
+  goodRod: FishingSlot[];
+  superRodTables: SuperRodTable[];
+}
+
+export interface FishingSourceDocument {
+  path: string;
+  sourceHash: string;
+}
+
+export interface FishingEditDocument extends FishingData {
+  sources: FishingSourceDocument[];
 }
 
 export interface HistoryFileChange {
@@ -333,6 +365,12 @@ export interface ProjectSession {
     path: string,
     expectedHash: string,
     versions: EncounterVersionData[],
+    knownSpecies: string[],
+  ): Promise<HistorySummary>;
+  getFishing(): Promise<FishingEditDocument>;
+  saveFishing(
+    sources: FishingSourceDocument[],
+    data: FishingData,
     knownSpecies: string[],
   ): Promise<HistorySummary>;
   getHistorySummary(): Promise<HistorySummary>;

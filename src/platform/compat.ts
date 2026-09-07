@@ -2,6 +2,8 @@ import type {
   BuildProgressListener,
   BuildTarget,
   EncounterVersionData,
+  FishingData,
+  FishingSourceDocument,
   PokemonBaseStatValues,
   ProjectSession,
   TextWriteRequest,
@@ -154,6 +156,22 @@ function stringListArg(args: InvokeArgs | undefined, name: string): string[] {
   return value as string[];
 }
 
+function fishingDataArg(args: InvokeArgs | undefined): FishingData {
+  const value = args?.data;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing fishing encounter data.");
+  }
+  return value as FishingData;
+}
+
+function fishingSourcesArg(args: InvokeArgs | undefined): FishingSourceDocument[] {
+  const value = args?.sources;
+  if (!Array.isArray(value)) {
+    throw new Error("Missing fishing source documents.");
+  }
+  return value as FishingSourceDocument[];
+}
+
 export async function invoke<T>(
   command: string,
   args?: InvokeArgs,
@@ -209,6 +227,16 @@ export async function invoke<T>(
         stringArg(args, "path"),
         stringArg(args, "expectedHash"),
         encounterVersionsArg(args),
+        stringListArg(args, "knownSpecies"),
+      )) as T;
+
+    case "get_fishing":
+      return (await session.getFishing()) as T;
+
+    case "save_fishing":
+      return (await session.saveFishing(
+        fishingSourcesArg(args),
+        fishingDataArg(args),
         stringListArg(args, "knownSpecies"),
       )) as T;
 

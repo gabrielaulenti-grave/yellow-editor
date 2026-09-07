@@ -4,6 +4,7 @@ import type {
   EncounterTableIndexEntry,
   EncounterTerrain,
   EncounterVersion,
+  FishingEditDocument,
   PokemonIndexEntry,
   ProjectInfo,
 } from "./core/types";
@@ -12,19 +13,28 @@ import {
   encounterRateError,
   type EncounterDraft,
 } from "./editor/encounterForm";
+import type { FishingDraft, FishingRod } from "./editor/fishingForm";
+import { FishingEditor } from "./FishingEditor";
 
 const SLOT_CHANCES = ["19.9%", "19.9%", "15.2%", "9.8%", "9.8%", "9.8%", "5.1%", "5.1%", "4.3%", "1.2%"];
+export type EncounterSection = "walking" | "fishing";
 
 interface EncountersTabProps {
   project: ProjectInfo | null;
+  section: EncounterSection;
   encounters: EncounterTableIndexEntry[];
   selectedPath: string | null;
   document: EncounterTableEditDocument | null;
   draft: EncounterDraft;
+  fishingDocument: FishingEditDocument | null;
+  fishingDraft: FishingDraft | null;
+  fishingError: string | null;
   pokemonIndex: PokemonIndexEntry[];
   search: string;
   dirty: boolean;
+  fishingDirty: boolean;
   busy: boolean;
+  onSectionChange(section: EncounterSection): Promise<void>;
   onSearchChange(value: string): void;
   onSelect(entry: EncounterTableIndexEntry): Promise<void>;
   onUpdateRate(terrain: EncounterTerrain, value: string): void;
@@ -32,6 +42,13 @@ interface EncountersTabProps {
     version: EncounterVersion,
     terrain: EncounterTerrain,
     index: number,
+    field: "level" | "speciesConstant",
+    value: string,
+  ): void;
+  onUpdateFishingSlot(
+    rod: FishingRod,
+    tableId: string | null,
+    slotIndex: number,
     field: "level" | "speciesConstant",
     value: string,
   ): void;
@@ -45,18 +62,25 @@ function versionLabel(version: EncounterVersion): string {
 
 export function EncountersTab({
   project,
+  section,
   encounters,
   selectedPath,
   document,
   draft,
+  fishingDocument,
+  fishingDraft,
+  fishingError,
   pokemonIndex,
   search,
   dirty,
+  fishingDirty,
   busy,
+  onSectionChange,
   onSearchChange,
   onSelect,
   onUpdateRate,
   onUpdateSlot,
+  onUpdateFishingSlot,
   onEnable,
   onDisable,
 }: EncountersTabProps) {
@@ -67,27 +91,56 @@ export function EncountersTab({
     !query ||
     entry.displayName.toLowerCase().includes(query) ||
     entry.tableLabel.toLowerCase().includes(query) ||
-    entry.path.toLowerCase().includes(query),
+    entry.path.toLowerCase().includes(query) ||
+    entry.affectedLocations.some((location) => location.toLowerCase().includes(query)),
   );
+  const selectedEntry = encounters.find((entry) => entry.path === selectedPath) ?? null;
   const availableVersions = document?.versions.map((entry) => entry.version) ?? [];
   const activeVersion = availableVersions.includes(version)
     ? version
     : availableVersions[0] ?? "yellow";
   const activeArea = draft.find((entry) => entry.version === activeVersion)?.[terrain] ?? null;
-  const species = pokemonIndex.filter(
-    (entry) => entry.kind === "pokemon" && entry.constant,
-  );
+  const species = pokemonIndex.filter((entry) => entry.kind === "pokemon" && entry.constant);
 
   return (
     <section className="tab-content">
       <div className="tab-heading-row">
         <div>
           <h2>Wild Encounters</h2>
-          <p>Edit grass and surfing tables. Fishing encounters are not included yet.</p>
+          <p>Edit random encounters while preserving the project’s native Red/Blue or Yellow layout.</p>
         </div>
       </div>
 
-      {!project ? (
+      <div className="segmented-control encounter-section-control" aria-label="Encounter category">
+        <button
+          className={section === "walking" ? "active" : ""}
+          onClick={() => void onSectionChange("walking")}
+        >
+          Grass &amp; Surfing
+        </button>
+        <button
+          className={section === "fishing" ? "active" : ""}
+          onClick={() => void onSectionChange("fishing")}
+        >
+          Fishing
+        </button>
+      </div>
+
+      {section === "fishing" ? (
+        !project ? (
+          <p>Open a project to edit fishing encounters.</p>
+        ) : (
+          <FishingEditor
+            document={fishingDocument}
+            draft={fishingDraft}
+            error={fishingError}
+            pokemonIndex={pokemonIndex}
+            dirty={fishingDirty}
+            busy={busy}
+            onUpdateSlot={onUpdateFishingSlot}
+          />
+        )
+      ) : !project ? (
         <p>Open a project to edit wild encounters.</p>
       ) : encounters.length === 0 ? (
         <p>No supported encounter tables were found in data/wild/grass_water.asm.</p>
@@ -113,7 +166,11 @@ export function EncountersTab({
                   <small>
                     {entry.error
                       ? "Unsupported syntax"
-                      : [entry.hasGrass && "Grass", entry.hasWater && "Surfing"].filter(Boolean).join(" · ") || "No active encounters"}
+                      : [
+                          entry.hasGrass && "Grass",
+                          entry.hasWater && "Surfing",
+                          entry.affectedLocations.length > 1 && `Shared by ${entry.affectedLocations.length}`,
+                        ].filter(Boolean).join(" · ") || "No active encounters"}
                   </small>
                 </button>
               ))}
@@ -131,6 +188,19 @@ export function EncountersTab({
                   </div>
                   {dirty && <span className="unsaved-indicator">Modified</span>}
                 </div>
+
+                {selectedEntry && (
+                  <div className="affected-locations">
+                    <strong>
+                      {selectedEntry.affectedLocations.length > 1
+                        ? `Shared by ${selectedEntry.affectedLocations.length} locations`
+                        : "Affects"}
+                    </strong>
+                    <span>
+                      {selectedEntry.affectedLocations.join(", ") || "No map pointer found"}
+                    </span>
+                  </div>
+                )}
 
                 {availableVersions.length > 1 && (
                   <div className="segmented-control" aria-label="Game version">

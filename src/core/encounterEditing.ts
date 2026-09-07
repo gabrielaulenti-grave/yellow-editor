@@ -1,4 +1,5 @@
 import { hashText } from "./history";
+import { affectedWildLocations, loadMapConstants } from "./mapMetadata";
 import type {
   EncounterArea,
   EncounterTableEditDocument,
@@ -175,6 +176,10 @@ export async function parseEncounterIndex(
   }
 
   const indexContents = await source.readText(ENCOUNTER_INDEX_PATH);
+  const locationsByLabel = affectedWildLocations(
+    indexContents,
+    await loadMapConstants(source),
+  );
   const includePattern = /^\s*INCLUDE\s+"(data\/wild\/maps\/[^"\r\n]+\.asm)"/gm;
   const paths: string[] = [];
   let includeMatch: RegExpExecArray | null;
@@ -197,6 +202,7 @@ export async function parseEncounterIndex(
         versions,
         hasGrass: data.some((entry) => entry.grass.rate > 0),
         hasWater: data.some((entry) => entry.water.rate > 0),
+        affectedLocations: locationsByLabel.get(parsed.tableLabel) ?? [],
         error: null,
       };
     } catch (error) {
@@ -207,6 +213,7 @@ export async function parseEncounterIndex(
         versions,
         hasGrass: false,
         hasWater: false,
+        affectedLocations: locationsByLabel.get(fallbackLabel) ?? [],
         error: String(error),
       };
     }

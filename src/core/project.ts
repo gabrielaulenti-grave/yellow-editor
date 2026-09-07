@@ -19,6 +19,11 @@ import {
   prepareEncounterTableWrite,
   validateEncounterVersions,
 } from "./encounterEditing";
+import {
+  loadFishingEditDocument,
+  prepareFishingWrites,
+  validateFishingData,
+} from "./fishingEditing";
 import type { BuildService, ProjectSession, ProjectSource } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
@@ -96,6 +101,19 @@ export async function createProjectSession(
       return history.save(`Edit ${label} wild encounters`, [
         { path: change.path, contents: change.contents, expectedHash },
       ]);
+    },
+    getFishing: () => loadFishingEditDocument(source, projectName),
+    saveFishing: async (sources, data, knownSpecies) => {
+      const species = new Set(knownSpecies);
+      validateFishingData(data, species);
+      const changes = await prepareFishingWrites(
+        source,
+        projectName,
+        sources,
+        data,
+        species,
+      );
+      return history.save("Edit fishing encounters", changes);
     },
     getHistorySummary: () => history.getSummary(),
     saveTextChanges: (label, changes) => history.save(label, changes),
