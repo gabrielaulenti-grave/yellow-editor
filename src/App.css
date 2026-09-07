@@ -110,11 +110,14 @@ input[readonly] {
 .tab-bar {
   display: flex;
   gap: 8px;
+  overflow-x: auto;
   border-bottom: 1px solid var(--border);
   margin-bottom: 22px;
 }
 
 .tab-bar button {
+  flex: 0 0 auto;
+  white-space: nowrap;
   border-radius: 7px 7px 0 0;
   border-bottom: 0;
   background: transparent;

@@ -7,7 +7,7 @@ import type {
   PokemonIndexEntry,
   ProjectInfo,
 } from "./core/types";
-import { BuildPanel } from "./BuildPanel";
+import { BuildTestTab } from "./BuildTestTab";
 import { EditorToolbar } from "./EditorToolbar";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
@@ -24,7 +24,7 @@ import type { EditorController } from "./editor/types";
 import { invoke, open } from "./platform/compat";
 import "./App.css";
 
-type Tab = "pokemon" | "moves";
+type Tab = "pokemon" | "moves" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -294,11 +294,6 @@ function App() {
             onUndo={undoLastSave}
             onRedo={redoLastUndo}
           />
-
-          <BuildPanel
-            projectPath={project.path}
-            hasUnsavedChanges={editorController.dirty}
-          />
         </>
       )}
 
@@ -314,6 +309,12 @@ function App() {
           onClick={() => setActiveTab("moves")}
         >
           Moves
+        </button>
+        <button
+          className={activeTab === "build" ? "active" : ""}
+          onClick={() => setActiveTab("build")}
+        >
+          Build &amp; Test
         </button>
       </nav>
 
@@ -344,6 +345,12 @@ function App() {
           onSearchChange={setMoveSearch}
         />
       )}
+
+      <BuildTestTab
+        project={project}
+        hasUnsavedChanges={editorController.dirty}
+        hidden={activeTab !== "build"}
+      />
     </main>
   );
 }

@@ -355,7 +355,7 @@ export function BuildPanel({
     <section className="build-panel" aria-label="ROM build tools">
       <div className="build-panel-heading">
         <div>
-          <h2>Build ROM</h2>
+          <h3>Build ROM</h3>
           <p>
             Yellow Editor supports the normal Pokémon Yellow and Pokémon Red/Blue
             build layouts. Desktop uses native RGBDS; the web version runs RGBDS and
