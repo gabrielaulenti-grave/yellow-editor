@@ -382,8 +382,8 @@ export interface TextWriteRequest {
 }
 
 export type BuildTarget = "yellow" | "red" | "blue";
-export type BuildBackend = "desktop-native" | "web-wasm";
-export type BuildToolchainSource = "bundled" | "system" | "unavailable";
+export type BuildBackend = "desktop-wasm" | "web-wasm";
+export type BuildToolchainSource = "bundled" | "unavailable";
 
 export interface SaveCompatibilityDescriptor {
   formatVersion: number;
@@ -410,7 +410,6 @@ export interface BuildEnvironment {
   toolchainSource: BuildToolchainSource;
   tools: BuildToolStatus[];
   buildTool: BuildToolStatus;
-  helperCompiler: BuildToolStatus | null;
   helperTools: BuildToolStatus[];
   message: string;
 }
