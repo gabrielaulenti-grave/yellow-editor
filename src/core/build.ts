@@ -1,3 +1,4 @@
+import { gen1PngDecoderLabel } from "./gen1Graphics";
 import { inspectPretWasmTools } from "./pretWasmTools";
 import { inspectRgbdsWasm } from "./rgbdsWasm";
 import type {
@@ -69,7 +70,7 @@ export function createSharedWasmBuildService(
 
     const message = desktop
       ? ready
-        ? `Self-contained desktop build tools are ready. RGBDS ${rgbdsInspection.version ?? "WASM"} and the matching pret helper utilities are packaged with Yellow Editor; make and a C compiler are not required.`
+        ? `Self-contained desktop build tools are ready. RGBDS ${rgbdsInspection.version ?? "WASM"} and the matching pret helper utilities are packaged with Yellow Editor. Source PNG graphics use the ${gen1PngDecoderLabel()}; make and a C compiler are not required.`
         : [rgbdsInspection.message, helperInspection.message].join(" ")
       : [rgbdsInspection.message, helperInspection.message].join(" ");
 
