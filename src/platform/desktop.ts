@@ -1,4 +1,4 @@
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { createSharedWasmBuildService } from "../core/build";
 import {
@@ -79,6 +79,8 @@ function createDesktopHistoryStore(projectPath: string): HistoryStore {
 }
 
 function createDesktopSource(projectPath: string): ProjectSource {
+  const objectUrls = new Map<string, string>();
+
   return {
     displayPath: projectPath,
     storageKey: `desktop:${projectPath}`,
@@ -115,11 +117,34 @@ function createDesktopSource(projectPath: string): ProjectSource {
     },
 
     async assetUrl(relativePath) {
-      const absolutePath = await invoke<string | null>("resolve_project_asset", {
-        projectPath,
-        relativePath,
-      });
-      return absolutePath ? convertFileSrc(absolutePath) : null;
+      const cached = objectUrls.get(relativePath);
+      if (cached) {
+        return cached;
+      }
+
+      try {
+        const bytes = await invoke<number[]>("read_project_bytes", {
+          projectPath,
+          relativePath,
+        });
+        const mimeType = relativePath.toLowerCase().endsWith(".png")
+          ? "image/png"
+          : "application/octet-stream";
+        const url = URL.createObjectURL(
+          new Blob([Uint8Array.from(bytes)], { type: mimeType }),
+        );
+        objectUrls.set(relativePath, url);
+        return url;
+      } catch {
+        return null;
+      }
+    },
+
+    dispose() {
+      for (const url of objectUrls.values()) {
+        URL.revokeObjectURL(url);
+      }
+      objectUrls.clear();
     },
   };
 }
