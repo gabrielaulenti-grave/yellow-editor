@@ -607,6 +607,34 @@ input[readonly] {
   font-weight: 700;
 }
 
+.trainer-global-warnings {
+  margin-top: 16px;
+}
+
+.class-location-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.class-location-list span {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-soft);
+  font-size: 0.85rem;
+}
+
+.class-party-table td:first-child,
+.class-party-table td:nth-last-child(2),
+.class-party-table td:last-child {
+  white-space: nowrap;
+}
+
+.class-party-table td:last-child {
+  text-align: right;
+}
+
 .encounter-list button small {
   color: var(--muted);
 }

@@ -12,6 +12,7 @@ import type {
   PokemonIndexEntry,
   ProjectInfo,
   TrainerCatalog,
+  TrainerClassEntry,
   TrainerLoadProgress,
   TrainerPartyEntry,
 } from "./core/types";
@@ -20,7 +21,7 @@ import { EncountersTab, type EncounterSection } from "./EncountersTab";
 import { EditorToolbar } from "./EditorToolbar";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
-import { TrainersTab } from "./TrainersTab";
+import { TrainersTab, type TrainerSection } from "./TrainersTab";
 import {
   BASE_STAT_FIELDS,
   EMPTY_BASE_STATS_DRAFT,
@@ -68,9 +69,13 @@ function App() {
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
+  const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerWarnings, setTrainerWarnings] = useState<string[]>([]);
   const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(null);
+  const [selectedTrainerClass, setSelectedTrainerClass] = useState<string | null>(null);
   const [trainerSearch, setTrainerSearch] = useState("");
+  const [trainerClassSearch, setTrainerClassSearch] = useState("");
+  const [trainerSection, setTrainerSection] = useState<TrainerSection>("parties");
   const [projectLoadProgress, setProjectLoadProgress] =
     useState<TrainerLoadProgress | null>(null);
   const [encounters, setEncounters] = useState<EncounterTableIndexEntry[]>([]);
@@ -187,8 +192,10 @@ function App() {
         return;
       }
       setTrainers(catalog.trainers);
+      setTrainerClasses(catalog.classes);
       setTrainerWarnings(catalog.warnings);
       setSelectedTrainerId(catalog.trainers[0]?.id ?? null);
+      setSelectedTrainerClass(catalog.classes[0]?.constant ?? null);
       setStatus(
         fishingLoadError
           ? `Project loaded, but fishing data is unavailable. ${fishingLoadError}`
@@ -199,8 +206,10 @@ function App() {
         return;
       }
       setTrainers([]);
+      setTrainerClasses([]);
       setTrainerWarnings([String(error)]);
       setSelectedTrainerId(null);
+      setSelectedTrainerClass(null);
       setStatus(`Project loaded, but trainer data is unavailable. ${String(error)}`);
     } finally {
       if (projectLoadGeneration.current === loadGeneration) {
@@ -312,6 +321,7 @@ function App() {
       setPokemonIndex(index);
       setMoves(moveData);
       setTrainers([]);
+      setTrainerClasses([]);
       setTrainerWarnings([]);
       setEncounters(encounterData);
       clearPokemonEditor();
@@ -323,8 +333,11 @@ function App() {
       setFishingError(fishingResult.error);
       setSelectedMoveId(moveData[0]?.id ?? null);
       setSelectedTrainerId(null);
+      setSelectedTrainerClass(null);
       setMoveSearch("");
       setTrainerSearch("");
+      setTrainerClassSearch("");
+      setTrainerSection("parties");
       setEncounterSearch("");
       setEncounterSection("walking");
       setHistorySummary(history);
@@ -355,12 +368,14 @@ function App() {
       setPokemonIndex([]);
       setMoves([]);
       setTrainers([]);
+      setTrainerClasses([]);
       setTrainerWarnings([]);
       setEncounters([]);
       clearPokemonEditor();
       clearEncounterEditor();
       setSelectedMoveId(null);
       setSelectedTrainerId(null);
+      setSelectedTrainerClass(null);
       setHistorySummary(null);
       setProjectLoadProgress(null);
       setStatus(String(error));
@@ -825,12 +840,19 @@ function App() {
       {activeTab === "trainers" && (
         <TrainersTab
           project={project}
+          section={trainerSection}
           trainers={trainers}
+          classes={trainerClasses}
           warnings={trainerWarnings}
           selectedTrainerId={selectedTrainerId}
-          search={trainerSearch}
+          selectedClassConstant={selectedTrainerClass}
+          partySearch={trainerSearch}
+          classSearch={trainerClassSearch}
+          onSectionChange={setTrainerSection}
           onSelectTrainer={setSelectedTrainerId}
-          onSearchChange={setTrainerSearch}
+          onSelectClass={setSelectedTrainerClass}
+          onPartySearchChange={setTrainerSearch}
+          onClassSearchChange={setTrainerClassSearch}
         />
       )}
 

@@ -109,6 +109,11 @@ export interface MoveData {
 
 export type TrainerPartyFormat = "shared-level" | "individual-levels";
 export type TrainerTriggerKind = "sight" | "talk" | "scripted";
+export type TrainerPartyResolution =
+  | "object"
+  | "script"
+  | "conditional-script"
+  | "unresolved";
 export type TrainerSpecialMoveScope = "party" | "class";
 
 export interface TrainerSpecialMove {
@@ -147,11 +152,29 @@ export interface TrainerInstance {
   viewRange: number | null;
   eventFlag: string | null;
   trainerHeaderLabel: string | null;
+  objectPartyId: string;
+  effectivePartyIds: string[];
+  partyResolution: TrainerPartyResolution;
   dialogue: {
     before: TrainerDialogue | null;
     defeat: TrainerDialogue | null;
     after: TrainerDialogue | null;
   };
+}
+
+export interface TrainerClassEntry {
+  constant: string;
+  name: string;
+  partyIds: string[];
+  partyCount: number;
+  placedInstanceCount: number;
+  affectedLocations: string[];
+  baseRewardPerLevel: number | null;
+  aiRoutine: string | null;
+  aiUsesPerPokemon: number | null;
+  moveChoiceModifiers: number[];
+  classSpecialMoves: TrainerSpecialMove[];
+  sourcePaths: string[];
 }
 
 export interface TrainerPartyEntry {
@@ -174,6 +197,7 @@ export interface TrainerPartyEntry {
 
 export interface TrainerCatalog {
   trainers: TrainerPartyEntry[];
+  classes: TrainerClassEntry[];
   warnings: string[];
 }
 

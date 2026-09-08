@@ -2,6 +2,7 @@ import { mapConstantDisplayName } from "./mapMetadata";
 import type {
   ProjectSource,
   TrainerCatalog,
+  TrainerClassEntry,
   TrainerDialogue,
   TrainerInstance,
   TrainerLoadProgressListener,
@@ -41,6 +42,12 @@ interface TextSourceBlock {
   path: string;
 }
 
+interface ParsedTrainerInstance {
+  partyIds: string[];
+  instance: TrainerInstance;
+  loneMoveIndex: number | null;
+}
+
 function withoutComment(line: string): string {
   return line.split(";", 1)[0].trim();
 }
@@ -72,6 +79,23 @@ function labelBlocks(contents: string): Map<string, string> {
   const starts: Array<{ label: string; index: number }> = [];
   lines.forEach((line, index) => {
     const match = line.match(/^\s*([A-Za-z_.][A-Za-z0-9_.]*):{1,2}\s*(?:;.*)?$/);
+    if (match) {
+      starts.push({ label: match[1], index });
+    }
+  });
+  const blocks = new Map<string, string>();
+  starts.forEach((start, index) => {
+    const end = starts[index + 1]?.index ?? lines.length;
+    blocks.set(start.label, lines.slice(start.index + 1, end).join("\n"));
+  });
+  return blocks;
+}
+
+function globalLabelBlocks(contents: string): Map<string, string> {
+  const lines = contents.split(/\r?\n/);
+  const starts: Array<{ label: string; index: number }> = [];
+  lines.forEach((line, index) => {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/);
     if (match) {
       starts.push({ label: match[1], index });
     }
@@ -402,6 +426,34 @@ function objectConstants(contents: string): string[] {
     .map((match) => match[1]);
 }
 
+function scriptedPartySelections(contents: string): string[][] {
+  const opponentPattern = /^\s*ld\s+a\s*,\s*(OPP_[A-Z0-9_]+)\s*(?:;.*)?\r?\n\s*ld\s+\[wCurOpponent\]\s*,\s*a\b/gm;
+  const opponentMatches = [...contents.matchAll(opponentPattern)];
+  const selections: string[][] = [];
+  opponentMatches.forEach((match, index) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const nextOpponent = opponentMatches[index + 1]?.index ?? contents.length;
+    const candidateSegment = contents.slice(start, Math.min(nextOpponent, start + 1800));
+    const trainerStore = candidateSegment.search(/^\s*ld\s+\[wTrainerNo\]\s*,\s*a\b/m);
+    if (trainerStore < 0) {
+      return;
+    }
+    const classConstant = match[1].slice(4);
+    const partyNumbers = [...candidateSegment.slice(0, trainerStore).matchAll(
+      /^\s*ld\s+a\s*,\s*(\$[0-9a-f]+|\d+)\b/gim,
+    )]
+      .map((numberMatch) => parseNumber(numberMatch[1]))
+      .filter((partyNumber): partyNumber is number => partyNumber !== null);
+    const partyIds = [...new Set(partyNumbers.map((partyNumber) =>
+      `${classConstant}:${partyNumber}`,
+    ))];
+    if (partyIds.length > 0) {
+      selections.push(partyIds);
+    }
+  });
+  return selections;
+}
+
 async function readTextFiles(
   source: ProjectSource,
   paths: string[],
@@ -433,18 +485,24 @@ function parseMapInstances(
   scriptPath: string | null,
   scriptContents: string,
   textBlocks: Map<string, TextSourceBlock>,
-): Array<{ partyId: string; instance: TrainerInstance; loneMoveIndex: number | null }> {
+): ParsedTrainerInstance[] {
   const mapConstant = objectContents.match(/^\s*def_warps_to\s+([A-Z][A-Z0-9_]*)\b/m)?.[1]
     ?? objectPath.split("/").pop()?.replace(/\.asm$/, "").toUpperCase()
     ?? "UNKNOWN_MAP";
   const scriptBlocks = labelBlocks(scriptContents);
+  const scriptFunctionBlocks = globalLabelBlocks(scriptContents);
   const headers = parseHeaders(scriptContents);
   const pointers = textPointerLabels(scriptContents);
   const constants = objectConstants(objectContents);
   const loneMoveIndex = parseNumber(
     scriptContents.match(/^\s*ld\s+a\s*,\s*([^\s;]+)\s*(?:;.*)?\r?\n\s*ld\s+\[wGymLeaderNo\]\s*,\s*a\b/m)?.[1] ?? "",
   );
-  const results: Array<{ partyId: string; instance: TrainerInstance; loneMoveIndex: number | null }> = [];
+  const trainerObjectCount = objectContents.split(/\r?\n/).filter((line) => {
+    const values = splitArguments(line, "object_event");
+    return Boolean(values && values.length >= 8 && /^OPP_[A-Z0-9_]+$/.test(values[6]));
+  }).length;
+  const scriptedSelections = scriptedPartySelections(scriptContents);
+  const results: ParsedTrainerInstance[] = [];
   let objectIndex = 0;
   for (const line of objectContents.split(/\r?\n/)) {
     const values = splitArguments(line, "object_event");
@@ -463,15 +521,27 @@ function parseMapInstances(
       continue;
     }
     const classConstant = values[6].slice(4);
+    const objectPartyId = `${classConstant}:${partyNumber}`;
     const wrapperLabel = pointers.get(values[5]) ?? null;
     const header = wrapperLabel ? headerForWrapper(wrapperLabel, scriptBlocks, headers) : null;
+    const wrapperUsesObjectParty = wrapperLabel
+      ? /\bEngageMapTrainer\b/.test(scriptFunctionBlocks.get(wrapperLabel) ?? "")
+      : false;
+    let effectivePartyIds = [objectPartyId];
+    let partyResolution: TrainerInstance["partyResolution"] = header || wrapperUsesObjectParty
+      ? "object"
+      : "unresolved";
+    if (!header && !wrapperUsesObjectParty && trainerObjectCount === 1 && scriptedSelections.length === 1) {
+      effectivePartyIds = scriptedSelections[0];
+      partyResolution = effectivePartyIds.length === 1 ? "script" : "conditional-script";
+    }
     const dialogue = header ? {
       before: dialogueFor(header.beforeLabel, scriptBlocks, textBlocks),
       defeat: dialogueFor(header.defeatLabel, scriptBlocks, textBlocks),
       after: dialogueFor(header.afterLabel, scriptBlocks, textBlocks),
     } : { before: null, defeat: null, after: null };
     results.push({
-      partyId: `${classConstant}:${partyNumber}`,
+      partyIds: effectivePartyIds,
       loneMoveIndex,
       instance: {
         id: `${mapConstant}:${objectConstant ?? objectIndex}`,
@@ -489,6 +559,9 @@ function parseMapInstances(
         viewRange: header?.viewRange ?? null,
         eventFlag: header?.eventFlag ?? null,
         trainerHeaderLabel: header?.label ?? null,
+        objectPartyId,
+        effectivePartyIds,
+        partyResolution,
         dialogue,
       },
     });
@@ -512,7 +585,7 @@ function addTextBlocks(
 }
 
 function unresolvedDialogueLabels(
-  mapResults: Array<Array<{ partyId: string; instance: TrainerInstance; loneMoveIndex: number | null }>>,
+  mapResults: ParsedTrainerInstance[][],
 ): Set<string> {
   const labels = new Set<string>();
   for (const result of mapResults.flat()) {
@@ -523,6 +596,49 @@ function unresolvedDialogueLabels(
     }
   }
   return labels;
+}
+
+function buildClassCatalog(
+  classes: TrainerClassData[],
+  trainers: TrainerPartyEntry[],
+): TrainerClassEntry[] {
+  return classes.map((trainerClass) => {
+    const parties = trainers.filter((trainer) => trainer.classConstant === trainerClass.constant);
+    const instances = parties.flatMap((party) => party.instances);
+    const uniqueInstances = new Map(instances.map((instance) => [instance.id, instance]));
+    const classSpecialMoves = new Map<string, TrainerSpecialMove>();
+    for (const move of parties.flatMap((party) => party.specialMoves)) {
+      if (move.scope === "class") {
+        classSpecialMoves.set(
+          `${move.pokemonIndex}:${move.moveSlot}:${move.moveConstant}`,
+          move,
+        );
+      }
+    }
+    return {
+      constant: trainerClass.constant,
+      name: trainerClass.name,
+      partyIds: parties.map((party) => party.id),
+      partyCount: parties.length,
+      placedInstanceCount: uniqueInstances.size,
+      affectedLocations: [...new Set([...uniqueInstances.values()].map((instance) =>
+        instance.locationName,
+      ))].sort((left, right) => left.localeCompare(right)),
+      baseRewardPerLevel: trainerClass.baseRewardPerLevel,
+      aiRoutine: trainerClass.aiRoutine,
+      aiUsesPerPokemon: trainerClass.aiUsesPerPokemon,
+      moveChoiceModifiers: trainerClass.moveChoiceModifiers,
+      classSpecialMoves: [...classSpecialMoves.values()],
+      sourcePaths: [
+        "constants/trainer_constants.asm",
+        NAMES_PATH,
+        MONEY_PATH,
+        AI_PATH,
+        MOVE_CHOICES_PATH,
+        PARTIES_PATH,
+      ],
+    };
+  });
 }
 
 export async function parseTrainerCatalog(
@@ -665,10 +781,14 @@ export async function parseTrainerCatalog(
     mapResults = parseMaps();
   }
   for (const result of mapResults.flat()) {
-    const trainer = byId.get(result.partyId);
-    if (trainer) {
-      trainer.instances.push(result.instance);
-      if (result.loneMoveIndex !== null && result.instance.triggerKind === "scripted") {
+    for (const partyId of result.partyIds) {
+      const trainer = byId.get(partyId);
+      if (trainer) {
+        trainer.instances.push(result.instance);
+      } else {
+        warnings.push(`${result.instance.locationName} references missing trainer party ${partyId}.`);
+      }
+      if (trainer && result.loneMoveIndex !== null && result.instance.triggerKind === "scripted") {
         for (const move of specialMoves.get(`LONE:${result.loneMoveIndex}`) ?? []) {
           if (!trainer.specialMoves.some((existing) =>
             existing.scope === move.scope &&
@@ -683,11 +803,10 @@ export async function parseTrainerCatalog(
           }
         }
       }
-    } else {
-      warnings.push(`${result.instance.locationName} references missing trainer party ${result.partyId}.`);
     }
   }
   trainers.forEach((trainer) => trainer.instances.sort((left, right) => left.locationName.localeCompare(right.locationName)));
+  const classCatalog = buildClassCatalog(classes, trainers);
   onProgress?.({
     stage: "complete",
     message: `${trainers.length} trainer parties indexed`,
@@ -695,5 +814,5 @@ export async function parseTrainerCatalog(
     total: trainers.length,
     percent: 100,
   });
-  return { trainers, warnings };
+  return { trainers, classes: classCatalog, warnings };
 }
