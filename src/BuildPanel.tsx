@@ -13,19 +13,15 @@ import { EmulatorPanel } from "./EmulatorPanel";
 import "./BuildPanel.css";
 
 function toolchainLabel(environment: BuildEnvironment): string {
-  if (environment.backend === "web-wasm" && environment.toolchainSource === "bundled") {
+  if (environment.toolchainSource === "bundled") {
     return "RGBDS / WASM";
   }
 
   switch (environment.toolchainSource) {
-    case "bundled":
-      return "Bundled RGBDS";
     case "system":
       return "System RGBDS";
     default:
-      return environment.backend === "web-wasm"
-        ? "RGBDS/WASM unavailable"
-        : "RGBDS unavailable";
+      return "RGBDS/WASM unavailable";
   }
 }
 
@@ -358,8 +354,8 @@ export function BuildPanel({
           <h3>Build ROM</h3>
           <p>
             Yellow Editor supports the normal Pokémon Yellow and Pokémon Red/Blue
-            build layouts. Desktop uses native RGBDS; the web version runs RGBDS and
-            the pret helper utilities as WebAssembly.
+            build layouts. Both desktop and web use the same self-contained RGBDS and
+            pret helper WebAssembly build pipeline.
           </p>
         </div>
 
@@ -416,7 +412,7 @@ export function BuildPanel({
               <span>Backend</span>
               <strong>
                 {environment.backend === "desktop-native"
-                  ? "Desktop native"
+                  ? "Desktop / WASM"
                   : "Web / WASM"}
               </strong>
             </div>
@@ -439,7 +435,7 @@ export function BuildPanel({
           {environment.versionMatches === false && (
             <p className="build-warning">
               The detected RGBDS version does not match the checkout's requested version.
-              Yellow Editor will not enable the browser build with a mismatched compiler.
+              Yellow Editor will not enable the build with a mismatched compiler.
             </p>
           )}
 
@@ -522,7 +518,7 @@ export function BuildPanel({
           {longRunningStep && (
             <p className="build-warning" role="status">
               This task has not produced a new status update for {secondsSinceProgress}s.
-              A WebAssembly tool or browser file read may still be working on the task shown above;
+              A WebAssembly tool or project file read may still be working on the task shown above;
               if the elapsed time keeps growing, copy the build report below so the exact task is recorded.
             </p>
           )}
