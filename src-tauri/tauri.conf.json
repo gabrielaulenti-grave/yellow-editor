@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run prepare:shared-wasm-dev && npm run prepare:emulator-wasm && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run prepare:wasm-tools && npm run build",
+    "beforeBuildCommand": "npm run prepare:shared-wasm-dev && npm run prepare:emulator-wasm && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
