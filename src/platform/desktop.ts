@@ -103,7 +103,7 @@ export const desktopPlatform: PlatformAdapter = {
     const source = createDesktopSource(selected);
     return createProjectSession(
       source,
-      createSharedWasmBuildService(source, "desktop-native"),
+      createSharedWasmBuildService(source, "desktop-wasm"),
     );
   },
 };
