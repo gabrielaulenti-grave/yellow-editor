@@ -7,7 +7,7 @@ use tauri::Manager;
 const MAX_DECODED_PNG_PIXELS: u64 = 16 * 1024 * 1024;
 const MAX_PNG_INPUT_BYTES: usize = 64 * 1024 * 1024;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DecodedPngImage {
     width: u32,
@@ -66,6 +66,7 @@ fn write_text_atomically(path: &Path, contents: &str) -> Result<(), String> {
         .and_then(|name| name.to_str())
         .ok_or_else(|| format!("Invalid UTF-8 filename: {}", path.display()))?;
     let temp_path = parent.join(format!(".{}.yellow-editor.tmp", file_name));
+    #[cfg(windows)]
     let backup_path = parent.join(format!(".{}.yellow-editor.bak", file_name));
 
     if temp_path.exists() {
@@ -153,8 +154,7 @@ fn read_project_bytes(project_path: String, relative_path: String) -> Result<Vec
     fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
 }
 
-#[tauri::command]
-fn decode_png_rgba(bytes: Vec<u8>) -> Result<DecodedPngImage, String> {
+fn decode_png_rgba_bytes(bytes: &[u8]) -> Result<DecodedPngImage, String> {
     if bytes.is_empty() {
         return Err("PNG input is empty.".into());
     }
@@ -236,6 +236,11 @@ fn decode_png_rgba(bytes: Vec<u8>) -> Result<DecodedPngImage, String> {
 }
 
 #[tauri::command]
+fn decode_png_rgba(bytes: Vec<u8>) -> Result<DecodedPngImage, String> {
+    decode_png_rgba_bytes(&bytes)
+}
+
+#[tauri::command]
 fn write_project_text(
     project_path: String,
     relative_path: String,
@@ -298,4 +303,45 @@ fn save_project_history(
 
     let path = project_history_path(&app, &project_path)?;
     write_text_atomically(&path, &contents)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::decode_png_rgba_bytes;
+
+    fn make_grayscale_png(width: u32, height: u32, pixels: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut bytes, width, height);
+            encoder.set_color(png::ColorType::Grayscale);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().expect("PNG header");
+            writer.write_image_data(pixels).expect("PNG pixels");
+        }
+        bytes
+    }
+
+    #[test]
+    fn native_png_decoder_returns_rgba8_pixels() {
+        let source = [0x00, 0x40, 0x80, 0xff];
+        let png = make_grayscale_png(2, 2, &source);
+        let image = decode_png_rgba_bytes(&png).expect("decode grayscale PNG");
+
+        assert_eq!(image.width, 2);
+        assert_eq!(image.height, 2);
+        assert_eq!(
+            image.rgba,
+            vec![
+                0x00, 0x00, 0x00, 0xff,
+                0x40, 0x40, 0x40, 0xff,
+                0x80, 0x80, 0x80, 0xff,
+                0xff, 0xff, 0xff, 0xff,
+            ]
+        );
+    }
+
+    #[test]
+    fn native_png_decoder_rejects_empty_input() {
+        assert!(decode_png_rgba_bytes(&[]).is_err());
+    }
 }
