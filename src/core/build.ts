@@ -11,6 +11,8 @@ import type {
 } from "./types";
 import { buildWebRom } from "./webBuildGraph";
 
+type SharedWasmBackend = "web-wasm" | "desktop-native";
+
 function unavailableTool(name: string): BuildToolStatus {
   return {
     name,
@@ -51,7 +53,12 @@ async function detectBuildTargets(source: ProjectSource): Promise<BuildTarget[]>
     : ["yellow"];
 }
 
-export function createWebBuildService(source: ProjectSource): BuildService {
+export function createSharedWasmBuildService(
+  source: ProjectSource,
+  backend: SharedWasmBackend = "web-wasm",
+): BuildService {
+  const desktop = backend === "desktop-native";
+
   async function inspectEnvironment(): Promise<BuildEnvironment> {
     const [requiredRgbdsVersion, targets, helperInspection] = await Promise.all([
       readRequiredRgbdsVersion(source),
@@ -61,8 +68,14 @@ export function createWebBuildService(source: ProjectSource): BuildService {
     const rgbdsInspection = await inspectRgbdsWasm(requiredRgbdsVersion);
     const ready = helperInspection.readyForRomBuild && rgbdsInspection.ready;
 
+    const message = desktop
+      ? ready
+        ? `Self-contained desktop build tools are ready. RGBDS ${rgbdsInspection.version ?? "WASM"} and the matching pret helper utilities are packaged with Yellow Editor; make and a C compiler are not required.`
+        : [rgbdsInspection.message, helperInspection.message].join(" ")
+      : [rgbdsInspection.message, helperInspection.message].join(" ");
+
     return {
-      backend: "web-wasm",
+      backend,
       ready,
       targets,
       requiredRgbdsVersion,
@@ -74,13 +87,13 @@ export function createWebBuildService(source: ProjectSource): BuildService {
         ? {
             name: "Yellow Editor build graph",
             available: true,
-            path: "browser memory",
+            path: desktop ? "Tauri WebView memory" : "browser memory",
             version: "Gen I Yellow + Red/Blue",
           }
         : unavailableTool("Yellow Editor build graph"),
       helperCompiler: null,
       helperTools: helperInspection.tools,
-      message: [rgbdsInspection.message, helperInspection.message].join(" "),
+      message,
     };
   }
 
@@ -116,7 +129,7 @@ export function createWebBuildService(source: ProjectSource): BuildService {
         onProgress?.({
           stage: "error",
           level: "error",
-          message: "The browser build environment is not ready.",
+          message: "The WebAssembly build environment is not ready.",
           detail: environment.message,
           percent: 5,
           timestamp: Date.now(),
@@ -139,7 +152,7 @@ export function createWebBuildService(source: ProjectSource): BuildService {
           onProgress,
           "Indexing project file handles",
           6,
-          "Enumerating the checkout once so subsequent build reads can reuse browser file handles.",
+          "Enumerating the checkout once so subsequent build reads can reuse project file handles.",
         );
         const preparation = await source.prepareBuildReads();
         handleIndexDurationMs = preparation.durationMs;
@@ -178,4 +191,8 @@ export function createWebBuildService(source: ProjectSource): BuildService {
       return result;
     },
   };
+}
+
+export function createWebBuildService(source: ProjectSource): BuildService {
+  return createSharedWasmBuildService(source, "web-wasm");
 }
