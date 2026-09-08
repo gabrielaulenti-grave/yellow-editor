@@ -13,16 +13,9 @@ import { EmulatorPanel } from "./EmulatorPanel";
 import "./BuildPanel.css";
 
 function toolchainLabel(environment: BuildEnvironment): string {
-  if (environment.toolchainSource === "bundled") {
-    return "RGBDS / WASM";
-  }
-
-  switch (environment.toolchainSource) {
-    case "system":
-      return "System RGBDS";
-    default:
-      return "RGBDS/WASM unavailable";
-  }
+  return environment.toolchainSource === "bundled"
+    ? "RGBDS / WASM"
+    : "RGBDS/WASM unavailable";
 }
 
 function targetLabel(target: BuildTarget): string {
@@ -411,7 +404,7 @@ export function BuildPanel({
             <div>
               <span>Backend</span>
               <strong>
-                {environment.backend === "desktop-native"
+                {environment.backend === "desktop-wasm"
                   ? "Desktop / WASM"
                   : "Web / WASM"}
               </strong>
@@ -446,11 +439,7 @@ export function BuildPanel({
           <details className="build-tool-details">
             <summary>Tool details</summary>
             <div className="build-tool-list">
-              <ToolRows
-                tools={[...environment.tools, environment.buildTool].concat(
-                  environment.helperCompiler ? [environment.helperCompiler] : [],
-                )}
-              />
+              <ToolRows tools={[...environment.tools, environment.buildTool]} />
             </div>
 
             {environment.helperTools.length > 0 && (
@@ -608,7 +597,7 @@ export function BuildPanel({
                 </div>
               )}
               <button type="button" className="primary-action" onClick={downloadBuildOutputs}>
-                {environment?.backend === "desktop-native" ? "Export ROM" : "Download ROM"}
+                {environment?.backend === "desktop-wasm" ? "Export ROM" : "Download ROM"}
               </button>
             </div>
           )}
