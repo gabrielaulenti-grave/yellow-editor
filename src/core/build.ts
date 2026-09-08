@@ -1,6 +1,7 @@
 import { inspectPretWasmTools } from "./pretWasmTools";
 import { inspectRgbdsWasm } from "./rgbdsWasm";
 import type {
+  BuildBackend,
   BuildEnvironment,
   BuildProgressListener,
   BuildResult,
@@ -10,8 +11,6 @@ import type {
   ProjectSource,
 } from "./types";
 import { buildWebRom } from "./webBuildGraph";
-
-type SharedWasmBackend = "web-wasm" | "desktop-native";
 
 function unavailableTool(name: string): BuildToolStatus {
   return {
@@ -55,9 +54,9 @@ async function detectBuildTargets(source: ProjectSource): Promise<BuildTarget[]>
 
 export function createSharedWasmBuildService(
   source: ProjectSource,
-  backend: SharedWasmBackend = "web-wasm",
+  backend: BuildBackend = "web-wasm",
 ): BuildService {
-  const desktop = backend === "desktop-native";
+  const desktop = backend === "desktop-wasm";
 
   async function inspectEnvironment(): Promise<BuildEnvironment> {
     const [requiredRgbdsVersion, targets, helperInspection] = await Promise.all([
@@ -91,7 +90,6 @@ export function createSharedWasmBuildService(
             version: "Gen I Yellow + Red/Blue",
           }
         : unavailableTool("Yellow Editor build graph"),
-      helperCompiler: null,
       helperTools: helperInspection.tools,
       message,
     };
