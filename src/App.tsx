@@ -13,6 +13,7 @@ import type {
   ProjectInfo,
   TrainerCatalog,
   TrainerClassEntry,
+  TrainerEditSourceDocument,
   TrainerLoadProgress,
   TrainerPartyEntry,
 } from "./core/types";
@@ -32,6 +33,20 @@ import {
   validateBaseStatInput,
 } from "./editor/pokemonBaseStatsForm";
 import type { EditorController } from "./editor/types";
+import {
+  addTrainerPokemon,
+  addYellowSpecialMove,
+  parseTrainerDraft,
+  removeTrainerPokemon,
+  removeYellowSpecialMove,
+  trainerDraftFromParty,
+  trainerDraftIsDirty,
+  trainerDraftIsValid,
+  updateTrainerFormat,
+  updateTrainerPokemon,
+  updateTrainerSpecialMove,
+  type TrainerPartyDraft,
+} from "./editor/trainerPartyForm";
 import {
   disableEncounterArea,
   enableEncounterArea,
@@ -70,6 +85,8 @@ function App() {
   const [moveSearch, setMoveSearch] = useState("");
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
+  const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
+  const [trainerDraft, setTrainerDraft] = useState<TrainerPartyDraft | null>(null);
   const [trainerWarnings, setTrainerWarnings] = useState<string[]>([]);
   const [selectedTrainerId, setSelectedTrainerId] = useState<string | null>(null);
   const [selectedTrainerClass, setSelectedTrainerClass] = useState<string | null>(null);
@@ -100,6 +117,8 @@ function App() {
 
   const selectedPokemonEntry =
     pokemonIndex.find((entry) => entry.internalId === selectedPokemonId) ?? null;
+  const selectedTrainer =
+    trainers.find((trainer) => trainer.id === selectedTrainerId) ?? null;
 
   const baseStatErrors = Object.fromEntries(
     BASE_STAT_FIELDS.map((field) => [field.key, validateBaseStatInput(baseStatsDraft[field.key])]),
@@ -116,7 +135,17 @@ function App() {
   const encounterValid = encounterDraftIsValid(encounterDraft);
   const fishingDirty = fishingDraftIsDirty(fishingDraft, fishingDocument);
   const fishingValid = fishingDraftIsValid(fishingDraft);
-  const hasUnsavedChanges = baseStatsDirty || encounterDirty || fishingDirty;
+  const knownTrainerSpecies = new Set(pokemonIndex
+    .filter((entry) => entry.kind === "pokemon" && entry.constant)
+    .map((entry) => entry.constant as string));
+  const knownTrainerMoves = new Set(moves.map((move) => move.constant));
+  const trainerDirty = trainerDraftIsDirty(trainerDraft, selectedTrainer);
+  const trainerValid = trainerDraftIsValid(
+    trainerDraft,
+    knownTrainerSpecies,
+    knownTrainerMoves,
+  );
+  const hasUnsavedChanges = baseStatsDirty || encounterDirty || fishingDirty || trainerDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -133,6 +162,36 @@ function App() {
     setFishingDocument(null);
     setFishingDraft(null);
     setFishingError(null);
+  }
+
+  function clearTrainerEditor() {
+    setTrainers([]);
+    setTrainerClasses([]);
+    setTrainerEditSources([]);
+    setTrainerWarnings([]);
+    setSelectedTrainerId(null);
+    setSelectedTrainerClass(null);
+    setTrainerDraft(null);
+  }
+
+  function installTrainerCatalog(
+    catalog: TrainerCatalog,
+    preferredTrainerId?: string | null,
+    preferredClassConstant?: string | null,
+  ) {
+    const trainer = catalog.trainers.find((entry) => entry.id === preferredTrainerId)
+      ?? catalog.trainers[0]
+      ?? null;
+    const trainerClass = catalog.classes.find((entry) =>
+      entry.constant === preferredClassConstant,
+    ) ?? catalog.classes[0] ?? null;
+    setTrainers(catalog.trainers);
+    setTrainerClasses(catalog.classes);
+    setTrainerEditSources(catalog.editSources);
+    setTrainerWarnings(catalog.warnings);
+    setSelectedTrainerId(trainer?.id ?? null);
+    setSelectedTrainerClass(trainerClass?.constant ?? null);
+    setTrainerDraft(trainer ? trainerDraftFromParty(trainer) : null);
   }
 
   async function loadFishing(successMessage = "Fishing encounters loaded successfully.") {
@@ -191,11 +250,7 @@ function App() {
       if (projectLoadGeneration.current !== loadGeneration) {
         return;
       }
-      setTrainers(catalog.trainers);
-      setTrainerClasses(catalog.classes);
-      setTrainerWarnings(catalog.warnings);
-      setSelectedTrainerId(catalog.trainers[0]?.id ?? null);
-      setSelectedTrainerClass(catalog.classes[0]?.constant ?? null);
+      installTrainerCatalog(catalog);
       setStatus(
         fishingLoadError
           ? `Project loaded, but fishing data is unavailable. ${fishingLoadError}`
@@ -205,11 +260,8 @@ function App() {
       if (projectLoadGeneration.current !== loadGeneration) {
         return;
       }
-      setTrainers([]);
-      setTrainerClasses([]);
+      clearTrainerEditor();
       setTrainerWarnings([String(error)]);
-      setSelectedTrainerId(null);
-      setSelectedTrainerClass(null);
       setStatus(`Project loaded, but trainer data is unavailable. ${String(error)}`);
     } finally {
       if (projectLoadGeneration.current === loadGeneration) {
@@ -320,9 +372,7 @@ function App() {
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
-      setTrainers([]);
-      setTrainerClasses([]);
-      setTrainerWarnings([]);
+      clearTrainerEditor();
       setEncounters(encounterData);
       clearPokemonEditor();
       clearEncounterEditor();
@@ -332,8 +382,6 @@ function App() {
       );
       setFishingError(fishingResult.error);
       setSelectedMoveId(moveData[0]?.id ?? null);
-      setSelectedTrainerId(null);
-      setSelectedTrainerClass(null);
       setMoveSearch("");
       setTrainerSearch("");
       setTrainerClassSearch("");
@@ -367,15 +415,11 @@ function App() {
       setProject(null);
       setPokemonIndex([]);
       setMoves([]);
-      setTrainers([]);
-      setTrainerClasses([]);
-      setTrainerWarnings([]);
+      clearTrainerEditor();
       setEncounters([]);
       clearPokemonEditor();
       clearEncounterEditor();
       setSelectedMoveId(null);
-      setSelectedTrainerId(null);
-      setSelectedTrainerClass(null);
       setHistorySummary(null);
       setProjectLoadProgress(null);
       setStatus(String(error));
@@ -515,6 +559,120 @@ function App() {
     }
   }
 
+  async function saveTrainerParty() {
+    if (!project || !selectedTrainer || !trainerDraft || !trainerDirty || !trainerValid) {
+      return;
+    }
+    const values = parseTrainerDraft(trainerDraft);
+    if (!values) {
+      setStatus("Fix the invalid trainer party or special move values before saving.");
+      return;
+    }
+
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("save_trainer_party", {
+        partyId: selectedTrainer.id,
+        sourceLine: selectedTrainer.sourceLine,
+        sources: trainerEditSources,
+        values,
+        knownSpecies: [...knownTrainerSpecies],
+        knownMoves: [...knownTrainerMoves],
+      });
+      setHistorySummary(history);
+      const catalog = await invoke<TrainerCatalog>("get_trainers");
+      installTrainerCatalog(catalog, selectedTrainer.id, selectedTrainer.classConstant);
+      setStatus(`Trainer party ${selectedTrainer.id} saved successfully.`);
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  function selectTrainerParty(id: string) {
+    if (id === selectedTrainerId) {
+      return;
+    }
+    if (trainerDirty && !window.confirm("Discard the unsaved trainer changes and switch parties?")) {
+      return;
+    }
+    const trainer = trainers.find((entry) => entry.id === id) ?? null;
+    setSelectedTrainerId(trainer?.id ?? null);
+    setTrainerDraft(trainer ? trainerDraftFromParty(trainer) : null);
+  }
+
+  function changeTrainerFormat(partyFormat: TrainerPartyEntry["partyFormat"]) {
+    setTrainerDraft((current) => current ? updateTrainerFormat(current, partyFormat) : current);
+  }
+
+  function changeTrainerPokemon(
+    index: number,
+    field: "level" | "speciesConstant",
+    value: string,
+  ) {
+    setTrainerDraft((current) =>
+      current ? updateTrainerPokemon(current, index, field, value) : current,
+    );
+  }
+
+  function appendTrainerPokemon() {
+    const defaultSpecies = [...knownTrainerSpecies][0];
+    if (!defaultSpecies) {
+      return;
+    }
+    setTrainerDraft((current) => current
+      ? addTrainerPokemon(current, defaultSpecies)
+      : current);
+  }
+
+  function deleteTrainerPokemon(index: number) {
+    if (!trainerDraft) {
+      return;
+    }
+    const removedNumber = index + 1;
+    const lockedMove = trainerDraft.specialMoves.find((move) =>
+      move.sourceKind === "red-lone" && Number(move.pokemonIndex) === removedNumber,
+    );
+    if (lockedMove) {
+      setStatus("That Pokémon is required by a fixed Red/Blue special-move record. Change the special-move target first.");
+      return;
+    }
+    setTrainerDraft((current) => current ? removeTrainerPokemon(current, index) : current);
+  }
+
+  function changeTrainerSpecialMove(
+    index: number,
+    field: "pokemonIndex" | "moveSlot" | "moveConstant",
+    value: string,
+  ) {
+    setTrainerDraft((current) =>
+      current ? updateTrainerSpecialMove(current, index, field, value) : current,
+    );
+  }
+
+  function appendTrainerSpecialMove() {
+    const defaultMove = moves[0]?.constant;
+    if (!trainerDraft || !selectedTrainer || project?.projectName !== "pokeyellow" || !defaultMove) {
+      return;
+    }
+    setTrainerDraft(addYellowSpecialMove(trainerDraft, selectedTrainer.id, defaultMove));
+  }
+
+  function deleteTrainerSpecialMove(index: number) {
+    setTrainerDraft((current) =>
+      current ? removeYellowSpecialMove(current, index) : current,
+    );
+  }
+
+  function revertTrainerChanges() {
+    if (!trainerDirty || !selectedTrainer || editBusy) {
+      return;
+    }
+    setTrainerDraft(trainerDraftFromParty(selectedTrainer));
+    setStatus("Unsaved trainer changes reverted.");
+  }
+
   async function undoLastSave() {
     if (!historySummary?.canUndo || hasUnsavedChanges || editBusy) {
       return;
@@ -524,8 +682,15 @@ function App() {
     try {
       const history = await invoke<HistorySummary>("undo_last_save");
       setHistorySummary(history);
-      const refreshedEncounters = await invoke<EncounterTableIndexEntry[]>("get_encounter_index");
+      const refreshTrainers = historySummary.latestLabel?.startsWith("Edit trainer party ") ?? false;
+      const [refreshedEncounters, refreshedTrainers] = await Promise.all([
+        invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
+        refreshTrainers ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
+      ]);
       setEncounters(refreshedEncounters);
+      if (refreshedTrainers) {
+        installTrainerCatalog(refreshedTrainers, selectedTrainerId, selectedTrainerClass);
+      }
       await loadFishing("Undid the last saved change.");
       if (selectedPokemonEntry?.sourceSlug) {
         await loadPokemon(selectedPokemonEntry, "Undid the last saved change.");
@@ -554,8 +719,15 @@ function App() {
     try {
       const history = await invoke<HistorySummary>("redo_last_undo");
       setHistorySummary(history);
-      const refreshedEncounters = await invoke<EncounterTableIndexEntry[]>("get_encounter_index");
+      const refreshTrainers = history.latestLabel?.startsWith("Edit trainer party ") ?? false;
+      const [refreshedEncounters, refreshedTrainers] = await Promise.all([
+        invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
+        refreshTrainers ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
+      ]);
       setEncounters(refreshedEncounters);
+      if (refreshedTrainers) {
+        installTrainerCatalog(refreshedTrainers, selectedTrainerId, selectedTrainerClass);
+      }
       await loadFishing("Redid the last saved change.");
       if (selectedPokemonEntry?.sourceSlug) {
         await loadPokemon(selectedPokemonEntry, "Redid the last saved change.");
@@ -686,6 +858,19 @@ function App() {
     setEncounterSection(nextSection);
   }
 
+  function selectTrainerSection(nextSection: TrainerSection) {
+    if (nextSection === trainerSection) {
+      return;
+    }
+    if (trainerDirty && !window.confirm("Discard the unsaved trainer changes and switch sections?")) {
+      return;
+    }
+    if (trainerDirty && selectedTrainer) {
+      setTrainerDraft(trainerDraftFromParty(selectedTrainer));
+    }
+    setTrainerSection(nextSection);
+  }
+
   const pokemonEditorController: EditorController = {
     dirty: baseStatsDirty,
     valid: baseStatsValid,
@@ -700,6 +885,13 @@ function App() {
     save: encounterSection === "walking" ? saveEncounters : saveFishing,
     revert: encounterSection === "walking" ? revertEncounterChanges : revertFishingChanges,
   };
+  const trainerEditorController: EditorController = {
+    dirty: trainerDirty,
+    valid: trainerValid,
+    busy: editBusy,
+    save: saveTrainerParty,
+    revert: async () => revertTrainerChanges(),
+  };
   const readOnlyEditorController: EditorController = {
     dirty: false,
     valid: true,
@@ -711,7 +903,9 @@ function App() {
     ? pokemonEditorController
     : activeTab === "encounters"
       ? encounterEditorController
-      : readOnlyEditorController;
+      : activeTab === "trainers" && trainerSection === "parties"
+        ? trainerEditorController
+        : readOnlyEditorController;
 
   async function selectTab(nextTab: Tab) {
     if (nextTab === activeTab) {
@@ -731,6 +925,9 @@ function App() {
     }
     if (fishingDirty) {
       await revertFishingChanges();
+    }
+    if (trainerDirty) {
+      revertTrainerChanges();
     }
     setActiveTab(nextTab);
   }
@@ -848,11 +1045,23 @@ function App() {
           selectedClassConstant={selectedTrainerClass}
           partySearch={trainerSearch}
           classSearch={trainerClassSearch}
-          onSectionChange={setTrainerSection}
-          onSelectTrainer={setSelectedTrainerId}
+          draft={trainerDraft}
+          pokemonIndex={pokemonIndex}
+          moves={moves}
+          dirty={trainerDirty}
+          busy={editBusy}
+          onSectionChange={selectTrainerSection}
+          onSelectTrainer={selectTrainerParty}
           onSelectClass={setSelectedTrainerClass}
           onPartySearchChange={setTrainerSearch}
           onClassSearchChange={setTrainerClassSearch}
+          onUpdateFormat={changeTrainerFormat}
+          onUpdatePokemon={changeTrainerPokemon}
+          onAddPokemon={appendTrainerPokemon}
+          onRemovePokemon={deleteTrainerPokemon}
+          onUpdateSpecialMove={changeTrainerSpecialMove}
+          onAddSpecialMove={appendTrainerSpecialMove}
+          onRemoveSpecialMove={deleteTrainerSpecialMove}
         />
       )}
 

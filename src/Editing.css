@@ -62,7 +62,9 @@ button:disabled {
 }
 
 .field-invalid input,
-.field-invalid input:not(:disabled) {
+.field-invalid input:not(:disabled),
+.field-invalid select,
+.field-invalid select:not(:disabled) {
   border-color: var(--danger);
   background: var(--danger-soft);
   outline: 1px solid var(--danger);

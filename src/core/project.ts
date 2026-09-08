@@ -25,6 +25,10 @@ import {
   validateFishingData,
 } from "./fishingEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
+import {
+  prepareTrainerPartyWrites,
+  validateTrainerPartyValues,
+} from "./trainerEditing";
 import type { BuildService, ProjectSession, ProjectSource } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
@@ -86,6 +90,31 @@ export async function createProjectSession(
     },
     getMoves: () => parseMoves(source),
     getTrainers: (onProgress) => parseTrainerCatalog(source, projectName, onProgress),
+    saveTrainerParty: async (
+      partyId,
+      sourceLine,
+      sources,
+      values,
+      knownSpecies,
+      knownMoves,
+    ) => {
+      validateTrainerPartyValues(
+        partyId,
+        projectName,
+        values,
+        new Set(knownSpecies),
+        new Set(knownMoves),
+      );
+      const changes = await prepareTrainerPartyWrites(
+        source,
+        projectName,
+        partyId,
+        sourceLine,
+        sources,
+        values,
+      );
+      return history.save(`Edit trainer party ${partyId}`, changes);
+    },
     getEncounterIndex: () => parseEncounterIndex(source, projectName),
     getEncounterTable: (path) =>
       loadEncounterTableEditDocument(source, projectName, path),

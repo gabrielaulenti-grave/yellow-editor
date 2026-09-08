@@ -7,7 +7,9 @@ import type {
   PokemonBaseStatValues,
   ProjectSession,
   TextWriteRequest,
+  TrainerEditSourceDocument,
   TrainerLoadProgressListener,
+  TrainerPartyEditValues,
 } from "../core/types";
 import { webPlatform } from "./web";
 
@@ -186,6 +188,22 @@ function fishingSourcesArg(args: InvokeArgs | undefined): FishingSourceDocument[
   return value as FishingSourceDocument[];
 }
 
+function trainerSourcesArg(args: InvokeArgs | undefined): TrainerEditSourceDocument[] {
+  const value = args?.sources;
+  if (!Array.isArray(value)) {
+    throw new Error("Missing trainer source documents.");
+  }
+  return value as TrainerEditSourceDocument[];
+}
+
+function trainerPartyValuesArg(args: InvokeArgs | undefined): TrainerPartyEditValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing trainer party values.");
+  }
+  return value as TrainerPartyEditValues;
+}
+
 export async function invoke<T>(
   command: string,
   args?: InvokeArgs,
@@ -232,6 +250,16 @@ export async function invoke<T>(
 
     case "get_trainers":
       return (await session.getTrainers(trainerProgressArg(args))) as T;
+
+    case "save_trainer_party":
+      return (await session.saveTrainerParty(
+        stringArg(args, "partyId"),
+        numberArg(args, "sourceLine"),
+        trainerSourcesArg(args),
+        trainerPartyValuesArg(args),
+        stringListArg(args, "knownSpecies"),
+        stringListArg(args, "knownMoves"),
+      )) as T;
 
     case "get_encounter_index":
       return (await session.getEncounterIndex()) as T;

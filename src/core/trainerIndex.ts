@@ -1,4 +1,5 @@
 import { mapConstantDisplayName } from "./mapMetadata";
+import { hashText } from "./history";
 import type {
   ProjectSource,
   TrainerCatalog,
@@ -198,24 +199,21 @@ function parsePartyEntries(
   contents: string,
   classes: TrainerClassData[],
 ): TrainerPartyEntry[] {
-  const blocks = labelBlocks(contents);
-  const lines = contents.split(/\r?\n/);
-  const lineByText = new Map<string, number[]>();
-  lines.forEach((line, index) => {
-    const clean = withoutComment(line);
-    const existing = lineByText.get(clean) ?? [];
-    existing.push(index + 1);
-    lineByText.set(clean, existing);
-  });
+  const sections = new Map(globalLabelSections(contents).map((section) => [
+    section.label,
+    section,
+  ]));
 
   const entries: TrainerPartyEntry[] = [];
   for (const trainerClass of classes) {
-    const block = blocks.get(trainerClass.label);
-    if (!block) {
+    const section = sections.get(trainerClass.label);
+    if (!section) {
       continue;
     }
     let partyNumber = 0;
-    for (const line of block.split(/\r?\n/)) {
+    const sectionLines = section.source.split(/\r?\n/);
+    for (let lineIndex = 1; lineIndex < sectionLines.length; lineIndex += 1) {
+      const line = sectionLines[lineIndex];
       const values = splitArguments(line, "db");
       if (!values) {
         continue;
@@ -242,7 +240,7 @@ function parsePartyEntries(
       if (pokemon.length === 0) {
         throw new Error(`${trainerClass.label} party ${partyNumber} has no Pokémon.`);
       }
-      const sourceLine = lineByText.get(withoutComment(line))?.shift() ?? 0;
+      const sourceLine = section.startLine + lineIndex;
       const finalLevel = pokemon[pokemon.length - 1].level;
       entries.push({
         id: `${trainerClass.constant}:${partyNumber}`,
@@ -305,6 +303,8 @@ function parseSpecialMoves(contents: string, projectName: string): Map<string, T
             pokemonIndex,
             moveSlot,
             moveConstant: values[2],
+            sourceKind: "yellow-party",
+            sourceKey: activeKey,
           });
         }
       }
@@ -323,6 +323,8 @@ function parseSpecialMoves(contents: string, projectName: string): Map<string, T
       pokemonIndex: 5,
       moveSlot: 3,
       moveConstant: values[1],
+      sourceKind: "red-class",
+      sourceKey: `${values[0]}:*`,
     }]);
   }
   const loneMoves = labelBlocks(contents).get("LoneMoves") ?? "";
@@ -342,6 +344,8 @@ function parseSpecialMoves(contents: string, projectName: string): Map<string, T
       pokemonIndex,
       moveSlot: 3,
       moveConstant: values[1],
+      sourceKind: "red-lone",
+      sourceKey: `LONE:${loneMoveIndex}`,
     }]);
   }
   return result;
@@ -818,9 +822,12 @@ export async function parseTrainerCatalog(
 
   const classes = parseClassData(constants, labels, names, rewards, ai, choices);
   const trainers = parsePartyEntries(partiesContents, classes);
-  const specialMoves = await source.exists(SPECIAL_MOVES_PATH)
-    ? parseSpecialMoves(await source.readText(SPECIAL_MOVES_PATH), projectName)
-    : new Map<string, TrainerSpecialMove[]>();
+  const specialMovesContents = await source.exists(SPECIAL_MOVES_PATH)
+    ? await source.readText(SPECIAL_MOVES_PATH)
+    : null;
+  const specialMoves = specialMovesContents === null
+    ? new Map<string, TrainerSpecialMove[]>()
+    : parseSpecialMoves(specialMovesContents, projectName);
   applySpecialMoves(trainers, specialMoves);
   onProgress?.({
     stage: "tables",
@@ -969,5 +976,16 @@ export async function parseTrainerCatalog(
     total: trainers.length,
     percent: 100,
   });
-  return { trainers, classes: classCatalog, warnings };
+  return {
+    trainers,
+    classes: classCatalog,
+    editSources: await Promise.all(([
+      [PARTIES_PATH, partiesContents],
+      ...(specialMovesContents === null ? [] : [[SPECIAL_MOVES_PATH, specialMovesContents]]),
+    ] as Array<[string, string]>).map(async ([path, contents]) => ({
+      path,
+      sourceHash: await hashText(contents),
+    }))),
+    warnings,
+  };
 }

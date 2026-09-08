@@ -497,7 +497,8 @@ input[readonly] {
   font-size: 1.4rem;
 }
 
-.read-only-badge {
+.read-only-badge,
+.editable-badge {
   padding: 4px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -509,9 +510,58 @@ input[readonly] {
   letter-spacing: 0.035em;
 }
 
+.editable-badge {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: inherit;
+}
+
+.trainer-party-settings {
+  display: grid;
+  grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+.trainer-party-settings .help-text {
+  margin: 0 0 4px;
+}
+
 .trainer-party-table td:first-child,
-.trainer-party-table td:nth-child(2) {
+.trainer-party-table td:nth-child(3),
+.trainer-party-table td:last-child {
   width: 72px;
+  white-space: nowrap;
+}
+
+.trainer-party-table select,
+.trainer-special-move-table select {
+  width: 100%;
+  min-width: 150px;
+}
+
+.trainer-party-table input {
+  width: 82px;
+}
+
+.trainer-party-table td:last-child,
+.trainer-special-move-table td:last-child {
+  text-align: right;
+}
+
+.trainer-add-button {
+  margin-top: 10px;
+}
+
+.trainer-special-move-editor .section-heading {
+  margin-bottom: 0;
+}
+
+.trainer-special-move-table td:first-child,
+.trainer-special-move-table td:nth-child(2),
+.trainer-special-move-table td:nth-child(3),
+.trainer-special-move-table td:last-child {
   white-space: nowrap;
 }
 
@@ -832,6 +882,11 @@ pre {
 
   .trainer-dialogue-grid {
     grid-template-columns: 1fr;
+  }
+
+  .trainer-party-settings {
+    grid-template-columns: 1fr;
+    align-items: stretch;
   }
 }
 

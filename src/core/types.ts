@@ -115,6 +115,10 @@ export type TrainerPartyResolution =
   | "conditional-script"
   | "unresolved";
 export type TrainerSpecialMoveScope = "party" | "class";
+export type TrainerSpecialMoveSourceKind =
+  | "yellow-party"
+  | "red-lone"
+  | "red-class";
 export type TrainerScriptSelectionKind =
   | "direct"
   | "conditional"
@@ -126,6 +130,8 @@ export interface TrainerSpecialMove {
   pokemonIndex: number | null;
   moveSlot: number | null;
   moveConstant: string;
+  sourceKind: TrainerSpecialMoveSourceKind;
+  sourceKey: string;
 }
 
 export interface TrainerPokemon {
@@ -216,9 +222,24 @@ export interface TrainerPartyEntry {
   sourceLine: number;
 }
 
+export interface TrainerEditSourceDocument {
+  path: string;
+  sourceHash: string;
+}
+
+export interface TrainerPartyEditValues {
+  partyFormat: TrainerPartyFormat;
+  pokemon: Array<{
+    level: number;
+    speciesConstant: string;
+  }>;
+  specialMoves: TrainerSpecialMove[];
+}
+
 export interface TrainerCatalog {
   trainers: TrainerPartyEntry[];
   classes: TrainerClassEntry[];
+  editSources: TrainerEditSourceDocument[];
   warnings: string[];
 }
 
@@ -492,6 +513,14 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
+  saveTrainerParty(
+    partyId: string,
+    sourceLine: number,
+    sources: TrainerEditSourceDocument[],
+    values: TrainerPartyEditValues,
+    knownSpecies: string[],
+    knownMoves: string[],
+  ): Promise<HistorySummary>;
   getEncounterIndex(): Promise<EncounterTableIndexEntry[]>;
   getEncounterTable(path: string): Promise<EncounterTableEditDocument>;
   saveEncounterTable(

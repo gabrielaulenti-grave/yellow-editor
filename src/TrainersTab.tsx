@@ -1,8 +1,15 @@
 import type {
+  MoveData,
+  PokemonIndexEntry,
   ProjectInfo,
   TrainerClassEntry,
   TrainerPartyEntry,
 } from "./core/types";
+import {
+  trainerLevelError,
+  trainerSpecialMoveError,
+  type TrainerPartyDraft,
+} from "./editor/trainerPartyForm";
 
 export type TrainerSection = "parties" | "classes";
 
@@ -16,11 +23,27 @@ interface TrainersTabProps {
   selectedClassConstant: string | null;
   partySearch: string;
   classSearch: string;
+  draft: TrainerPartyDraft | null;
+  pokemonIndex: PokemonIndexEntry[];
+  moves: MoveData[];
+  dirty: boolean;
+  busy: boolean;
   onSectionChange(section: TrainerSection): void;
   onSelectTrainer(id: string): void;
   onSelectClass(constant: string): void;
   onPartySearchChange(value: string): void;
   onClassSearchChange(value: string): void;
+  onUpdateFormat(format: TrainerPartyEntry["partyFormat"]): void;
+  onUpdatePokemon(index: number, field: "level" | "speciesConstant", value: string): void;
+  onAddPokemon(): void;
+  onRemovePokemon(index: number): void;
+  onUpdateSpecialMove(
+    index: number,
+    field: "pokemonIndex" | "moveSlot" | "moveConstant",
+    value: string,
+  ): void;
+  onAddSpecialMove(): void;
+  onRemoveSpecialMove(index: number): void;
 }
 
 function titleCaseConstant(value: string): string {
@@ -101,14 +124,40 @@ function PartyBrowser({
   trainers,
   selectedTrainerId,
   search,
+  projectName,
+  draft,
+  pokemonIndex,
+  moves,
+  dirty,
+  busy,
   onSelectTrainer,
   onSearchChange,
+  onUpdateFormat,
+  onUpdatePokemon,
+  onAddPokemon,
+  onRemovePokemon,
+  onUpdateSpecialMove,
+  onAddSpecialMove,
+  onRemoveSpecialMove,
 }: {
   trainers: TrainerPartyEntry[];
   selectedTrainerId: string | null;
   search: string;
+  projectName: string;
+  draft: TrainerPartyDraft | null;
+  pokemonIndex: PokemonIndexEntry[];
+  moves: MoveData[];
+  dirty: boolean;
+  busy: boolean;
   onSelectTrainer(id: string): void;
   onSearchChange(value: string): void;
+  onUpdateFormat: TrainersTabProps["onUpdateFormat"];
+  onUpdatePokemon: TrainersTabProps["onUpdatePokemon"];
+  onAddPokemon: TrainersTabProps["onAddPokemon"];
+  onRemovePokemon: TrainersTabProps["onRemovePokemon"];
+  onUpdateSpecialMove: TrainersTabProps["onUpdateSpecialMove"];
+  onAddSpecialMove: TrainersTabProps["onAddSpecialMove"];
+  onRemoveSpecialMove: TrainersTabProps["onRemoveSpecialMove"];
 }) {
   const selectedTrainer = trainers.find((trainer) => trainer.id === selectedTrainerId) ?? null;
   const query = search.trim().toLowerCase();
@@ -125,6 +174,12 @@ function PartyBrowser({
       reference.scriptPath,
     ]),
   ].some((value) => value.toLowerCase().includes(query)));
+  const species = pokemonIndex.filter((entry) => entry.kind === "pokemon" && entry.constant);
+  const knownMoves = new Set(moves.map((move) => move.constant));
+  const draftFinalLevel = Number(draft?.pokemon[draft.pokemon.length - 1]?.level);
+  const draftPrize = typeof selectedTrainer?.baseRewardPerLevel === "number" && Number.isInteger(draftFinalLevel)
+    ? selectedTrainer.baseRewardPerLevel * draftFinalLevel
+    : selectedTrainer?.calculatedPrize ?? null;
 
   return (
     <div className="trainer-browser">
@@ -156,37 +211,98 @@ function PartyBrowser({
       <section className="trainer-details">
         {selectedTrainer ? (
           <>
-            <section className="editor-card">
+            <section className="editor-card trainer-party-editor">
               <div className="section-heading">
                 <div>
                   <h3>{selectedTrainer.className} #{selectedTrainer.partyNumber}</h3>
                   <p className="muted-code">{selectedTrainer.id}</p>
                 </div>
-                <span className="read-only-badge">Read-only</span>
+                {dirty ? <span className="unsaved-indicator">Modified</span> : <span className="editable-badge">Editable</span>}
               </div>
-              {selectedTrainer.instances.length > 1 && (
-                <p className="shared-warning">Shared party: edits to this party will affect all {selectedTrainer.instances.length} instances shown below.</p>
+              {selectedTrainer.instances.length + selectedTrainer.scriptReferences.length > 1 && (
+                <p className="shared-warning">Shared party: changes affect every object and script reference listed for this party.</p>
               )}
-              <h4>Party</h4>
-              <div className="table-wrap">
-                <table className="editor-table trainer-party-table">
-                  <thead><tr><th>Slot</th><th>Level</th><th>Pokémon</th><th>Move overrides</th></tr></thead>
-                  <tbody>
-                    {selectedTrainer.pokemon.map((pokemon, index) => (
-                      <tr key={`${pokemon.speciesConstant}:${index}`}>
-                        <td>{index + 1}</td>
-                        <td>{pokemon.level}</td>
-                        <td>{titleCaseConstant(pokemon.speciesConstant)}</td>
-                        <td>{pokemon.specialMoves.length ? pokemon.specialMoves.map((move) => `Slot ${move.moveSlot}: ${titleCaseConstant(move.moveConstant)}`).join(", ") : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {selectedTrainer.specialMoves.some((move) => move.scope === "class") && (
-                <p className="help-text">Class-wide special move: {selectedTrainer.specialMoves.filter((move) => move.scope === "class").map((move) => titleCaseConstant(move.moveConstant)).join(", ")}.</p>
-              )}
+              {draft ? (
+                <>
+                  <div className="trainer-party-settings">
+                    <label className="editor-field">
+                      <span>Party encoding</span>
+                      <select value={draft.partyFormat} disabled={busy} onChange={(event) => onUpdateFormat(event.target.value as TrainerPartyEntry["partyFormat"])}>
+                        <option value="shared-level">Shared level</option>
+                        <option value="individual-levels">Individual levels</option>
+                      </select>
+                    </label>
+                    <p className="help-text">Shared-level parties store one level for the whole team. Switching to individual levels allows each slot to differ.</p>
+                  </div>
+                  <div className="table-wrap">
+                    <table className="editor-table trainer-party-table">
+                      <thead><tr><th>Slot</th><th>Pokémon</th><th>Level</th><th /></tr></thead>
+                      <tbody>
+                        {draft.pokemon.map((pokemon, index) => {
+                          const levelError = trainerLevelError(pokemon.level);
+                          const removalLocked = draft.specialMoves.some((move) =>
+                            move.sourceKind === "red-lone" && Number(move.pokemonIndex) === index + 1,
+                          );
+                          return (
+                            <tr key={index}>
+                              <td>{index + 1}</td>
+                              <td>
+                                <select value={pokemon.speciesConstant} disabled={busy} onChange={(event) => onUpdatePokemon(index, "speciesConstant", event.target.value)}>
+                                  {species.map((entry) => <option key={entry.internalId} value={entry.constant ?? ""}>{entry.displayName} — {entry.constant}</option>)}
+                                </select>
+                              </td>
+                              <td className={levelError ? "field-invalid" : ""}>
+                                <input type="number" min={1} max={100} step={1} value={pokemon.level} disabled={busy} aria-invalid={levelError ? "true" : "false"} title={levelError ?? undefined} onChange={(event) => onUpdatePokemon(index, "level", event.target.value)} />
+                              </td>
+                              <td><button className="small-button danger-action" disabled={busy || draft.pokemon.length <= 1 || removalLocked} title={removalLocked ? "A fixed Red/Blue special-move record targets this slot." : "Remove Pokémon"} onClick={() => onRemovePokemon(index)}>Remove</button></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  <button className="small-button trainer-add-button" disabled={busy || draft.pokemon.length >= 6 || species.length === 0} onClick={onAddPokemon}>Add Pokémon</button>
+                </>
+              ) : <p>Trainer party data is unavailable.</p>}
             </section>
+
+            {draft && (
+              <section className="editor-card trainer-special-move-editor">
+                <div className="section-heading">
+                  <div><h4>Special move overrides</h4><p className="muted-code">data/trainers/special_moves.asm</p></div>
+                  {projectName === "pokeyellow" && <button className="small-button" disabled={busy || moves.length === 0 || draft.specialMoves.length >= draft.pokemon.length * 4} onClick={onAddSpecialMove}>Add override</button>}
+                </div>
+                {projectName === "pokeyellow" ? (
+                  <p className="help-text">Yellow can override any of the four move slots on any Pokémon in this party. Empty parties are omitted from the special-move table automatically.</p>
+                ) : (
+                  <p className="help-text">Red/Blue’s lone and class-wide tables have fixed engine wiring. Existing records can be edited here, but arbitrary new party overrides require corresponding script changes and are not added automatically.</p>
+                )}
+                {draft.specialMoves.length > 0 ? (
+                  <div className="table-wrap">
+                    <table className="editor-table trainer-special-move-table">
+                      <thead><tr><th>Scope</th><th>Pokémon</th><th>Move slot</th><th>Move</th><th /></tr></thead>
+                      <tbody>{draft.specialMoves.map((move, index) => {
+                        const duplicate = draft.specialMoves.some((other, otherIndex) =>
+                          otherIndex !== index && other.pokemonIndex === move.pokemonIndex && other.moveSlot === move.moveSlot,
+                        );
+                        const error = trainerSpecialMoveError(move, draft.pokemon.length, knownMoves) ?? (duplicate ? "This move slot already has an override." : null);
+                        const classWide = move.sourceKind === "red-class";
+                        return (
+                          <tr key={`${move.sourceKey}:${index}`} className={error ? "field-invalid" : ""}>
+                            <td>{move.scope === "class" ? "Class-wide" : "This party"}</td>
+                            <td><select value={move.pokemonIndex} disabled={busy || classWide} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "pokemonIndex", event.target.value)}>{Array.from({ length: Math.max(draft.pokemon.length, classWide ? 5 : 0) }, (_item, pokemonIndex) => <option key={pokemonIndex} value={pokemonIndex + 1}>#{pokemonIndex + 1}</option>)}</select></td>
+                            <td><select value={move.moveSlot} disabled={busy || move.sourceKind !== "yellow-party"} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "moveSlot", event.target.value)}>{[1, 2, 3, 4].map((slot) => <option key={slot} value={slot}>Slot {slot}</option>)}</select></td>
+                            <td><select value={move.moveConstant} disabled={busy} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "moveConstant", event.target.value)}>{moves.map((entry) => <option key={entry.id} value={entry.constant}>{entry.name} — {entry.constant}</option>)}</select></td>
+                            <td>{move.sourceKind === "yellow-party" ? <button className="small-button danger-action" disabled={busy} onClick={() => onRemoveSpecialMove(index)}>Remove</button> : <code>{move.sourceKey}</code>}</td>
+                          </tr>
+                        );
+                      })}</tbody>
+                    </table>
+                  </div>
+                ) : <p className="empty-state">This party has no special move overrides.</p>}
+                {draft.specialMoves.some((move) => move.scope === "class") && <p className="shared-warning">A class-wide move change affects every party in the {selectedTrainer.className} class.</p>}
+              </section>
+            )}
 
             {selectedTrainer.scriptReferences.length > 0 && (
               <section className="editor-card">
@@ -258,12 +374,12 @@ function PartyBrowser({
             <section className="editor-card">
               <h4>Rewards &amp; battle behavior</h4>
               <div className="trainer-facts">
-                <div><strong>Calculated prize</strong><span>{selectedTrainer.calculatedPrize === null ? "Unknown" : `₽${selectedTrainer.calculatedPrize}`}</span></div>
+                <div><strong>Calculated prize</strong><span>{draftPrize === null ? "Unknown" : `₽${draftPrize}`}</span></div>
                 <div><strong>Class base rate</strong><span>{selectedTrainer.baseRewardPerLevel === null ? "Unknown" : `₽${selectedTrainer.baseRewardPerLevel} × last Pokémon level`}</span></div>
                 <div><strong>AI routine</strong><code>{selectedTrainer.aiRoutine ?? "Unknown"}</code></div>
                 <div><strong>AI uses / Pokémon</strong><span>{selectedTrainer.aiUsesPerPokemon ?? "Unknown"}</span></div>
                 <div><strong>Move-choice groups</strong><span>{selectedTrainer.moveChoiceModifiers.length ? selectedTrainer.moveChoiceModifiers.join(", ") : "None"}</span></div>
-                <div><strong>Party encoding</strong><span>{selectedTrainer.partyFormat === "shared-level" ? "Shared level" : "Individual levels"}</span></div>
+                <div><strong>Party encoding</strong><span>{(draft?.partyFormat ?? selectedTrainer.partyFormat) === "shared-level" ? "Shared level" : "Individual levels"}</span></div>
               </div>
               <p className="trainer-source-paths"><code>{selectedTrainer.sourcePath}:{selectedTrainer.sourceLine}</code></p>
             </section>
@@ -356,7 +472,34 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
   );
 }
 
-export function TrainersTab({ project, section, trainers, classes, warnings, selectedTrainerId, selectedClassConstant, partySearch, classSearch, onSectionChange, onSelectTrainer, onSelectClass, onPartySearchChange, onClassSearchChange }: TrainersTabProps) {
+export function TrainersTab({
+  project,
+  section,
+  trainers,
+  classes,
+  warnings,
+  selectedTrainerId,
+  selectedClassConstant,
+  partySearch,
+  classSearch,
+  draft,
+  pokemonIndex,
+  moves,
+  dirty,
+  busy,
+  onSectionChange,
+  onSelectTrainer,
+  onSelectClass,
+  onPartySearchChange,
+  onClassSearchChange,
+  onUpdateFormat,
+  onUpdatePokemon,
+  onAddPokemon,
+  onRemovePokemon,
+  onUpdateSpecialMove,
+  onAddSpecialMove,
+  onRemoveSpecialMove,
+}: TrainersTabProps) {
   return (
     <section className="tab-content">
       <div className="tab-heading-row"><div><h2>Trainers</h2><p>Browse individual parties, their effective map instances, and shared trainer classes.</p></div></div>
@@ -365,7 +508,26 @@ export function TrainersTab({ project, section, trainers, classes, warnings, sel
         <button className={section === "classes" ? "active" : ""} onClick={() => onSectionChange("classes")}>Classes</button>
       </div>
       {!project ? <p>Open a project to browse trainers.</p> : section === "parties" ? (
-        <PartyBrowser trainers={trainers} selectedTrainerId={selectedTrainerId} search={partySearch} onSelectTrainer={onSelectTrainer} onSearchChange={onPartySearchChange} />
+        <PartyBrowser
+          trainers={trainers}
+          selectedTrainerId={selectedTrainerId}
+          search={partySearch}
+          projectName={project.projectName}
+          draft={draft}
+          pokemonIndex={pokemonIndex}
+          moves={moves}
+          dirty={dirty}
+          busy={busy}
+          onSelectTrainer={onSelectTrainer}
+          onSearchChange={onPartySearchChange}
+          onUpdateFormat={onUpdateFormat}
+          onUpdatePokemon={onUpdatePokemon}
+          onAddPokemon={onAddPokemon}
+          onRemovePokemon={onRemovePokemon}
+          onUpdateSpecialMove={onUpdateSpecialMove}
+          onAddSpecialMove={onAddSpecialMove}
+          onRemoveSpecialMove={onRemoveSpecialMove}
+        />
       ) : (
         <ClassBrowser classes={classes} trainers={trainers} selectedClassConstant={selectedClassConstant} search={classSearch} onSelectClass={onSelectClass} onSearchChange={onClassSearchChange} onOpenParty={(id) => { onSelectTrainer(id); onSectionChange("parties"); }} />
       )}
