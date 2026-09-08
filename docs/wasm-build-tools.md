@@ -1,6 +1,6 @@
 # Shared WebAssembly build tools
 
-Yellow Editor uses one self-contained ROM build pipeline for both the web app and the Tauri desktop app. The small pret helper programs and the RGBDS assembler/linker/fixer are compiled to WebAssembly ahead of time, while Gen I PNG-to-tile conversion is implemented in TypeScript with browser/WebView image APIs.
+Yellow Editor uses one self-contained ROM build pipeline for both the web app and the Tauri desktop app. The small pret helper programs and the RGBDS assembler/linker/fixer are compiled to WebAssembly ahead of time. Gen I PNG-to-tile conversion keeps one shared TypeScript implementation for validation, DMG color mapping, tile ordering, and bitplane encoding, while the platform adapters provide the PNG decoder: browser image APIs on the web and a native Rust decoder in Tauri.
 
 End users do not need GNU Make, a C compiler, system RGBDS, Node, npm, or Emscripten to build a ROM.
 
@@ -55,6 +55,10 @@ public/wasm-tools/rgbds/1.0.3/
 The manifest records the exact RGBDS commit and Emscripten version. Yellow Editor validates the checkout's `.rgbds-version` before enabling the build.
 
 `rgbgfx` is intentionally not executed as RGBDS WASM. The Gen I build graph uses `src/core/gen1Graphics.ts`, which reproduces the RGBDS 1.0.3 DMG graphics behavior needed by current Yellow and Red/Blue sources while avoiding the libpng/Emscripten failure encountered during the original port.
+
+PNG decoding is deliberately separated from that RGBDS-compatible tile logic. On the web, `gen1Graphics.ts` decodes PNGs with `createImageBitmap` plus canvas pixel access. On desktop, `src/platform/desktop.ts` registers a Tauri decoder that sends the encoded PNG to the Rust backend; `src-tauri/src/lib.rs` decodes it to RGBA8 with the pinned Rust `png` crate. Both paths then feed the same RGBA buffer into the same TypeScript grayscale validation, DMG shade reduction, 1bpp/2bpp encoding, and `--columns` tile ordering. This keeps the already-verified build semantics shared while making desktop builds independent of WebView image-decoding behavior.
+
+The native decoder applies input and decoded-pixel limits before allocating image buffers and is exercised by Rust unit tests in the desktop CI workflow.
 
 ## Runtime design
 
