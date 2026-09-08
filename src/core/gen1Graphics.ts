@@ -9,6 +9,35 @@ export interface Gen1TileConversionOptions {
   columnMajor?: boolean;
 }
 
+export type Gen1PngDecoder = (
+  pngBytes: Uint8Array,
+) => Promise<Gen1DecodedImage>;
+
+interface RegisteredPngDecoder {
+  label: string;
+  decode: Gen1PngDecoder;
+}
+
+let registeredPngDecoder: RegisteredPngDecoder | null = null;
+
+export function configureGen1PngDecoder(
+  label: string,
+  decode: Gen1PngDecoder,
+): void {
+  const normalizedLabel = label.trim();
+  if (!normalizedLabel) {
+    throw new Error("Gen I PNG decoder label must not be empty.");
+  }
+  registeredPngDecoder = {
+    label: normalizedLabel,
+    decode,
+  };
+}
+
+export function gen1PngDecoderLabel(): string {
+  return registeredPngDecoder?.label ?? "browser image decoder";
+}
+
 function dmgIndex(red: number, depth: 1 | 2): number {
   // RGBDS 1.0.3's default `--colors dmg` mapping. PNG brightness is inverted
   // into Game Boy shade order, binned into four DMG shades, then reduced to
@@ -151,7 +180,9 @@ function canvasPixels(bitmap: ImageBitmap): Uint8ClampedArray {
   throw new Error("This browser does not provide a canvas API for PNG decoding.");
 }
 
-async function decodePng(pngBytes: Uint8Array): Promise<Gen1DecodedImage> {
+export async function decodeGen1PngWithBrowser(
+  pngBytes: Uint8Array,
+): Promise<Gen1DecodedImage> {
   if (typeof createImageBitmap !== "function") {
     throw new Error(
       "This browser does not provide createImageBitmap(), which Yellow Editor needs to decode source PNG graphics.",
@@ -169,7 +200,7 @@ async function decodePng(pngBytes: Uint8Array): Promise<Gen1DecodedImage> {
       premultiplyAlpha: "none",
     });
   } catch {
-    // Older WebViews may implement createImageBitmap but not all options. The
+    // Older browsers may implement createImageBitmap but not all options. The
     // Gen I source PNGs are grayscale, so the default color conversion path is
     // still safe as a compatibility fallback.
     bitmap = await createImageBitmap(blob);
@@ -191,5 +222,6 @@ export async function convertGen1PngToTiles(
   pngBytes: Uint8Array,
   options: Gen1TileConversionOptions,
 ): Promise<Uint8Array> {
-  return encodeGen1RgbaToTiles(await decodePng(pngBytes), options);
+  const decoder = registeredPngDecoder?.decode ?? decodeGen1PngWithBrowser;
+  return encodeGen1RgbaToTiles(await decoder(pngBytes), options);
 }
