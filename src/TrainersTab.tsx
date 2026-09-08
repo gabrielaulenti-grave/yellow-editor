@@ -55,6 +55,26 @@ function resolutionLabel(instance: TrainerPartyEntry["instances"][number]): stri
   }
 }
 
+function scriptSelectionLabel(reference: TrainerPartyEntry["scriptReferences"][number]): string {
+  switch (reference.selectionKind) {
+    case "direct": return "Direct selection";
+    case "conditional": return "Conditional branches";
+    case "computed": return "Computed selection";
+    case "table": return "Lookup table";
+  }
+}
+
+function partyUsageLabel(trainer: TrainerPartyEntry): string {
+  const parts: string[] = [];
+  if (trainer.instances.length > 0) {
+    parts.push(`${trainer.instances.length} map object${trainer.instances.length === 1 ? "" : "s"}`);
+  }
+  if (trainer.scriptReferences.length > 0) {
+    parts.push(`${trainer.scriptReferences.length} script reference${trainer.scriptReferences.length === 1 ? "" : "s"}`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : "Unreferenced party";
+}
+
 function DialogueBlock({
   label,
   dialogue,
@@ -98,6 +118,12 @@ function PartyBrowser({
     trainer.classConstant,
     ...trainer.pokemon.map((pokemon) => pokemon.speciesConstant),
     ...trainer.instances.flatMap((instance) => [instance.locationName, instance.mapConstant]),
+    ...trainer.scriptReferences.flatMap((reference) => [
+      reference.locationName,
+      reference.mapConstant,
+      reference.routineLabel,
+      reference.scriptPath,
+    ]),
   ].some((value) => value.toLowerCase().includes(query)));
 
   return (
@@ -120,7 +146,7 @@ function PartyBrowser({
             >
               <span>{trainer.className} #{trainer.partyNumber}</span>
               <small>{trainer.pokemon.map((pokemon) => titleCaseConstant(pokemon.speciesConstant)).join(", ")}</small>
-              <small>{trainer.instances.length === 0 ? "Unused party" : `${trainer.instances.length} map instance${trainer.instances.length === 1 ? "" : "s"}`}</small>
+              <small>{partyUsageLabel(trainer)}</small>
             </button>
           ))}
           {filtered.length === 0 && <p>No trainer parties match that search.</p>}
@@ -162,10 +188,40 @@ function PartyBrowser({
               )}
             </section>
 
+            {selectedTrainer.scriptReferences.length > 0 && (
+              <section className="editor-card">
+                <h4>Map script references</h4>
+                <p className="help-text">These scripts select this party without relying solely on trainer object metadata. The complete map source is available so event flags, coordinates, starter checks, and other trigger conditions can be reviewed in context.</p>
+                <div className="trainer-instance-list">
+                  {selectedTrainer.scriptReferences.map((reference) => (
+                    <details key={`${reference.id}:${selectedTrainer.id}`} open={selectedTrainer.scriptReferences.length === 1}>
+                      <summary><span>{reference.locationName}</span><small>{reference.routineLabel} · {scriptSelectionLabel(reference)}</small></summary>
+                      <div className="trainer-instance-body">
+                        <p>{reference.selectionSummary}</p>
+                        <div className="trainer-facts">
+                          <div><strong>Possible parties</strong><span>{reference.partyIds.map(partyIdLabel).join(", ")}</span></div>
+                          <div><strong>Selecting routine</strong><code>{reference.routineLabel}</code></div>
+                          <div><strong>Source</strong><code>{reference.scriptPath}:{reference.sourceLine}</code></div>
+                        </div>
+                        <h5>Selecting routine</h5>
+                        <pre className="trainer-script-source"><code>{reference.routineSource}</code></pre>
+                        <details className="trainer-full-script">
+                          <summary>View complete map script and trigger conditions</summary>
+                          <pre className="trainer-script-source"><code>{reference.mapScriptSource}</code></pre>
+                        </details>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </section>
+            )}
+
             <section className="editor-card">
               <h4>Instances</h4>
               {selectedTrainer.instances.length === 0 ? (
-                <p className="empty-state">This party is not currently linked to a map object.</p>
+                <p className="empty-state">{selectedTrainer.scriptReferences.length > 0
+                  ? "No trainer object uses this party; it is selected by the map scripts shown above."
+                  : "No map object or resolvable map script currently references this party."}</p>
               ) : (
                 <div className="trainer-instance-list">
                   {selectedTrainer.instances.map((instance) => (
@@ -240,7 +296,7 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
         <div className="trainer-list">
           {filtered.map((trainerClass) => (
             <button key={trainerClass.constant} onClick={() => onSelectClass(trainerClass.constant)} className={trainerClass.constant === selectedClassConstant ? "active" : ""}>
-              <span>{trainerClass.name}</span><small>{trainerClass.constant}</small><small>{trainerClass.partyCount} parties · {trainerClass.placedInstanceCount} placed instances</small>
+              <span>{trainerClass.name}</span><small>{trainerClass.constant}</small><small>{trainerClass.partyCount} parties · {trainerClass.placedInstanceCount} map objects · {trainerClass.scriptReferenceCount} script references</small>
             </button>
           ))}
           {filtered.length === 0 && <p>No trainer classes match that search.</p>}
@@ -255,7 +311,7 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
                 <div><h3>{selectedClass.name}</h3><p className="muted-code">{selectedClass.constant}</p></div>
                 <span className="read-only-badge">Read-only</span>
               </div>
-              <p className="shared-warning">Shared class data: future edits here will affect {selectedClass.partyCount} parties and {selectedClass.placedInstanceCount} placed instances.</p>
+              <p className="shared-warning">Shared class data: future edits here will affect {selectedClass.partyCount} parties, {selectedClass.placedInstanceCount} map objects, and {selectedClass.scriptReferenceCount} script-selected battles.</p>
               <div className="trainer-facts">
                 <div><strong>Base prize rate</strong><span>{selectedClass.baseRewardPerLevel === null ? "Unknown" : `₽${selectedClass.baseRewardPerLevel} × last Pokémon level`}</span></div>
                 <div><strong>AI routine</strong><code>{selectedClass.aiRoutine ?? "Unknown"}</code></div>
@@ -263,13 +319,14 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
                 <div><strong>Move-choice groups</strong><span>{selectedClass.moveChoiceModifiers.length ? selectedClass.moveChoiceModifiers.join(", ") : "None"}</span></div>
                 <div><strong>Party records</strong><span>{selectedClass.partyCount}</span></div>
                 <div><strong>Placed instances</strong><span>{selectedClass.placedInstanceCount}</span></div>
+                <div><strong>Script references</strong><span>{selectedClass.scriptReferenceCount}</span></div>
               </div>
               {selectedClass.classSpecialMoves.length > 0 && <p className="help-text">Class-wide move override: {selectedClass.classSpecialMoves.map((move) => `${titleCaseConstant(move.moveConstant)} (Pokémon ${move.pokemonIndex}, slot ${move.moveSlot})`).join(", ")}.</p>}
             </section>
 
             <section className="editor-card">
               <h4>Affected locations</h4>
-              {selectedClass.affectedLocations.length ? <div className="class-location-list">{selectedClass.affectedLocations.map((location) => <span key={location}>{location}</span>)}</div> : <p className="empty-state">No placed instances use this class.</p>}
+              {selectedClass.affectedLocations.length ? <div className="class-location-list">{selectedClass.affectedLocations.map((location) => <span key={location}>{location}</span>)}</div> : <p className="empty-state">No map object or resolvable map script uses this class.</p>}
             </section>
 
             <section className="editor-card">
@@ -277,11 +334,11 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
               {selectedClass.partyIds.length ? (
                 <div className="table-wrap">
                   <table className="editor-table class-party-table">
-                    <thead><tr><th>Party</th><th>Composition</th><th>Instances</th><th /></tr></thead>
+                    <thead><tr><th>Party</th><th>Composition</th><th>Map objects</th><th>Scripts</th><th /></tr></thead>
                     <tbody>{selectedClass.partyIds.map((partyId) => {
                       const party = partyById.get(partyId);
                       if (!party) return null;
-                      return <tr key={party.id}><td>#{party.partyNumber}</td><td>{party.pokemon.map((pokemon) => `Lv.${pokemon.level} ${titleCaseConstant(pokemon.speciesConstant)}`).join(", ")}</td><td>{party.instances.length}</td><td><button className="small-button" onClick={() => onOpenParty(party.id)}>View party</button></td></tr>;
+                      return <tr key={party.id}><td>#{party.partyNumber}</td><td>{party.pokemon.map((pokemon) => `Lv.${pokemon.level} ${titleCaseConstant(pokemon.speciesConstant)}`).join(", ")}</td><td>{party.instances.length}</td><td>{party.scriptReferences.length}</td><td><button className="small-button" onClick={() => onOpenParty(party.id)}>View party</button></td></tr>;
                     })}</tbody>
                   </table>
                 </div>

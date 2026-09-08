@@ -7,6 +7,8 @@ import type {
   TrainerInstance,
   TrainerLoadProgressListener,
   TrainerPartyEntry,
+  TrainerScriptReference,
+  TrainerScriptSelectionKind,
   TrainerSpecialMove,
 } from "./types";
 
@@ -46,6 +48,22 @@ interface ParsedTrainerInstance {
   partyIds: string[];
   instance: TrainerInstance;
   loneMoveIndex: number | null;
+}
+
+interface GlobalLabelSection {
+  label: string;
+  startLine: number;
+  source: string;
+}
+
+interface ScriptedTrainerSelection {
+  classConstant: string;
+  partyIds: string[];
+  selectionKind: TrainerScriptSelectionKind;
+  selectionSummary: string;
+  routineLabel: string;
+  sourceLine: number;
+  routineSource: string;
 }
 
 function withoutComment(line: string): string {
@@ -91,7 +109,7 @@ function labelBlocks(contents: string): Map<string, string> {
   return blocks;
 }
 
-function globalLabelBlocks(contents: string): Map<string, string> {
+function globalLabelSections(contents: string): GlobalLabelSection[] {
   const lines = contents.split(/\r?\n/);
   const starts: Array<{ label: string; index: number }> = [];
   lines.forEach((line, index) => {
@@ -100,12 +118,21 @@ function globalLabelBlocks(contents: string): Map<string, string> {
       starts.push({ label: match[1], index });
     }
   });
-  const blocks = new Map<string, string>();
-  starts.forEach((start, index) => {
+  return starts.map((start, index) => {
     const end = starts[index + 1]?.index ?? lines.length;
-    blocks.set(start.label, lines.slice(start.index + 1, end).join("\n"));
+    return {
+      label: start.label,
+      startLine: start.index + 1,
+      source: lines.slice(start.index, end).join("\n").trimEnd(),
+    };
   });
-  return blocks;
+}
+
+function globalLabelBlocks(contents: string): Map<string, string> {
+  return new Map(globalLabelSections(contents).map((section) => [
+    section.label,
+    section.source.split(/\r?\n/).slice(1).join("\n"),
+  ]));
 }
 
 function trainerConstants(contents: string): string[] {
@@ -225,6 +252,7 @@ function parsePartyEntries(
         partyFormat: first === 0xff ? "individual-levels" : "shared-level",
         pokemon,
         instances: [],
+        scriptReferences: [],
         baseRewardPerLevel: trainerClass.baseRewardPerLevel,
         calculatedPrize: trainerClass.baseRewardPerLevel === null
           ? null
@@ -426,32 +454,126 @@ function objectConstants(contents: string): string[] {
     .map((match) => match[1]);
 }
 
-function scriptedPartySelections(contents: string): string[][] {
+function tablePartyNumbers(source: string, label: string): number[] {
+  const lines = source.split(/\r?\n/);
+  const labelPattern = new RegExp(`^\\s*${label.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}:{1,2}\\s*(?:;.*)?$`);
+  const start = lines.findIndex((line) => labelPattern.test(line));
+  if (start < 0) {
+    return [];
+  }
+  const numbers: number[] = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^\s*[A-Za-z_.][A-Za-z0-9_.]*:{1,2}\s*(?:;.*)?$/.test(lines[index])) {
+      break;
+    }
+    const values = splitArguments(lines[index], "db");
+    if (!values || values.length < 2) {
+      continue;
+    }
+    const partyNumber = parseNumber(values[1]);
+    if (partyNumber !== null) {
+      numbers.push(partyNumber);
+    }
+  }
+  return numbers;
+}
+
+function scriptedTrainerSelections(contents: string): ScriptedTrainerSelection[] {
   const opponentPattern = /^\s*ld\s+a\s*,\s*(OPP_[A-Z0-9_]+)\s*(?:;.*)?\r?\n\s*ld\s+\[wCurOpponent\]\s*,\s*a\b/gm;
-  const opponentMatches = [...contents.matchAll(opponentPattern)];
-  const selections: string[][] = [];
-  opponentMatches.forEach((match, index) => {
-    const start = (match.index ?? 0) + match[0].length;
-    const nextOpponent = opponentMatches[index + 1]?.index ?? contents.length;
-    const candidateSegment = contents.slice(start, Math.min(nextOpponent, start + 1800));
-    const trainerStore = candidateSegment.search(/^\s*ld\s+\[wTrainerNo\]\s*,\s*a\b/m);
-    if (trainerStore < 0) {
-      return;
-    }
-    const classConstant = match[1].slice(4);
-    const partyNumbers = [...candidateSegment.slice(0, trainerStore).matchAll(
-      /^\s*ld\s+a\s*,\s*(\$[0-9a-f]+|\d+)\b/gim,
-    )]
-      .map((numberMatch) => parseNumber(numberMatch[1]))
-      .filter((partyNumber): partyNumber is number => partyNumber !== null);
-    const partyIds = [...new Set(partyNumbers.map((partyNumber) =>
-      `${classConstant}:${partyNumber}`,
-    ))];
-    if (partyIds.length > 0) {
-      selections.push(partyIds);
-    }
-  });
+  const selections: ScriptedTrainerSelection[] = [];
+  for (const section of globalLabelSections(contents)) {
+    const opponentMatches = [...section.source.matchAll(opponentPattern)];
+    opponentMatches.forEach((match, index) => {
+      const start = (match.index ?? 0) + match[0].length;
+      const nextOpponent = opponentMatches[index + 1]?.index ?? section.source.length;
+      const candidateSegment = section.source.slice(start, nextOpponent);
+      const trainerStore = candidateSegment.search(/^\s*ld\s+\[wTrainerNo\]\s*,\s*a\b/m);
+      const beforeStore = trainerStore < 0
+        ? candidateSegment
+        : candidateSegment.slice(0, trainerStore);
+      const classConstant = match[1].slice(4);
+      let partyNumbers = [...beforeStore.matchAll(
+        /^\s*ld\s+a\s*,\s*(\$[0-9a-f]+|\d+)\b/gim,
+      )]
+        .map((numberMatch) => parseNumber(numberMatch[1]))
+        .filter((partyNumber): partyNumber is number => partyNumber !== null);
+      let selectionKind: TrainerScriptSelectionKind = partyNumbers.length > 1
+        ? "conditional"
+        : "direct";
+      let selectionSummary = partyNumbers.length > 1
+        ? "Runtime branches select one of these parties."
+        : "The script directly selects this party.";
+
+      const computedMatch = beforeStore.match(
+        /^\s*ld\s+a\s*,\s*\[wRivalStarter\]\s*(?:;.*)?\r?\n(?:.*\r?\n){0,4}?\s*add\s+(\$[0-9a-f]+|\d+)\b/im,
+      );
+      if (partyNumbers.length === 0 && computedMatch) {
+        const offset = parseNumber(computedMatch[1]);
+        if (offset !== null) {
+          partyNumbers = [1, 2, 3].map((value) => value + offset);
+          selectionKind = "computed";
+          selectionSummary = `The party number is wRivalStarter + ${offset}; one of these parties is selected at runtime.`;
+        }
+      }
+
+      if (partyNumbers.length === 0) {
+        const tableLabel = candidateSegment.match(
+          /^\s*ld\s+hl\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\s*(?:;.*)?\r?\n\s*call\s+[A-Za-z_][A-Za-z0-9_]*TrainerNo[A-Za-z0-9_]*\b/im,
+        )?.[1];
+        if (tableLabel) {
+          partyNumbers = tablePartyNumbers(section.source, tableLabel);
+          if (partyNumbers.length > 0) {
+            selectionKind = "table";
+            selectionSummary = `The ${tableLabel} lookup table selects one of these parties at runtime.`;
+          }
+        }
+      }
+
+      const partyIds = [...new Set(partyNumbers.map((partyNumber) =>
+        `${classConstant}:${partyNumber}`,
+      ))];
+      if (partyIds.length === 0) {
+        return;
+      }
+      const sourceLine = section.startLine + section.source
+        .slice(0, match.index ?? 0)
+        .split(/\r?\n/).length - 1;
+      selections.push({
+        classConstant,
+        partyIds,
+        selectionKind,
+        selectionSummary,
+        routineLabel: section.label,
+        sourceLine,
+        routineSource: section.source,
+      });
+    });
+  }
   return selections;
+}
+
+function scriptedPartySelections(contents: string): string[][] {
+  return scriptedTrainerSelections(contents).map((selection) => selection.partyIds);
+}
+
+function parseScriptReferences(
+  scriptPath: string,
+  scriptContents: string,
+  mapConstant: string,
+): TrainerScriptReference[] {
+  return scriptedTrainerSelections(scriptContents).map((selection) => ({
+    id: `${scriptPath}:${selection.sourceLine}:${selection.classConstant}`,
+    mapConstant,
+    locationName: mapConstantDisplayName(mapConstant),
+    scriptPath,
+    routineLabel: selection.routineLabel,
+    sourceLine: selection.sourceLine,
+    partyIds: selection.partyIds,
+    selectionKind: selection.selectionKind,
+    selectionSummary: selection.selectionSummary,
+    routineSource: selection.routineSource,
+    mapScriptSource: scriptContents,
+  }));
 }
 
 async function readTextFiles(
@@ -486,9 +608,7 @@ function parseMapInstances(
   scriptContents: string,
   textBlocks: Map<string, TextSourceBlock>,
 ): ParsedTrainerInstance[] {
-  const mapConstant = objectContents.match(/^\s*def_warps_to\s+([A-Z][A-Z0-9_]*)\b/m)?.[1]
-    ?? objectPath.split("/").pop()?.replace(/\.asm$/, "").toUpperCase()
-    ?? "UNKNOWN_MAP";
+  const mapConstant = mapConstantForObject(objectPath, objectContents);
   const scriptBlocks = labelBlocks(scriptContents);
   const scriptFunctionBlocks = globalLabelBlocks(scriptContents);
   const headers = parseHeaders(scriptContents);
@@ -573,6 +693,15 @@ function pathStem(path: string): string {
   return path.split("/").pop()?.replace(/\.asm$/, "") ?? "";
 }
 
+function mapConstantForObject(path: string, contents: string): string {
+  return contents.match(/^\s*def_warps_to\s+([A-Z][A-Z0-9_]*)\b/m)?.[1]
+    ?? pathStem(path)
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+      .replace(/([A-Za-z])(\d)/g, "$1_$2")
+      .toUpperCase()
+    ?? "UNKNOWN_MAP";
+}
+
 function addTextBlocks(
   textBlocks: Map<string, TextSourceBlock>,
   files: Map<string, string>,
@@ -606,6 +735,8 @@ function buildClassCatalog(
     const parties = trainers.filter((trainer) => trainer.classConstant === trainerClass.constant);
     const instances = parties.flatMap((party) => party.instances);
     const uniqueInstances = new Map(instances.map((instance) => [instance.id, instance]));
+    const scriptReferences = parties.flatMap((party) => party.scriptReferences);
+    const uniqueScriptReferences = new Map(scriptReferences.map((reference) => [reference.id, reference]));
     const classSpecialMoves = new Map<string, TrainerSpecialMove>();
     for (const move of parties.flatMap((party) => party.specialMoves)) {
       if (move.scope === "class") {
@@ -621,9 +752,11 @@ function buildClassCatalog(
       partyIds: parties.map((party) => party.id),
       partyCount: parties.length,
       placedInstanceCount: uniqueInstances.size,
-      affectedLocations: [...new Set([...uniqueInstances.values()].map((instance) =>
-        instance.locationName,
-      ))].sort((left, right) => left.localeCompare(right)),
+      scriptReferenceCount: uniqueScriptReferences.size,
+      affectedLocations: [...new Set([
+        ...[...uniqueInstances.values()].map((instance) => instance.locationName),
+        ...[...uniqueScriptReferences.values()].map((reference) => reference.locationName),
+      ])].sort((left, right) => left.localeCompare(right)),
       baseRewardPerLevel: trainerClass.baseRewardPerLevel,
       aiRoutine: trainerClass.aiRoutine,
       aiUsesPerPokemon: trainerClass.aiUsesPerPokemon,
@@ -714,13 +847,10 @@ export async function parseTrainerCatalog(
 
   const scriptPaths = includedPaths(mapsContents, "scripts/");
   const scriptPathByStem = new Map(scriptPaths.map((path) => [pathStem(path), path]));
-  const trainerScriptPaths = [...new Set(trainerObjectPaths
-    .map((path) => scriptPathByStem.get(pathStem(path)))
-    .filter((path): path is string => Boolean(path)))];
-  const scriptFiles = await readTextFiles(source, trainerScriptPaths, (completed, total) => {
+  const scriptFiles = await readTextFiles(source, scriptPaths, (completed, total) => {
     onProgress?.({
       stage: "scripts",
-      message: "Resolving trainer triggers and event flags",
+      message: "Scanning map scripts for trainer battles",
       completed,
       total,
       percent: 45 + Math.round((completed / Math.max(total, 1)) * 20),
@@ -805,7 +935,32 @@ export async function parseTrainerCatalog(
       }
     }
   }
-  trainers.forEach((trainer) => trainer.instances.sort((left, right) => left.locationName.localeCompare(right.locationName)));
+  const objectPathByStem = new Map(objectPaths.map((path) => [pathStem(path), path]));
+  for (const scriptPath of scriptPaths) {
+    const stem = pathStem(scriptPath);
+    const objectPath = objectPathByStem.get(stem) ?? `data/maps/objects/${stem}.asm`;
+    const mapConstant = mapConstantForObject(objectPath, objectFiles.get(objectPath) ?? "");
+    for (const reference of parseScriptReferences(
+      scriptPath,
+      scriptFiles.get(scriptPath) ?? "",
+      mapConstant,
+    )) {
+      for (const partyId of reference.partyIds) {
+        const trainer = byId.get(partyId);
+        if (trainer) {
+          trainer.scriptReferences.push(reference);
+        } else {
+          warnings.push(`${reference.scriptPath}:${reference.sourceLine} references missing trainer party ${partyId}.`);
+        }
+      }
+    }
+  }
+  trainers.forEach((trainer) => {
+    trainer.instances.sort((left, right) => left.locationName.localeCompare(right.locationName));
+    trainer.scriptReferences.sort((left, right) =>
+      left.locationName.localeCompare(right.locationName) || left.sourceLine - right.sourceLine,
+    );
+  });
   const classCatalog = buildClassCatalog(classes, trainers);
   onProgress?.({
     stage: "complete",

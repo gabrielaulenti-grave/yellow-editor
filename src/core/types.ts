@@ -115,6 +115,11 @@ export type TrainerPartyResolution =
   | "conditional-script"
   | "unresolved";
 export type TrainerSpecialMoveScope = "party" | "class";
+export type TrainerScriptSelectionKind =
+  | "direct"
+  | "conditional"
+  | "computed"
+  | "table";
 
 export interface TrainerSpecialMove {
   scope: TrainerSpecialMoveScope;
@@ -162,12 +167,27 @@ export interface TrainerInstance {
   };
 }
 
+export interface TrainerScriptReference {
+  id: string;
+  mapConstant: string;
+  locationName: string;
+  scriptPath: string;
+  routineLabel: string;
+  sourceLine: number;
+  partyIds: string[];
+  selectionKind: TrainerScriptSelectionKind;
+  selectionSummary: string;
+  routineSource: string;
+  mapScriptSource: string;
+}
+
 export interface TrainerClassEntry {
   constant: string;
   name: string;
   partyIds: string[];
   partyCount: number;
   placedInstanceCount: number;
+  scriptReferenceCount: number;
   affectedLocations: string[];
   baseRewardPerLevel: number | null;
   aiRoutine: string | null;
@@ -185,6 +205,7 @@ export interface TrainerPartyEntry {
   partyFormat: TrainerPartyFormat;
   pokemon: TrainerPokemon[];
   instances: TrainerInstance[];
+  scriptReferences: TrainerScriptReference[];
   baseRewardPerLevel: number | null;
   calculatedPrize: number | null;
   aiRoutine: string | null;
