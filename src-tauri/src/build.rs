@@ -81,14 +81,43 @@ fn find_in_directory(directory: &Path, name: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path = env::var_os("PATH")?;
-    for directory in env::split_paths(&path) {
-        if let Some(found) = find_in_directory(&directory, name) {
-            return Some(found);
+#[cfg(windows)]
+fn find_in_known_windows_tool_directories(name: &str) -> Option<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(root) = env::var_os("MSYS2_ROOT") {
+        roots.push(PathBuf::from(root));
+    }
+    roots.push(PathBuf::from(r"C:\msys64"));
+
+    for root in roots {
+        for relative in ["usr/bin", "ucrt64/bin", "mingw64/bin", "clang64/bin"] {
+            if let Some(found) = find_in_directory(&root.join(relative), name) {
+                return Some(found);
+            }
         }
     }
+
     None
+}
+
+fn find_on_path(name: &str) -> Option<PathBuf> {
+    if let Some(path) = env::var_os("PATH") {
+        for directory in env::split_paths(&path) {
+            if let Some(found) = find_in_directory(&directory, name) {
+                return Some(found);
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        return find_in_known_windows_tool_directories(name);
+    }
+
+    #[cfg(not(windows))]
+    {
+        None
+    }
 }
 
 fn run_version(path: &Path) -> Option<String> {
@@ -219,13 +248,30 @@ fn find_complete_bundled_toolchain(
     None
 }
 
-fn detect_helper_compiler() -> BuildToolStatus {
+fn find_helper_compiler() -> Option<(String, PathBuf)> {
     for name in ["cc", "gcc", "clang"] {
         if let Some(path) = find_on_path(name) {
-            return status_for_path(name, Some(path));
+            return Some((name.to_string(), path));
         }
     }
-    unavailable_tool("C compiler")
+    None
+}
+
+fn detect_helper_compiler() -> BuildToolStatus {
+    match find_helper_compiler() {
+        Some((name, path)) => status_for_path(&name, Some(path)),
+        None => unavailable_tool("C compiler"),
+    }
+}
+
+fn augment_command_path(command: &mut Command, directories: impl IntoIterator<Item = PathBuf>) {
+    let mut paths: Vec<PathBuf> = directories.into_iter().collect();
+    if let Some(existing) = env::var_os("PATH") {
+        paths.extend(env::split_paths(&existing));
+    }
+    if let Ok(joined) = env::join_paths(paths) {
+        command.env("PATH", joined);
+    }
 }
 
 fn resolve_build_environment(
@@ -299,11 +345,11 @@ fn resolve_build_environment(
     }
 
     if !build_tool.available {
-        notes.push("The project build also needs make, which was not found on PATH.".to_string());
+        notes.push("The project build also needs make, which was not found on PATH or in the standard MSYS2 installation directories.".to_string());
     }
 
     if !helper_compiler.available {
-        notes.push("A C compiler was not found. Fresh pret checkouts may need one to build their helper tools.".to_string());
+        notes.push("A C compiler was not found on PATH or in the standard MSYS2 installation directories. Fresh pret checkouts may need one to build their helper tools.".to_string());
     }
 
     if version_matches == Some(false) {
@@ -392,10 +438,21 @@ pub fn build_rom(
 
     let make_path = resolved
         .make_path
-        .ok_or_else(|| "make disappeared from PATH before the build started.".to_string())?;
+        .ok_or_else(|| "make disappeared before the build started.".to_string())?;
     let project_root = Path::new(&project_path);
-    let mut command = Command::new(make_path);
+    let mut command = Command::new(&make_path);
     command.current_dir(project_root);
+
+    let mut build_path_directories = Vec::new();
+    if let Some(parent) = make_path.parent() {
+        build_path_directories.push(parent.to_path_buf());
+    }
+    if let Some((_, compiler_path)) = find_helper_compiler() {
+        if let Some(parent) = compiler_path.parent() {
+            build_path_directories.push(parent.to_path_buf());
+        }
+    }
+    augment_command_path(&mut command, build_path_directories);
 
     match target.as_str() {
         "yellow" => {}
