@@ -1,4 +1,7 @@
-import { convertGen1PngToTiles } from "./gen1Graphics";
+import {
+  convertGen1PngToTiles,
+  gen1PngDecoderLabel,
+} from "./gen1Graphics";
 import type { BuildToolStatus } from "./types";
 import type {
   BuildToolRuntime,
@@ -124,11 +127,11 @@ function unavailableTool(name: string): BuildToolStatus {
   };
 }
 
-function browserRgbgfxStatus(version: string): BuildToolStatus {
+function gen1RgbgfxStatus(version: string): BuildToolStatus {
   return {
     name: "rgbgfx",
     available: true,
-    path: "browser image decoder",
+    path: gen1PngDecoderLabel(),
     version: `${version} Gen I-compatible subset`,
   };
 }
@@ -176,9 +179,9 @@ export async function inspectRgbdsWasm(
     ready,
     version: manifest.rgbds.version,
     versionMatches: manifest.rgbds.version === requiredVersion,
-    tools: [...wasmTools, browserRgbgfxStatus(manifest.rgbds.version)],
+    tools: [...wasmTools, gen1RgbgfxStatus(manifest.rgbds.version)],
     message: ready
-      ? `RGBDS ${manifest.rgbds.version} assembler/linker/fixer are available as WebAssembly; Gen I graphics conversion uses the browser image pipeline.`
+      ? `RGBDS ${manifest.rgbds.version} assembler/linker/fixer are available as WebAssembly; Gen I graphics conversion uses the ${gen1PngDecoderLabel()}.`
       : `The RGBDS ${requiredVersion} WebAssembly bundle is incomplete.`,
   };
 }
@@ -312,7 +315,7 @@ function parseGen1RgbgfxInvocation(args: string[]): Gen1RgbgfxInvocation {
   return { input, output, depth, columnMajor };
 }
 
-async function runBrowserRgbgfx(
+async function runGen1Rgbgfx(
   invocation: ToolInvocation,
 ): Promise<ToolInvocationResult> {
   const started = performance.now();
@@ -394,14 +397,14 @@ export function createRgbdsWasmRuntime(version: string): BuildToolRuntime {
         ],
         version: manifest.rgbds.version,
         message: ready
-          ? `RGBDS ${manifest.rgbds.version} WebAssembly toolchain with browser-native Gen I graphics conversion.`
+          ? `RGBDS ${manifest.rgbds.version} WebAssembly toolchain with ${gen1PngDecoderLabel()} Gen I graphics conversion.`
           : `RGBDS ${manifest.rgbds.version} WebAssembly bundle is incomplete.`,
       };
     },
 
     async run(invocation: ToolInvocation): Promise<ToolInvocationResult> {
       if (invocation.tool === "rgbgfx") {
-        return runBrowserRgbgfx(invocation);
+        return runGen1Rgbgfx(invocation);
       }
 
       const manifest = await loadManifest(version);
