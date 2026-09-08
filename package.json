@@ -11,6 +11,7 @@
     "prepare:pret-wasm": "node scripts/prepare-pret-tools-wasm.mjs",
     "prepare:rgbds-wasm": "node scripts/prepare-rgbds-wasm.mjs",
     "prepare:emulator-wasm": "node scripts/prepare-binjgb-wasm.mjs",
+    "prepare:shared-wasm-dev": "node scripts/prepare-shared-wasm-dev.mjs",
     "prepare:wasm-tools": "npm run prepare:pret-wasm && npm run prepare:rgbds-wasm && npm run prepare:emulator-wasm",
     "tauri": "tauri"
   },
