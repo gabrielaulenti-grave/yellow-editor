@@ -1,7 +1,19 @@
+use serde::Serialize;
 use std::fs;
-use std::io::ErrorKind;
+use std::io::{Cursor, ErrorKind};
 use std::path::{Component, Path, PathBuf};
 use tauri::Manager;
+
+const MAX_DECODED_PNG_PIXELS: u64 = 16 * 1024 * 1024;
+const MAX_PNG_INPUT_BYTES: usize = 64 * 1024 * 1024;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DecodedPngImage {
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -11,6 +23,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_project_text,
             read_project_bytes,
+            decode_png_rgba,
             write_project_text,
             project_path_exists,
             resolve_project_asset,
@@ -138,6 +151,88 @@ fn read_project_text(project_path: String, relative_path: String) -> Result<Stri
 fn read_project_bytes(project_path: String, relative_path: String) -> Result<Vec<u8>, String> {
     let path = project_relative_path(&project_path, &relative_path)?;
     fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+}
+
+#[tauri::command]
+fn decode_png_rgba(bytes: Vec<u8>) -> Result<DecodedPngImage, String> {
+    if bytes.is_empty() {
+        return Err("PNG input is empty.".into());
+    }
+    if bytes.len() > MAX_PNG_INPUT_BYTES {
+        return Err(format!(
+            "PNG input is too large to decode safely ({} bytes).",
+            bytes.len()
+        ));
+    }
+
+    let mut decoder = png::Decoder::new(Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder
+        .read_info()
+        .map_err(|error| format!("Could not read PNG header: {}", error))?;
+
+    let source_info = reader.info();
+    let pixel_count = u64::from(source_info.width) * u64::from(source_info.height);
+    if pixel_count == 0 || pixel_count > MAX_DECODED_PNG_PIXELS {
+        return Err(format!(
+            "PNG dimensions {}x{} are outside Yellow Editor's supported range.",
+            source_info.width, source_info.height
+        ));
+    }
+
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let output = reader
+        .next_frame(&mut buffer)
+        .map_err(|error| format!("Could not decode PNG pixels: {}", error))?;
+
+    if output.bit_depth != png::BitDepth::Eight {
+        return Err(format!(
+            "PNG decoder returned unsupported {:?} channel depth.",
+            output.bit_depth
+        ));
+    }
+
+    let source = &buffer[..output.buffer_size()];
+    let rgba_capacity = usize::try_from(pixel_count)
+        .ok()
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| "PNG dimensions overflow the RGBA output buffer.".to_string())?;
+    let mut rgba = Vec::with_capacity(rgba_capacity);
+
+    match output.color_type {
+        png::ColorType::Grayscale => {
+            for &gray in source {
+                rgba.extend_from_slice(&[gray, gray, gray, 0xff]);
+            }
+        }
+        png::ColorType::GrayscaleAlpha => {
+            for pixel in source.chunks_exact(2) {
+                rgba.extend_from_slice(&[pixel[0], pixel[0], pixel[0], pixel[1]]);
+            }
+        }
+        png::ColorType::Rgb => {
+            for pixel in source.chunks_exact(3) {
+                rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 0xff]);
+            }
+        }
+        png::ColorType::Rgba => rgba.extend_from_slice(source),
+        png::ColorType::Indexed => {
+            return Err("PNG palette data was not expanded by the native decoder.".into());
+        }
+    }
+
+    if rgba.len() != rgba_capacity {
+        return Err(format!(
+            "Decoded PNG produced {} RGBA bytes; expected {}.",
+            rgba.len(), rgba_capacity
+        ));
+    }
+
+    Ok(DecodedPngImage {
+        width: output.width,
+        height: output.height,
+        rgba,
+    })
 }
 
 #[tauri::command]
