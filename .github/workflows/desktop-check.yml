@@ -19,12 +19,19 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
+          cache: npm
 
-      - name: Prepare pinned RGBDS
-        run: npm run prepare:rgbds
+      - name: Install frontend dependencies
+        run: npm ci
 
-      - name: Verify bundled RGBDS
-        run: src-tauri/resources/rgbds/1.0.3/bin/rgbasm --version
+      - name: Prepare published shared WASM tools
+        run: npm run prepare:shared-wasm-dev
+
+      - name: Prepare emulator WASM
+        run: npm run prepare:emulator-wasm
+
+      - name: Check desktop frontend
+        run: npm run build
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
