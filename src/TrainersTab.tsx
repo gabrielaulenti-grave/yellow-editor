@@ -418,7 +418,7 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
     <div className="trainer-browser">
       <aside>
         <input type="search" placeholder="Search classes, AI, or maps..." value={search} onChange={(event) => onSearchChange(event.target.value)} className="full-width-input" />
-        <p className="browser-count">{filtered.length} of {trainers.length} classes</p>
+        <p className="browser-count">{filtered.length} of {classes.length} classes</p>
         <div className="trainer-list">
           {filtered.map((trainerClass) => (
             <button key={trainerClass.constant} onClick={() => onSelectClass(trainerClass.constant)} className={trainerClass.constant === selectedClassConstant ? "active" : ""}>
