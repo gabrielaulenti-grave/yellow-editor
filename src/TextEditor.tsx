@@ -73,7 +73,10 @@ export function TextEditor({
     setBusy(true);
     setError(null);
     try {
-      const next = await invoke<TextDocument>("get_text_document", target);
+      const next = await invoke<TextDocument>("get_text_document", {
+        path: target.path,
+        label: target.label,
+      });
       setDocument(next);
       setDraft(next.segments.map((segment) => ({ ...segment })));
       setPreview(segmentsToPreview(next.segments));
