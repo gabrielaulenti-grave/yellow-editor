@@ -12,6 +12,10 @@ const HISTORY_VERSION = 1;
 const MAX_HISTORY_ENTRIES = 100;
 
 type HistorySide = "before" | "after";
+type PreparedTextWriteRequest = TextWriteRequest & {
+  beforeContents?: string;
+  beforeHash?: string;
+};
 
 function emptyHistory(): HistoryState {
   return {
@@ -327,8 +331,14 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
       }
       seenPaths.add(request.path);
 
-      const before = await source.readText(request.path);
-      const beforeHash = await hashText(before);
+      // Editors frequently have to read a source file in order to construct the
+      // replacement text. When that exact snapshot is supplied, reuse it here
+      // instead of paying for a second mobile filesystem read immediately
+      // before the same write. The hash guard is still checked against that
+      // freshly prepared snapshot.
+      const prepared = request as PreparedTextWriteRequest;
+      const before = prepared.beforeContents ?? await source.readText(request.path);
+      const beforeHash = prepared.beforeHash ?? await hashText(before);
 
       if (request.expectedHash && request.expectedHash !== beforeHash) {
         throw new Error(

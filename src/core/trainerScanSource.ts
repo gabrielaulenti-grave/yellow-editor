@@ -13,12 +13,20 @@ function recommendedConcurrency(): number {
   }
   const cores = Math.max(1, navigator.hardwareConcurrency || 4);
   if (mobileLikeDevice()) {
-    return Math.max(2, Math.min(4, Math.ceil(cores / 2)));
+    // Four workers proved too conservative on current phones: the filesystem
+    // was spending most of its time waiting between many tiny source reads.
+    // Keep a ceiling so lower-memory devices are not flooded, but let modern
+    // 8-core phones overlap enough I/O to make the first scan useful.
+    return Math.max(4, Math.min(8, Math.ceil(cores * 0.75)));
   }
   return Math.max(4, Math.min(12, cores));
 }
 
-export function createTrainerScanSource(source: ProjectSource): ProjectSource {
+export interface TrainerScanSource extends ProjectSource {
+  invalidate(paths?: string[]): void;
+}
+
+export function createTrainerScanSource(source: ProjectSource): TrainerScanSource {
   const textCache = new Map<string, Promise<string>>();
   const existsCache = new Map<string, Promise<boolean>>();
   const waiting: Array<() => void> = [];
@@ -64,14 +72,30 @@ export function createTrainerScanSource(source: ProjectSource): ProjectSource {
     return pending;
   }
 
+  function invalidate(paths?: string[]): void {
+    if (!paths) {
+      textCache.clear();
+      existsCache.clear();
+      return;
+    }
+    for (const path of paths) {
+      textCache.delete(path);
+      existsCache.delete(path);
+    }
+  }
+
   return {
     displayPath: source.displayPath,
     storageKey: source.storageKey,
     historyStore: source.historyStore,
     readText: cachedText,
     readBytes: (path) => source.readBytes(path),
-    writeText: (path, contents) => source.writeText(path, contents),
+    writeText: async (path, contents) => {
+      await source.writeText(path, contents);
+      invalidate([path]);
+    },
     exists: cachedExists,
     assetUrl: (path) => source.assetUrl(path),
+    invalidate,
   };
 }

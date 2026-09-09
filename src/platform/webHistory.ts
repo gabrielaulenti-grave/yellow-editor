@@ -1,18 +1,36 @@
-import type { HistoryState, HistoryStore } from "../core/types";
+import type {
+  HistoryEntry,
+  HistoryPendingOperation,
+  HistoryState,
+  HistoryStore,
+  TrainerCatalog,
+} from "../core/types";
 
 const DATABASE_NAME = "yellow-editor";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 const PROJECT_STORE = "project-identities";
-const HISTORY_STORE = "project-history";
+const LEGACY_HISTORY_STORE = "project-history";
+const HISTORY_META_STORE = "project-history-meta";
+const HISTORY_ENTRY_STORE = "project-history-entries";
+const HISTORY_ENTRY_PROJECT_INDEX = "projectId";
+const TRAINER_CACHE_STORE = "trainer-catalog-cache";
+const TRAINER_CACHE_VERSION = 1;
 
 export interface WebDirectoryIdentityHandle {
   name: string;
   isSameEntry(other: WebDirectoryIdentityHandle): Promise<boolean>;
 }
 
+export interface WebTrainerCatalogCache {
+  load(): Promise<TrainerCatalog | null>;
+  save(catalog: TrainerCatalog): Promise<void>;
+  clear(): Promise<void>;
+}
+
 export interface WebProjectStorageContext {
   projectId: string;
   historyStore: HistoryStore;
+  trainerCatalogCache: WebTrainerCatalogCache;
 }
 
 interface StoredProjectIdentity {
@@ -21,9 +39,29 @@ interface StoredProjectIdentity {
   handle: WebDirectoryIdentityHandle;
 }
 
-interface StoredHistory {
+interface StoredLegacyHistory {
   projectId: string;
   state: HistoryState;
+}
+
+interface StoredHistoryMeta {
+  projectId: string;
+  version: number;
+  cursor: number;
+  pending: HistoryPendingOperation | null;
+  entryIds: string[];
+}
+
+interface StoredHistoryEntry {
+  key: string;
+  projectId: string;
+  entry: HistoryEntry;
+}
+
+interface StoredTrainerCatalog {
+  projectId: string;
+  version: number;
+  catalog: TrainerCatalog;
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -35,8 +73,20 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(PROJECT_STORE)) {
         database.createObjectStore(PROJECT_STORE, { keyPath: "id" });
       }
-      if (!database.objectStoreNames.contains(HISTORY_STORE)) {
-        database.createObjectStore(HISTORY_STORE, { keyPath: "projectId" });
+      // Keep the original monolithic store so existing users can migrate their
+      // history lazily the first time it is loaded and saved under schema v2.
+      if (!database.objectStoreNames.contains(LEGACY_HISTORY_STORE)) {
+        database.createObjectStore(LEGACY_HISTORY_STORE, { keyPath: "projectId" });
+      }
+      if (!database.objectStoreNames.contains(HISTORY_META_STORE)) {
+        database.createObjectStore(HISTORY_META_STORE, { keyPath: "projectId" });
+      }
+      if (!database.objectStoreNames.contains(HISTORY_ENTRY_STORE)) {
+        const store = database.createObjectStore(HISTORY_ENTRY_STORE, { keyPath: "key" });
+        store.createIndex(HISTORY_ENTRY_PROJECT_INDEX, "projectId", { unique: false });
+      }
+      if (!database.objectStoreNames.contains(TRAINER_CACHE_STORE)) {
+        database.createObjectStore(TRAINER_CACHE_STORE, { keyPath: "projectId" });
       }
     };
 
@@ -65,6 +115,10 @@ function createId(): string {
     return globalThis.crypto.randomUUID();
   }
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function historyEntryKey(projectId: string, entryId: string): string {
+  return `${projectId}:${entryId}`;
 }
 
 async function resolveProjectId(
@@ -101,26 +155,129 @@ async function resolveProjectId(
 }
 
 function historyStoreForProject(database: IDBDatabase, projectId: string): HistoryStore {
+  let lastSavedState: HistoryState | null = null;
+  let hasStructuredHistory = false;
+
   return {
     persistent: true,
 
     async load() {
-      const transaction = database.transaction(HISTORY_STORE, "readonly");
-      const done = transactionDone(transaction);
-      const record = await requestResult(
-        transaction.objectStore(HISTORY_STORE).get(projectId) as IDBRequest<StoredHistory | undefined>,
+      const transaction = database.transaction(
+        [HISTORY_META_STORE, HISTORY_ENTRY_STORE],
+        "readonly",
       );
+      const done = transactionDone(transaction);
+      const meta = await requestResult(
+        transaction.objectStore(HISTORY_META_STORE).get(projectId) as IDBRequest<StoredHistoryMeta | undefined>,
+      );
+
+      if (meta) {
+        const records = await requestResult(
+          transaction
+            .objectStore(HISTORY_ENTRY_STORE)
+            .index(HISTORY_ENTRY_PROJECT_INDEX)
+            .getAll(projectId) as IDBRequest<StoredHistoryEntry[]>,
+        );
+        await done;
+        const byId = new Map(records.map((record) => [record.entry.id, record.entry]));
+        const entries = meta.entryIds
+          .map((id) => byId.get(id))
+          .filter((entry): entry is HistoryEntry => Boolean(entry));
+        const state: HistoryState = {
+          version: meta.version,
+          entries,
+          cursor: meta.cursor,
+          pending: meta.pending,
+        };
+        lastSavedState = state;
+        hasStructuredHistory = true;
+        return state;
+      }
+
       await done;
-      return record?.state ?? null;
+      const legacyTransaction = database.transaction(LEGACY_HISTORY_STORE, "readonly");
+      const legacyDone = transactionDone(legacyTransaction);
+      const legacy = await requestResult(
+        legacyTransaction.objectStore(LEGACY_HISTORY_STORE).get(projectId) as IDBRequest<StoredLegacyHistory | undefined>,
+      );
+      await legacyDone;
+      lastSavedState = legacy?.state ?? null;
+      hasStructuredHistory = false;
+      return legacy?.state ?? null;
     },
 
     async save(state) {
-      const transaction = database.transaction(HISTORY_STORE, "readwrite");
+      const transaction = database.transaction(
+        [HISTORY_META_STORE, HISTORY_ENTRY_STORE],
+        "readwrite",
+      );
       const done = transactionDone(transaction);
-      transaction.objectStore(HISTORY_STORE).put({
+      const entryStore = transaction.objectStore(HISTORY_ENTRY_STORE);
+      const previousIds = new Set(lastSavedState?.entries.map((entry) => entry.id) ?? []);
+      const currentIds = new Set(state.entries.map((entry) => entry.id));
+
+      for (const entry of state.entries) {
+        if (!hasStructuredHistory || !previousIds.has(entry.id)) {
+          entryStore.put({
+            key: historyEntryKey(projectId, entry.id),
+            projectId,
+            entry,
+          } satisfies StoredHistoryEntry);
+        }
+      }
+      if (hasStructuredHistory) {
+        for (const entryId of previousIds) {
+          if (!currentIds.has(entryId)) {
+            entryStore.delete(historyEntryKey(projectId, entryId));
+          }
+        }
+      }
+
+      transaction.objectStore(HISTORY_META_STORE).put({
         projectId,
-        state,
-      } satisfies StoredHistory);
+        version: state.version,
+        cursor: state.cursor,
+        pending: state.pending ?? null,
+        entryIds: state.entries.map((entry) => entry.id),
+      } satisfies StoredHistoryMeta);
+      await done;
+
+      lastSavedState = state;
+      hasStructuredHistory = true;
+    },
+  };
+}
+
+function trainerCatalogCacheForProject(
+  database: IDBDatabase,
+  projectId: string,
+): WebTrainerCatalogCache {
+  return {
+    async load() {
+      const transaction = database.transaction(TRAINER_CACHE_STORE, "readonly");
+      const done = transactionDone(transaction);
+      const record = await requestResult(
+        transaction.objectStore(TRAINER_CACHE_STORE).get(projectId) as IDBRequest<StoredTrainerCatalog | undefined>,
+      );
+      await done;
+      return record?.version === TRAINER_CACHE_VERSION ? record.catalog : null;
+    },
+
+    async save(catalog) {
+      const transaction = database.transaction(TRAINER_CACHE_STORE, "readwrite");
+      const done = transactionDone(transaction);
+      transaction.objectStore(TRAINER_CACHE_STORE).put({
+        projectId,
+        version: TRAINER_CACHE_VERSION,
+        catalog,
+      } satisfies StoredTrainerCatalog);
+      await done;
+    },
+
+    async clear() {
+      const transaction = database.transaction(TRAINER_CACHE_STORE, "readwrite");
+      const done = transactionDone(transaction);
+      transaction.objectStore(TRAINER_CACHE_STORE).delete(projectId);
       await done;
     },
   };
@@ -134,6 +291,7 @@ export async function createWebProjectStorage(
   return {
     projectId,
     historyStore: historyStoreForProject(database, projectId),
+    trainerCatalogCache: trainerCatalogCacheForProject(database, projectId),
   };
 }
 
