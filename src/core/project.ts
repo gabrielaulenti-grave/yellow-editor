@@ -25,15 +25,47 @@ import {
   validateFishingData,
 } from "./fishingEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
-import { enrichScriptedTrainerDialogue } from "./trainerScriptDialogue";
+import { enrichTrainerScriptSummaries } from "./trainerScriptSummary";
 import {
   prepareTrainerPartyWrites,
   validateTrainerPartyValues,
 } from "./trainerEditing";
-import type { BuildService, ProjectSession, ProjectSource } from "./types";
+import type {
+  BuildService,
+  ProjectSession,
+  ProjectSource,
+  TrainerCatalog,
+} from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
 const REQUIRED_DIRS = ["data", "engine", "maps"];
+
+function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
+  for (const trainer of catalog.trainers) {
+    for (const reference of trainer.scriptReferences) {
+      reference.routineSource = reference.routineSource
+        .split("\n")
+        .map((line) => {
+          const match = line.match(/^(\s*Path:\s*)(.*)$/);
+          if (!match) {
+            return line;
+          }
+
+          // Keep movement notation deliberately simple. Direction arrows are
+          // converted to plain words first; any right arrows that remain are
+          // only the semantic summary's sequence separators.
+          const path = match[2]
+            .replace(/↑ Up/g, "Up")
+            .replace(/↓ Down/g, "Down")
+            .replace(/← Left/g, "Left")
+            .replace(/→ Right/g, "Right")
+            .replace(/ → /g, ", ");
+          return `${match[1]}${path}`;
+        })
+        .join("\n");
+    }
+  }
+}
 
 export async function createProjectSession(
   source: ProjectSource,
@@ -93,10 +125,11 @@ export async function createProjectSession(
     getTrainers: async (onProgress) => {
       const catalog = await parseTrainerCatalog(source, projectName, onProgress);
       try {
-        await enrichScriptedTrainerDialogue(source, catalog);
+        await enrichTrainerScriptSummaries(source, catalog);
+        clarifyTrainerMovementPaths(catalog);
       } catch (error) {
         catalog.warnings.push(
-          `Scripted battle dialogue could not be fully resolved: ${String(error)}`,
+          `Beginner-friendly script summaries could not be fully generated: ${String(error)}`,
         );
       }
       return catalog;
