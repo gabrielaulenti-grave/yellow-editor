@@ -51,11 +51,13 @@ function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
             return line;
           }
           const path = match[2]
-            .replace(/↑ Up/g, "↑")
-            .replace(/↓ Down/g, "↓")
-            .replace(/← Left/g, "←")
-            .replace(/→ Right/g, "→")
-            .replace(/ → /g, " · ");
+            .split(" → ")
+            .map((step) => step
+              .replace(/^↑ Up\b/, "↑")
+              .replace(/^↓ Down\b/, "↓")
+              .replace(/^← Left\b/, "←")
+              .replace(/^→ Right\b/, "→"))
+            .join(" · ");
           return `${match[1]}${path}`;
         })
         .join("\n");
