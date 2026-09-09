@@ -44,6 +44,23 @@ async function decodeDesktopPng(
   };
 }
 
+function decodedPngDataUrl(image: Gen1DecodedImage): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = image.width;
+  canvas.height = image.height;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("The desktop WebView could not create a canvas for sprite preview.");
+  }
+
+  context.putImageData(
+    new ImageData(image.rgba, image.width, image.height),
+    0,
+    0,
+  );
+  return canvas.toDataURL("image/png");
+}
+
 // The browser build uses createImageBitmap/canvas for PNG decoding. Tauri uses
 // its Rust backend instead so desktop builds do not depend on WebView image
 // decoding behavior and behave consistently across Windows, macOS, and Linux.
@@ -79,7 +96,7 @@ function createDesktopHistoryStore(projectPath: string): HistoryStore {
 }
 
 function createDesktopSource(projectPath: string): ProjectSource {
-  const objectUrls = new Map<string, string>();
+  const assetUrls = new Map<string, string>();
 
   return {
     displayPath: projectPath,
@@ -117,23 +134,25 @@ function createDesktopSource(projectPath: string): ProjectSource {
     },
 
     async assetUrl(relativePath) {
-      const cached = objectUrls.get(relativePath);
+      const cached = assetUrls.get(relativePath);
       if (cached) {
         return cached;
       }
 
       try {
-        const bytes = await invoke<number[]>("read_project_bytes", {
+        const bytes = Uint8Array.from(await invoke<number[]>("read_project_bytes", {
           projectPath,
           relativePath,
-        });
-        const mimeType = relativePath.toLowerCase().endsWith(".png")
-          ? "image/png"
-          : "application/octet-stream";
-        const url = URL.createObjectURL(
-          new Blob([Uint8Array.from(bytes)], { type: mimeType }),
-        );
-        objectUrls.set(relativePath, url);
+        }));
+
+        // Source sprite PNGs are valid for RGBDS but are not decoded consistently
+        // by every Tauri WebView. Decode them with the same native Rust path used
+        // by desktop graphics conversion, then re-encode the RGBA pixels through
+        // canvas into a WebView-native PNG data URL for display.
+        const url = relativePath.toLowerCase().endsWith(".png")
+          ? decodedPngDataUrl(await decodeDesktopPng(bytes))
+          : URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+        assetUrls.set(relativePath, url);
         return url;
       } catch {
         return null;
@@ -141,10 +160,12 @@ function createDesktopSource(projectPath: string): ProjectSource {
     },
 
     dispose() {
-      for (const url of objectUrls.values()) {
-        URL.revokeObjectURL(url);
+      for (const url of assetUrls.values()) {
+        if (url.startsWith("blob:")) {
+          URL.revokeObjectURL(url);
+        }
       }
-      objectUrls.clear();
+      assetUrls.clear();
     },
   };
 }
