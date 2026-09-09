@@ -25,6 +25,7 @@ import {
   validateFishingData,
 } from "./fishingEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
+import { enrichScriptedTrainerDialogue } from "./trainerScriptDialogue";
 import {
   prepareTrainerPartyWrites,
   validateTrainerPartyValues,
@@ -89,7 +90,11 @@ export async function createProjectSession(
       ]);
     },
     getMoves: () => parseMoves(source),
-    getTrainers: (onProgress) => parseTrainerCatalog(source, projectName, onProgress),
+    getTrainers: async (onProgress) => {
+      const catalog = await parseTrainerCatalog(source, projectName, onProgress);
+      await enrichScriptedTrainerDialogue(source, catalog);
+      return catalog;
+    },
     saveTrainerParty: async (
       partyId,
       sourceLine,
