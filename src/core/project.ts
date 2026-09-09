@@ -24,7 +24,9 @@ import {
   prepareFishingWrites,
   validateFishingData,
 } from "./fishingEditing";
+import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import { parseTrainerCatalog } from "./trainerIndex";
+import { createTrainerScanSource } from "./trainerScanSource";
 import { enrichTrainerScriptSummaries } from "./trainerScriptSummary";
 import {
   prepareTrainerPartyWrites,
@@ -39,6 +41,10 @@ import type {
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
 const REQUIRED_DIRS = ["data", "engine", "maps"];
+
+export interface ProgressiveTrainerSession {
+  getTrainerBaseCatalog(): Promise<TrainerCatalog>;
+}
 
 function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
   for (const trainer of catalog.trainers) {
@@ -91,8 +97,23 @@ export async function createProjectSession(
     ? "pokered"
     : "pokeyellow";
   const history = createProjectHistoryManager(source);
+  let trainerBaseCatalogPromise: Promise<TrainerCatalog> | null = null;
 
-  return {
+  function getTrainerBaseCatalog(): Promise<TrainerCatalog> {
+    if (!trainerBaseCatalogPromise) {
+      trainerBaseCatalogPromise = parseTrainerBaseCatalog(source, projectName).catch((error) => {
+        trainerBaseCatalogPromise = null;
+        throw error;
+      });
+    }
+    return trainerBaseCatalogPromise;
+  }
+
+  function invalidateTrainerBaseCatalog(): void {
+    trainerBaseCatalogPromise = null;
+  }
+
+  const session: ProjectSession & ProgressiveTrainerSession = {
     info: {
       path: source.displayPath,
       valid: true,
@@ -122,10 +143,17 @@ export async function createProjectSession(
       ]);
     },
     getMoves: () => parseMoves(source),
+    getTrainerBaseCatalog,
     getTrainers: async (onProgress) => {
-      const catalog = await parseTrainerCatalog(source, projectName, onProgress);
+      // A full trainer scan is intentionally isolated behind a short-lived
+      // read-through cache. On mobile, the wrapper also limits concurrent
+      // filesystem reads so the browser is not flooded by twelve file reads
+      // at once. The same cached source is reused by script-summary enrichment,
+      // avoiding a second trip to the filesystem for dialogue files.
+      const scanSource = createTrainerScanSource(source);
+      const catalog = await parseTrainerCatalog(scanSource, projectName, onProgress);
       try {
-        await enrichTrainerScriptSummaries(source, catalog);
+        await enrichTrainerScriptSummaries(scanSource, catalog);
         clarifyTrainerMovementPaths(catalog);
       } catch (error) {
         catalog.warnings.push(
@@ -157,7 +185,9 @@ export async function createProjectSession(
         sources,
         values,
       );
-      return history.save(`Edit trainer party ${partyId}`, changes);
+      const result = await history.save(`Edit trainer party ${partyId}`, changes);
+      invalidateTrainerBaseCatalog();
+      return result;
     },
     getEncounterIndex: () => parseEncounterIndex(source, projectName),
     getEncounterTable: (path) =>
@@ -192,11 +222,21 @@ export async function createProjectSession(
     },
     getHistorySummary: () => history.getSummary(),
     saveTextChanges: (label, changes) => history.save(label, changes),
-    undoLastSave: () => history.undo(),
-    redoLastUndo: () => history.redo(),
+    undoLastSave: async () => {
+      const result = await history.undo();
+      invalidateTrainerBaseCatalog();
+      return result;
+    },
+    redoLastUndo: async () => {
+      const result = await history.redo();
+      invalidateTrainerBaseCatalog();
+      return result;
+    },
     getBuildEnvironment: () => buildService.inspect(),
     getSaveCompatibility: (target) => getSaveCompatibilityDescriptor(source, target),
     buildRom: (target, onProgress) => buildService.build(target, onProgress),
     dispose: () => source.dispose?.(),
   };
+
+  return session;
 }

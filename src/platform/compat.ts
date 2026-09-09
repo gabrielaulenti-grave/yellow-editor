@@ -11,6 +11,7 @@ import type {
   TrainerLoadProgressListener,
   TrainerPartyEditValues,
 } from "../core/types";
+import type { ProgressiveTrainerSession } from "../core/project";
 import type {
   TextDocumentSaveRequest,
   TextEditingSession,
@@ -68,6 +69,16 @@ function requireTextSession(session: ProjectSession): ProjectSession & TextEditi
     throw new Error("This project session does not support text editing.");
   }
   return candidate as ProjectSession & TextEditingSession;
+}
+
+function requireProgressiveTrainerSession(
+  session: ProjectSession,
+): ProjectSession & ProgressiveTrainerSession {
+  const candidate = session as ProjectSession & Partial<ProgressiveTrainerSession>;
+  if (!candidate.getTrainerBaseCatalog) {
+    throw new Error("This project session does not support progressive trainer loading.");
+  }
+  return candidate as ProjectSession & ProgressiveTrainerSession;
 }
 
 function numberArg(args: InvokeArgs | undefined, name: string): number {
@@ -292,6 +303,9 @@ export async function invoke<T>(
 
     case "get_moves":
       return (await session.getMoves()) as T;
+
+    case "get_trainer_base_catalog":
+      return (await requireProgressiveTrainerSession(session).getTrainerBaseCatalog()) as T;
 
     case "get_trainers":
       return (await session.getTrainers(trainerProgressArg(args))) as T;

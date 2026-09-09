@@ -194,6 +194,103 @@ function App() {
     setTrainerDraft(trainer ? trainerDraftFromParty(trainer) : null);
   }
 
+  function mergeTrainerEnrichment(catalog: TrainerCatalog) {
+    setTrainers((current) => {
+      if (current.length === 0) {
+        return catalog.trainers;
+      }
+      const enrichedById = new Map(catalog.trainers.map((trainer) => [trainer.id, trainer]));
+      return current.map((trainer) => {
+        const enriched = enrichedById.get(trainer.id);
+        return enriched
+          ? {
+              ...trainer,
+              instances: enriched.instances,
+              scriptReferences: enriched.scriptReferences,
+            }
+          : trainer;
+      });
+    });
+    setTrainerClasses((current) => {
+      if (current.length === 0) {
+        return catalog.classes;
+      }
+      const enrichedByConstant = new Map(catalog.classes.map((entry) => [entry.constant, entry]));
+      return current.map((entry) => {
+        const enriched = enrichedByConstant.get(entry.constant);
+        return enriched
+          ? {
+              ...entry,
+              placedInstanceCount: enriched.placedInstanceCount,
+              scriptReferenceCount: enriched.scriptReferenceCount,
+              affectedLocations: enriched.affectedLocations,
+            }
+          : entry;
+      });
+    });
+    setTrainerEditSources((current) => current.length > 0 ? current : catalog.editSources);
+    setTrainerWarnings((current) => [...new Set([...current, ...catalog.warnings])]);
+    setSelectedTrainerId((current) =>
+      current && catalog.trainers.some((entry) => entry.id === current)
+        ? current
+        : catalog.trainers[0]?.id ?? null,
+    );
+    setSelectedTrainerClass((current) =>
+      current && catalog.classes.some((entry) => entry.constant === current)
+        ? current
+        : catalog.classes[0]?.constant ?? null,
+    );
+    setTrainerDraft((current) =>
+      current ?? (catalog.trainers[0] ? trainerDraftFromParty(catalog.trainers[0]) : null),
+    );
+  }
+
+  function refreshTrainerBaseCatalog(
+    catalog: TrainerCatalog,
+    preferredTrainerId?: string | null,
+    preferredClassConstant?: string | null,
+  ) {
+    setTrainers((current) => {
+      const existingById = new Map(current.map((trainer) => [trainer.id, trainer]));
+      return catalog.trainers.map((trainer) => {
+        const existing = existingById.get(trainer.id);
+        return existing
+          ? {
+              ...trainer,
+              instances: existing.instances,
+              scriptReferences: existing.scriptReferences,
+            }
+          : trainer;
+      });
+    });
+    setTrainerClasses((current) => {
+      const existingByConstant = new Map(current.map((entry) => [entry.constant, entry]));
+      return catalog.classes.map((entry) => {
+        const existing = existingByConstant.get(entry.constant);
+        return existing
+          ? {
+              ...entry,
+              placedInstanceCount: existing.placedInstanceCount,
+              scriptReferenceCount: existing.scriptReferenceCount,
+              affectedLocations: existing.affectedLocations,
+            }
+          : entry;
+      });
+    });
+    setTrainerEditSources(catalog.editSources);
+    setTrainerWarnings((current) => [...new Set([...catalog.warnings, ...current])]);
+
+    const trainer = catalog.trainers.find((entry) => entry.id === preferredTrainerId)
+      ?? catalog.trainers[0]
+      ?? null;
+    const trainerClass = catalog.classes.find((entry) =>
+      entry.constant === preferredClassConstant,
+    ) ?? catalog.classes[0] ?? null;
+    setSelectedTrainerId(trainer?.id ?? null);
+    setSelectedTrainerClass(trainerClass?.constant ?? null);
+    setTrainerDraft(trainer ? trainerDraftFromParty(trainer) : null);
+  }
+
   async function loadFishing(successMessage = "Fishing encounters loaded successfully.") {
     try {
       const document = await invoke<FishingEditDocument>("get_fishing");
@@ -250,19 +347,20 @@ function App() {
       if (projectLoadGeneration.current !== loadGeneration) {
         return;
       }
-      installTrainerCatalog(catalog);
+      mergeTrainerEnrichment(catalog);
       setStatus(
         fishingLoadError
           ? `Project loaded, but fishing data is unavailable. ${fishingLoadError}`
-          : "Project and trainer index loaded successfully.",
+          : "Project and trainer location index loaded successfully.",
       );
     } catch (error) {
       if (projectLoadGeneration.current !== loadGeneration) {
         return;
       }
-      clearTrainerEditor();
-      setTrainerWarnings([String(error)]);
-      setStatus(`Project loaded, but trainer data is unavailable. ${String(error)}`);
+      setTrainerWarnings((current) => [
+        ...new Set([...current, `Trainer map/script indexing did not finish: ${String(error)}`]),
+      ]);
+      setStatus(`Trainer parties are available, but map/script indexing did not finish. ${String(error)}`);
     } finally {
       if (projectLoadGeneration.current === loadGeneration) {
         setProjectLoadProgress(null);
@@ -359,7 +457,7 @@ function App() {
 
       const result = await invoke<ProjectInfo>("open_project", { path: selected });
 
-      const [index, moveData, encounterData, fishingResult, history] = await Promise.all([
+      const [index, moveData, encounterData, fishingResult, history, trainerBaseResult] = await Promise.all([
         invoke<PokemonIndexEntry[]>("get_pokemon_index", { projectPath: result.path }),
         invoke<MoveData[]>("get_moves", { projectPath: result.path }),
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
@@ -367,12 +465,20 @@ function App() {
           .then((document) => ({ document, error: null }))
           .catch((error) => ({ document: null, error: String(error) })),
         invoke<HistorySummary>("get_history_summary"),
+        invoke<TrainerCatalog>("get_trainer_base_catalog")
+          .then((catalog) => ({ catalog, error: null }))
+          .catch((error) => ({ catalog: null, error: String(error) })),
       ]);
 
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
       clearTrainerEditor();
+      if (trainerBaseResult.catalog) {
+        installTrainerCatalog(trainerBaseResult.catalog);
+      } else if (trainerBaseResult.error) {
+        setTrainerWarnings([trainerBaseResult.error]);
+      }
       setEncounters(encounterData);
       clearPokemonEditor();
       clearEncounterEditor();
@@ -400,12 +506,18 @@ function App() {
       if (projectLoadGeneration.current === loadGeneration) {
         setProjectLoadProgress({
           stage: "tables",
-          message: "Core editor ready; indexing trainers in the background",
+          message: trainerBaseResult.catalog
+            ? "Trainer parties ready; finding map instances in the background"
+            : "Core editor ready; indexing trainers in the background",
           completed: 0,
           total: 1,
           percent: 8,
         });
-        setStatus("Core editor ready; indexing trainers in the background.");
+        setStatus(
+          trainerBaseResult.catalog
+            ? "Trainer parties are ready; finding locations and scripted battles in the background."
+            : "Core editor ready; indexing trainers in the background.",
+        );
         void loadTrainerCatalog(loadGeneration, fishingResult.error);
       }
     } catch (error) {
@@ -580,8 +692,8 @@ function App() {
         knownMoves: [...knownTrainerMoves],
       });
       setHistorySummary(history);
-      const catalog = await invoke<TrainerCatalog>("get_trainers");
-      installTrainerCatalog(catalog, selectedTrainer.id, selectedTrainer.classConstant);
+      const catalog = await invoke<TrainerCatalog>("get_trainer_base_catalog");
+      refreshTrainerBaseCatalog(catalog, selectedTrainer.id, selectedTrainer.classConstant);
       setStatus(`Trainer party ${selectedTrainer.id} saved successfully.`);
     } catch (error) {
       setStatus(String(error));
@@ -685,11 +797,11 @@ function App() {
       const refreshTrainers = historySummary.latestLabel?.startsWith("Edit trainer party ") ?? false;
       const [refreshedEncounters, refreshedTrainers] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
-        refreshTrainers ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
+        refreshTrainers ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
       ]);
       setEncounters(refreshedEncounters);
       if (refreshedTrainers) {
-        installTrainerCatalog(refreshedTrainers, selectedTrainerId, selectedTrainerClass);
+        refreshTrainerBaseCatalog(refreshedTrainers, selectedTrainerId, selectedTrainerClass);
       }
       await loadFishing("Undid the last saved change.");
       if (selectedPokemonEntry?.sourceSlug) {
@@ -722,11 +834,11 @@ function App() {
       const refreshTrainers = history.latestLabel?.startsWith("Edit trainer party ") ?? false;
       const [refreshedEncounters, refreshedTrainers] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
-        refreshTrainers ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
+        refreshTrainers ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
       ]);
       setEncounters(refreshedEncounters);
       if (refreshedTrainers) {
-        installTrainerCatalog(refreshedTrainers, selectedTrainerId, selectedTrainerClass);
+        refreshTrainerBaseCatalog(refreshedTrainers, selectedTrainerId, selectedTrainerClass);
       }
       await loadFishing("Redid the last saved change.");
       if (selectedPokemonEntry?.sourceSlug) {
