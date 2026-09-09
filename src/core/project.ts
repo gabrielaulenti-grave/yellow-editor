@@ -39,6 +39,7 @@ import type {
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
 const REQUIRED_DIRS = ["data", "engine", "maps"];
+const MOVEMENT_STEP_SEPARATOR = "\u0000YELLOW_EDITOR_STEP\u0000";
 
 function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
   for (const trainer of catalog.trainers) {
@@ -50,14 +51,18 @@ function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
           if (!match) {
             return line;
           }
+
+          // The semantic summary initially uses a right arrow between movement
+          // tokens, while PAD_RIGHT/NPC_MOVEMENT_RIGHT also begins with a right
+          // arrow. Protect the separators first so a real rightward step can
+          // never be mistaken for punctuation.
           const path = match[2]
-            .split(" → ")
-            .map((step) => step
-              .replace(/^↑ Up\b/, "↑")
-              .replace(/^↓ Down\b/, "↓")
-              .replace(/^← Left\b/, "←")
-              .replace(/^→ Right\b/, "→"))
-            .join(" · ");
+            .replace(/ → /g, MOVEMENT_STEP_SEPARATOR)
+            .replace(/↑ Up/g, "↑")
+            .replace(/↓ Down/g, "↓")
+            .replace(/← Left/g, "←")
+            .replace(/→ Right/g, "→")
+            .replaceAll(MOVEMENT_STEP_SEPARATOR, " · ");
           return `${match[1]}${path}`;
         })
         .join("\n");
