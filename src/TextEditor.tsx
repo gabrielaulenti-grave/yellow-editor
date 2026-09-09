@@ -117,13 +117,10 @@ export function TextEditor({
         sourceHash: document.sourceHash,
         segments: draft,
       });
-      const refreshed = await invoke<TextDocument>("get_text_document", {
-        path: document.path,
-        label: document.label,
-      });
-      setDocument(refreshed);
-      setDraft(refreshed.segments.map((segment) => ({ ...segment })));
-      setPreview(segmentsToPreview(refreshed.segments));
+      const savedSegments = draft.map((segment) => ({ ...segment }));
+      setDocument({ ...document, segments: savedSegments });
+      setDraft(savedSegments);
+      setPreview(segmentsToPreview(savedSegments));
       onSaved?.(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
       setOpen(false);
