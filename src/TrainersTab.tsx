@@ -10,6 +10,7 @@ import {
   trainerSpecialMoveError,
   type TrainerPartyDraft,
 } from "./editor/trainerPartyForm";
+import { TextEditor } from "./TextEditor";
 
 export type TrainerSection = "parties" | "classes";
 
@@ -105,17 +106,26 @@ function DialogueBlock({
   label: string;
   dialogue: TrainerPartyEntry["instances"][number]["dialogue"]["before"];
 }) {
+  if (!dialogue) {
+    return (
+      <div className="trainer-dialogue-block">
+        <strong>{label}</strong>
+        <p className="help-text">Handled by this trainer's custom map script.</p>
+      </div>
+    );
+  }
+
+  const target = dialogue.sourcePath && dialogue.textLabel
+    ? { path: dialogue.sourcePath, label: dialogue.textLabel }
+    : null;
+
   return (
     <div className="trainer-dialogue-block">
-      <strong>{label}</strong>
-      {dialogue ? (
-        <>
-          <p>{dialogue.text ?? "Text is referenced through a custom or unsupported wrapper."}</p>
-          <code>{dialogue.textLabel ?? dialogue.wrapperLabel}</code>
-        </>
-      ) : (
-        <p className="help-text">Handled by this trainer's custom map script.</p>
-      )}
+      <TextEditor
+        title={label}
+        target={target}
+        initialText={dialogue.text}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   type Gen1DecodedImage,
 } from "../core/gen1Graphics";
 import { createProjectSession } from "../core/project";
+import { attachTextEditing } from "../core/textEditing";
 import type {
   HistoryState,
   HistoryStore,
@@ -187,9 +188,10 @@ export const desktopPlatform: PlatformAdapter = {
     }
 
     const source = createDesktopSource(selected);
-    return createProjectSession(
+    const session = await createProjectSession(
       source,
       createSharedWasmBuildService(source, "desktop-wasm"),
     );
+    return attachTextEditing(session, source);
   },
 };
