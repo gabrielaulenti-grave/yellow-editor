@@ -30,10 +30,38 @@ import {
   prepareTrainerPartyWrites,
   validateTrainerPartyValues,
 } from "./trainerEditing";
-import type { BuildService, ProjectSession, ProjectSource } from "./types";
+import type {
+  BuildService,
+  ProjectSession,
+  ProjectSource,
+  TrainerCatalog,
+} from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
 const REQUIRED_DIRS = ["data", "engine", "maps"];
+
+function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
+  for (const trainer of catalog.trainers) {
+    for (const reference of trainer.scriptReferences) {
+      reference.routineSource = reference.routineSource
+        .split("\n")
+        .map((line) => {
+          const match = line.match(/^(\s*Path:\s*)(.*)$/);
+          if (!match) {
+            return line;
+          }
+          const path = match[2]
+            .replace(/↑ Up/g, "↑")
+            .replace(/↓ Down/g, "↓")
+            .replace(/← Left/g, "←")
+            .replace(/→ Right/g, "→")
+            .replace(/ → /g, " · ");
+          return `${match[1]}${path}`;
+        })
+        .join("\n");
+    }
+  }
+}
 
 export async function createProjectSession(
   source: ProjectSource,
@@ -94,6 +122,7 @@ export async function createProjectSession(
       const catalog = await parseTrainerCatalog(source, projectName, onProgress);
       try {
         await enrichTrainerScriptSummaries(source, catalog);
+        clarifyTrainerMovementPaths(catalog);
       } catch (error) {
         catalog.warnings.push(
           `Beginner-friendly script summaries could not be fully generated: ${String(error)}`,
