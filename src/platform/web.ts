@@ -1,5 +1,6 @@
 import { createWebBuildService } from "../core/build";
 import { createProjectSession } from "../core/project";
+import { attachTextEditing } from "../core/textEditing";
 import type {
   HistoryStore,
   ProjectBuildReadPreparation,
@@ -295,7 +296,8 @@ export const webPlatform: PlatformAdapter = {
         storage.historyStore,
         `web:${storage.projectId}`,
       );
-      return await createProjectSession(source, createWebBuildService(source));
+      const session = await createProjectSession(source, createWebBuildService(source));
+      return attachTextEditing(session, source);
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         return null;
