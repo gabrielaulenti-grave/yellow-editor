@@ -39,6 +39,13 @@ type PickerWindow = Window & {
   }) => Promise<BrowserDirectoryHandle>;
 };
 
+function mobileLikeBrowser(): boolean {
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
+    return true;
+  }
+  return window.matchMedia?.("(pointer: coarse)").matches === true && window.innerWidth <= 900;
+}
+
 function pathParts(relativePath: string): string[] {
   const parts = relativePath
     .replace(/\\/g, "/")
@@ -64,6 +71,7 @@ function createWebSource(
   const objectUrls = new Map<string, string>();
   const directoryHandles = new Map<string, Promise<BrowserDirectoryHandle>>();
   const fileHandles = new Map<string, Promise<BrowserFileHandle>>();
+  let completedBuildIndex: ProjectBuildReadPreparation | null = null;
   directoryHandles.set("", Promise.resolve(root));
 
   function cachedDirectoryHandle(parts: string[]): Promise<BrowserDirectoryHandle> {
@@ -114,6 +122,30 @@ function createWebSource(
 
   async function prepareBuildReads(): Promise<ProjectBuildReadPreparation> {
     const startedAt = performance.now();
+
+    // Walking every directory is a useful desktop optimization, but on mobile
+    // the directory traversal itself can cost more than the handle lookups it
+    // saves. Mobile builds therefore resolve only the files the build graph
+    // actually asks for, while still caching every directory/file handle after
+    // its first lookup.
+    if (mobileLikeBrowser()) {
+      return {
+        indexed: false,
+        fileCount: fileHandles.size,
+        directoryCount: directoryHandles.size,
+        durationMs: Math.round(performance.now() - startedAt),
+        message: "Mobile mode skips the full project-tree indexing pass; build file handles will be cached as they are needed.",
+      };
+    }
+
+    if (completedBuildIndex?.indexed) {
+      return {
+        ...completedBuildIndex,
+        durationMs: Math.round(performance.now() - startedAt),
+        message: `Reusing ${completedBuildIndex.fileCount} cached project file handles from the previous build.`,
+      };
+    }
+
     if (typeof root.entries !== "function") {
       return {
         indexed: false,
@@ -165,12 +197,13 @@ function createWebSource(
         }
       }
 
-      return {
+      completedBuildIndex = {
         indexed: true,
         fileCount,
         directoryCount,
         durationMs: Math.round(performance.now() - startedAt),
       };
+      return completedBuildIndex;
     } catch (error) {
       return {
         indexed: false,
@@ -272,6 +305,7 @@ function createWebSource(
       objectUrls.clear();
       fileHandles.clear();
       directoryHandles.clear();
+      completedBuildIndex = null;
     },
   };
 }
