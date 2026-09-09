@@ -445,7 +445,7 @@ function actionsForPhase(
       continue;
     }
 
-    const coordinate = clean.match(/^ld\s+a\s*,\s*\[w([XY])Coord\]\b/i);
+    const coordinate = clean.match(/^ld\s+a\s*,\s*\[w([XY])Coord\]/i);
     if (coordinate) {
       const compare = withoutComment(lines[index + 1] ?? "").match(/^cp\s+([^\s;]+)/i)?.[1];
       const returnKind = withoutComment(lines[index + 2] ?? "").match(/^ret\s+(z|nz)\b/i)?.[1];
@@ -602,7 +602,7 @@ function actionsForPhase(
       });
     }
 
-    if (/^ld\s+a\s*,\s*\[wBattleResult\]\b/i.test(clean)) {
+    if (/^ld\s+a\s*,\s*\[wBattleResult\]/i.test(clean)) {
       add({
         kind: "condition",
         title: "Check the battle result",
@@ -709,7 +709,7 @@ function renderAction(action: ScriptAction, index: number): string[] {
 function renderSummary(reference: TrainerScriptReference, phases: ScriptPhase[]): string {
   const lines = [
     "WHAT HAPPENS",
-    "Yellow Editor translated the surrounding battle script into plain-language steps.",
+    `Yellow Editor translated ${humanizeScriptLabel(reference.routineLabel, reference)} and the surrounding battle states into plain-language steps.`,
     "",
   ];
   phases.forEach((phase, phaseIndex) => {
