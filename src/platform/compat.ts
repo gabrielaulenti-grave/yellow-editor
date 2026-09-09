@@ -11,6 +11,11 @@ import type {
   TrainerLoadProgressListener,
   TrainerPartyEditValues,
 } from "../core/types";
+import type {
+  TextDocumentSaveRequest,
+  TextEditingSession,
+  TextSegment,
+} from "../core/textEditing";
 import { webPlatform } from "./web";
 
 let activeSession: ProjectSession | null = null;
@@ -55,6 +60,14 @@ function requireSession(): ProjectSession {
     throw new Error("No project is open.");
   }
   return activeSession;
+}
+
+function requireTextSession(session: ProjectSession): ProjectSession & TextEditingSession {
+  const candidate = session as ProjectSession & Partial<TextEditingSession>;
+  if (!candidate.getTextDocument || !candidate.saveTextDocument) {
+    throw new Error("This project session does not support text editing.");
+  }
+  return candidate as ProjectSession & TextEditingSession;
 }
 
 function numberArg(args: InvokeArgs | undefined, name: string): number {
@@ -154,6 +167,38 @@ function textChangesArg(args: InvokeArgs | undefined): TextWriteRequest[] {
       expectedHash: record.expectedHash as string | undefined,
     };
   });
+}
+
+function textSegmentsArg(args: InvokeArgs | undefined): TextSegment[] {
+  const value = args?.segments;
+  if (!Array.isArray(value)) {
+    throw new Error("Missing text segment list 'segments'.");
+  }
+
+  const controls = new Set(["text", "next", "line", "cont", "para", "page"]);
+  return value.map((item) => {
+    if (!item || typeof item !== "object") {
+      throw new Error("Invalid text segment.");
+    }
+    const record = item as Record<string, unknown>;
+    if (
+      typeof record.control !== "string" ||
+      !controls.has(record.control) ||
+      typeof record.text !== "string"
+    ) {
+      throw new Error("Each text segment requires a supported control and string text value.");
+    }
+    return { control: record.control as TextSegment["control"], text: record.text };
+  });
+}
+
+function textDocumentSaveRequestArg(args: InvokeArgs | undefined): TextDocumentSaveRequest {
+  return {
+    path: stringArg(args, "path"),
+    label: stringArg(args, "label"),
+    sourceHash: stringArg(args, "sourceHash"),
+    segments: textSegmentsArg(args),
+  };
 }
 
 function encounterVersionsArg(args: InvokeArgs | undefined): EncounterVersionData[] {
@@ -259,6 +304,17 @@ export async function invoke<T>(
         trainerPartyValuesArg(args),
         stringListArg(args, "knownSpecies"),
         stringListArg(args, "knownMoves"),
+      )) as T;
+
+    case "get_text_document":
+      return (await requireTextSession(session).getTextDocument(
+        stringArg(args, "path"),
+        stringArg(args, "label"),
+      )) as T;
+
+    case "save_text_document":
+      return (await requireTextSession(session).saveTextDocument(
+        textDocumentSaveRequestArg(args),
       )) as T;
 
     case "get_encounter_index":
