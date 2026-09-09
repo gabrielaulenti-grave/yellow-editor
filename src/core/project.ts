@@ -56,13 +56,15 @@ function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
           // tokens, while PAD_RIGHT/NPC_MOVEMENT_RIGHT also begins with a right
           // arrow. Protect the separators first so a real rightward step can
           // never be mistaken for punctuation.
-          const path = match[2]
+          const withProtectedSeparators = match[2]
             .replace(/ → /g, MOVEMENT_STEP_SEPARATOR)
             .replace(/↑ Up/g, "↑")
             .replace(/↓ Down/g, "↓")
             .replace(/← Left/g, "←")
-            .replace(/→ Right/g, "→")
-            .replaceAll(MOVEMENT_STEP_SEPARATOR, " · ");
+            .replace(/→ Right/g, "→");
+          const path = withProtectedSeparators
+            .split(MOVEMENT_STEP_SEPARATOR)
+            .join(" · ");
           return `${match[1]}${path}`;
         })
         .join("\n");
