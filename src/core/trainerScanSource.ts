@@ -73,8 +73,5 @@ export function createTrainerScanSource(source: ProjectSource): ProjectSource {
     writeText: (path, contents) => source.writeText(path, contents),
     exists: cachedExists,
     assetUrl: (path) => source.assetUrl(path),
-    prepareBuildReads: source.prepareBuildReads
-      ? () => source.prepareBuildReads?.() as ReturnType<NonNullable<ProjectSource["prepareBuildReads"]>>
-      : undefined,
   };
 }
