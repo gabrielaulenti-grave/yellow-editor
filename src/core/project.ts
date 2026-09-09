@@ -92,7 +92,13 @@ export async function createProjectSession(
     getMoves: () => parseMoves(source),
     getTrainers: async (onProgress) => {
       const catalog = await parseTrainerCatalog(source, projectName, onProgress);
-      await enrichScriptedTrainerDialogue(source, catalog);
+      try {
+        await enrichScriptedTrainerDialogue(source, catalog);
+      } catch (error) {
+        catalog.warnings.push(
+          `Scripted battle dialogue could not be fully resolved: ${String(error)}`,
+        );
+      }
       return catalog;
     },
     saveTrainerParty: async (
