@@ -7,7 +7,11 @@ import type {
   ProjectSource,
 } from "../core/types";
 import type { PlatformAdapter } from "./types";
-import { createWebProjectStorage, type WebDirectoryIdentityHandle } from "./webHistory";
+import {
+  createWebProjectStorage,
+  type WebDirectoryIdentityHandle,
+  type WebTrainerCatalogCache,
+} from "./webHistory";
 
 interface BrowserWritableFileStream {
   write(data: string): Promise<void>;
@@ -30,6 +34,10 @@ interface BrowserDirectoryHandle extends WebDirectoryIdentityHandle {
   getDirectoryHandle(name: string): Promise<BrowserDirectoryHandle>;
   getFileHandle(name: string): Promise<BrowserFileHandle>;
   entries?(): AsyncIterableIterator<[string, BrowserEntryHandle]>;
+}
+
+interface WebCachedProjectSource extends ProjectSource {
+  trainerCatalogCache: WebTrainerCatalogCache;
 }
 
 type PickerWindow = Window & {
@@ -66,8 +74,9 @@ function normalizePath(relativePath: string): string {
 function createWebSource(
   root: BrowserDirectoryHandle,
   historyStore: HistoryStore,
+  trainerCatalogCache: WebTrainerCatalogCache,
   storageKey: string,
-): ProjectSource {
+): WebCachedProjectSource {
   const objectUrls = new Map<string, string>();
   const directoryHandles = new Map<string, Promise<BrowserDirectoryHandle>>();
   const fileHandles = new Map<string, Promise<BrowserFileHandle>>();
@@ -219,6 +228,7 @@ function createWebSource(
     displayPath: root.name,
     storageKey,
     historyStore,
+    trainerCatalogCache,
     prepareBuildReads,
 
     async readText(relativePath) {
@@ -328,6 +338,7 @@ export const webPlatform: PlatformAdapter = {
       const source = createWebSource(
         root,
         storage.historyStore,
+        storage.trainerCatalogCache,
         `web:${storage.projectId}`,
       );
       const session = await createProjectSession(source, createWebBuildService(source));
