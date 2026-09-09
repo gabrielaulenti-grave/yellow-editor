@@ -26,6 +26,7 @@ import {
 } from "./fishingEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { enrichScriptedTrainerDialogue } from "./trainerScriptDialogue";
+import { enrichTrainerScriptSummaries } from "./trainerScriptSummary";
 import {
   prepareTrainerPartyWrites,
   validateTrainerPartyValues,
@@ -97,6 +98,13 @@ export async function createProjectSession(
       } catch (error) {
         catalog.warnings.push(
           `Scripted battle dialogue could not be fully resolved: ${String(error)}`,
+        );
+      }
+      try {
+        await enrichTrainerScriptSummaries(source, catalog);
+      } catch (error) {
+        catalog.warnings.push(
+          `Beginner-friendly script summaries could not be fully generated: ${String(error)}`,
         );
       }
       return catalog;
