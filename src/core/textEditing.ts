@@ -3,6 +3,7 @@ import type {
   HistorySummary,
   ProjectSession,
   ProjectSource,
+  TextWriteRequest,
 } from "./types";
 
 export type TextSegmentControl =
@@ -41,6 +42,11 @@ export interface TextEditingSession {
   getTextDocument(path: string, label: string): Promise<TextDocument>;
   saveTextDocument(request: TextDocumentSaveRequest): Promise<HistorySummary>;
 }
+
+type PreparedTextWriteRequest = TextWriteRequest & {
+  beforeContents?: string;
+  beforeHash?: string;
+};
 
 interface LabelRange {
   start: number;
@@ -230,11 +236,14 @@ export function attachTextEditing(
     }
 
     const contents = applyTextDocumentEdits(current, request.label, request.segments);
-    return session.saveTextChanges(`Edit text ${request.label}`, [{
+    const change: PreparedTextWriteRequest = {
       path: request.path,
       contents,
       expectedHash: request.sourceHash,
-    }]);
+      beforeContents: current,
+      beforeHash: currentHash,
+    };
+    return session.saveTextChanges(`Edit text ${request.label}`, [change]);
   };
 
   return extended;
