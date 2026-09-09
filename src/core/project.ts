@@ -25,6 +25,7 @@ import {
   validateFishingData,
 } from "./fishingEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
+import { enrichScriptedTrainerDialogue } from "./trainerScriptDialogue";
 import {
   prepareTrainerPartyWrites,
   validateTrainerPartyValues,
@@ -89,7 +90,17 @@ export async function createProjectSession(
       ]);
     },
     getMoves: () => parseMoves(source),
-    getTrainers: (onProgress) => parseTrainerCatalog(source, projectName, onProgress),
+    getTrainers: async (onProgress) => {
+      const catalog = await parseTrainerCatalog(source, projectName, onProgress);
+      try {
+        await enrichScriptedTrainerDialogue(source, catalog);
+      } catch (error) {
+        catalog.warnings.push(
+          `Scripted battle dialogue could not be fully resolved: ${String(error)}`,
+        );
+      }
+      return catalog;
+    },
     saveTrainerParty: async (
       partyId,
       sourceLine,
