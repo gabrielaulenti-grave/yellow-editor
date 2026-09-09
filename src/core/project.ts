@@ -39,7 +39,6 @@ import type {
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
 const REQUIRED_DIRS = ["data", "engine", "maps"];
-const MOVEMENT_STEP_SEPARATOR = "\u0000YELLOW_EDITOR_STEP\u0000";
 
 function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
   for (const trainer of catalog.trainers) {
@@ -52,19 +51,15 @@ function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
             return line;
           }
 
-          // The semantic summary initially uses a right arrow between movement
-          // tokens, while PAD_RIGHT/NPC_MOVEMENT_RIGHT also begins with a right
-          // arrow. Protect the separators first so a real rightward step can
-          // never be mistaken for punctuation.
-          const withProtectedSeparators = match[2]
-            .replace(/ → /g, MOVEMENT_STEP_SEPARATOR)
-            .replace(/↑ Up/g, "↑")
-            .replace(/↓ Down/g, "↓")
-            .replace(/← Left/g, "←")
-            .replace(/→ Right/g, "→");
-          const path = withProtectedSeparators
-            .split(MOVEMENT_STEP_SEPARATOR)
-            .join(" · ");
+          // Keep movement notation deliberately simple. Direction arrows are
+          // converted to plain words first; any right arrows that remain are
+          // only the semantic summary's sequence separators.
+          const path = match[2]
+            .replace(/↑ Up/g, "Up")
+            .replace(/↓ Down/g, "Down")
+            .replace(/← Left/g, "Left")
+            .replace(/→ Right/g, "Right")
+            .replace(/ → /g, ", ");
           return `${match[1]}${path}`;
         })
         .join("\n");
