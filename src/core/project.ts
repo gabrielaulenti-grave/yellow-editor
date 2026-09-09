@@ -5,7 +5,7 @@ import {
   parsePokemonIndex,
   parsePokemonTmhmMoves,
 } from "./parsers";
-import { createProjectHistoryManager } from "./history";
+import { createProjectHistoryManager, hashText } from "./history";
 import { parsePokemonPalette } from "./palettes";
 import {
   loadPokemonBaseStatsEditDocument,
@@ -36,11 +36,29 @@ import type {
   BuildService,
   ProjectSession,
   ProjectSource,
+  TextWriteRequest,
   TrainerCatalog,
+  TrainerPartyEditValues,
 } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
 const REQUIRED_DIRS = ["data", "engine", "maps"];
+const PARTIES_PATH = "data/trainers/parties.asm";
+const SPECIAL_MOVES_PATH = "data/trainers/special_moves.asm";
+
+interface TrainerCatalogCache {
+  load(): Promise<TrainerCatalog | null>;
+  save(catalog: TrainerCatalog): Promise<void>;
+  clear(): Promise<void>;
+}
+
+interface CacheCapableProjectSource extends ProjectSource {
+  trainerCatalogCache?: TrainerCatalogCache;
+}
+
+type PreparedTextWriteRequest = TextWriteRequest & {
+  beforeContents?: string;
+};
 
 export interface ProgressiveTrainerSession {
   getTrainerBaseCatalog(): Promise<TrainerCatalog>;
@@ -73,6 +91,20 @@ function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
   }
 }
 
+function trainerCacheAffected(paths: string[]): boolean {
+  return paths.some((path) =>
+    path === "maps.asm" ||
+    path === "text.asm" ||
+    path.startsWith("scripts/") ||
+    path.startsWith("data/maps/objects/") ||
+    path.startsWith("text/"),
+  );
+}
+
+function trainerBaseAffected(paths: string[]): boolean {
+  return paths.some((path) => path === PARTIES_PATH || path === SPECIAL_MOVES_PATH);
+}
+
 export async function createProjectSession(
   source: ProjectSource,
   buildService: BuildService,
@@ -97,11 +129,13 @@ export async function createProjectSession(
     ? "pokered"
     : "pokeyellow";
   const history = createProjectHistoryManager(source);
+  const trainerBaseSource = createTrainerScanSource(source);
+  const trainerCatalogCache = (source as CacheCapableProjectSource).trainerCatalogCache;
   let trainerBaseCatalogPromise: Promise<TrainerCatalog> | null = null;
 
   function getTrainerBaseCatalog(): Promise<TrainerCatalog> {
     if (!trainerBaseCatalogPromise) {
-      trainerBaseCatalogPromise = parseTrainerBaseCatalog(source, projectName).catch((error) => {
+      trainerBaseCatalogPromise = parseTrainerBaseCatalog(trainerBaseSource, projectName).catch((error) => {
         trainerBaseCatalogPromise = null;
         throw error;
       });
@@ -109,8 +143,71 @@ export async function createProjectSession(
     return trainerBaseCatalogPromise;
   }
 
-  function invalidateTrainerBaseCatalog(): void {
+  function invalidateTrainerBaseCatalog(paths?: string[]): void {
+    trainerBaseSource.invalidate(paths);
     trainerBaseCatalogPromise = null;
+  }
+
+  async function updateTrainerBaseAfterSave(
+    partyId: string,
+    values: TrainerPartyEditValues,
+    changes: TextWriteRequest[],
+  ): Promise<void> {
+    const changedPaths = changes.map((change) => change.path);
+    trainerBaseSource.invalidate(changedPaths);
+    if (!trainerBaseCatalogPromise) {
+      return;
+    }
+
+    let catalog: TrainerCatalog;
+    try {
+      catalog = await trainerBaseCatalogPromise;
+    } catch {
+      trainerBaseCatalogPromise = null;
+      return;
+    }
+
+    const trainer = catalog.trainers.find((entry) => entry.id === partyId);
+    if (!trainer) {
+      trainerBaseCatalogPromise = null;
+      return;
+    }
+
+    const specialMoves = values.specialMoves.map((move) => ({ ...move }));
+    trainer.partyFormat = values.partyFormat;
+    trainer.specialMoves = specialMoves;
+    trainer.pokemon = values.pokemon.map((pokemon, index) => ({
+      ...pokemon,
+      specialMoves: specialMoves
+        .filter((move) => move.pokemonIndex === index + 1)
+        .map((move) => ({ ...move })),
+    }));
+    const finalLevel = trainer.pokemon[trainer.pokemon.length - 1]?.level ?? 0;
+    trainer.calculatedPrize = trainer.baseRewardPerLevel === null
+      ? null
+      : trainer.baseRewardPerLevel * finalLevel;
+
+    const changedHashes = new Map<string, string>();
+    for (const change of changes) {
+      changedHashes.set(change.path, await hashText(change.contents));
+    }
+    catalog.editSources = catalog.editSources.map((document) => {
+      const sourceHash = changedHashes.get(document.path);
+      return sourceHash ? { ...document, sourceHash } : document;
+    });
+
+    const trainerClass = catalog.classes.find((entry) => entry.constant === trainer.classConstant);
+    if (trainerClass) {
+      const classMoves = new Map<string, (typeof specialMoves)[number]>();
+      for (const party of catalog.trainers.filter((entry) => entry.classConstant === trainer.classConstant)) {
+        for (const move of party.specialMoves) {
+          if (move.scope === "class") {
+            classMoves.set(`${move.pokemonIndex}:${move.moveSlot}:${move.moveConstant}`, move);
+          }
+        }
+      }
+      trainerClass.classSpecialMoves = [...classMoves.values()];
+    }
   }
 
   const session: ProjectSession & ProgressiveTrainerSession = {
@@ -145,11 +242,23 @@ export async function createProjectSession(
     getMoves: () => parseMoves(source),
     getTrainerBaseCatalog,
     getTrainers: async (onProgress) => {
-      // A full trainer scan is intentionally isolated behind a short-lived
-      // read-through cache. On mobile, the wrapper also limits concurrent
-      // filesystem reads so the browser is not flooded by twelve file reads
-      // at once. The same cached source is reused by script-summary enrichment,
-      // avoiding a second trip to the filesystem for dialogue files.
+      const cachedCatalog = await trainerCatalogCache?.load();
+      if (cachedCatalog) {
+        onProgress?.({
+          stage: "complete",
+          message: "Loaded cached trainer locations and scripted battles",
+          completed: cachedCatalog.trainers.length,
+          total: cachedCatalog.trainers.length,
+          percent: 100,
+        });
+        return cachedCatalog;
+      }
+
+      // A full trainer scan is intentionally isolated behind a read-through
+      // cache. On mobile, the wrapper limits concurrent filesystem reads while
+      // still overlapping enough small reads to keep modern phones busy. The
+      // same cached source is reused by script-summary enrichment, avoiding a
+      // second trip to the filesystem for dialogue files.
       const scanSource = createTrainerScanSource(source);
       const catalog = await parseTrainerCatalog(scanSource, projectName, onProgress);
       try {
@@ -159,6 +268,11 @@ export async function createProjectSession(
         catalog.warnings.push(
           `Beginner-friendly script summaries could not be fully generated: ${String(error)}`,
         );
+      }
+      try {
+        await trainerCatalogCache?.save(catalog);
+      } catch (error) {
+        catalog.warnings.push(`Trainer location cache could not be saved: ${String(error)}`);
       }
       return catalog;
     },
@@ -177,16 +291,35 @@ export async function createProjectSession(
         new Set(knownSpecies),
         new Set(knownMoves),
       );
+
+      // Capture the exact source snapshots used to prepare the edit so the
+      // history layer does not have to reread the same files before writing.
+      const preparedReads = new Map<string, string>();
+      const preparationSource: ProjectSource = {
+        ...source,
+        readText: async (path) => {
+          const contents = await source.readText(path);
+          preparedReads.set(path, contents);
+          return contents;
+        },
+      };
       const changes = await prepareTrainerPartyWrites(
-        source,
+        preparationSource,
         projectName,
         partyId,
         sourceLine,
         sources,
         values,
       );
+      for (const change of changes) {
+        const beforeContents = preparedReads.get(change.path);
+        if (beforeContents !== undefined) {
+          (change as PreparedTextWriteRequest).beforeContents = beforeContents;
+        }
+      }
+
       const result = await history.save(`Edit trainer party ${partyId}`, changes);
-      invalidateTrainerBaseCatalog();
+      await updateTrainerBaseAfterSave(partyId, values, changes);
       return result;
     },
     getEncounterIndex: () => parseEncounterIndex(source, projectName),
@@ -221,15 +354,37 @@ export async function createProjectSession(
       return history.save("Edit fishing encounters", changes);
     },
     getHistorySummary: () => history.getSummary(),
-    saveTextChanges: (label, changes) => history.save(label, changes),
+    saveTextChanges: async (label, changes) => {
+      const result = await history.save(label, changes);
+      if (trainerCacheAffected(changes.map((change) => change.path))) {
+        await trainerCatalogCache?.clear();
+      }
+      return result;
+    },
     undoLastSave: async () => {
+      const state = await history.getState();
+      const entry = state.cursor > 0 ? state.entries[state.cursor - 1] : null;
+      const paths = entry?.files.map((file) => file.path) ?? [];
       const result = await history.undo();
-      invalidateTrainerBaseCatalog();
+      if (trainerBaseAffected(paths)) {
+        invalidateTrainerBaseCatalog(paths);
+      }
+      if (trainerCacheAffected(paths)) {
+        await trainerCatalogCache?.clear();
+      }
       return result;
     },
     redoLastUndo: async () => {
+      const state = await history.getState();
+      const entry = state.cursor < state.entries.length ? state.entries[state.cursor] : null;
+      const paths = entry?.files.map((file) => file.path) ?? [];
       const result = await history.redo();
-      invalidateTrainerBaseCatalog();
+      if (trainerBaseAffected(paths)) {
+        invalidateTrainerBaseCatalog(paths);
+      }
+      if (trainerCacheAffected(paths)) {
+        await trainerCatalogCache?.clear();
+      }
       return result;
     },
     getBuildEnvironment: () => buildService.inspect(),
