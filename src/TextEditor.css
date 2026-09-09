@@ -1,0 +1,100 @@
+.text-editor-summary {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.text-editor-summary-heading,
+.text-editor-dialog-heading,
+.text-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.text-editor-preview,
+.text-editor-preview-card p {
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.text-editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.68);
+}
+
+.text-editor-dialog {
+  width: min(760px, 96vw);
+  max-height: 88vh;
+  overflow: auto;
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border-color, #4a4a4a);
+  border-radius: 10px;
+  background: var(--panel-bg, #232323);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.text-editor-dialog h3,
+.text-editor-dialog p {
+  margin-top: 0;
+}
+
+.text-editor-dialog-heading p {
+  margin-bottom: 0;
+}
+
+.text-editor-segments {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.text-editor-segment {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.text-editor-segment > span {
+  font-size: 0.85rem;
+  font-weight: 700;
+  opacity: 0.82;
+}
+
+.text-editor-segment textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 4rem;
+  font: inherit;
+}
+
+.text-editor-preview-card,
+.text-editor-warning {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color, #4a4a4a);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.text-editor-warning ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.text-editor-error {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+}
+
+.text-editor-actions {
+  justify-content: flex-end;
+}
