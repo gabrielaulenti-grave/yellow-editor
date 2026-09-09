@@ -52,10 +52,15 @@ function SpritePreview({
       return;
     }
 
+    let cancelled = false;
     const image = new Image();
-    image.src = convertFileSrc(src);
+    const resolvedSrc = convertFileSrc(src);
 
     image.onload = () => {
+      if (cancelled) {
+        return;
+      }
+
       const canvas = canvasRef.current;
       if (!canvas) {
         return;
@@ -101,7 +106,23 @@ function SpritePreview({
       }
     };
 
-    image.onerror = () => setFallback(true);
+    image.onerror = () => {
+      if (!cancelled) {
+        setFallback(true);
+      }
+    };
+
+    // Install the handlers before assigning src. Desktop Tauri serves project
+    // sprites from in-memory blob URLs, which may finish loading immediately.
+    // Assigning src first can therefore lose the load event and leave the
+    // preview canvas blank.
+    image.src = resolvedSrc;
+
+    return () => {
+      cancelled = true;
+      image.onload = null;
+      image.onerror = null;
+    };
   }, [src, palette]);
 
   if (!src) {
