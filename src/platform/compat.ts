@@ -17,7 +17,10 @@ import type {
   TextEditingSession,
   TextSegment,
 } from "../core/textEditing";
-import type { ProjectWorkspaceProgressListener } from "./types";
+import type {
+  ProjectSourceKind,
+  ProjectWorkspaceProgressListener,
+} from "./types";
 import { webPlatform } from "./web";
 
 let activeSession: ProjectSession | null = null;
@@ -27,6 +30,7 @@ type OpenOptions = {
   multiple?: boolean;
   title?: string;
   onWorkspaceProgress?: ProjectWorkspaceProgressListener;
+  sourceKind?: ProjectSourceKind;
 };
 
 type InvokeArgs = Record<string, unknown>;
@@ -39,16 +43,94 @@ function isTauri(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in (window as TauriWindow);
 }
 
-async function openDesktopProject(): Promise<ProjectSession | null> {
+async function chooseProjectSourceKind(): Promise<ProjectSourceKind | null> {
+  if (typeof HTMLDialogElement === "undefined") {
+    return window.confirm("Open a packed ZIP project? Select Cancel to open a project folder instead.")
+      ? "zip"
+      : "folder";
+  }
+
+  return new Promise((resolve) => {
+    const dialog = document.createElement("dialog");
+    dialog.setAttribute("aria-labelledby", "yellow-editor-open-project-title");
+    Object.assign(dialog.style, {
+      border: "1px solid #b8b8ae",
+      borderRadius: "12px",
+      padding: "20px",
+      width: "min(440px, calc(100vw - 32px))",
+      color: "#171717",
+      background: "#fff",
+    });
+
+    const title = document.createElement("h2");
+    title.id = "yellow-editor-open-project-title";
+    title.textContent = "Open project";
+    title.style.marginTop = "0";
+
+    const description = document.createElement("p");
+    description.textContent = "Packed ZIP is recommended on mobile. Folder mode keeps direct access to an unpacked disassembly.";
+
+    const actions = document.createElement("div");
+    Object.assign(actions.style, {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "10px",
+      marginTop: "18px",
+    });
+
+    const folder = document.createElement("button");
+    folder.type = "button";
+    folder.textContent = "Open folder";
+    const zip = document.createElement("button");
+    zip.type = "button";
+    zip.textContent = "Open ZIP";
+    zip.style.fontWeight = "700";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    cancel.style.gridColumn = "1 / -1";
+
+    let settled = false;
+    const finish = (kind: ProjectSourceKind | null) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      dialog.close();
+      dialog.remove();
+      resolve(kind);
+    };
+    folder.addEventListener("click", () => finish("folder"));
+    zip.addEventListener("click", () => finish("zip"));
+    cancel.addEventListener("click", () => finish(null));
+    dialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      finish(null);
+    });
+
+    actions.append(folder, zip, cancel);
+    dialog.append(title, description, actions);
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
+async function openDesktopProject(sourceKind: ProjectSourceKind): Promise<ProjectSession | null> {
   const { desktopPlatform } = await import("./desktop");
-  return desktopPlatform.openProject();
+  return desktopPlatform.openProject({ sourceKind });
 }
 
 export async function open(options?: OpenOptions): Promise<string | null> {
+  const sourceKind = options?.sourceKind ?? await chooseProjectSourceKind();
+  if (!sourceKind) {
+    return null;
+  }
+
   const nextSession = isTauri()
-    ? await openDesktopProject()
+    ? await openDesktopProject(sourceKind)
     : await webPlatform.openProject({
         onWorkspaceProgress: options?.onWorkspaceProgress,
+        sourceKind,
       });
 
   if (!nextSession) {
