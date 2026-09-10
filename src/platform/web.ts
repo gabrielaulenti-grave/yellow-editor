@@ -54,6 +54,20 @@ function mobileLikeBrowser(): boolean {
   return window.matchMedia?.("(pointer: coarse)").matches === true && window.innerWidth <= 900;
 }
 
+async function projectIdentityHint(root: BrowserDirectoryHandle): Promise<string> {
+  const parts = [`name:${root.name}`];
+  for (const path of ["main.asm", "Makefile", "maps.asm"]) {
+    try {
+      const handle = await root.getFileHandle(path);
+      const file = await handle.getFile();
+      parts.push(`${path}:${file.size}:${file.lastModified}`);
+    } catch {
+      parts.push(`${path}:missing`);
+    }
+  }
+  return parts.join("|");
+}
+
 function pathParts(relativePath: string): string[] {
   const parts = relativePath
     .replace(/\\/g, "/")
@@ -132,11 +146,6 @@ function createWebSource(
   async function prepareBuildReads(): Promise<ProjectBuildReadPreparation> {
     const startedAt = performance.now();
 
-    // Walking every directory is a useful desktop optimization, but on mobile
-    // the directory traversal itself can cost more than the handle lookups it
-    // saves. Mobile builds therefore resolve only the files the build graph
-    // actually asks for, while still caching every directory/file handle after
-    // its first lookup.
     if (mobileLikeBrowser()) {
       return {
         indexed: false,
@@ -334,7 +343,12 @@ export const webPlatform: PlatformAdapter = {
         id: "yellow-editor-project",
         mode: "readwrite",
       });
-      const storage = await createWebProjectStorage(root);
+      const mobile = mobileLikeBrowser();
+      const identityHint = mobile ? await projectIdentityHint(root) : undefined;
+      const storage = await createWebProjectStorage(root, {
+        identityHint,
+        persistentHistory: !mobile,
+      });
       const source = createWebSource(
         root,
         storage.historyStore,
