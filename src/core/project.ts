@@ -75,9 +75,6 @@ function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
             return line;
           }
 
-          // Keep movement notation deliberately simple. Direction arrows are
-          // converted to plain words first; any right arrows that remain are
-          // only the semantic summary's sequence separators.
           const path = match[2]
             .replace(/↑ Up/g, "Up")
             .replace(/↓ Down/g, "Down")
@@ -103,6 +100,12 @@ function trainerCacheAffected(paths: string[]): boolean {
 
 function trainerBaseAffected(paths: string[]): boolean {
   return paths.some((path) => path === PARTIES_PATH || path === SPECIAL_MOVES_PATH);
+}
+
+function onlyTrainerBaseFiles(paths: string[]): boolean {
+  return paths.length > 0 && paths.every((path) =>
+    path === PARTIES_PATH || path === SPECIAL_MOVES_PATH,
+  );
 }
 
 export async function createProjectSession(
@@ -132,6 +135,12 @@ export async function createProjectSession(
   const trainerBaseSource = createTrainerScanSource(source);
   const trainerCatalogCache = (source as CacheCapableProjectSource).trainerCatalogCache;
   let trainerBaseCatalogPromise: Promise<TrainerCatalog> | null = null;
+  let encounterIndexPromise: ReturnType<typeof parseEncounterIndex> | null = null;
+  let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
+  const encounterTablePromises = new Map<
+    string,
+    ReturnType<typeof loadEncounterTableEditDocument>
+  >();
 
   function getTrainerBaseCatalog(): Promise<TrainerCatalog> {
     if (!trainerBaseCatalogPromise) {
@@ -146,6 +155,48 @@ export async function createProjectSession(
   function invalidateTrainerBaseCatalog(paths?: string[]): void {
     trainerBaseSource.invalidate(paths);
     trainerBaseCatalogPromise = null;
+  }
+
+  function getEncounterIndex() {
+    if (!encounterIndexPromise) {
+      encounterIndexPromise = parseEncounterIndex(source, projectName).catch((error) => {
+        encounterIndexPromise = null;
+        throw error;
+      });
+    }
+    return encounterIndexPromise;
+  }
+
+  function getEncounterTable(path: string) {
+    const cached = encounterTablePromises.get(path);
+    if (cached) {
+      return cached;
+    }
+    const pending = loadEncounterTableEditDocument(source, projectName, path).catch((error) => {
+      encounterTablePromises.delete(path);
+      throw error;
+    });
+    encounterTablePromises.set(path, pending);
+    return pending;
+  }
+
+  function getFishing() {
+    if (!fishingPromise) {
+      fishingPromise = loadFishingEditDocument(source, projectName).catch((error) => {
+        fishingPromise = null;
+        throw error;
+      });
+    }
+    return fishingPromise;
+  }
+
+  function invalidateNonTrainerReadModels(paths: string[]): void {
+    if (onlyTrainerBaseFiles(paths)) {
+      return;
+    }
+    encounterIndexPromise = null;
+    encounterTablePromises.clear();
+    fishingPromise = null;
   }
 
   async function updateTrainerBaseAfterSave(
@@ -254,11 +305,6 @@ export async function createProjectSession(
         return cachedCatalog;
       }
 
-      // A full trainer scan is intentionally isolated behind a read-through
-      // cache. On mobile, the wrapper limits concurrent filesystem reads while
-      // still overlapping enough small reads to keep modern phones busy. The
-      // same cached source is reused by script-summary enrichment, avoiding a
-      // second trip to the filesystem for dialogue files.
       const scanSource = createTrainerScanSource(source);
       const catalog = await parseTrainerCatalog(scanSource, projectName, onProgress);
       try {
@@ -292,8 +338,6 @@ export async function createProjectSession(
         new Set(knownMoves),
       );
 
-      // Capture the exact source snapshots used to prepare the edit so the
-      // history layer does not have to reread the same files before writing.
       const preparedReads = new Map<string, string>();
       const preparationSource: ProjectSource = {
         ...source,
@@ -322,9 +366,8 @@ export async function createProjectSession(
       await updateTrainerBaseAfterSave(partyId, values, changes);
       return result;
     },
-    getEncounterIndex: () => parseEncounterIndex(source, projectName),
-    getEncounterTable: (path) =>
-      loadEncounterTableEditDocument(source, projectName, path),
+    getEncounterIndex,
+    getEncounterTable,
     saveEncounterTable: async (path, expectedHash, versions, knownSpecies) => {
       const species = new Set(knownSpecies);
       validateEncounterVersions(versions, species);
@@ -336,11 +379,14 @@ export async function createProjectSession(
         species,
       );
       const label = path.split("/").pop()?.replace(/\.asm$/, "") ?? path;
-      return history.save(`Edit ${label} wild encounters`, [
+      const result = await history.save(`Edit ${label} wild encounters`, [
         { path: change.path, contents: change.contents, expectedHash },
       ]);
+      encounterIndexPromise = null;
+      encounterTablePromises.delete(path);
+      return result;
     },
-    getFishing: () => loadFishingEditDocument(source, projectName),
+    getFishing,
     saveFishing: async (sources, data, knownSpecies) => {
       const species = new Set(knownSpecies);
       validateFishingData(data, species);
@@ -351,7 +397,9 @@ export async function createProjectSession(
         data,
         species,
       );
-      return history.save("Edit fishing encounters", changes);
+      const result = await history.save("Edit fishing encounters", changes);
+      fishingPromise = null;
+      return result;
     },
     getHistorySummary: () => history.getSummary(),
     saveTextChanges: async (label, changes) => {
@@ -369,6 +417,7 @@ export async function createProjectSession(
       if (trainerBaseAffected(paths)) {
         invalidateTrainerBaseCatalog(paths);
       }
+      invalidateNonTrainerReadModels(paths);
       if (trainerCacheAffected(paths)) {
         await trainerCatalogCache?.clear();
       }
@@ -382,6 +431,7 @@ export async function createProjectSession(
       if (trainerBaseAffected(paths)) {
         invalidateTrainerBaseCatalog(paths);
       }
+      invalidateNonTrainerReadModels(paths);
       if (trainerCacheAffected(paths)) {
         await trainerCatalogCache?.clear();
       }
