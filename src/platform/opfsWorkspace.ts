@@ -34,39 +34,6 @@ export interface WorkspaceExternalDirectoryHandle {
   entries?(): AsyncIterableIterator<[string, WorkspaceExternalEntryHandle]>;
 }
 
-interface OpfsWritableFileStream {
-  write(data: string | Uint8Array | Blob): Promise<void>;
-  close(): Promise<void>;
-  abort?(): Promise<void>;
-}
-
-interface OpfsFileHandle {
-  kind: "file";
-  name: string;
-  getFile(): Promise<File>;
-  createWritable(): Promise<OpfsWritableFileStream>;
-}
-
-type OpfsEntryHandle = OpfsFileHandle | OpfsDirectoryHandle;
-
-interface OpfsDirectoryHandle {
-  kind: "directory";
-  name: string;
-  getDirectoryHandle(
-    name: string,
-    options?: { create?: boolean },
-  ): Promise<OpfsDirectoryHandle>;
-  getFileHandle(
-    name: string,
-    options?: { create?: boolean },
-  ): Promise<OpfsFileHandle>;
-  entries?(): AsyncIterableIterator<[string, OpfsEntryHandle]>;
-}
-
-interface OpfsStorageManager extends StorageManager {
-  getDirectory?: () => Promise<OpfsDirectoryHandle>;
-}
-
 interface WorkspaceFileStamp {
   size: number;
   lastModified: number;
@@ -128,9 +95,6 @@ function normalizePath(relativePath: string): string {
 }
 
 function hashIdentity(value: string): string {
-  // FNV-1a is sufficient here because this is a local directory name, not a
-  // security boundary. Include the folder name in the manifest as an
-  // additional collision check before a workspace is reused.
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
@@ -140,10 +104,10 @@ function hashIdentity(value: string): string {
 }
 
 async function opfsDirectoryForPath(
-  root: OpfsDirectoryHandle,
+  root: FileSystemDirectoryHandle,
   parts: string[],
   create: boolean,
-): Promise<OpfsDirectoryHandle> {
+): Promise<FileSystemDirectoryHandle> {
   let directory = root;
   for (const part of parts) {
     directory = await directory.getDirectoryHandle(part, { create });
@@ -152,10 +116,10 @@ async function opfsDirectoryForPath(
 }
 
 async function opfsFileForPath(
-  root: OpfsDirectoryHandle,
+  root: FileSystemDirectoryHandle,
   relativePath: string,
   create: boolean,
-): Promise<OpfsFileHandle> {
+): Promise<FileSystemFileHandle> {
   const parts = pathParts(relativePath);
   const fileName = parts.pop();
   if (!fileName) {
@@ -190,17 +154,16 @@ async function externalFileForPath(
 }
 
 async function writeOpfsFile(
-  handle: OpfsFileHandle,
+  handle: FileSystemFileHandle,
   contents: string | Uint8Array,
 ): Promise<void> {
-  let writable: OpfsWritableFileStream | null = null;
+  const writable = await handle.createWritable();
   try {
-    writable = await handle.createWritable();
     await writable.write(contents);
     await writable.close();
   } catch (error) {
     try {
-      await writable?.abort?.();
+      await writable.abort();
     } catch {
       // Preserve the original failure.
     }
@@ -209,12 +172,11 @@ async function writeOpfsFile(
 }
 
 async function readManifest(
-  root: OpfsDirectoryHandle,
+  root: FileSystemDirectoryHandle,
 ): Promise<WorkspaceManifest | null> {
   try {
     const handle = await opfsFileForPath(root, MANIFEST_FILE, false);
-    const file = await handle.getFile();
-    const parsed = JSON.parse(await file.text()) as Partial<WorkspaceManifest>;
+    const parsed = JSON.parse(await (await handle.getFile()).text()) as Partial<WorkspaceManifest>;
     if (
       parsed.version !== MANIFEST_VERSION ||
       typeof parsed.identityHint !== "string" ||
@@ -233,7 +195,7 @@ async function readManifest(
 }
 
 async function writeManifest(
-  root: OpfsDirectoryHandle,
+  root: FileSystemDirectoryHandle,
   manifest: WorkspaceManifest,
 ): Promise<void> {
   const handle = await opfsFileForPath(root, MANIFEST_FILE, true);
@@ -304,7 +266,7 @@ function copyConcurrency(): number {
 
 async function importExternalProject(
   externalRoot: WorkspaceExternalDirectoryHandle,
-  workspaceRoot: OpfsDirectoryHandle,
+  workspaceRoot: FileSystemDirectoryHandle,
   identityHint: string,
   onProgress?: WorkspaceImportProgressListener,
 ): Promise<WorkspaceManifest> {
@@ -330,35 +292,33 @@ async function importExternalProject(
   let completed = 0;
   const total = enumerated.files.length;
   const updateEvery = Math.max(1, Math.ceil(total / 50));
-  const workers = Array.from(
-    { length: Math.min(copyConcurrency(), Math.max(1, total)) },
-    async () => {
-      while (nextIndex < total) {
-        const entry = enumerated.files[nextIndex];
-        nextIndex += 1;
-        const sourceFile = await entry.handle.getFile();
-        const contents = new Uint8Array(await sourceFile.arrayBuffer());
-        const target = await opfsFileForPath(workspaceRoot, entry.path, true);
-        await writeOpfsFile(target, contents);
-        manifest.files[entry.path] = {
-          size: sourceFile.size,
-          lastModified: sourceFile.lastModified,
-        };
-        completed += 1;
-        if (completed === total || completed % updateEvery === 0) {
-          const percent = total === 0 ? 95 : 10 + Math.round((completed / total) * 85);
-          onProgress?.({
-            stage: "copying",
-            message: `Importing project into fast browser storage: ${completed} / ${total} files`,
-            completed,
-            total,
-            percent,
-          });
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-        }
+  const workerCount = Math.min(copyConcurrency(), Math.max(1, total));
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < total) {
+      const entry = enumerated.files[nextIndex];
+      nextIndex += 1;
+      const sourceFile = await entry.handle.getFile();
+      const contents = new Uint8Array(await sourceFile.arrayBuffer());
+      const target = await opfsFileForPath(workspaceRoot, entry.path, true);
+      await writeOpfsFile(target, contents);
+      manifest.files[entry.path] = {
+        size: sourceFile.size,
+        lastModified: sourceFile.lastModified,
+      };
+      completed += 1;
+      if (completed === total || completed % updateEvery === 0) {
+        const percent = total === 0 ? 95 : 10 + Math.round((completed / total) * 85);
+        onProgress?.({
+          stage: "copying",
+          message: `Importing project into fast browser storage: ${completed} / ${total} files`,
+          completed,
+          total,
+          percent,
+        });
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       }
-    },
-  );
+    }
+  });
   await Promise.all(workers);
   await writeManifest(workspaceRoot, manifest);
   return manifest;
@@ -366,8 +326,10 @@ async function importExternalProject(
 
 async function workspaceRootForIdentity(
   identityHint: string,
-): Promise<OpfsDirectoryHandle | null> {
-  const storage = navigator.storage as OpfsStorageManager;
+): Promise<FileSystemDirectoryHandle | null> {
+  const storage = navigator.storage as StorageManager & {
+    getDirectory?: () => Promise<FileSystemDirectoryHandle>;
+  };
   if (typeof storage.getDirectory !== "function") {
     return null;
   }
@@ -376,7 +338,7 @@ async function workspaceRootForIdentity(
   return container.getDirectoryHandle(hashIdentity(identityHint), { create: true });
 }
 
-async function updateExternalStamp(
+async function externalStamp(
   externalRoot: WorkspaceExternalDirectoryHandle,
   path: string,
 ): Promise<WorkspaceFileStamp> {
@@ -392,10 +354,11 @@ function stampsMatch(a: WorkspaceFileStamp, b: WorkspaceFileStamp): boolean {
 export async function createOpfsWorkspaceProjectSource(
   options: CreateWorkspaceOptions,
 ): Promise<OpfsWorkspaceProjectSource | null> {
-  const workspaceRoot = await workspaceRootForIdentity(options.identityHint);
-  if (!workspaceRoot) {
+  const resolvedRoot = await workspaceRootForIdentity(options.identityHint);
+  if (!resolvedRoot) {
     return null;
   }
+  const workspaceRoot: FileSystemDirectoryHandle = resolvedRoot;
 
   options.onProgress?.({
     stage: "checking",
@@ -427,18 +390,17 @@ export async function createOpfsWorkspaceProjectSource(
     });
   }
 
-  // Ask the browser to keep the workspace when possible. Failure or denial is
-  // not fatal; OPFS remains usable for the current origin either way.
   try {
-    await navigator.storage.persist?.();
+    await navigator.storage.persist();
   } catch {
     // Storage persistence is best-effort.
   }
 
+  const currentManifest: WorkspaceManifest = manifest;
   const objectUrls = new Map<string, string>();
-  const fileHandles = new Map<string, Promise<OpfsFileHandle>>();
+  const fileHandles = new Map<string, Promise<FileSystemFileHandle>>();
 
-  function cachedFileHandle(path: string, create = false): Promise<OpfsFileHandle> {
+  function cachedFileHandle(path: string, create = false): Promise<FileSystemFileHandle> {
     const normalized = normalizePath(path);
     if (!create) {
       const cached = fileHandles.get(normalized);
@@ -455,10 +417,10 @@ export async function createOpfsWorkspaceProjectSource(
   }
 
   async function persistManifest(): Promise<void> {
-    await writeManifest(workspaceRoot, manifest as WorkspaceManifest);
+    await writeManifest(workspaceRoot, currentManifest);
   }
 
-  const source: OpfsWorkspaceProjectSource = {
+  return {
     displayPath: options.externalRoot.name,
     storageKey: `${options.storageKey}:opfs`,
     historyStore: options.historyStore,
@@ -488,10 +450,10 @@ export async function createOpfsWorkspaceProjectSource(
       const path = normalizePath(relativePath);
       const workspaceHandle = await cachedFileHandle(path);
       const previousWorkspaceContents = await (await workspaceHandle.getFile()).text();
-      const expectedExternal = manifest.files[path];
+      const expectedExternal = currentManifest.files[path];
 
       if (expectedExternal) {
-        const currentExternal = await updateExternalStamp(options.externalRoot, path);
+        const currentExternal = await externalStamp(options.externalRoot, path);
         if (!stampsMatch(expectedExternal, currentExternal)) {
           throw new Error(
             `${path} changed outside Yellow Editor after the browser workspace was imported. Reopen/re-import the project before saving so the external change is preserved.`,
@@ -507,7 +469,7 @@ export async function createOpfsWorkspaceProjectSource(
         writable = await externalHandle.createWritable();
         await writable.write(contents);
         await writable.close();
-        manifest.files[path] = await updateExternalStamp(options.externalRoot, path);
+        currentManifest.files[path] = await externalStamp(options.externalRoot, path);
         await persistManifest();
       } catch (error) {
         try {
@@ -565,8 +527,8 @@ export async function createOpfsWorkspaceProjectSource(
     async prepareBuildReads(): Promise<ProjectBuildReadPreparation> {
       return {
         indexed: true,
-        fileCount: Object.keys(manifest.files).length,
-        directoryCount: manifest.directoryCount,
+        fileCount: Object.keys(currentManifest.files).length,
+        directoryCount: currentManifest.directoryCount,
         durationMs: 0,
         message: "Build inputs are already available in the persistent browser workspace.",
       };
@@ -580,6 +542,4 @@ export async function createOpfsWorkspaceProjectSource(
       fileHandles.clear();
     },
   };
-
-  return source;
 }
