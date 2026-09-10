@@ -6,6 +6,7 @@ import type {
   ProjectBuildReadPreparation,
   ProjectSource,
 } from "../core/types";
+import { createOpfsWorkspaceProjectSource } from "./opfsWorkspace";
 import type { PlatformAdapter } from "./types";
 import {
   createWebProjectStorage,
@@ -344,17 +345,36 @@ export const webPlatform: PlatformAdapter = {
         mode: "readwrite",
       });
       const mobile = mobileLikeBrowser();
-      const identityHint = mobile ? await projectIdentityHint(root) : undefined;
+      const identityHint = await projectIdentityHint(root);
       const storage = await createWebProjectStorage(root, {
         identityHint,
         persistentHistory: !mobile,
       });
-      const source = createWebSource(
-        root,
-        storage.historyStore,
-        storage.trainerCatalogCache,
-        `web:${storage.projectId}`,
-      );
+
+      let source: WebCachedProjectSource | ProjectSource;
+      try {
+        source = await createOpfsWorkspaceProjectSource({
+          externalRoot: root,
+          identityHint,
+          historyStore: storage.historyStore,
+          trainerCatalogCache: storage.trainerCatalogCache,
+          storageKey: `web:${storage.projectId}`,
+        }) ?? createWebSource(
+          root,
+          storage.historyStore,
+          storage.trainerCatalogCache,
+          `web:${storage.projectId}`,
+        );
+      } catch (error) {
+        console.warn("Yellow Editor could not initialize the OPFS browser workspace; using direct folder access instead.", error);
+        source = createWebSource(
+          root,
+          storage.historyStore,
+          storage.trainerCatalogCache,
+          `web:${storage.projectId}`,
+        );
+      }
+
       const session = await createProjectSession(source, createWebBuildService(source));
       return attachTextEditing(session, source);
     } catch (error) {
