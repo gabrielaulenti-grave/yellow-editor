@@ -4,9 +4,14 @@ import { attachTextEditing } from "../core/textEditing";
 import type {
   HistoryStore,
   ProjectBuildReadPreparation,
+  ProjectSession,
   ProjectSource,
 } from "../core/types";
 import { createLazyOpfsProjectSource } from "./lazyOpfsWorkspace";
+import {
+  createPackedProjectSource,
+  inspectPackedProjectIdentity,
+} from "./packedProject";
 import type { PlatformAdapter, PlatformOpenProjectOptions } from "./types";
 import {
   createWebProjectStorage,
@@ -15,12 +20,12 @@ import {
 } from "./webHistory";
 
 interface BrowserWritableFileStream {
-  write(data: string): Promise<void>;
+  write(data: string | Blob): Promise<void>;
   close(): Promise<void>;
   abort?(): Promise<void>;
 }
 
-interface BrowserFileHandle {
+interface BrowserFileHandle extends WebDirectoryIdentityHandle {
   kind: "file";
   name: string;
   getFile(): Promise<File>;
@@ -46,6 +51,14 @@ type PickerWindow = Window & {
     id?: string;
     mode?: "read" | "readwrite";
   }) => Promise<BrowserDirectoryHandle>;
+  showOpenFilePicker?: (options?: {
+    id?: string;
+    multiple?: boolean;
+    types?: Array<{
+      description?: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<BrowserFileHandle[]>;
 };
 
 function mobileLikeBrowser(): boolean {
@@ -330,16 +343,72 @@ function createWebSource(
   };
 }
 
-export const webPlatform: PlatformAdapter = {
-  async openProject(_options?: PlatformOpenProjectOptions) {
-    const picker = (window as PickerWindow).showDirectoryPicker;
-    if (!picker) {
-      throw new Error(
-        "This browser does not support folder access. Open Yellow Editor in a current Chromium-based browser such as Chrome or Edge.",
-      );
-    }
+async function openPackedWebProject(): Promise<ProjectSession | null> {
+  const picker = (window as PickerWindow).showOpenFilePicker;
+  if (!picker) {
+    throw new Error("This browser does not support editable ZIP file access. Use a current Chromium-based browser such as Chrome or Edge.");
+  }
+  const handles = await picker.call(window, {
+    id: "yellow-editor-packed-project",
+    multiple: false,
+    types: [{
+      description: "ZIP archive",
+      accept: { "application/zip": [".zip"] },
+    }],
+  });
+  const handle = handles[0];
+  if (!handle) {
+    return null;
+  }
+  const file = await handle.getFile();
+  const archiveBytes = new Uint8Array(await file.arrayBuffer());
+  const identity = inspectPackedProjectIdentity(archiveBytes);
+  const mobile = mobileLikeBrowser();
+  const storage = await createWebProjectStorage(handle, {
+    identityHint: `packed:${file.name}:${identity}`,
+    persistentHistory: !mobile,
+  });
 
+  const source = await createPackedProjectSource({
+    archiveName: file.name,
+    archiveBytes,
+    storageKey: `web-packed:${storage.projectId}`,
+    historyStore: storage.historyStore,
+    persistArchive: async (bytes) => {
+      let writable: BrowserWritableFileStream | null = null;
+      try {
+        writable = await handle.createWritable();
+        await writable.write(new Blob([bytes], { type: "application/zip" }));
+        await writable.close();
+      } catch (error) {
+        try {
+          await writable?.abort?.();
+        } catch {
+          // Preserve the original archive write failure.
+        }
+        throw error;
+      }
+    },
+  });
+  Object.assign(source, { trainerCatalogCache: storage.trainerCatalogCache });
+  const session = await createProjectSession(source, createWebBuildService(source));
+  return attachTextEditing(session, source);
+}
+
+export const webPlatform: PlatformAdapter = {
+  async openProject(options?: PlatformOpenProjectOptions) {
     try {
+      if (options?.sourceKind === "zip") {
+        return await openPackedWebProject();
+      }
+
+      const picker = (window as PickerWindow).showDirectoryPicker;
+      if (!picker) {
+        throw new Error(
+          "This browser does not support folder access. Open Yellow Editor in a current Chromium-based browser such as Chrome or Edge.",
+        );
+      }
+
       const root = await picker.call(window, {
         id: "yellow-editor-project",
         mode: "readwrite",
