@@ -27,6 +27,11 @@ export interface WebTrainerCatalogCache {
   clear(): Promise<void>;
 }
 
+export interface WebProjectStorageOptions {
+  identityHint?: string;
+  persistentHistory?: boolean;
+}
+
 export interface WebProjectStorageContext {
   projectId: string;
   historyStore: HistoryStore;
@@ -73,8 +78,6 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains(PROJECT_STORE)) {
         database.createObjectStore(PROJECT_STORE, { keyPath: "id" });
       }
-      // Keep the original monolithic store so existing users can migrate their
-      // history lazily the first time it is loaded and saved under schema v2.
       if (!database.objectStoreNames.contains(LEGACY_HISTORY_STORE)) {
         database.createObjectStore(LEGACY_HISTORY_STORE, { keyPath: "projectId" });
       }
@@ -124,7 +127,16 @@ function historyEntryKey(projectId: string, entryId: string): string {
 async function resolveProjectId(
   database: IDBDatabase,
   root: WebDirectoryIdentityHandle,
+  identityHint?: string,
 ): Promise<string> {
+  // Some mobile Chromium builds do not reliably round-trip directory handles
+  // through IndexedDB. When the caller can provide a stable folder signature,
+  // use it directly so caches survive a page refresh without depending on
+  // FileSystemHandle.isSameEntry().
+  if (identityHint) {
+    return `hint:${identityHint}`;
+  }
+
   const readTransaction = database.transaction(PROJECT_STORE, "readonly");
   const readDone = transactionDone(readTransaction);
   const stored = await requestResult(
@@ -152,6 +164,19 @@ async function resolveProjectId(
   } satisfies StoredProjectIdentity);
   await writeDone;
   return id;
+}
+
+function memoryHistoryStore(): HistoryStore {
+  let state: HistoryState | null = null;
+  return {
+    persistent: false,
+    async load() {
+      return state;
+    },
+    async save(nextState) {
+      state = nextState;
+    },
+  };
 }
 
 function historyStoreForProject(database: IDBDatabase, projectId: string): HistoryStore {
@@ -285,12 +310,15 @@ function trainerCatalogCacheForProject(
 
 export async function createWebProjectStorage(
   root: WebDirectoryIdentityHandle,
+  options: WebProjectStorageOptions = {},
 ): Promise<WebProjectStorageContext> {
   const database = await openDatabase();
-  const projectId = await resolveProjectId(database, root);
+  const projectId = await resolveProjectId(database, root, options.identityHint);
   return {
     projectId,
-    historyStore: historyStoreForProject(database, projectId),
+    historyStore: options.persistentHistory === false
+      ? memoryHistoryStore()
+      : historyStoreForProject(database, projectId),
     trainerCatalogCache: trainerCatalogCacheForProject(database, projectId),
   };
 }
