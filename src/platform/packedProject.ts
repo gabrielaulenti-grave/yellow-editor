@@ -1,4 +1,5 @@
 import type {
+  HistoryState,
   HistoryStore,
   ProjectBuildReadPreparation,
   ProjectSource,
@@ -357,7 +358,7 @@ export function inspectPackedProjectIdentity(archiveBytes: Uint8Array): string {
 }
 
 function defaultMemoryHistoryStore(): HistoryStore {
-  let state = null;
+  let state: HistoryState | null = null;
   return {
     persistent: false,
     async load() {
