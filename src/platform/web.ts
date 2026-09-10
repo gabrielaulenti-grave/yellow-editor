@@ -7,7 +7,12 @@ import type {
   ProjectSource,
 } from "../core/types";
 import { createOpfsWorkspaceProjectSource } from "./opfsWorkspace";
-import type { PlatformAdapter } from "./types";
+import {
+  PROJECT_WORKSPACE_PROGRESS_EVENT,
+  type PlatformAdapter,
+  type PlatformOpenProjectOptions,
+  type ProjectWorkspaceProgress,
+} from "./types";
 import {
   createWebProjectStorage,
   type WebDirectoryIdentityHandle,
@@ -331,13 +336,18 @@ function createWebSource(
 }
 
 export const webPlatform: PlatformAdapter = {
-  async openProject() {
+  async openProject(options?: PlatformOpenProjectOptions) {
     const picker = (window as PickerWindow).showDirectoryPicker;
     if (!picker) {
       throw new Error(
         "This browser does not support folder access. Open Yellow Editor in a current Chromium-based browser such as Chrome or Edge.",
       );
     }
+
+    const reportWorkspaceProgress = (progress: ProjectWorkspaceProgress) => {
+      window.dispatchEvent(new CustomEvent(PROJECT_WORKSPACE_PROGRESS_EVENT, { detail: progress }));
+      options?.onWorkspaceProgress?.(progress);
+    };
 
     try {
       const root = await picker.call(window, {
@@ -359,6 +369,7 @@ export const webPlatform: PlatformAdapter = {
           historyStore: storage.historyStore,
           trainerCatalogCache: storage.trainerCatalogCache,
           storageKey: `web:${storage.projectId}`,
+          onProgress: reportWorkspaceProgress,
         }) ?? createWebSource(
           root,
           storage.historyStore,
@@ -367,6 +378,13 @@ export const webPlatform: PlatformAdapter = {
         );
       } catch (error) {
         console.warn("Yellow Editor could not initialize the OPFS browser workspace; using direct folder access instead.", error);
+        reportWorkspaceProgress({
+          stage: "error",
+          message: "Fast browser workspace is unavailable; using the selected project folder directly.",
+          completed: 0,
+          total: 0,
+          percent: 0,
+        });
         source = createWebSource(
           root,
           storage.historyStore,

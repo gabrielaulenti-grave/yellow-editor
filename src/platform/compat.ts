@@ -17,6 +17,7 @@ import type {
   TextEditingSession,
   TextSegment,
 } from "../core/textEditing";
+import type { ProjectWorkspaceProgressListener } from "./types";
 import { webPlatform } from "./web";
 
 let activeSession: ProjectSession | null = null;
@@ -25,6 +26,7 @@ type OpenOptions = {
   directory?: boolean;
   multiple?: boolean;
   title?: string;
+  onWorkspaceProgress?: ProjectWorkspaceProgressListener;
 };
 
 type InvokeArgs = Record<string, unknown>;
@@ -42,10 +44,12 @@ async function openDesktopProject(): Promise<ProjectSession | null> {
   return desktopPlatform.openProject();
 }
 
-export async function open(_options?: OpenOptions): Promise<string | null> {
+export async function open(options?: OpenOptions): Promise<string | null> {
   const nextSession = isTauri()
     ? await openDesktopProject()
-    : await webPlatform.openProject();
+    : await webPlatform.openProject({
+        onWorkspaceProgress: options?.onWorkspaceProgress,
+      });
 
   if (!nextSession) {
     return null;

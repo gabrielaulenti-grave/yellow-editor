@@ -7,7 +7,7 @@ import type { WebTrainerCatalogCache } from "./webHistory";
 
 const WORKSPACE_CONTAINER = "yellow-editor-workspaces";
 const MANIFEST_FILE = ".yellow-editor-workspace.json";
-const MANIFEST_VERSION = 1;
+const MANIFEST_VERSION = 2;
 
 interface ExternalWritableFileStream {
   write(data: string): Promise<void>;
@@ -45,11 +45,12 @@ interface WorkspaceManifest {
   displayName: string;
   importedAt: string;
   directoryCount: number;
+  complete: boolean;
   files: Record<string, WorkspaceFileStamp>;
 }
 
 export interface WorkspaceImportProgress {
-  stage: "checking" | "enumerating" | "copying" | "ready";
+  stage: "checking" | "enumerating" | "copying" | "ready" | "error";
   message: string;
   completed: number;
   total: number;
@@ -183,6 +184,7 @@ async function readManifest(
       typeof parsed.displayName !== "string" ||
       typeof parsed.importedAt !== "string" ||
       typeof parsed.directoryCount !== "number" ||
+      typeof parsed.complete !== "boolean" ||
       !parsed.files ||
       typeof parsed.files !== "object"
     ) {
@@ -217,6 +219,7 @@ async function enumerateExternalProject(
     { path: "", handle: root },
   ];
   let directoryCount = 1;
+  let visitedDirectories = 0;
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -241,10 +244,11 @@ async function enumerateExternalProject(
       }
     }
 
-    if (directoryCount % 16 === 0) {
+    visitedDirectories += 1;
+    if (visitedDirectories % 8 === 0 || queue.length === 0) {
       onProgress?.({
         stage: "enumerating",
-        message: `Preparing browser workspace: found ${files.length} files`,
+        message: `Finding project files for the browser workspace: ${files.length} found`,
         completed: files.length,
         total: 0,
         percent: 5,
@@ -259,69 +263,11 @@ async function enumerateExternalProject(
 function copyConcurrency(): number {
   const cores = Math.max(1, navigator.hardwareConcurrency || 4);
   const mobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  // Keep background mirroring deliberately modest on phones so foreground
+  // parser/editor reads remain responsive while the import continues.
   return mobile
-    ? Math.max(3, Math.min(6, Math.ceil(cores / 2)))
-    : Math.max(4, Math.min(10, cores));
-}
-
-async function importExternalProject(
-  externalRoot: WorkspaceExternalDirectoryHandle,
-  workspaceRoot: FileSystemDirectoryHandle,
-  identityHint: string,
-  onProgress?: WorkspaceImportProgressListener,
-): Promise<WorkspaceManifest> {
-  onProgress?.({
-    stage: "enumerating",
-    message: "Preparing browser workspace: scanning the project once",
-    completed: 0,
-    total: 0,
-    percent: 2,
-  });
-
-  const enumerated = await enumerateExternalProject(externalRoot, onProgress);
-  const manifest: WorkspaceManifest = {
-    version: MANIFEST_VERSION,
-    identityHint,
-    displayName: externalRoot.name,
-    importedAt: new Date().toISOString(),
-    directoryCount: enumerated.directoryCount,
-    files: {},
-  };
-
-  let nextIndex = 0;
-  let completed = 0;
-  const total = enumerated.files.length;
-  const updateEvery = Math.max(1, Math.ceil(total / 50));
-  const workerCount = Math.min(copyConcurrency(), Math.max(1, total));
-  const workers = Array.from({ length: workerCount }, async () => {
-    while (nextIndex < total) {
-      const entry = enumerated.files[nextIndex];
-      nextIndex += 1;
-      const sourceFile = await entry.handle.getFile();
-      const contents = new Uint8Array(await sourceFile.arrayBuffer());
-      const target = await opfsFileForPath(workspaceRoot, entry.path, true);
-      await writeOpfsFile(target, contents);
-      manifest.files[entry.path] = {
-        size: sourceFile.size,
-        lastModified: sourceFile.lastModified,
-      };
-      completed += 1;
-      if (completed === total || completed % updateEvery === 0) {
-        const percent = total === 0 ? 95 : 10 + Math.round((completed / total) * 85);
-        onProgress?.({
-          stage: "copying",
-          message: `Importing project into fast browser storage: ${completed} / ${total} files`,
-          completed,
-          total,
-          percent,
-        });
-        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
-      }
-    }
-  });
-  await Promise.all(workers);
-  await writeManifest(workspaceRoot, manifest);
-  return manifest;
+    ? Math.max(1, Math.min(2, Math.ceil(cores / 4)))
+    : Math.max(3, Math.min(8, Math.ceil(cores / 2)));
 }
 
 async function workspaceRootForIdentity(
@@ -374,31 +320,30 @@ export async function createOpfsWorkspaceProjectSource(
     manifest.identityHint !== options.identityHint ||
     manifest.displayName !== options.externalRoot.name
   ) {
-    manifest = await importExternalProject(
-      options.externalRoot,
-      workspaceRoot,
-      options.identityHint,
-      options.onProgress,
-    );
-  } else {
-    options.onProgress?.({
-      stage: "ready",
-      message: `Reusing browser workspace with ${Object.keys(manifest.files).length} files`,
-      completed: 1,
-      total: 1,
-      percent: 100,
-    });
-  }
-
-  try {
-    await navigator.storage.persist();
-  } catch {
-    // Storage persistence is best-effort.
+    manifest = {
+      version: MANIFEST_VERSION,
+      identityHint: options.identityHint,
+      displayName: options.externalRoot.name,
+      importedAt: new Date().toISOString(),
+      directoryCount: 0,
+      complete: false,
+      files: {},
+    };
+    await writeManifest(workspaceRoot, manifest);
   }
 
   const currentManifest: WorkspaceManifest = manifest;
   const objectUrls = new Map<string, string>();
   const fileHandles = new Map<string, Promise<FileSystemFileHandle>>();
+  const hydrationTasks = new Map<string, Promise<FileSystemFileHandle>>();
+  let disposed = false;
+  let backgroundImport: Promise<void> | null = null;
+
+  try {
+    void navigator.storage.persist().catch(() => undefined);
+  } catch {
+    // Storage persistence is best-effort.
+  }
 
   function cachedFileHandle(path: string, create = false): Promise<FileSystemFileHandle> {
     const normalized = normalizePath(path);
@@ -420,6 +365,139 @@ export async function createOpfsWorkspaceProjectSource(
     await writeManifest(workspaceRoot, currentManifest);
   }
 
+  function hydrateFile(
+    relativePath: string,
+    knownExternalHandle?: WorkspaceExternalFileHandle,
+  ): Promise<FileSystemFileHandle> {
+    const path = normalizePath(relativePath);
+    const existingTask = hydrationTasks.get(path);
+    if (existingTask) {
+      return existingTask;
+    }
+
+    const task = (async () => {
+      if (currentManifest.files[path]) {
+        try {
+          return await cachedFileHandle(path);
+        } catch {
+          delete currentManifest.files[path];
+          fileHandles.delete(path);
+        }
+      }
+
+      const externalHandle = knownExternalHandle ?? await externalFileForPath(options.externalRoot, path);
+      const externalFile = await externalHandle.getFile();
+      const bytes = new Uint8Array(await externalFile.arrayBuffer());
+      const target = await cachedFileHandle(path, true);
+      await writeOpfsFile(target, bytes);
+      currentManifest.files[path] = {
+        size: externalFile.size,
+        lastModified: externalFile.lastModified,
+      };
+      return target;
+    })().finally(() => {
+      hydrationTasks.delete(path);
+    });
+
+    hydrationTasks.set(path, task);
+    return task;
+  }
+
+  async function runBackgroundImport(): Promise<void> {
+    try {
+      options.onProgress?.({
+        stage: "enumerating",
+        message: "Browser workspace is active; finding the remaining project files in the background",
+        completed: Object.keys(currentManifest.files).length,
+        total: 0,
+        percent: 5,
+      });
+
+      const enumerated = await enumerateExternalProject(options.externalRoot, options.onProgress);
+      if (disposed) {
+        return;
+      }
+
+      currentManifest.directoryCount = enumerated.directoryCount;
+      let nextIndex = 0;
+      let completed = 0;
+      const total = enumerated.files.length;
+      const updateEvery = Math.max(1, Math.ceil(total / 100));
+      const workerCount = Math.min(copyConcurrency(), Math.max(1, total));
+
+      const workers = Array.from({ length: workerCount }, async () => {
+        while (!disposed && nextIndex < total) {
+          const entry = enumerated.files[nextIndex];
+          nextIndex += 1;
+          await hydrateFile(entry.path, entry.handle);
+          completed += 1;
+
+          if (completed === total || completed % updateEvery === 0) {
+            const percent = total === 0 ? 99 : 10 + Math.round((completed / total) * 89);
+            options.onProgress?.({
+              stage: "copying",
+              message: `Preparing fast browser workspace: ${completed} / ${total} files`,
+              completed,
+              total,
+              percent,
+            });
+            await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+          }
+        }
+      });
+
+      await Promise.all(workers);
+      if (disposed) {
+        return;
+      }
+
+      currentManifest.complete = true;
+      currentManifest.importedAt = new Date().toISOString();
+      await persistManifest();
+      options.onProgress?.({
+        stage: "ready",
+        message: `Fast browser workspace ready with ${total} project files`,
+        completed: total,
+        total,
+        percent: 100,
+      });
+    } catch (error) {
+      currentManifest.complete = false;
+      try {
+        await persistManifest();
+      } catch {
+        // Keep the workspace usable through lazy reads even if metadata fails.
+      }
+      if (!disposed) {
+        options.onProgress?.({
+          stage: "error",
+          message: `Background workspace import could not finish. Yellow Editor will keep loading files on demand. ${String(error)}`,
+          completed: Object.keys(currentManifest.files).length,
+          total: 0,
+          percent: 0,
+        });
+      }
+    }
+  }
+
+  if (currentManifest.complete) {
+    const fileCount = Object.keys(currentManifest.files).length;
+    options.onProgress?.({
+      stage: "ready",
+      message: `Reusing fast browser workspace with ${fileCount} project files`,
+      completed: fileCount,
+      total: fileCount,
+      percent: 100,
+    });
+  } else {
+    // Do not block project opening on the full mirror. Foreground reads hydrate
+    // the files they need immediately, while the rest of the checkout is copied
+    // with low concurrency in the background.
+    backgroundImport = new Promise<void>((resolve) => {
+      window.setTimeout(resolve, 0);
+    }).then(runBackgroundImport);
+  }
+
   return {
     displayPath: options.externalRoot.name,
     storageKey: `${options.storageKey}:opfs`,
@@ -429,7 +507,7 @@ export async function createOpfsWorkspaceProjectSource(
 
     async readText(relativePath) {
       try {
-        const handle = await cachedFileHandle(relativePath);
+        const handle = await hydrateFile(relativePath);
         return await (await handle.getFile()).text();
       } catch (error) {
         throw new Error(`Failed to read ${relativePath} from browser workspace: ${String(error)}`);
@@ -438,7 +516,7 @@ export async function createOpfsWorkspaceProjectSource(
 
     async readBytes(relativePath) {
       try {
-        const handle = await cachedFileHandle(relativePath);
+        const handle = await hydrateFile(relativePath);
         const file = await handle.getFile();
         return new Uint8Array(await file.arrayBuffer());
       } catch (error) {
@@ -448,7 +526,7 @@ export async function createOpfsWorkspaceProjectSource(
 
     async writeText(relativePath, contents) {
       const path = normalizePath(relativePath);
-      const workspaceHandle = await cachedFileHandle(path);
+      const workspaceHandle = await hydrateFile(path);
       const previousWorkspaceContents = await (await workspaceHandle.getFile()).text();
       const expectedExternal = currentManifest.files[path];
 
@@ -456,7 +534,7 @@ export async function createOpfsWorkspaceProjectSource(
         const currentExternal = await externalStamp(options.externalRoot, path);
         if (!stampsMatch(expectedExternal, currentExternal)) {
           throw new Error(
-            `${path} changed outside Yellow Editor after the browser workspace was imported. Reopen/re-import the project before saving so the external change is preserved.`,
+            `${path} changed outside Yellow Editor after the browser workspace loaded it. Reopen the project before saving so the external change is preserved.`,
           );
         }
       }
@@ -493,18 +571,40 @@ export async function createOpfsWorkspaceProjectSource(
       if (!path) {
         return true;
       }
-      try {
-        await cachedFileHandle(path);
-        return true;
-      } catch {
-        // It may be a directory.
+
+      if (currentManifest.files[path]) {
+        try {
+          await cachedFileHandle(path);
+          return true;
+        } catch {
+          delete currentManifest.files[path];
+          fileHandles.delete(path);
+        }
       }
+
       try {
         await opfsDirectoryForPath(workspaceRoot, pathParts(path), false);
         return true;
       } catch {
-        return false;
+        // The first import may not have reached this path yet.
       }
+
+      if (!currentManifest.complete) {
+        try {
+          await externalFileForPath(options.externalRoot, path);
+          return true;
+        } catch {
+          // It may be an external directory.
+        }
+        try {
+          await externalDirectoryForPath(options.externalRoot, pathParts(path));
+          return true;
+        } catch {
+          return false;
+        }
+      }
+
+      return false;
     },
 
     async assetUrl(relativePath) {
@@ -514,7 +614,7 @@ export async function createOpfsWorkspaceProjectSource(
         return cached;
       }
       try {
-        const handle = await cachedFileHandle(path);
+        const handle = await hydrateFile(path);
         const file = await handle.getFile();
         const url = URL.createObjectURL(file);
         objectUrls.set(path, url);
@@ -525,21 +625,29 @@ export async function createOpfsWorkspaceProjectSource(
     },
 
     async prepareBuildReads(): Promise<ProjectBuildReadPreparation> {
+      const startedAt = performance.now();
+      if (backgroundImport) {
+        await backgroundImport;
+      }
       return {
-        indexed: true,
+        indexed: currentManifest.complete,
         fileCount: Object.keys(currentManifest.files).length,
         directoryCount: currentManifest.directoryCount,
-        durationMs: 0,
-        message: "Build inputs are already available in the persistent browser workspace.",
+        durationMs: Math.round(performance.now() - startedAt),
+        message: currentManifest.complete
+          ? "Build inputs are available in the persistent browser workspace."
+          : "The background workspace import was incomplete; missing build inputs will be loaded into OPFS on demand.",
       };
     },
 
     dispose() {
+      disposed = true;
       for (const url of objectUrls.values()) {
         URL.revokeObjectURL(url);
       }
       objectUrls.clear();
       fileHandles.clear();
+      hydrationTasks.clear();
     },
   };
 }
