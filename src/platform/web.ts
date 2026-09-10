@@ -6,13 +6,8 @@ import type {
   ProjectBuildReadPreparation,
   ProjectSource,
 } from "../core/types";
-import { createOpfsWorkspaceProjectSource } from "./opfsWorkspace";
-import {
-  PROJECT_WORKSPACE_PROGRESS_EVENT,
-  type PlatformAdapter,
-  type PlatformOpenProjectOptions,
-  type ProjectWorkspaceProgress,
-} from "./types";
+import { createLazyOpfsProjectSource } from "./lazyOpfsWorkspace";
+import type { PlatformAdapter, PlatformOpenProjectOptions } from "./types";
 import {
   createWebProjectStorage,
   type WebDirectoryIdentityHandle,
@@ -336,18 +331,13 @@ function createWebSource(
 }
 
 export const webPlatform: PlatformAdapter = {
-  async openProject(options?: PlatformOpenProjectOptions) {
+  async openProject(_options?: PlatformOpenProjectOptions) {
     const picker = (window as PickerWindow).showDirectoryPicker;
     if (!picker) {
       throw new Error(
         "This browser does not support folder access. Open Yellow Editor in a current Chromium-based browser such as Chrome or Edge.",
       );
     }
-
-    const reportWorkspaceProgress = (progress: ProjectWorkspaceProgress) => {
-      window.dispatchEvent(new CustomEvent(PROJECT_WORKSPACE_PROGRESS_EVENT, { detail: progress }));
-      options?.onWorkspaceProgress?.(progress);
-    };
 
     try {
       const root = await picker.call(window, {
@@ -363,13 +353,12 @@ export const webPlatform: PlatformAdapter = {
 
       let source: WebCachedProjectSource | ProjectSource;
       try {
-        source = await createOpfsWorkspaceProjectSource({
+        source = await createLazyOpfsProjectSource({
           externalRoot: root,
           identityHint,
           historyStore: storage.historyStore,
           trainerCatalogCache: storage.trainerCatalogCache,
           storageKey: `web:${storage.projectId}`,
-          onProgress: reportWorkspaceProgress,
         }) ?? createWebSource(
           root,
           storage.historyStore,
@@ -377,14 +366,7 @@ export const webPlatform: PlatformAdapter = {
           `web:${storage.projectId}`,
         );
       } catch (error) {
-        console.warn("Yellow Editor could not initialize the OPFS browser workspace; using direct folder access instead.", error);
-        reportWorkspaceProgress({
-          stage: "error",
-          message: "Fast browser workspace is unavailable; using the selected project folder directly.",
-          completed: 0,
-          total: 0,
-          percent: 0,
-        });
+        console.warn("Yellow Editor could not initialize the lazy OPFS browser cache; using direct folder access instead.", error);
         source = createWebSource(
           root,
           storage.historyStore,
