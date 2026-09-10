@@ -6,6 +6,7 @@ use tauri::Manager;
 
 const MAX_DECODED_PNG_PIXELS: u64 = 16 * 1024 * 1024;
 const MAX_PNG_INPUT_BYTES: usize = 64 * 1024 * 1024;
+const MAX_PROJECT_ARCHIVE_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +24,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_project_text,
             read_project_bytes,
+            read_archive_bytes,
+            write_archive_bytes,
             decode_png_rgba,
             write_project_text,
             project_path_exists,
@@ -54,7 +57,20 @@ fn project_relative_path(project_path: &str, relative_path: &str) -> Result<Path
     Ok(Path::new(project_path).join(relative))
 }
 
-fn write_text_atomically(path: &Path, contents: &str) -> Result<(), String> {
+fn archive_path(path: &str) -> Result<PathBuf, String> {
+    let archive = PathBuf::from(path);
+    let is_zip = archive
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| extension.eq_ignore_ascii_case("zip"))
+        .unwrap_or(false);
+    if !is_zip {
+        return Err("Packed Yellow Editor projects must use a .zip file.".into());
+    }
+    Ok(archive)
+}
+
+fn write_bytes_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
     let parent = path
         .parent()
         .ok_or_else(|| format!("Could not determine parent directory for {}", path.display()))?;
@@ -116,6 +132,10 @@ fn write_text_atomically(path: &Path, contents: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn write_text_atomically(path: &Path, contents: &str) -> Result<(), String> {
+    write_bytes_atomically(path, contents.as_bytes())
+}
+
 fn project_history_path(app: &tauri::AppHandle, project_path: &str) -> Result<PathBuf, String> {
     let normalized = if cfg!(windows) {
         project_path.replace('\\', "/").to_lowercase()
@@ -152,6 +172,35 @@ fn read_project_text(project_path: String, relative_path: String) -> Result<Stri
 fn read_project_bytes(project_path: String, relative_path: String) -> Result<Vec<u8>, String> {
     let path = project_relative_path(&project_path, &relative_path)?;
     fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+}
+
+#[tauri::command]
+fn read_archive_bytes(path: String) -> Result<Vec<u8>, String> {
+    let path = archive_path(&path)?;
+    let metadata = fs::metadata(&path)
+        .map_err(|e| format!("Failed to inspect {}: {}", path.display(), e))?;
+    if !metadata.is_file() {
+        return Err(format!("Packed project is not a file: {}", path.display()));
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_PROJECT_ARCHIVE_BYTES {
+        return Err(format!(
+            "Packed project must be between 1 byte and {} MB.",
+            MAX_PROJECT_ARCHIVE_BYTES / 1024 / 1024
+        ));
+    }
+    fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+}
+
+#[tauri::command]
+fn write_archive_bytes(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let path = archive_path(&path)?;
+    if bytes.is_empty() || bytes.len() as u64 > MAX_PROJECT_ARCHIVE_BYTES {
+        return Err(format!(
+            "Packed project must be between 1 byte and {} MB.",
+            MAX_PROJECT_ARCHIVE_BYTES / 1024 / 1024
+        ));
+    }
+    write_bytes_atomically(&path, &bytes)
 }
 
 fn decode_png_rgba_bytes(bytes: &[u8]) -> Result<DecodedPngImage, String> {

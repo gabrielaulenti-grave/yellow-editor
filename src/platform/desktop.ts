@@ -12,7 +12,8 @@ import type {
   HistoryStore,
   ProjectSource,
 } from "../core/types";
-import type { PlatformAdapter } from "./types";
+import { createPackedProjectSource } from "./packedProject";
+import type { PlatformAdapter, PlatformOpenProjectOptions } from "./types";
 
 interface DesktopDecodedPngImage {
   width: number;
@@ -62,9 +63,6 @@ function decodedPngDataUrl(image: Gen1DecodedImage): string {
   return canvas.toDataURL("image/png");
 }
 
-// The browser build uses createImageBitmap/canvas for PNG decoding. Tauri uses
-// its Rust backend instead so desktop builds do not depend on WebView image
-// decoding behavior and behave consistently across Windows, macOS, and Linux.
 configureGen1PngDecoder("Tauri native PNG decoder", decodeDesktopPng);
 
 function createDesktopHistoryStore(projectPath: string): HistoryStore {
@@ -145,11 +143,6 @@ function createDesktopSource(projectPath: string): ProjectSource {
           projectPath,
           relativePath,
         }));
-
-        // Source sprite PNGs are valid for RGBDS but are not decoded consistently
-        // by every Tauri WebView. Decode them with the same native Rust path used
-        // by desktop graphics conversion, then re-encode the RGBA pixels through
-        // canvas into a WebView-native PNG data URL for display.
         const url = relativePath.toLowerCase().endsWith(".png")
           ? decodedPngDataUrl(await decodeDesktopPng(bytes))
           : URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
@@ -171,8 +164,52 @@ function createDesktopSource(projectPath: string): ProjectSource {
   };
 }
 
+async function openPackedDesktopProject(): Promise<ReturnType<typeof attachTextEditing> | null> {
+  const selected = await open({
+    directory: false,
+    multiple: false,
+    title: "Select packed Pokémon project",
+    filters: [{ name: "ZIP archive", extensions: ["zip"] }],
+  });
+  if (!selected) {
+    return null;
+  }
+  if (Array.isArray(selected)) {
+    throw new Error("Expected a single ZIP archive.");
+  }
+
+  const archiveBytes = Uint8Array.from(await invoke<number[]>("read_archive_bytes", {
+    path: selected,
+  }));
+  const archiveName = selected.replace(/\\/g, "/").split("/").pop() ?? "project.zip";
+  const source = await createPackedProjectSource({
+    archiveName,
+    archiveBytes,
+    storageKey: `desktop-packed:${selected}`,
+    historyStore: createDesktopHistoryStore(`packed:${selected}`),
+    persistArchive: async (bytes) => {
+      await invoke<void>("write_archive_bytes", {
+        path: selected,
+        bytes: Array.from(bytes),
+      });
+    },
+    assetUrlFactory: async (path, bytes) => path.toLowerCase().endsWith(".png")
+      ? decodedPngDataUrl(await decodeDesktopPng(bytes))
+      : URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" })),
+  });
+  const session = await createProjectSession(
+    source,
+    createSharedWasmBuildService(source, "desktop-wasm"),
+  );
+  return attachTextEditing(session, source);
+}
+
 export const desktopPlatform: PlatformAdapter = {
-  async openProject() {
+  async openProject(options?: PlatformOpenProjectOptions) {
+    if (options?.sourceKind === "zip") {
+      return openPackedDesktopProject();
+    }
+
     const selected = await open({
       directory: true,
       multiple: false,

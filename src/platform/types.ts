@@ -14,8 +14,11 @@ export type ProjectWorkspaceProgressListener = (
   progress: ProjectWorkspaceProgress,
 ) => void;
 
+export type ProjectSourceKind = "folder" | "zip";
+
 export interface PlatformOpenProjectOptions {
   onWorkspaceProgress?: ProjectWorkspaceProgressListener;
+  sourceKind?: ProjectSourceKind;
 }
 
 export interface PlatformAdapter {
