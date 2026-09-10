@@ -153,10 +153,11 @@ function mimeTypeForPath(path: string): string {
 export async function createLazyOpfsProjectSource(
   options: CreateLazyWorkspaceOptions,
 ): Promise<LazyOpfsProjectSource | null> {
-  const workspaceRoot = await workspaceRootForIdentity(options.identityHint);
-  if (!workspaceRoot) {
+  const resolvedWorkspaceRoot = await workspaceRootForIdentity(options.identityHint);
+  if (!resolvedWorkspaceRoot) {
     return null;
   }
+  const workspaceRoot: FileSystemDirectoryHandle = resolvedWorkspaceRoot;
 
   // Persistence is best-effort and should never delay opening the editor.
   void navigator.storage.persist().catch(() => undefined);
