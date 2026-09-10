@@ -1,5 +1,7 @@
 import type { ProjectSession } from "../core/types";
 
+export const PROJECT_WORKSPACE_PROGRESS_EVENT = "yellow-editor:workspace-progress";
+
 export interface ProjectWorkspaceProgress {
   stage: "checking" | "enumerating" | "copying" | "ready" | "error";
   message: string;
