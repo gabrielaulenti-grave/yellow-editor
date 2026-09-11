@@ -10,6 +10,7 @@ import {
   trainerSpecialMoveError,
   type TrainerPartyDraft,
 } from "./editor/trainerPartyForm";
+import { MapScriptPreview } from "./MapScriptPreview";
 import { TextEditor } from "./TextEditor";
 
 export type TrainerSection = "parties" | "classes";
@@ -64,9 +65,7 @@ function triggerLabel(instance: TrainerPartyEntry["instances"][number]): string 
   if (instance.triggerKind === "sight") {
     return `${instance.viewRange} tile${instance.viewRange === 1 ? "" : "s"}`;
   }
-  if (instance.triggerKind === "talk") {
-    return "Talk-only";
-  }
+  if (instance.triggerKind === "talk") return "Talk-only";
   return "Custom script";
 }
 
@@ -121,11 +120,7 @@ function DialogueBlock({
 
   return (
     <div className="trainer-dialogue-block">
-      <TextEditor
-        title={label}
-        target={target}
-        initialText={dialogue.text}
-      />
+      <TextEditor title={label} target={target} initialText={dialogue.text} />
     </div>
   );
 }
@@ -317,7 +312,7 @@ function PartyBrowser({
             {selectedTrainer.scriptReferences.length > 0 && (
               <section className="editor-card">
                 <h4>Map script references</h4>
-                <p className="help-text">These scripts select this party without relying solely on trainer object metadata. The complete map source is available so event flags, coordinates, starter checks, and other trigger conditions can be reviewed in context.</p>
+                <p className="help-text">Yellow Editor now translates recognized map-script engine operations into beginner-friendly steps. The complete assembly remains available for unusual behavior and verification.</p>
                 <div className="trainer-instance-list">
                   {selectedTrainer.scriptReferences.map((reference) => (
                     <details key={`${reference.id}:${selectedTrainer.id}`} open={selectedTrainer.scriptReferences.length === 1}>
@@ -329,10 +324,9 @@ function PartyBrowser({
                           <div><strong>Selecting routine</strong><code>{reference.routineLabel}</code></div>
                           <div><strong>Source</strong><code>{reference.scriptPath}:{reference.sourceLine}</code></div>
                         </div>
-                        <h5>Selecting routine</h5>
-                        <pre className="trainer-script-source"><code>{reference.routineSource}</code></pre>
+                        <MapScriptPreview reference={reference} />
                         <details className="trainer-full-script">
-                          <summary>View complete map script and trigger conditions</summary>
+                          <summary>Advanced: view complete map script and trigger conditions</summary>
                           <pre className="trainer-script-source"><code>{reference.mapScriptSource}</code></pre>
                         </details>
                       </div>
