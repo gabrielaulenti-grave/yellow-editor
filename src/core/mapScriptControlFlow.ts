@@ -143,6 +143,11 @@ function flagCondition(lines: string[], index: number): { condition: MapScriptCo
   if (!variable) return null;
   const flag = withoutComment(lines[index + 1] ?? "").match(/^bit\s+([^,\s]+)\s*,\s*a\s*$/i)?.[1];
   if (!flag) return null;
+
+  // mapScriptProgram already recognizes this engine idiom as a semantic wait.
+  // Keep that friendlier operation instead of replacing it with a generic flag test.
+  if (variable === "wStatusFlags5" && flag === "BIT_SCRIPTED_NPC_MOVEMENT") return null;
+
   const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
   if (!branch) return null;
 
