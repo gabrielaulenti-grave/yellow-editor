@@ -1,4 +1,10 @@
 import { useMemo } from "react";
+import {
+  structuredMapScriptFlow,
+  type MapScriptBranchOutcome,
+  type MapScriptCondition,
+  type MapScriptIfBlock,
+} from "./core/mapScriptControlFlow";
 import { renderMovementStep, type MapScriptOperationKind } from "./core/mapScriptOpcodes";
 import {
   focusedMapScriptStates,
@@ -25,6 +31,13 @@ function titleCaseConstant(value: string): string {
 
 function stateTitle(label: string): string {
   return titleCaseConstant(label.replace(/Script$/, ""));
+}
+
+function variableTitle(variable: string): string {
+  if (variable === "wXCoord") return "player X coordinate";
+  if (variable === "wYCoord") return "player Y coordinate";
+  if (variable === "wIsInBattle") return "battle status";
+  return titleCaseConstant(variable.replace(/^w(?=[A-Z])/, "")).toLowerCase();
 }
 
 function iconFor(kind: MapScriptOperationKind): string {
@@ -90,6 +103,30 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
   }
 }
 
+function conditionText(condition: MapScriptCondition): string {
+  switch (condition.type) {
+    case "event-state":
+      return `${titleCaseConstant(condition.event)} ${condition.state === "set" ? "has happened" : "has not happened"}`;
+    case "battle-result":
+      return condition.result === "lost" ? "the player lost the battle" : "the player did not lose the battle";
+    case "variable-compare":
+      return `${variableTitle(condition.variable)} ${condition.comparison === "equals" ? "is" : "is not"} ${titleCaseConstant(condition.value)}`;
+    case "flag-state":
+      return `${titleCaseConstant(condition.flag)} is ${condition.state === "set" ? "on" : "off"} in ${variableTitle(condition.variable)}`;
+  }
+}
+
+function branchOutcomeText(outcome: MapScriptBranchOutcome): string {
+  switch (outcome.type) {
+    case "continue":
+      return "Continue with the next step";
+    case "return":
+      return "Stop this script state here";
+    case "jump":
+      return `Continue at ${titleCaseConstant(outcome.target.replace(/Script$/, ""))}`;
+  }
+}
+
 function ScriptNodeCard({ node, index }: { node: MapScriptSemanticNode; index: number }) {
   const details = nodeDetails(node);
   const description = node.type === "wait" && node.reason ? node.reason : node.description;
@@ -123,6 +160,36 @@ function ScriptNodeCard({ node, index }: { node: MapScriptSemanticNode; index: n
   );
 }
 
+function IfBlockCard({ block, index }: { block: MapScriptIfBlock; index: number }) {
+  return (
+    <li className="map-script-step map-script-step-condition map-script-if-step">
+      <span className="map-script-step-number">{index + 1}</span>
+      <span className="map-script-step-icon" aria-hidden="true">?</span>
+      <div className="map-script-step-body">
+        <div className="map-script-step-title-row">
+          <strong>If {conditionText(block.condition)}</strong>
+        </div>
+        <div className="map-script-branches">
+          <div className="map-script-branch">
+            <small>Then</small>
+            <span>{branchOutcomeText(block.whenTrue)}</span>
+            {block.whenTrue.type === "jump" && <code>{block.whenTrue.target}</code>}
+          </div>
+          <div className="map-script-branch">
+            <small>Otherwise</small>
+            <span>{branchOutcomeText(block.whenFalse)}</span>
+            {block.whenFalse.type === "jump" && <code>{block.whenFalse.target}</code>}
+          </div>
+        </div>
+        <details className="map-script-source-detail">
+          <summary>Source lines {block.source.lineStart}{block.source.lineEnd !== block.source.lineStart ? `–${block.source.lineEnd}` : ""}</summary>
+          <pre className="trainer-script-source"><code>{block.source.raw}</code></pre>
+        </details>
+      </div>
+    </li>
+  );
+}
+
 function stateRole(state: MapScriptState, focusLabel: string, index: number, focusIndex: number): string {
   if (state.label === focusLabel) return "Current state";
   if (index < focusIndex) return "Before this state";
@@ -133,7 +200,7 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
   const model = useMemo(() => {
     const program = parseMapScriptProgram(reference.mapScriptSource, reference.routineLabel);
     const states = focusedMapScriptStates(program, reference.routineLabel, 1, 1);
-    return { program, states };
+    return { states };
   }, [reference.mapScriptSource, reference.routineLabel]);
 
   if (model.states.length === 0) {
@@ -151,36 +218,41 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
       <div className="map-script-preview-heading">
         <div>
           <h5>Event flow</h5>
-          <p className="help-text">Yellow Editor follows explicit map-script state transitions so setup, automatic movement, battle preparation, and follow-up behavior can be understood as one event.</p>
+          <p className="help-text">Yellow Editor follows script states and turns recognized conditional jumps into beginner-friendly If / Then / Otherwise branches.</p>
         </div>
         <span className="read-only-badge">Semantic preview</span>
       </div>
 
       <div className="map-script-state-list">
-        {model.states.map((state, stateIndex) => (
-          <details
-            className={`map-script-state${state.label === reference.routineLabel ? " current" : ""}`}
-            key={state.label}
-            open={model.states.length <= 3 || state.label === reference.routineLabel}
-          >
-            <summary>
-              <span>
-                <small>{stateRole(state, reference.routineLabel, stateIndex, focusIndex)}</small>
-                <strong>{stateTitle(state.label)}</strong>
-              </span>
-              <code>{state.scriptConstant ?? state.label}</code>
-            </summary>
-            <div className="map-script-state-body">
-              {state.nodes.length === 0 ? (
-                <p className="empty-state">No semantic operations are recognized in this state yet. The original source remains available below.</p>
-              ) : (
-                <ol className="map-script-step-list">
-                  {state.nodes.map((node, index) => <ScriptNodeCard node={node} index={index} key={node.id} />)}
-                </ol>
-              )}
-            </div>
-          </details>
-        ))}
+        {model.states.map((state, stateIndex) => {
+          const flow = structuredMapScriptFlow(state);
+          return (
+            <details
+              className={`map-script-state${state.label === reference.routineLabel ? " current" : ""}`}
+              key={state.label}
+              open={model.states.length <= 3 || state.label === reference.routineLabel}
+            >
+              <summary>
+                <span>
+                  <small>{stateRole(state, reference.routineLabel, stateIndex, focusIndex)}</small>
+                  <strong>{stateTitle(state.label)}</strong>
+                </span>
+                <code>{state.scriptConstant ?? state.label}</code>
+              </summary>
+              <div className="map-script-state-body">
+                {flow.length === 0 ? (
+                  <p className="empty-state">No semantic operations are recognized in this state yet. The original source remains available below.</p>
+                ) : (
+                  <ol className="map-script-step-list">
+                    {flow.map((item, index) => item.type === "if"
+                      ? <IfBlockCard block={item} index={index} key={item.id} />
+                      : <ScriptNodeCard node={item.node} index={index} key={item.node.id} />)}
+                  </ol>
+                )}
+              </div>
+            </details>
+          );
+        })}
       </div>
 
       <details className="trainer-full-script map-script-resolved-summary">
