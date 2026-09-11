@@ -5,6 +5,7 @@ import {
   type ParsedMapScriptInstruction,
 } from "./core/mapScriptParser";
 import type { TrainerScriptReference } from "./core/types";
+import "./MapScriptPreview.css";
 
 interface MapScriptPreviewProps {
   reference: TrainerScriptReference;
@@ -61,13 +62,12 @@ function detailForInstruction(
   mapSource: string,
 ): { label?: string; value?: string; path?: string } {
   const lines = routineSource.split(/\r?\n/);
-  const lineIndex = Math.max(0, instruction.line - 1);
   const mapLines = mapSource.split(/\r?\n/);
   const absoluteLine = mapLines[instruction.line - 1];
   const localIndex = absoluteLine
     ? lines.findIndex((line) => line === absoluteLine)
     : -1;
-  const index = localIndex >= 0 ? localIndex : Math.min(lineIndex, lines.length - 1);
+  const index = localIndex >= 0 ? localIndex : 0;
 
   switch (instruction.opcodeId) {
     case "check-event":
