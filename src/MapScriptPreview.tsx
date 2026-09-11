@@ -47,7 +47,7 @@ function iconFor(kind: MapScriptOperationKind): string {
 function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value: string; path?: boolean }> {
   switch (node.type) {
     case "movement": {
-      const path = node.path.map(renderMovementStep).join(" → ");
+      const path = node.path.map(renderMovementStep).join(" · ");
       return [
         ...(node.actor === "character" && node.actorConstant
           ? [{ label: "Character", value: titleCaseConstant(node.actorConstant) }]
