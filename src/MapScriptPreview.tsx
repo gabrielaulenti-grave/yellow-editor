@@ -1,9 +1,11 @@
 import { useMemo } from "react";
+import { renderMovementStep, type MapScriptOperationKind } from "./core/mapScriptOpcodes";
 import {
-  parseMapScriptRoutines,
-  parseMovementPath,
-  type ParsedMapScriptInstruction,
-} from "./core/mapScriptParser";
+  focusedMapScriptStates,
+  parseMapScriptProgram,
+  type MapScriptSemanticNode,
+  type MapScriptState,
+} from "./core/mapScriptProgram";
 import type { TrainerScriptReference } from "./core/types";
 import "./MapScriptPreview.css";
 
@@ -11,122 +13,21 @@ interface MapScriptPreviewProps {
   reference: TrainerScriptReference;
 }
 
-function withoutComment(line: string): string {
-  return line.split(";", 1)[0].trim();
-}
-
 function titleCaseConstant(value: string): string {
   return value
     .replace(/^\./, "")
-    .replace(/^(EVENT|TEXT|OPP|MUSIC|SPRITE_FACING|NPC_MOVEMENT|PAD)_/, "")
+    .replace(/^(EVENT|TEXT|OPP|MUSIC|SPRITE_FACING|PLAYER_DIR|NPC_MOVEMENT|PAD|SCRIPT|TOGGLE)_/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/_/g, " ")
     .toLowerCase()
     .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 }
 
-function labelBlock(source: string, label: string): string | null {
-  const lines = source.split(/\r?\n/);
-  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const globalPattern = new RegExp(`^\\s*${escaped}:{1,2}\\s*(?:;.*)?$`);
-  const start = lines.findIndex((line) => globalPattern.test(line));
-  if (start < 0) return null;
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^\s*[A-Za-z_.][A-Za-z0-9_.]*:{1,2}\s*(?:;.*)?$/.test(lines[index])) {
-      end = index;
-      break;
-    }
-  }
-  return lines.slice(start, end).join("\n");
+function stateTitle(label: string): string {
+  return titleCaseConstant(label.replace(/Script$/, ""));
 }
 
-function recentRegisterValue(lines: string[], beforeIndex: number, register: "a" | "c" | "de" | "hl", maxBack = 12): string | null {
-  const pattern = new RegExp(`^ld\\s+${register}\\s*,\\s*([^\\s;]+)\\b`, "i");
-  for (let index = beforeIndex - 1; index >= Math.max(0, beforeIndex - maxBack); index -= 1) {
-    const value = withoutComment(lines[index]).match(pattern)?.[1];
-    if (value) return value;
-  }
-  return null;
-}
-
-function parseNumber(value: string | null): number | null {
-  if (!value) return null;
-  if (/^\d+$/.test(value)) return Number(value);
-  if (/^\$[0-9a-f]+$/i.test(value)) return Number.parseInt(value.slice(1), 16);
-  return null;
-}
-
-function detailForInstruction(
-  instruction: ParsedMapScriptInstruction,
-  routineSource: string,
-  mapSource: string,
-): { label?: string; value?: string; path?: string } {
-  const lines = routineSource.split(/\r?\n/);
-  const mapLines = mapSource.split(/\r?\n/);
-  const absoluteLine = mapLines[instruction.line - 1];
-  const localIndex = absoluteLine
-    ? lines.findIndex((line) => line === absoluteLine)
-    : -1;
-  const index = localIndex >= 0 ? localIndex : 0;
-
-  switch (instruction.opcodeId) {
-    case "check-event":
-    case "set-event":
-    case "reset-event": {
-      const value = withoutComment(lines[index] ?? "").split(/\s+/, 2)[1];
-      return value ? { label: "Event", value: titleCaseConstant(value) } : {};
-    }
-    case "display-text": {
-      const text = instruction.source.match(/^\s*call\s+PrintText/i)
-        ? recentRegisterValue(lines, index, "hl", 8)
-        : recentRegisterValue(lines, index, "a", 8);
-      return text ? { label: "Text", value: titleCaseConstant(text) } : {};
-    }
-    case "move-sprite": {
-      const movementLabel = recentRegisterValue(lines, index, "de", 10);
-      if (!movementLabel || /^w[A-Za-z0-9_]+$/.test(movementLabel)) {
-        return { value: "The movement path is calculated while the game is running." };
-      }
-      const source = labelBlock(mapSource, movementLabel);
-      if (!source) return { label: "Movement", value: titleCaseConstant(movementLabel) };
-      const path = parseMovementPath(movementLabel, source).display;
-      return path ? { label: "Path", value: path, path } : { label: "Movement", value: titleCaseConstant(movementLabel) };
-    }
-    case "move-player": {
-      let movementLabel: string | null = null;
-      for (let back = index - 1; back >= Math.max(0, index - 16); back -= 1) {
-        if (/^call\s+DecodeRLEList\b/i.test(withoutComment(lines[back]))) {
-          movementLabel = recentRegisterValue(lines, back, "de", 6);
-          break;
-        }
-      }
-      if (!movementLabel) return { value: "Temporarily controls the player's movement." };
-      const source = labelBlock(mapSource, movementLabel);
-      const path = source ? parseMovementPath(movementLabel, source).display : "";
-      return path ? { label: "Path", value: path, path } : { label: "Movement", value: titleCaseConstant(movementLabel) };
-    }
-    case "battle": {
-      const opponent = recentRegisterValue(lines, index, "a", 6);
-      return opponent ? { label: "Opponent", value: titleCaseConstant(opponent) } : {};
-    }
-    case "delay": {
-      if (/DelayFrames/i.test(instruction.source)) {
-        const frames = parseNumber(recentRegisterValue(lines, index, "c", 5));
-        if (frames !== null) return { label: "Duration", value: `${frames} frame${frames === 1 ? "" : "s"}` };
-      }
-      return {};
-    }
-    case "play-music": {
-      const routine = instruction.source.match(/^\s*farcall\s+Music_([A-Za-z0-9_]+)/i)?.[1];
-      const music = routine ?? recentRegisterValue(lines, index, "a", 8);
-      return music ? { label: "Music", value: titleCaseConstant(music) } : {};
-    }
-    default:
-      return {};
-  }
-}
-
-function iconFor(kind: ParsedMapScriptInstruction["kind"]): string {
+function iconFor(kind: MapScriptOperationKind): string {
   switch (kind) {
     case "condition": return "?";
     case "dialogue": return "“”";
@@ -143,15 +44,99 @@ function iconFor(kind: ParsedMapScriptInstruction["kind"]): string {
   }
 }
 
+function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value: string; path?: boolean }> {
+  switch (node.type) {
+    case "movement": {
+      const path = node.path.map(renderMovementStep).join(" · ");
+      return [
+        ...(node.actor === "character" && node.actorConstant
+          ? [{ label: "Character", value: titleCaseConstant(node.actorConstant) }]
+          : []),
+        ...(path ? [{ label: "Path", value: path, path: true }] : []),
+        ...(!path && node.pathLabel ? [{ label: "Movement", value: titleCaseConstant(node.pathLabel) }] : []),
+      ];
+    }
+    case "dialogue":
+      return node.textLabel ? [{ label: "Text", value: titleCaseConstant(node.textLabel) }] : [];
+    case "battle-dialogue":
+      return [
+        ...(node.playerWins ? [{ label: "Player wins", value: titleCaseConstant(node.playerWins) }] : []),
+        ...(node.playerLoses ? [{ label: "Player loses", value: titleCaseConstant(node.playerLoses) }] : []),
+      ];
+    case "opponent":
+      return node.opponent ? [{ label: "Opponent", value: titleCaseConstant(node.opponent) }] : [];
+    case "wait":
+      return node.frames !== undefined ? [{ label: "Duration", value: `${node.frames} frame${node.frames === 1 ? "" : "s"}` }] : [];
+    case "event":
+      return [{ label: "Event", value: titleCaseConstant(node.event) }];
+    case "condition":
+      return [
+        { label: "Condition", value: node.condition },
+        ...(node.branchTarget ? [{ label: "If true", value: titleCaseConstant(node.branchTarget) }] : []),
+      ];
+    case "transition":
+      return [{ label: "Next state", value: node.targetLabel ? stateTitle(node.targetLabel) : titleCaseConstant(node.targetConstant) }];
+    case "object":
+      return node.object ? [{ label: "Object", value: titleCaseConstant(node.object) }] : [];
+    case "music":
+      return node.music ? [{ label: "Music", value: titleCaseConstant(node.music) }] : [];
+    case "facing":
+      return [
+        ...(node.actor ? [{ label: "Character", value: titleCaseConstant(node.actor) }] : []),
+        ...(node.facing ? [{ label: "Facing", value: node.facing === "0" ? "Down" : titleCaseConstant(node.facing) }] : []),
+      ];
+    case "recovery":
+      return [];
+  }
+}
+
+function ScriptNodeCard({ node, index }: { node: MapScriptSemanticNode; index: number }) {
+  const details = nodeDetails(node);
+  const description = node.type === "wait" && node.reason ? node.reason : node.description;
+  return (
+    <li className={`map-script-step map-script-step-${node.kind}`}>
+      <span className="map-script-step-number">{index + 1}</span>
+      <span className="map-script-step-icon" aria-hidden="true">{iconFor(node.kind)}</span>
+      <div className="map-script-step-body">
+        <div className="map-script-step-title-row">
+          <strong>{node.title}</strong>
+          {node.source.confidence === "inferred" && <small className="map-script-confidence">Inferred</small>}
+        </div>
+        {description && <p>{description}</p>}
+        {details.map((detail) => detail.path ? (
+          <div key={`${detail.label}:${detail.value}`} className="map-script-path-detail">
+            <small>{detail.label}</small>
+            <code className="map-script-path">{detail.value}</code>
+          </div>
+        ) : (
+          <span className="map-script-detail" key={`${detail.label}:${detail.value}`}>
+            <small>{detail.label}</small>
+            <code>{detail.value}</code>
+          </span>
+        ))}
+        <details className="map-script-source-detail">
+          <summary>Source lines {node.source.lineStart}{node.source.lineEnd !== node.source.lineStart ? `–${node.source.lineEnd}` : ""}</summary>
+          <pre className="trainer-script-source"><code>{node.source.raw}</code></pre>
+        </details>
+      </div>
+    </li>
+  );
+}
+
+function stateRole(state: MapScriptState, focusLabel: string, index: number, focusIndex: number): string {
+  if (state.label === focusLabel) return "Current state";
+  if (index < focusIndex) return "Before this state";
+  return "Next state";
+}
+
 export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
   const model = useMemo(() => {
-    const routines = parseMapScriptRoutines(reference.mapScriptSource);
-    const routine = routines.find((entry) => entry.label === reference.routineLabel) ?? null;
-    const source = labelBlock(reference.mapScriptSource, reference.routineLabel) ?? "";
-    return { routine, source };
+    const program = parseMapScriptProgram(reference.mapScriptSource, reference.routineLabel);
+    const states = focusedMapScriptStates(program, reference.routineLabel, 1, 1);
+    return { program, states };
   }, [reference.mapScriptSource, reference.routineLabel]);
 
-  if (!model.routine) {
+  if (model.states.length === 0) {
     return (
       <div className="map-script-preview">
         <p className="empty-state">Yellow Editor could not isolate this routine safely. Use the advanced source below to review it.</p>
@@ -159,37 +144,44 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
     );
   }
 
+  const focusIndex = model.states.findIndex((state) => state.label === reference.routineLabel);
+
   return (
     <div className="map-script-preview">
       <div className="map-script-preview-heading">
         <div>
-          <h5>Script steps</h5>
-          <p className="help-text">Recognized engine operations are translated into editable concepts. Editing controls will be added on top of this same model.</p>
+          <h5>Event flow</h5>
+          <p className="help-text">Yellow Editor follows explicit map-script state transitions so setup, automatic movement, battle preparation, and follow-up behavior can be understood as one event.</p>
         </div>
-        <span className="read-only-badge">Preview</span>
+        <span className="read-only-badge">Semantic preview</span>
       </div>
 
-      {model.routine.instructions.length === 0 ? (
-        <p className="empty-state">No library operations were recognized in this routine yet.</p>
-      ) : (
-        <ol className="map-script-step-list">
-          {model.routine.instructions.map((instruction, index) => {
-            const detail = detailForInstruction(instruction, model.source, reference.mapScriptSource);
-            return (
-              <li className={`map-script-step map-script-step-${instruction.kind}`} key={`${instruction.line}:${instruction.opcodeId}:${index}`}>
-                <span className="map-script-step-number">{index + 1}</span>
-                <span className="map-script-step-icon" aria-hidden="true">{iconFor(instruction.kind)}</span>
-                <div className="map-script-step-body">
-                  <strong>{instruction.title}</strong>
-                  <p>{detail.value ?? instruction.description}</p>
-                  {detail.path && <code className="map-script-path">{detail.path}</code>}
-                  {detail.label && !detail.path && <span className="map-script-detail"><small>{detail.label}</small><code>{detail.value}</code></span>}
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
+      <div className="map-script-state-list">
+        {model.states.map((state, stateIndex) => (
+          <details
+            className={`map-script-state${state.label === reference.routineLabel ? " current" : ""}`}
+            key={state.label}
+            open={model.states.length <= 3 || state.label === reference.routineLabel}
+          >
+            <summary>
+              <span>
+                <small>{stateRole(state, reference.routineLabel, stateIndex, focusIndex)}</small>
+                <strong>{stateTitle(state.label)}</strong>
+              </span>
+              <code>{state.scriptConstant ?? state.label}</code>
+            </summary>
+            <div className="map-script-state-body">
+              {state.nodes.length === 0 ? (
+                <p className="empty-state">No semantic operations are recognized in this state yet. The original source remains available below.</p>
+              ) : (
+                <ol className="map-script-step-list">
+                  {state.nodes.map((node, index) => <ScriptNodeCard node={node} index={index} key={node.id} />)}
+                </ol>
+              )}
+            </div>
+          </details>
+        ))}
+      </div>
 
       <details className="trainer-full-script map-script-resolved-summary">
         <summary>View resolved plain-language summary</summary>
