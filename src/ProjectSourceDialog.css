@@ -1,0 +1,25 @@
+dialog[aria-labelledby="yellow-editor-open-project-title"] {
+  color-scheme: light dark;
+  color: CanvasText !important;
+  background: Canvas !important;
+  border-color: GrayText !important;
+}
+
+dialog[aria-labelledby="yellow-editor-open-project-title"]::backdrop {
+  background: rgb(0 0 0 / 0.55);
+}
+
+dialog[aria-labelledby="yellow-editor-open-project-title"] button {
+  color: ButtonText !important;
+  background: ButtonFace !important;
+  border-color: ButtonBorder !important;
+}
+
+dialog[aria-labelledby="yellow-editor-open-project-title"] button:focus-visible {
+  outline: 2px solid Highlight;
+  outline-offset: 2px;
+}
+
+dialog[aria-labelledby="yellow-editor-open-project-title"] button:nth-child(2) {
+  font-weight: 700;
+}
