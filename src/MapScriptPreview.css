@@ -20,6 +20,53 @@
   margin-top: 0.25rem;
 }
 
+.map-script-state-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.map-script-state {
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 0.7rem;
+  overflow: hidden;
+}
+
+.map-script-state.current {
+  border-width: 2px;
+}
+
+.map-script-state > summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  cursor: pointer;
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.map-script-state > summary > span {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.map-script-state > summary small {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.65;
+}
+
+.map-script-state > summary code {
+  max-width: 45%;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.map-script-state-body {
+  padding: 0.8rem;
+}
+
 .map-script-step-list {
   display: grid;
   gap: 0.65rem;
@@ -57,7 +104,7 @@
 
 .map-script-step-body {
   display: grid;
-  gap: 0.3rem;
+  gap: 0.38rem;
   min-width: 0;
 }
 
@@ -66,16 +113,38 @@
   opacity: 0.82;
 }
 
-.map-script-detail {
+.map-script-step-title-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
 }
 
-.map-script-detail small {
+.map-script-confidence {
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.12);
+  font-size: 0.72rem;
+  opacity: 0.75;
+}
+
+.map-script-detail,
+.map-script-path-detail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.map-script-detail small,
+.map-script-path-detail small {
   font-weight: 700;
   opacity: 0.72;
+}
+
+.map-script-path-detail {
+  align-items: flex-start;
+  flex-direction: column;
 }
 
 .map-script-path {
@@ -88,6 +157,42 @@
   overflow-wrap: anywhere;
 }
 
+.map-script-source-detail {
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  opacity: 0.78;
+}
+
+.map-script-source-detail > summary {
+  cursor: pointer;
+}
+
+.map-script-source-detail pre {
+  margin-bottom: 0;
+}
+
 .map-script-resolved-summary {
   margin-top: 0.15rem;
+}
+
+@media (max-width: 680px) {
+  .map-script-preview-heading {
+    display: grid;
+  }
+
+  .map-script-state > summary {
+    align-items: flex-start;
+  }
+
+  .map-script-state > summary code {
+    max-width: 52%;
+  }
+
+  .map-script-step {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .map-script-step-icon {
+    display: none;
+  }
 }
