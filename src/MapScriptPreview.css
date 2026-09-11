@@ -157,6 +157,39 @@
   overflow-wrap: anywhere;
 }
 
+.map-script-if-step {
+  border-style: solid;
+}
+
+.map-script-branches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.map-script-branch {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.6rem 0.7rem;
+  border-left: 3px solid var(--border-color, rgba(127, 127, 127, 0.35));
+  border-radius: 0.35rem;
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.map-script-branch small {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.68;
+}
+
+.map-script-branch span,
+.map-script-branch code {
+  overflow-wrap: anywhere;
+}
+
 .map-script-source-detail {
   margin-top: 0.15rem;
   font-size: 0.8rem;
@@ -194,5 +227,9 @@
 
   .map-script-step-icon {
     display: none;
+  }
+
+  .map-script-branches {
+    grid-template-columns: 1fr;
   }
 }
