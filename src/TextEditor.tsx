@@ -1,9 +1,12 @@
 import { useState } from "react";
 import type { HistorySummary } from "./core/types";
-import type {
-  TextDocument,
-  TextSegment,
-  TextSegmentControl,
+import {
+  TEXT_BOX_LINE_WIDTH,
+  textLineDisplayWidth,
+  textLineLengthError,
+  type TextDocument,
+  type TextSegment,
+  type TextSegmentControl,
 } from "./core/textEditing";
 import { invoke } from "./platform/compat";
 import "./TextEditor.css";
@@ -64,6 +67,8 @@ export function TextEditor({
   const [error, setError] = useState<string | null>(null);
 
   const dirty = Boolean(document && !sameSegments(draft, document.segments));
+  const lineErrors = draft.map((segment) => textLineLengthError(segment.text));
+  const hasLineErrors = lineErrors.some(Boolean);
 
   async function beginEdit() {
     if (!target || disabled) {
@@ -105,7 +110,7 @@ export function TextEditor({
   }
 
   async function save() {
-    if (!document || !document.editable || !dirty) {
+    if (!document || !document.editable || !dirty || hasLineErrors) {
       return;
     }
     setBusy(true);
@@ -131,6 +136,10 @@ export function TextEditor({
     }
   }
 
+  const displayTarget = document
+    ? { path: document.path, label: document.label }
+    : target;
+
   return (
     <div className="text-editor-summary">
       <div className="text-editor-summary-heading">
@@ -152,7 +161,7 @@ export function TextEditor({
             <div className="text-editor-dialog-heading">
               <div>
                 <h3>{title}</h3>
-                {target && <p><code>{target.path}</code> · <code>{target.label}</code></p>}
+                {displayTarget && <p><code>{displayTarget.path}</code> · <code>{displayTarget.label}</code></p>}
               </div>
               <button type="button" className="small-button" disabled={busy} onClick={closeEditor}>Close</button>
             </div>
@@ -163,7 +172,7 @@ export function TextEditor({
             {document && (
               <>
                 <p className="help-text">
-                  Yellow Editor preserves the existing text flow. Edit the words here; line, scroll, paragraph, and page controls stay in their original positions.
+                  Yellow Editor preserves the existing text flow. Each dialogue line has {TEXT_BOX_LINE_WIDTH} character spaces. The counter uses the longest runtime value: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, and <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names.
                 </p>
                 {document.warnings.length > 0 && (
                   <div className="text-editor-warning">
@@ -173,17 +182,26 @@ export function TextEditor({
                 )}
 
                 <div className="text-editor-segments">
-                  {draft.map((segment, index) => (
-                    <label className="text-editor-segment" key={`${segment.control}:${index}`}>
-                      <span>{controlLabel(segment.control)}</span>
-                      <textarea
-                        rows={2}
-                        value={segment.text}
-                        disabled={busy || !document.editable}
-                        onChange={(event) => updateSegment(index, event.target.value)}
-                      />
-                    </label>
-                  ))}
+                  {draft.map((segment, index) => {
+                    const width = textLineDisplayWidth(segment.text);
+                    const lineError = lineErrors[index];
+                    return (
+                      <label className={`text-editor-segment${lineError ? " invalid" : ""}`} key={`${segment.control}:${index}`}>
+                        <span className="text-editor-segment-heading">
+                          <span>{controlLabel(segment.control)}</span>
+                          <small>{width} / {TEXT_BOX_LINE_WIDTH}</small>
+                        </span>
+                        <textarea
+                          rows={2}
+                          value={segment.text}
+                          disabled={busy || !document.editable}
+                          aria-invalid={lineError ? "true" : "false"}
+                          onChange={(event) => updateSegment(index, event.target.value)}
+                        />
+                        {lineError && <small className="text-editor-line-error">{lineError}</small>}
+                      </label>
+                    );
+                  })}
                 </div>
 
                 <div className="text-editor-preview-card">
@@ -196,7 +214,7 @@ export function TextEditor({
                   <button
                     type="button"
                     className="small-button primary-action"
-                    disabled={busy || !document.editable || !dirty}
+                    disabled={busy || !document.editable || !dirty || hasLineErrors}
                     onClick={() => void save()}
                   >
                     {busy ? "Saving…" : "Save text"}
