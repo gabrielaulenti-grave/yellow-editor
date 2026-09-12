@@ -81,7 +81,7 @@ export function TextEditor({
       const next = await invoke<TextDocument>("get_text_document", {
         path: target.path,
         label: target.label,
-        previewText: initialText ?? undefined,
+        previewText: preview ?? undefined,
       });
       setDocument(next);
       setDraft(next.segments.map((segment) => ({ ...segment })));
