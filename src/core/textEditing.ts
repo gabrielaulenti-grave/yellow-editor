@@ -57,6 +57,7 @@ export const TEXT_BOX_LINE_WIDTH = 18;
 
 const TEXT_LINE_PATTERN = /^(\s*)(text|next|line|cont|para|page)\s+"((?:[^"\\]|\\.)*)"(.*)$/i;
 const LABEL_PATTERN = /^\s*([A-Za-z_.][A-Za-z0-9_.]*):{1,2}\s*(?:;.*)?$/;
+const GLOBAL_LABEL_PATTERN = /^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/;
 const TERMINATOR_PATTERN = /^\s*(done|prompt|dex|text_end)\b/i;
 const FAR_TEXT_PATTERN = /^\s*text_far\s+([A-Za-z_.][A-Za-z0-9_.]*)\b/i;
 
@@ -153,6 +154,37 @@ function findLabelRange(lines: string[], label: string): LabelRange {
   return { start, end };
 }
 
+function findGlobalLabelRange(lines: string[], label: string): LabelRange {
+  if (label.startsWith(".")) {
+    return findLabelRange(lines, label);
+  }
+
+  const exact = new RegExp(`^\\s*${escapeRegex(label)}:{1,2}\\s*(?:;.*)?$`);
+  const matches: number[] = [];
+  lines.forEach((line, index) => {
+    if (exact.test(line)) matches.push(index);
+  });
+
+  if (matches.length === 0) {
+    throw new Error(`Text label '${label}' was not found.`);
+  }
+  if (matches.length > 1) {
+    throw new Error(
+      `Text label '${label}' appears more than once in this file, so Yellow Editor cannot edit it safely yet.`,
+    );
+  }
+
+  const start = matches[0];
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (GLOBAL_LABEL_PATTERN.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return { start, end };
+}
+
 function parseBlock(
   lines: string[],
   range: LabelRange,
@@ -203,7 +235,10 @@ function parseBlock(
 function farTextLabel(contents: string, label: string): string | null {
   const newline = contents.includes("\r\n") ? "\r\n" : "\n";
   const lines = contents.split(newline);
-  const range = findLabelRange(lines, label);
+  // A text_asm wrapper can put its actual text_far under a local label such as
+  // .IntroText. Scan the whole global wrapper, including local labels, but only
+  // auto-follow it when there is exactly one distinct far-text destination.
+  const range = findGlobalLabelRange(lines, label);
   const labels: string[] = [];
   for (let index = range.start + 1; index < range.end; index += 1) {
     const farLabel = lines[index].match(FAR_TEXT_PATTERN)?.[1];
