@@ -18,6 +18,7 @@ import {
   type MapScriptState,
 } from "./core/mapScriptProgram";
 import type { TrainerScriptReference } from "./core/types";
+import { TextEditor, type TextEditorTarget } from "./TextEditor";
 import "./MapScriptPreview.css";
 
 interface MapScriptPreviewProps {
@@ -59,6 +60,29 @@ function variableTitle(variable: string): string {
   if (variable === "wYCoord") return "player Y coordinate";
   if (variable === "wIsInBattle") return "battle status";
   return titleCaseConstant(variable.replace(/^w(?=[A-Z])/, "")).toLowerCase();
+}
+
+function textPointerLabels(contents: string): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const match of contents.matchAll(
+    /^\s*dw_const\s+([A-Za-z_.][A-Za-z0-9_.]*)\s*,\s*(TEXT_[A-Z0-9_]+)\b/gm,
+  )) {
+    result.set(match[2], match[1]);
+  }
+  return result;
+}
+
+function textEditorTarget(
+  reference: TrainerScriptReference,
+  sourceLabel: string | undefined,
+): TextEditorTarget | null {
+  if (!sourceLabel) return null;
+  let wrapperLabel = sourceLabel;
+  if (sourceLabel.startsWith("TEXT_")) {
+    wrapperLabel = textPointerLabels(reference.mapScriptSource).get(sourceLabel) ?? "";
+  }
+  if (!wrapperLabel || wrapperLabel.startsWith(".")) return null;
+  return { path: reference.scriptPath, label: wrapperLabel };
 }
 
 function iconFor(kind: MapScriptOperationKind): string {
@@ -148,46 +172,57 @@ function branchOutcomeText(outcome: MapScriptBranchOutcome): string {
   }
 }
 
-function DialoguePreview({ preview }: { preview: NodeDialoguePreview }) {
-  if (preview.text) {
+function DialoguePreview({
+  preview,
+  node,
+  reference,
+}: {
+  preview: NodeDialoguePreview | undefined;
+  node: Extract<MapScriptSemanticNode, { type: "dialogue" | "battle-dialogue" }>;
+  reference: TrainerScriptReference;
+}) {
+  if (node.type === "dialogue") {
     return (
       <div className="map-script-dialogue-preview">
-        <small>Dialogue</small>
-        <p>“{preview.text}”</p>
+        <TextEditor
+          title="Dialogue"
+          target={textEditorTarget(reference, node.textLabel)}
+          initialText={preview?.text ?? null}
+        />
       </div>
     );
   }
 
-  if (preview.battle) {
-    return (
-      <div className="map-script-dialogue-outcomes">
-        {preview.battle.playerWins && (
-          <div className="map-script-dialogue-preview">
-            <small>If the player wins</small>
-            <p>“{preview.battle.playerWins}”</p>
-          </div>
-        )}
-        {preview.battle.playerLoses && (
-          <div className="map-script-dialogue-preview">
-            <small>If the player loses</small>
-            <p>“{preview.battle.playerLoses}”</p>
-          </div>
-        )}
+  return (
+    <div className="map-script-dialogue-outcomes">
+      <div className="map-script-dialogue-preview">
+        <TextEditor
+          title="If the player wins"
+          target={textEditorTarget(reference, node.playerWins)}
+          initialText={preview?.battle?.playerWins ?? null}
+        />
       </div>
-    );
-  }
-
-  return null;
+      <div className="map-script-dialogue-preview">
+        <TextEditor
+          title="If the player loses"
+          target={textEditorTarget(reference, node.playerLoses)}
+          initialText={preview?.battle?.playerLoses ?? null}
+        />
+      </div>
+    </div>
+  );
 }
 
 function ScriptNodeCard({
   node,
   index,
   dialoguePreview,
+  reference,
 }: {
   node: MapScriptSemanticNode;
   index: number;
   dialoguePreview?: NodeDialoguePreview;
+  reference: TrainerScriptReference;
 }) {
   const details = nodeDetails(node);
   const description = node.type === "wait" && node.reason ? node.reason : node.description;
@@ -201,7 +236,9 @@ function ScriptNodeCard({
           {node.source.confidence === "inferred" && <small className="map-script-confidence">Inferred</small>}
         </div>
         {description && <p>{description}</p>}
-        {dialoguePreview && <DialoguePreview preview={dialoguePreview} />}
+        {(node.type === "dialogue" || node.type === "battle-dialogue") && (
+          <DialoguePreview preview={dialoguePreview} node={node} reference={reference} />
+        )}
         {details.map((detail) => detail.path ? (
           <div key={`${detail.label}:${detail.value}`} className="map-script-path-detail">
             <small>{detail.label}</small>
@@ -281,9 +318,9 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
       <div className="map-script-preview-heading">
         <div>
           <h5>Event flow</h5>
-          <p className="help-text">Yellow Editor follows script states, shows resolved dialogue, and turns recognized conditional jumps into beginner-friendly If / Then / Otherwise branches.</p>
+          <p className="help-text">Yellow Editor follows script states, shows and edits resolved dialogue, and turns recognized conditional jumps into beginner-friendly If / Then / Otherwise branches.</p>
         </div>
-        <span className="read-only-badge">Semantic preview</span>
+        <span className="editable-badge">Dialogue editable</span>
       </div>
 
       <div className="map-script-state-list">
@@ -336,6 +373,7 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
                           index={index}
                           key={item.node.id}
                           dialoguePreview={dialoguePreview}
+                          reference={reference}
                         />
                       );
                     })}

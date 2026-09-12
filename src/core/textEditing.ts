@@ -53,9 +53,27 @@ interface LabelRange {
   end: number;
 }
 
+export const TEXT_BOX_LINE_WIDTH = 18;
+
 const TEXT_LINE_PATTERN = /^(\s*)(text|next|line|cont|para|page)\s+"((?:[^"\\]|\\.)*)"(.*)$/i;
 const LABEL_PATTERN = /^\s*([A-Za-z_.][A-Za-z0-9_.]*):{1,2}\s*(?:;.*)?$/;
 const TERMINATOR_PATTERN = /^\s*(done|prompt|dex|text_end)\b/i;
+const FAR_TEXT_PATTERN = /^\s*text_far\s+([A-Za-z_.][A-Za-z0-9_.]*)\b/i;
+
+// These control codes expand to runtime text. Count their maximum displayed width,
+// rather than the number of characters used to spell the token in the ASM source.
+const TEXT_TOKEN_WIDTHS: Readonly<Record<string, number>> = {
+  "<PLAYER>": 7,
+  "<RIVAL>": 7,
+  "<TARGET>": 10,
+  "<USER>": 10,
+  "<PKMN>": 2,
+  "<PC>": 2,
+  "<TM>": 2,
+  "<TRAINER>": 7,
+  "<ROCKET>": 6,
+  "<……>": 2,
+};
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -71,6 +89,39 @@ function encodeAsmString(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"');
+}
+
+export function textLineDisplayWidth(value: string): number {
+  let width = 0;
+  for (let index = 0; index < value.length;) {
+    const rest = value.slice(index);
+    if (rest[0] === "@") {
+      break;
+    }
+    if (rest[0] === "#") {
+      width += 4; // the single source token displays as POKé
+      index += 1;
+      continue;
+    }
+    if (rest[0] === "<") {
+      const token = rest.match(/^<[^>]+>/)?.[0];
+      if (token) {
+        width += TEXT_TOKEN_WIDTHS[token.toUpperCase()] ?? 1;
+        index += token.length;
+        continue;
+      }
+    }
+    width += 1;
+    index += 1;
+  }
+  return width;
+}
+
+export function textLineLengthError(value: string): string | null {
+  const width = textLineDisplayWidth(value);
+  return width > TEXT_BOX_LINE_WIDTH
+    ? `This line can display up to ${width} characters, but a dialogue line only has ${TEXT_BOX_LINE_WIDTH} spaces.`
+    : null;
 }
 
 function findLabelRange(lines: string[], label: string): LabelRange {
@@ -149,6 +200,61 @@ function parseBlock(
   };
 }
 
+function farTextLabel(contents: string, label: string): string | null {
+  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
+  const lines = contents.split(newline);
+  const range = findLabelRange(lines, label);
+  const labels: string[] = [];
+  for (let index = range.start + 1; index < range.end; index += 1) {
+    const farLabel = lines[index].match(FAR_TEXT_PATTERN)?.[1];
+    if (farLabel && !labels.includes(farLabel)) labels.push(farLabel);
+  }
+  return labels.length === 1 ? labels[0] : null;
+}
+
+function includedTextPaths(contents: string): string[] {
+  return [...contents.matchAll(/^\s*INCLUDE\s+"(text\/[^"]+\.asm)"/gm)].map((match) => match[1]);
+}
+
+function pathStem(path: string): string {
+  return path.split("/").pop()?.replace(/\.asm$/i, "") ?? "";
+}
+
+function containsLabel(contents: string, label: string): boolean {
+  const exact = new RegExp(`^\\s*${escapeRegex(label)}:{1,2}\\s*(?:;.*)?$`, "m");
+  return exact.test(contents);
+}
+
+async function resolveFarTextDocument(
+  source: ProjectSource,
+  wrapperPath: string,
+  wrapperLabel: string,
+  wrapperContents: string,
+): Promise<TextDocument | null> {
+  const textLabel = farTextLabel(wrapperContents, wrapperLabel);
+  if (!textLabel) return null;
+
+  const preferredPath = `text/${pathStem(wrapperPath)}.asm`;
+  if (await source.exists(preferredPath)) {
+    const contents = await source.readText(preferredPath);
+    if (containsLabel(contents, textLabel)) {
+      return parseTextDocument(preferredPath, textLabel, contents);
+    }
+  }
+
+  if (!(await source.exists("text.asm"))) return null;
+  const textIndex = await source.readText("text.asm");
+  const candidates = includedTextPaths(textIndex).filter((path) => path !== preferredPath);
+  for (const path of candidates) {
+    if (!(await source.exists(path))) continue;
+    const contents = await source.readText(path);
+    if (containsLabel(contents, textLabel)) {
+      return parseTextDocument(path, textLabel, contents);
+    }
+  }
+  return null;
+}
+
 export async function parseTextDocument(
   path: string,
   label: string,
@@ -207,6 +313,10 @@ export function applyTextDocumentEdits(
         "A single text segment cannot contain a raw line break. Use the existing text-flow segments instead.",
       );
     }
+    const lineError = textLineLengthError(next.text);
+    if (lineError) {
+      throw new Error(`${lineError} Shorten the '${currentControl}' line before saving.`);
+    }
 
     lines[index] = `${match[1]}${match[2]} "${encodeAsmString(next.text)}"${match[4]}`;
     segmentIndex += 1;
@@ -223,7 +333,8 @@ export function attachTextEditing(
 
   extended.getTextDocument = async (path, label) => {
     const contents = await source.readText(path);
-    return parseTextDocument(path, label, contents);
+    const farDocument = await resolveFarTextDocument(source, path, label, contents);
+    return farDocument ?? parseTextDocument(path, label, contents);
   };
 
   extended.saveTextDocument = async (request) => {
