@@ -183,6 +183,17 @@ function stringArg(args: InvokeArgs | undefined, name: string): string {
   return value;
 }
 
+function optionalStringArg(args: InvokeArgs | undefined, name: string): string | undefined {
+  const value = args?.[name];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`Argument '${name}' must be a string when provided.`);
+  }
+  return value;
+}
+
 function buildTargetArg(args: InvokeArgs | undefined): BuildTarget {
   const value = stringArg(args, "target");
   if (value !== "yellow" && value !== "red" && value !== "blue") {
@@ -234,7 +245,6 @@ function baseStatValuesArg(args: InvokeArgs | undefined): PokemonBaseStatValues 
     }
     result[key] = stat;
   }
-
   return result;
 }
 
@@ -410,6 +420,7 @@ export async function invoke<T>(
       return (await requireTextSession(session).getTextDocument(
         stringArg(args, "path"),
         stringArg(args, "label"),
+        optionalStringArg(args, "previewText"),
       )) as T;
 
     case "save_text_document":
