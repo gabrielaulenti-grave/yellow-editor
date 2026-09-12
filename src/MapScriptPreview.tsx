@@ -5,6 +5,11 @@ import {
   type MapScriptCondition,
   type MapScriptIfBlock,
 } from "./core/mapScriptControlFlow";
+import {
+  findResolvedScriptPhaseDialogue,
+  parseResolvedScriptDialogueSummary,
+  type ResolvedScriptBattleDialogue,
+} from "./core/mapScriptDialoguePreview";
 import { renderMovementStep, type MapScriptOperationKind } from "./core/mapScriptOpcodes";
 import {
   focusedMapScriptStates,
@@ -19,6 +24,11 @@ interface MapScriptPreviewProps {
   reference: TrainerScriptReference;
 }
 
+interface NodeDialoguePreview {
+  text?: string;
+  battle?: ResolvedScriptBattleDialogue;
+}
+
 function titleCaseConstant(value: string): string {
   return value
     .replace(/^\./, "")
@@ -29,8 +39,19 @@ function titleCaseConstant(value: string): string {
     .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
 }
 
+function pathStem(path: string): string {
+  return path.split("/").pop()?.replace(/\.asm$/, "") ?? "";
+}
+
 function stateTitle(label: string): string {
   return titleCaseConstant(label.replace(/Script$/, ""));
+}
+
+function summaryStateTitle(label: string, scriptPath: string): string {
+  let clean = label.replace(/^\./, "").replace(/Script$/, "");
+  const stem = pathStem(scriptPath);
+  if (stem && clean.startsWith(stem)) clean = clean.slice(stem.length);
+  return titleCaseConstant(clean);
 }
 
 function variableTitle(variable: string): string {
@@ -70,11 +91,11 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
       ];
     }
     case "dialogue":
-      return node.textLabel ? [{ label: "Text", value: titleCaseConstant(node.textLabel) }] : [];
+      return node.textLabel ? [{ label: "Text source", value: titleCaseConstant(node.textLabel) }] : [];
     case "battle-dialogue":
       return [
-        ...(node.playerWins ? [{ label: "Player wins", value: titleCaseConstant(node.playerWins) }] : []),
-        ...(node.playerLoses ? [{ label: "Player loses", value: titleCaseConstant(node.playerLoses) }] : []),
+        ...(node.playerWins ? [{ label: "Win text source", value: titleCaseConstant(node.playerWins) }] : []),
+        ...(node.playerLoses ? [{ label: "Loss text source", value: titleCaseConstant(node.playerLoses) }] : []),
       ];
     case "opponent":
       return node.opponent ? [{ label: "Opponent", value: titleCaseConstant(node.opponent) }] : [];
@@ -127,7 +148,47 @@ function branchOutcomeText(outcome: MapScriptBranchOutcome): string {
   }
 }
 
-function ScriptNodeCard({ node, index }: { node: MapScriptSemanticNode; index: number }) {
+function DialoguePreview({ preview }: { preview: NodeDialoguePreview }) {
+  if (preview.text) {
+    return (
+      <div className="map-script-dialogue-preview">
+        <small>Dialogue</small>
+        <p>“{preview.text}”</p>
+      </div>
+    );
+  }
+
+  if (preview.battle) {
+    return (
+      <div className="map-script-dialogue-outcomes">
+        {preview.battle.playerWins && (
+          <div className="map-script-dialogue-preview">
+            <small>If the player wins</small>
+            <p>“{preview.battle.playerWins}”</p>
+          </div>
+        )}
+        {preview.battle.playerLoses && (
+          <div className="map-script-dialogue-preview">
+            <small>If the player loses</small>
+            <p>“{preview.battle.playerLoses}”</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return null;
+}
+
+function ScriptNodeCard({
+  node,
+  index,
+  dialoguePreview,
+}: {
+  node: MapScriptSemanticNode;
+  index: number;
+  dialoguePreview?: NodeDialoguePreview;
+}) {
   const details = nodeDetails(node);
   const description = node.type === "wait" && node.reason ? node.reason : node.description;
   return (
@@ -140,6 +201,7 @@ function ScriptNodeCard({ node, index }: { node: MapScriptSemanticNode; index: n
           {node.source.confidence === "inferred" && <small className="map-script-confidence">Inferred</small>}
         </div>
         {description && <p>{description}</p>}
+        {dialoguePreview && <DialoguePreview preview={dialoguePreview} />}
         {details.map((detail) => detail.path ? (
           <div key={`${detail.label}:${detail.value}`} className="map-script-path-detail">
             <small>{detail.label}</small>
@@ -200,8 +262,9 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
   const model = useMemo(() => {
     const program = parseMapScriptProgram(reference.mapScriptSource, reference.routineLabel);
     const states = focusedMapScriptStates(program, reference.routineLabel, 1, 1);
-    return { states };
-  }, [reference.mapScriptSource, reference.routineLabel]);
+    const dialoguePhases = parseResolvedScriptDialogueSummary(reference.routineSource);
+    return { states, dialoguePhases };
+  }, [reference.mapScriptSource, reference.routineLabel, reference.routineSource]);
 
   if (model.states.length === 0) {
     return (
@@ -218,7 +281,7 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
       <div className="map-script-preview-heading">
         <div>
           <h5>Event flow</h5>
-          <p className="help-text">Yellow Editor follows script states and turns recognized conditional jumps into beginner-friendly If / Then / Otherwise branches.</p>
+          <p className="help-text">Yellow Editor follows script states, shows resolved dialogue, and turns recognized conditional jumps into beginner-friendly If / Then / Otherwise branches.</p>
         </div>
         <span className="read-only-badge">Semantic preview</span>
       </div>
@@ -226,6 +289,13 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
       <div className="map-script-state-list">
         {model.states.map((state, stateIndex) => {
           const flow = structuredMapScriptFlow(state);
+          const phaseDialogue = findResolvedScriptPhaseDialogue(
+            model.dialoguePhases,
+            summaryStateTitle(state.label, reference.scriptPath),
+          );
+          let dialogueIndex = 0;
+          let battleDialogueIndex = 0;
+
           return (
             <details
               className={`map-script-state${state.label === reference.routineLabel ? " current" : ""}`}
@@ -244,9 +314,31 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
                   <p className="empty-state">No semantic operations are recognized in this state yet. The original source remains available below.</p>
                 ) : (
                   <ol className="map-script-step-list">
-                    {flow.map((item, index) => item.type === "if"
-                      ? <IfBlockCard block={item} index={index} key={item.id} />
-                      : <ScriptNodeCard node={item.node} index={index} key={item.node.id} />)}
+                    {flow.map((item, index) => {
+                      if (item.type === "if") {
+                        return <IfBlockCard block={item} index={index} key={item.id} />;
+                      }
+
+                      let dialoguePreview: NodeDialoguePreview | undefined;
+                      if (item.node.type === "dialogue") {
+                        const text = phaseDialogue?.dialogues[dialogueIndex];
+                        dialogueIndex += 1;
+                        if (text) dialoguePreview = { text };
+                      } else if (item.node.type === "battle-dialogue") {
+                        const battle = phaseDialogue?.battleDialogues[battleDialogueIndex];
+                        battleDialogueIndex += 1;
+                        if (battle?.playerWins || battle?.playerLoses) dialoguePreview = { battle };
+                      }
+
+                      return (
+                        <ScriptNodeCard
+                          node={item.node}
+                          index={index}
+                          key={item.node.id}
+                          dialoguePreview={dialoguePreview}
+                        />
+                      );
+                    })}
                   </ol>
                 )}
               </div>
