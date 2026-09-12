@@ -60,10 +60,23 @@
   gap: 0.35rem;
 }
 
-.text-editor-segment > span {
+.text-editor-segment > span,
+.text-editor-segment-heading {
   font-size: 0.85rem;
   font-weight: 700;
   opacity: 0.82;
+}
+
+.text-editor-segment-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.text-editor-segment-heading small {
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 .text-editor-segment textarea {
@@ -72,6 +85,16 @@
   resize: vertical;
   min-height: 4rem;
   font: inherit;
+}
+
+.text-editor-segment.invalid textarea {
+  border-color: currentColor;
+  outline-color: currentColor;
+}
+
+.text-editor-line-error {
+  font-size: 0.8rem;
+  line-height: 1.35;
 }
 
 .text-editor-preview-card,
