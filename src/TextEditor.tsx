@@ -1,9 +1,11 @@
 import { useState } from "react";
 import type { HistorySummary } from "./core/types";
 import {
+  TEXT_BOX_BOTTOM_LINE_WIDTH,
   TEXT_BOX_LINE_WIDTH,
   textLineDisplayWidth,
   textLineLengthError,
+  textSegmentLineWidth,
   type TextDocument,
   type TextSegment,
   type TextSegmentControl,
@@ -67,7 +69,10 @@ export function TextEditor({
   const [error, setError] = useState<string | null>(null);
 
   const dirty = Boolean(document && !sameSegments(draft, document.segments));
-  const lineErrors = draft.map((segment) => textLineLengthError(segment.text));
+  const lineErrors = draft.map((segment) => textLineLengthError(
+    segment.text,
+    textSegmentLineWidth(segment.control),
+  ));
   const hasLineErrors = lineErrors.some(Boolean);
 
   async function beginEdit() {
@@ -173,7 +178,7 @@ export function TextEditor({
             {document && (
               <>
                 <p className="help-text">
-                  Yellow Editor preserves the existing text flow. Each dialogue line has {TEXT_BOX_LINE_WIDTH} character spaces. The counter uses the longest runtime value: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, and <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names.
+                  Yellow Editor preserves the existing text flow. Upper dialogue rows have {TEXT_BOX_LINE_WIDTH} character spaces; the bottom row has {TEXT_BOX_BOTTOM_LINE_WIDTH} safe spaces because the continue arrow uses the final cell. The counter uses the longest runtime value: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, and <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names.
                 </p>
                 {document.warnings.length > 0 && (
                   <div className="text-editor-warning">
@@ -185,12 +190,13 @@ export function TextEditor({
                 <div className="text-editor-segments">
                   {draft.map((segment, index) => {
                     const width = textLineDisplayWidth(segment.text);
+                    const maxWidth = textSegmentLineWidth(segment.control);
                     const lineError = lineErrors[index];
                     return (
                       <label className={`text-editor-segment${lineError ? " invalid" : ""}`} key={`${segment.control}:${index}`}>
                         <span className="text-editor-segment-heading">
                           <span>{controlLabel(segment.control)}</span>
-                          <small>{width} / {TEXT_BOX_LINE_WIDTH}</small>
+                          <small>{width} / {maxWidth}</small>
                         </span>
                         <textarea
                           rows={2}
