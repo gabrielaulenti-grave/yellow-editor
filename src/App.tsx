@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   EncounterTableEditDocument,
   EncounterTableIndexEntry,
@@ -114,6 +114,18 @@ function App() {
   const [historySummary, setHistorySummary] = useState<HistorySummary | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const projectLoadGeneration = useRef(0);
+
+  useEffect(() => {
+    function handleHistoryChanged(event: Event) {
+      const history = (event as CustomEvent<HistorySummary>).detail;
+      if (history) {
+        setHistorySummary(history);
+      }
+    }
+
+    window.addEventListener("yellow-editor:history-changed", handleHistoryChanged);
+    return () => window.removeEventListener("yellow-editor:history-changed", handleHistoryChanged);
+  }, []);
 
   const selectedPokemonEntry =
     pokemonIndex.find((entry) => entry.internalId === selectedPokemonId) ?? null;
@@ -794,6 +806,7 @@ function App() {
     try {
       const history = await invoke<HistorySummary>("undo_last_save");
       setHistorySummary(history);
+      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
       const refreshTrainers = historySummary.latestLabel?.startsWith("Edit trainer party ") ?? false;
       const [refreshedEncounters, refreshedTrainers] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
@@ -831,6 +844,7 @@ function App() {
     try {
       const history = await invoke<HistorySummary>("redo_last_undo");
       setHistorySummary(history);
+      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
       const refreshTrainers = history.latestLabel?.startsWith("Edit trainer party ") ?? false;
       const [refreshedEncounters, refreshedTrainers] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
