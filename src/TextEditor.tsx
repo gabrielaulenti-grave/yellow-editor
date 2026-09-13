@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { HistorySummary } from "./core/types";
 import {
   TEXT_BOX_BOTTOM_LINE_WIDTH,
@@ -74,6 +74,39 @@ export function TextEditor({
     textSegmentLineWidth(segment.control),
   ));
   const hasLineErrors = lineErrors.some(Boolean);
+
+  useEffect(() => {
+    setPreview(initialText);
+  }, [initialText]);
+
+  useEffect(() => {
+    const path = document?.path;
+    const label = document?.label;
+    if (!path || !label) {
+      return;
+    }
+
+    function handleHistoryChanged() {
+      void (async () => {
+        try {
+          // Once a programmable wrapper has been resolved, document points at
+          // the concrete editable leaf. Reload that leaf directly so Undo/Redo
+          // immediately updates the dialogue card without re-running wrapper
+          // disambiguation against stale preview text.
+          const next = await invoke<TextDocument>("get_text_document", { path, label });
+          setDocument(next);
+          setDraft(next.segments.map((segment) => ({ ...segment })));
+          setPreview(segmentsToPreview(next.segments));
+          setError(null);
+        } catch (reloadError) {
+          setError(String(reloadError));
+        }
+      })();
+    }
+
+    window.addEventListener("yellow-editor:history-changed", handleHistoryChanged);
+    return () => window.removeEventListener("yellow-editor:history-changed", handleHistoryChanged);
+  }, [document?.path, document?.label]);
 
   async function beginEdit() {
     if (!target || disabled) {
