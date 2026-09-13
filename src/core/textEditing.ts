@@ -54,6 +54,7 @@ interface LabelRange {
 }
 
 export const TEXT_BOX_LINE_WIDTH = 18;
+export const TEXT_BOX_BOTTOM_LINE_WIDTH = 17;
 
 const TEXT_LINE_PATTERN = /^(\s*)(text|next|line|cont|para|page)\s+"((?:[^"\\]|\\.)*)"(.*)$/i;
 const LABEL_PATTERN = /^\s*([A-Za-z_.][A-Za-z0-9_.]*):{1,2}\s*(?:;.*)?$/;
@@ -119,11 +120,26 @@ export function textLineDisplayWidth(value: string): number {
   return width;
 }
 
-export function textLineLengthError(value: string): string | null {
+export function textSegmentLineWidth(control: TextSegmentControl): number {
+  // In the normal two-row dialogue box, these controls place text on the
+  // lower row. The engine writes its continue arrow into the 18th cell there,
+  // so only the first 17 cells are safe for dialogue.
+  return control === "next" || control === "line" || control === "cont"
+    ? TEXT_BOX_BOTTOM_LINE_WIDTH
+    : TEXT_BOX_LINE_WIDTH;
+}
+
+export function textLineLengthError(
+  value: string,
+  maxWidth = TEXT_BOX_LINE_WIDTH,
+): string | null {
   const width = textLineDisplayWidth(value);
-  return width > TEXT_BOX_LINE_WIDTH
-    ? `This line can display up to ${width} characters, but a dialogue line only has ${TEXT_BOX_LINE_WIDTH} spaces.`
-    : null;
+  if (width <= maxWidth) {
+    return null;
+  }
+  return maxWidth === TEXT_BOX_BOTTOM_LINE_WIDTH
+    ? `This line can display up to ${width} characters, but the bottom dialogue row only has ${maxWidth} safe spaces because the continue arrow uses the last cell.`
+    : `This line can display up to ${width} characters, but a dialogue line only has ${maxWidth} spaces.`;
 }
 
 function findLabelRange(lines: string[], label: string): LabelRange {
@@ -430,7 +446,10 @@ export function applyTextDocumentEdits(
         "A single text segment cannot contain a raw line break. Use the existing text-flow segments instead.",
       );
     }
-    const lineError = textLineLengthError(next.text);
+    const lineError = textLineLengthError(
+      next.text,
+      textSegmentLineWidth(currentControl),
+    );
     if (lineError) {
       throw new Error(`${lineError} Shorten the '${currentControl}' line before saving.`);
     }
