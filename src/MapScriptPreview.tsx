@@ -3,12 +3,15 @@ import {
   structuredMapScriptFlow,
   type MapScriptBranchOutcome,
   type MapScriptCondition,
+  type MapScriptFlowBranch,
+  type MapScriptFlowItem,
   type MapScriptIfBlock,
 } from "./core/mapScriptControlFlow";
 import {
   findResolvedScriptPhaseDialogue,
   parseResolvedScriptDialogueSummary,
   type ResolvedScriptBattleDialogue,
+  type ResolvedScriptPhaseDialogue,
 } from "./core/mapScriptDialoguePreview";
 import { renderMovementStep, type MapScriptOperationKind } from "./core/mapScriptOpcodes";
 import {
@@ -168,8 +171,42 @@ function branchOutcomeText(outcome: MapScriptBranchOutcome): string {
     case "return":
       return "Stop this script state here";
     case "jump":
-      return `Continue at ${titleCaseConstant(outcome.target.replace(/Script$/, ""))}`;
+      return outcome.summary ?? `Continue at ${titleCaseConstant(outcome.target.replace(/Script$/, ""))}`;
   }
+}
+
+function flattenFlowNodes(items: MapScriptFlowItem[]): MapScriptSemanticNode[] {
+  const result: MapScriptSemanticNode[] = [];
+  for (const item of items) {
+    if (item.type === "node") {
+      result.push(item.node);
+      continue;
+    }
+    result.push(...flattenFlowNodes(item.whenTrue.items));
+    result.push(...flattenFlowNodes(item.whenFalse.items));
+  }
+  return result.sort((left, right) => left.source.lineStart - right.source.lineStart);
+}
+
+function dialoguePreviewsForFlow(
+  flow: MapScriptFlowItem[],
+  phaseDialogue: ResolvedScriptPhaseDialogue | undefined,
+): Map<string, NodeDialoguePreview> {
+  const previews = new Map<string, NodeDialoguePreview>();
+  let dialogueIndex = 0;
+  let battleDialogueIndex = 0;
+  for (const node of flattenFlowNodes(flow)) {
+    if (node.type === "dialogue") {
+      const text = phaseDialogue?.dialogues[dialogueIndex];
+      dialogueIndex += 1;
+      if (text) previews.set(node.id, { text });
+    } else if (node.type === "battle-dialogue") {
+      const battle = phaseDialogue?.battleDialogues[battleDialogueIndex];
+      battleDialogueIndex += 1;
+      if (battle?.playerWins || battle?.playerLoses) previews.set(node.id, { battle });
+    }
+  }
+  return previews;
 }
 
 function DialoguePreview({
@@ -218,16 +255,18 @@ function ScriptNodeCard({
   index,
   dialoguePreview,
   reference,
+  nested = false,
 }: {
   node: MapScriptSemanticNode;
   index: number;
   dialoguePreview?: NodeDialoguePreview;
   reference: TrainerScriptReference;
+  nested?: boolean;
 }) {
   const details = nodeDetails(node);
   const description = node.type === "wait" && node.reason ? node.reason : node.description;
   return (
-    <li className={`map-script-step map-script-step-${node.kind}`}>
+    <li className={`map-script-step map-script-step-${node.kind}${nested ? " nested" : ""}`}>
       <span className="map-script-step-number">{index + 1}</span>
       <span className="map-script-step-icon" aria-hidden="true">{iconFor(node.kind)}</span>
       <div className="map-script-step-body">
@@ -259,9 +298,59 @@ function ScriptNodeCard({
   );
 }
 
-function IfBlockCard({ block, index }: { block: MapScriptIfBlock; index: number }) {
+interface FlowListProps {
+  items: MapScriptFlowItem[];
+  previews: Map<string, NodeDialoguePreview>;
+  reference: TrainerScriptReference;
+  nested?: boolean;
+}
+
+function BranchBody({
+  branch,
+  previews,
+  reference,
+}: {
+  branch: MapScriptFlowBranch;
+  previews: Map<string, NodeDialoguePreview>;
+  reference: TrainerScriptReference;
+}) {
+  const showOutcome = branch.outcome.type !== "continue" || branch.items.length === 0;
   return (
-    <li className="map-script-step map-script-step-condition map-script-if-step">
+    <>
+      {branch.items.length > 0 && (
+        <FlowList items={branch.items} previews={previews} reference={reference} nested />
+      )}
+      {showOutcome && (
+        <div className="map-script-branch-outcome">
+          <span>{branchOutcomeText(branch.outcome)}</span>
+          {branch.outcome.type === "jump" && <code>{branch.outcome.target}</code>}
+          {branch.outcome.type === "jump" && branch.outcome.targetSource && (
+            <details className="map-script-source-detail">
+              <summary>Advanced: target routine source</summary>
+              <pre className="trainer-script-source"><code>{branch.outcome.targetSource.raw}</code></pre>
+            </details>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function IfBlockCard({
+  block,
+  index,
+  previews,
+  reference,
+  nested = false,
+}: {
+  block: MapScriptIfBlock;
+  index: number;
+  previews: Map<string, NodeDialoguePreview>;
+  reference: TrainerScriptReference;
+  nested?: boolean;
+}) {
+  return (
+    <li className={`map-script-step map-script-step-condition map-script-if-step${nested ? " nested" : ""}`}>
       <span className="map-script-step-number">{index + 1}</span>
       <span className="map-script-step-icon" aria-hidden="true">?</span>
       <div className="map-script-step-body">
@@ -271,13 +360,11 @@ function IfBlockCard({ block, index }: { block: MapScriptIfBlock; index: number 
         <div className="map-script-branches">
           <div className="map-script-branch">
             <small>Then</small>
-            <span>{branchOutcomeText(block.whenTrue)}</span>
-            {block.whenTrue.type === "jump" && <code>{block.whenTrue.target}</code>}
+            <BranchBody branch={block.whenTrue} previews={previews} reference={reference} />
           </div>
           <div className="map-script-branch">
             <small>Otherwise</small>
-            <span>{branchOutcomeText(block.whenFalse)}</span>
-            {block.whenFalse.type === "jump" && <code>{block.whenFalse.target}</code>}
+            <BranchBody branch={block.whenFalse} previews={previews} reference={reference} />
           </div>
         </div>
         <details className="map-script-source-detail">
@@ -286,6 +373,32 @@ function IfBlockCard({ block, index }: { block: MapScriptIfBlock; index: number 
         </details>
       </div>
     </li>
+  );
+}
+
+function FlowList({ items, previews, reference, nested = false }: FlowListProps) {
+  return (
+    <ol className={nested ? "map-script-branch-step-list" : "map-script-step-list"}>
+      {items.map((item, index) => item.type === "if" ? (
+        <IfBlockCard
+          block={item}
+          index={index}
+          previews={previews}
+          reference={reference}
+          nested={nested}
+          key={item.id}
+        />
+      ) : (
+        <ScriptNodeCard
+          node={item.node}
+          index={index}
+          key={item.node.id}
+          dialoguePreview={previews.get(item.node.id)}
+          reference={reference}
+          nested={nested}
+        />
+      ))}
+    </ol>
   );
 }
 
@@ -318,20 +431,19 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
       <div className="map-script-preview-heading">
         <div>
           <h5>Event flow</h5>
-          <p className="help-text">Yellow Editor follows script states, shows and edits resolved dialogue, and turns recognized conditional jumps into beginner-friendly If / Then / Otherwise branches.</p>
+          <p className="help-text">Yellow Editor follows script states, shows and edits resolved dialogue, and nests recognized branch actions directly inside beginner-friendly If / Then / Otherwise blocks.</p>
         </div>
         <span className="editable-badge">Dialogue editable</span>
       </div>
 
       <div className="map-script-state-list">
         {model.states.map((state, stateIndex) => {
-          const flow = structuredMapScriptFlow(state);
+          const flow = structuredMapScriptFlow(state, reference.mapScriptSource);
           const phaseDialogue = findResolvedScriptPhaseDialogue(
             model.dialoguePhases,
             summaryStateTitle(state.label, reference.scriptPath),
           );
-          let dialogueIndex = 0;
-          let battleDialogueIndex = 0;
+          const previews = dialoguePreviewsForFlow(flow, phaseDialogue ?? undefined);
 
           return (
             <details
@@ -350,34 +462,7 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
                 {flow.length === 0 ? (
                   <p className="empty-state">No semantic operations are recognized in this state yet. The original source remains available below.</p>
                 ) : (
-                  <ol className="map-script-step-list">
-                    {flow.map((item, index) => {
-                      if (item.type === "if") {
-                        return <IfBlockCard block={item} index={index} key={item.id} />;
-                      }
-
-                      let dialoguePreview: NodeDialoguePreview | undefined;
-                      if (item.node.type === "dialogue") {
-                        const text = phaseDialogue?.dialogues[dialogueIndex];
-                        dialogueIndex += 1;
-                        if (text) dialoguePreview = { text };
-                      } else if (item.node.type === "battle-dialogue") {
-                        const battle = phaseDialogue?.battleDialogues[battleDialogueIndex];
-                        battleDialogueIndex += 1;
-                        if (battle?.playerWins || battle?.playerLoses) dialoguePreview = { battle };
-                      }
-
-                      return (
-                        <ScriptNodeCard
-                          node={item.node}
-                          index={index}
-                          key={item.node.id}
-                          dialoguePreview={dialoguePreview}
-                          reference={reference}
-                        />
-                      );
-                    })}
-                  </ol>
+                  <FlowList items={flow} previews={previews} reference={reference} />
                 )}
               </div>
             </details>
