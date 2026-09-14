@@ -363,10 +363,12 @@ async function openPackedWebProject(): Promise<ProjectSession | null> {
   const file = await handle.getFile();
   const archiveBytes = new Uint8Array(await file.arrayBuffer());
   const identity = inspectPackedProjectIdentity(archiveBytes);
-  const mobile = mobileLikeBrowser();
   const storage = await createWebProjectStorage(handle, {
     identityHint: `packed:${file.name}:${identity}`,
-    persistentHistory: !mobile,
+    // Packed projects already have a stable content-derived identity. Keep
+    // undo/redo in IndexedDB on mobile too so reopening the ZIP does not lose
+    // the snapshots needed to reverse a saved archive edit.
+    persistentHistory: true,
   });
 
   const source = await createPackedProjectSource({
