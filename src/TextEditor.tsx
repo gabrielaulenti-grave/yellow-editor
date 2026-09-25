@@ -80,6 +80,26 @@ export function TextEditor({
   }, [initialText]);
 
   useEffect(() => {
+    if (initialText !== null || !target) return;
+
+    let cancelled = false;
+    void invoke<TextDocument>("get_text_document", {
+      path: target.path,
+      label: target.label,
+    }).then((next) => {
+      if (cancelled || next.segments.length === 0) return;
+      setPreview(segmentsToPreview(next.segments));
+    }).catch(() => {
+      // A custom wrapper may need contextual disambiguation. Leave its preview
+      // unresolved rather than surfacing a background-loading error.
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [initialText, target?.path, target?.label]);
+
+  useEffect(() => {
     const path = document?.path;
     const label = document?.label;
     if (!path || !label) {
