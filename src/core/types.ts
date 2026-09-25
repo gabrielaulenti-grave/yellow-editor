@@ -147,6 +147,33 @@ export interface TrainerDialogue {
   sourcePath: string | null;
 }
 
+export type TrainerInteractionDialogueRole =
+  | "before-battle"
+  | "player-wins"
+  | "player-loses"
+  | "post-battle"
+  | "reward";
+
+export interface TrainerInteractionDialogue extends TrainerDialogue {
+  id: string;
+  role: TrainerInteractionDialogueRole;
+  title: string;
+}
+
+export interface TrainerInteractionReward {
+  id: string;
+  kind: "item" | "badge";
+  constant: string;
+  quantity: number | null;
+  sourcePath: string | null;
+  sourceLine: number | null;
+}
+
+export interface TrainerInteraction {
+  dialogues: TrainerInteractionDialogue[];
+  rewards: TrainerInteractionReward[];
+}
+
 export interface TrainerInstance {
   id: string;
   mapConstant: string;
@@ -171,6 +198,7 @@ export interface TrainerInstance {
     defeat: TrainerDialogue | null;
     after: TrainerDialogue | null;
   };
+  interaction: TrainerInteraction;
 }
 
 export interface TrainerScriptReference {
@@ -185,6 +213,7 @@ export interface TrainerScriptReference {
   selectionSummary: string;
   routineSource: string;
   mapScriptSource: string;
+  interaction: TrainerInteraction;
 }
 
 export interface TrainerClassEntry {
