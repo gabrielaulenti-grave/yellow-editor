@@ -243,11 +243,7 @@ function DialoguePreview({
   );
 }
 
-function PreparedBattleDialogue({
-  node,
-}: {
-  node: Extract<MapScriptSemanticNode, { type: "battle-dialogue" }>;
-}) {
+function PreparedBattleDialogue() {
   return (
     <div className="map-script-prepared-dialogue">
       <strong>Prepared here; displayed during the battle.</strong>
@@ -359,7 +355,7 @@ function ScriptNodeCard({
             state={state}
           />
         )}
-        {node.type === "battle-dialogue" && <PreparedBattleDialogue node={node} />}
+        {node.type === "battle-dialogue" && <PreparedBattleDialogue />}
         {details.map((detail) => detail.path ? (
           <div key={`${detail.label}:${detail.value}`} className="map-script-path-detail">
             <small>{detail.label}</small>
