@@ -169,6 +169,21 @@ export interface TrainerInteractionReward {
   sourceLine: number | null;
 }
 
+export interface TrainerRewardItemOption {
+  constant: string;
+  label: string;
+  kind: "item" | "tm" | "hm";
+}
+
+export interface TrainerRewardEditDocument {
+  path: string;
+  sourceLine: number;
+  sourceHash: string;
+  itemConstant: string;
+  quantity: number;
+  itemOptions: TrainerRewardItemOption[];
+}
+
 export interface TrainerInteraction {
   dialogues: TrainerInteractionDialogue[];
   rewards: TrainerInteractionReward[];
@@ -541,6 +556,17 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
+  getTrainerRewardEditDocument(
+    path: string,
+    sourceLine: number,
+  ): Promise<TrainerRewardEditDocument>;
+  saveTrainerReward(
+    path: string,
+    sourceLine: number,
+    expectedHash: string,
+    itemConstant: string,
+    quantity: number,
+  ): Promise<HistorySummary>;
   saveTrainerParty(
     partyId: string,
     sourceLine: number,
