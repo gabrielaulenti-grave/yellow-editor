@@ -534,6 +534,52 @@ function addInteractionDialogue(
   }
 }
 
+function collectInteractionRewardsFromSource(
+  interaction: TrainerInstance["interaction"],
+  source: string,
+  scriptPath: string,
+  startLine = 1,
+): void {
+  const lines = source.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!/^call\s+GiveItem\b/i.test(withoutComment(lines[index]))) continue;
+    for (let back = index - 1; back >= Math.max(0, index - 6); back -= 1) {
+      const values = splitArguments(lines[back], "lb");
+      if (!values || values[0] !== "bc" || values.length < 3) continue;
+      const quantity = parseNumber(values[2]);
+      const rewardId = `item:${values[1]}:${quantity ?? "?"}`;
+      if (!interaction.rewards.some((reward) => reward.id === rewardId)) {
+        interaction.rewards.push({
+          id: rewardId,
+          kind: "item",
+          constant: values[1],
+          quantity,
+          sourcePath: scriptPath,
+          sourceLine: startLine + index,
+        });
+      }
+      break;
+    }
+  }
+
+  const badgeMatch = source.match(
+    /ld\s+hl\s*,\s*wObtainedBadges[\s\S]{0,160}?set\s+BIT_([A-Z0-9_]*BADGE)\s*,\s*\[hl\]/i,
+  );
+  if (badgeMatch) {
+    const rewardId = `badge:${badgeMatch[1]}`;
+    if (!interaction.rewards.some((reward) => reward.id === rewardId)) {
+      interaction.rewards.push({
+        id: rewardId,
+        kind: "badge",
+        constant: badgeMatch[1],
+        quantity: null,
+        sourcePath: scriptPath,
+        sourceLine: startLine,
+      });
+    }
+  }
+}
+
 function standardTrainerInteraction(
   dialogue: TrainerInstance["dialogue"],
 ): TrainerInstance["interaction"] {
@@ -627,6 +673,14 @@ function customTrainerInteraction(
   const scriptPointers = scriptPointerLabels(scriptContents);
   const relatedLabels = new Set<string>();
 
+  const wrapperSection = sectionByLabel.get(wrapperLabel);
+  collectInteractionRewardsFromSource(
+    interaction,
+    wrapperSource,
+    scriptPath,
+    wrapperSection?.startLine ?? 1,
+  );
+
   // Follow the state selected for the post-battle continuation.
   for (let index = 0; index < wrapperLines.length; index += 1) {
     const constant = withoutComment(wrapperLines[index]).match(/^ld\s+a\s*,\s*(SCRIPT_[A-Z0-9_]+)\b/i)?.[1];
@@ -684,43 +738,14 @@ function customTrainerInteraction(
         }
       }
 
-      if (/^call\s+GiveItem\b/i.test(clean)) {
-        for (let back = index - 1; back >= Math.max(1, index - 6); back -= 1) {
-          const values = splitArguments(lines[back], "lb");
-          if (!values || values[0] !== "bc" || values.length < 3) continue;
-          const quantity = parseNumber(values[2]);
-          const rewardId = `item:${values[1]}:${quantity ?? "?"}`;
-          if (!interaction.rewards.some((reward) => reward.id === rewardId)) {
-            interaction.rewards.push({
-              id: rewardId,
-              kind: "item",
-              constant: values[1],
-              quantity,
-              sourcePath: scriptPath,
-              sourceLine: section.startLine + index,
-            });
-          }
-          break;
-        }
-      }
     }
 
-    const badgeMatch = section.source.match(
-      /ld\s+hl\s*,\s*wObtainedBadges[\s\S]{0,160}?set\s+BIT_([A-Z0-9_]*BADGE)\s*,\s*\[hl\]/i,
+    collectInteractionRewardsFromSource(
+      interaction,
+      section.source,
+      scriptPath,
+      section.startLine,
     );
-    if (badgeMatch) {
-      const rewardId = `badge:${badgeMatch[1]}`;
-      if (!interaction.rewards.some((reward) => reward.id === rewardId)) {
-        interaction.rewards.push({
-          id: rewardId,
-          kind: "badge",
-          constant: badgeMatch[1],
-          quantity: null,
-          sourcePath: scriptPath,
-          sourceLine: section.startLine,
-        });
-      }
-    }
   }
 
   return interaction;
