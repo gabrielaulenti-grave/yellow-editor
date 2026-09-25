@@ -534,7 +534,8 @@ function collectInteractionRewardsFromSource(
       const values = splitArguments(lines[back], "lb");
       if (!values || values[0] !== "bc" || values.length < 3) continue;
       const quantity = parseNumber(values[2]);
-      const rewardId = `item:${values[1]}:${quantity ?? "?"}`;
+      const sourceLine = startLine + back;
+      const rewardId = `item:${scriptPath}:${sourceLine}`;
       if (!interaction.rewards.some((reward) => reward.id === rewardId)) {
         interaction.rewards.push({
           id: rewardId,
@@ -542,7 +543,7 @@ function collectInteractionRewardsFromSource(
           constant: values[1],
           quantity,
           sourcePath: scriptPath,
-          sourceLine: startLine + index,
+          sourceLine,
         });
       }
       break;
