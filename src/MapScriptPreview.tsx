@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import {
   structuredMapScriptFlow,
   type MapScriptBranchOutcome,
@@ -7,6 +7,8 @@ import {
   type MapScriptFlowItem,
   type MapScriptIfBlock,
 } from "./core/mapScriptControlFlow";
+import { mapScriptBattleHandoffs, type MapScriptBattleHandoff } from "./core/mapScriptBattleFlow";
+import { resolvedDisplayedDialogueLabel } from "./core/mapScriptDialogueTarget";
 import {
   findResolvedScriptPhaseDialogue,
   parseResolvedScriptDialogueSummary,
@@ -213,40 +215,108 @@ function DialoguePreview({
   preview,
   node,
   reference,
+  state,
 }: {
   preview: NodeDialoguePreview | undefined;
-  node: Extract<MapScriptSemanticNode, { type: "dialogue" | "battle-dialogue" }>;
+  node: Extract<MapScriptSemanticNode, { type: "dialogue" }>;
+  reference: TrainerScriptReference;
+  state: MapScriptState;
+}) {
+  const displayedLabel = resolvedDisplayedDialogueLabel(
+    reference.mapScriptSource,
+    state,
+    node,
+  );
+  return (
+    <div className="map-script-dialogue-preview">
+      <TextEditor
+        title="Dialogue"
+        target={textEditorTarget(reference, displayedLabel ?? node.textLabel)}
+        initialText={displayedLabel ? null : preview?.text ?? null}
+      />
+      {displayedLabel && displayedLabel !== node.textLabel && (
+        <small className="map-script-dialogue-resolution">
+          Displayed text: <code>{displayedLabel}</code>
+        </small>
+      )}
+    </div>
+  );
+}
+
+function PreparedBattleDialogue() {
+  return (
+    <div className="map-script-prepared-dialogue">
+      <strong>Prepared here; displayed during the battle.</strong>
+      <p>
+        Yellow Editor shows the editable win/loss text once, in the Battle step
+        where the player actually sees it.
+      </p>
+    </div>
+  );
+}
+
+function BattleHandoffCard({
+  handoff,
+  preview,
+  reference,
+}: {
+  handoff: MapScriptBattleHandoff;
+  preview: ResolvedScriptBattleDialogue | undefined;
   reference: TrainerScriptReference;
 }) {
-  if (node.type === "dialogue") {
-    return (
-      <div className="map-script-dialogue-preview">
-        <TextEditor
-          title="Dialogue"
-          target={textEditorTarget(reference, node.textLabel)}
-          initialText={preview?.text ?? null}
-        />
-      </div>
-    );
-  }
-
   return (
-    <div className="map-script-dialogue-outcomes">
-      <div className="map-script-dialogue-preview">
-        <TextEditor
-          title="If the player wins"
-          target={textEditorTarget(reference, node.playerWins)}
-          initialText={preview?.battle?.playerWins ?? null}
-        />
+    <section className="map-script-battle-handoff">
+      <div className="map-script-battle-handoff-heading">
+        <span>
+          <small>Between script states</small>
+          <strong>Trainer battle</strong>
+        </span>
+        <span className="editable-badge">Battle dialogue editable</span>
       </div>
-      <div className="map-script-dialogue-preview">
-        <TextEditor
-          title="If the player loses"
-          target={textEditorTarget(reference, node.playerLoses)}
-          initialText={preview?.battle?.playerLoses ?? null}
-        />
+      <p className="help-text">
+        The map script has finished preparing the encounter. The battle engine
+        takes over here, chooses the appropriate result dialogue, then resumes
+        the map event afterward.
+      </p>
+      {handoff.opponent && (
+        <span className="map-script-detail">
+          <small>Opponent</small>
+          <code>{titleCaseConstant(handoff.opponent)}</code>
+        </span>
+      )}
+      <div className="map-script-dialogue-outcomes">
+        <div className="map-script-dialogue-preview">
+          <TextEditor
+            title="If the player wins — display dialogue"
+            target={textEditorTarget(reference, handoff.playerWins)}
+            initialText={preview?.playerWins ?? null}
+          />
+        </div>
+        <div className="map-script-dialogue-preview">
+          <TextEditor
+            title="If the player loses — display dialogue"
+            target={textEditorTarget(reference, handoff.playerLoses)}
+            initialText={preview?.playerLoses ?? null}
+          />
+        </div>
       </div>
-    </div>
+      <div className="map-script-battle-resume">
+        <small>After the battle</small>
+        <span>Resume at <strong>{stateTitle(handoff.resumeStateLabel)}</strong></span>
+        <code>{handoff.resumeStateLabel}</code>
+      </div>
+      <details className="map-script-source-detail">
+        <summary>
+          Dialogue preparation source lines {handoff.preparationSource.lineStart}
+          {handoff.preparationSource.lineEnd !== handoff.preparationSource.lineStart
+            ? `–${handoff.preparationSource.lineEnd}`
+            : ""}
+        </summary>
+        <pre className="trainer-script-source">
+          <code>{handoff.preparationSource.raw}</code>
+        </pre>
+      </details>
+    </section>
   );
 }
 
@@ -255,12 +325,14 @@ function ScriptNodeCard({
   index,
   dialoguePreview,
   reference,
+  state,
   nested = false,
 }: {
   node: MapScriptSemanticNode;
   index: number;
   dialoguePreview?: NodeDialoguePreview;
   reference: TrainerScriptReference;
+  state: MapScriptState;
   nested?: boolean;
 }) {
   const details = nodeDetails(node);
@@ -275,9 +347,15 @@ function ScriptNodeCard({
           {node.source.confidence === "inferred" && <small className="map-script-confidence">Inferred</small>}
         </div>
         {description && <p>{description}</p>}
-        {(node.type === "dialogue" || node.type === "battle-dialogue") && (
-          <DialoguePreview preview={dialoguePreview} node={node} reference={reference} />
+        {node.type === "dialogue" && (
+          <DialoguePreview
+            preview={dialoguePreview}
+            node={node}
+            reference={reference}
+            state={state}
+          />
         )}
+        {node.type === "battle-dialogue" && <PreparedBattleDialogue />}
         {details.map((detail) => detail.path ? (
           <div key={`${detail.label}:${detail.value}`} className="map-script-path-detail">
             <small>{detail.label}</small>
@@ -302,6 +380,7 @@ interface FlowListProps {
   items: MapScriptFlowItem[];
   previews: Map<string, NodeDialoguePreview>;
   reference: TrainerScriptReference;
+  state: MapScriptState;
   nested?: boolean;
 }
 
@@ -309,16 +388,24 @@ function BranchBody({
   branch,
   previews,
   reference,
+  state,
 }: {
   branch: MapScriptFlowBranch;
   previews: Map<string, NodeDialoguePreview>;
   reference: TrainerScriptReference;
+  state: MapScriptState;
 }) {
   const showOutcome = branch.outcome.type !== "continue" || branch.items.length === 0;
   return (
     <>
       {branch.items.length > 0 && (
-        <FlowList items={branch.items} previews={previews} reference={reference} nested />
+        <FlowList
+          items={branch.items}
+          previews={previews}
+          reference={reference}
+          state={state}
+          nested
+        />
       )}
       {showOutcome && (
         <div className="map-script-branch-outcome">
@@ -341,12 +428,14 @@ function IfBlockCard({
   index,
   previews,
   reference,
+  state,
   nested = false,
 }: {
   block: MapScriptIfBlock;
   index: number;
   previews: Map<string, NodeDialoguePreview>;
   reference: TrainerScriptReference;
+  state: MapScriptState;
   nested?: boolean;
 }) {
   return (
@@ -360,11 +449,21 @@ function IfBlockCard({
         <div className="map-script-branches">
           <div className="map-script-branch">
             <small>Then</small>
-            <BranchBody branch={block.whenTrue} previews={previews} reference={reference} />
+            <BranchBody
+              branch={block.whenTrue}
+              previews={previews}
+              reference={reference}
+              state={state}
+            />
           </div>
           <div className="map-script-branch">
             <small>Otherwise</small>
-            <BranchBody branch={block.whenFalse} previews={previews} reference={reference} />
+            <BranchBody
+              branch={block.whenFalse}
+              previews={previews}
+              reference={reference}
+              state={state}
+            />
           </div>
         </div>
         <details className="map-script-source-detail">
@@ -376,7 +475,7 @@ function IfBlockCard({
   );
 }
 
-function FlowList({ items, previews, reference, nested = false }: FlowListProps) {
+function FlowList({ items, previews, reference, state, nested = false }: FlowListProps) {
   return (
     <ol className={nested ? "map-script-branch-step-list" : "map-script-step-list"}>
       {items.map((item, index) => item.type === "if" ? (
@@ -385,6 +484,7 @@ function FlowList({ items, previews, reference, nested = false }: FlowListProps)
           index={index}
           previews={previews}
           reference={reference}
+          state={state}
           nested={nested}
           key={item.id}
         />
@@ -395,6 +495,7 @@ function FlowList({ items, previews, reference, nested = false }: FlowListProps)
           key={item.node.id}
           dialoguePreview={previews.get(item.node.id)}
           reference={reference}
+          state={state}
           nested={nested}
         />
       ))}
@@ -413,7 +514,8 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
     const program = parseMapScriptProgram(reference.mapScriptSource, reference.routineLabel);
     const states = focusedMapScriptStates(program, reference.routineLabel, 1, 1);
     const dialoguePhases = parseResolvedScriptDialogueSummary(reference.routineSource);
-    return { states, dialoguePhases };
+    const battleHandoffs = mapScriptBattleHandoffs(program, reference.mapScriptSource);
+    return { states, dialoguePhases, battleHandoffs };
   }, [reference.mapScriptSource, reference.routineLabel, reference.routineSource]);
 
   if (model.states.length === 0) {
@@ -444,11 +546,17 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
             summaryStateTitle(state.label, reference.scriptPath),
           );
           const previews = dialoguePreviewsForFlow(flow, phaseDialogue ?? undefined);
+          const handoff = model.battleHandoffs.find(
+            (candidate) => candidate.setupStateLabel === state.label,
+          );
+          const battlePreview = handoff?.preparationNodeId
+            ? previews.get(handoff.preparationNodeId)?.battle
+            : undefined;
 
           return (
+            <Fragment key={state.label}>
             <details
               className={`map-script-state${state.label === reference.routineLabel ? " current" : ""}`}
-              key={state.label}
               open={model.states.length <= 3 || state.label === reference.routineLabel}
             >
               <summary>
@@ -462,10 +570,23 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
                 {flow.length === 0 ? (
                   <p className="empty-state">No semantic operations are recognized in this state yet. The original source remains available below.</p>
                 ) : (
-                  <FlowList items={flow} previews={previews} reference={reference} />
+                  <FlowList
+                    items={flow}
+                    previews={previews}
+                    reference={reference}
+                    state={state}
+                  />
                 )}
               </div>
             </details>
+            {handoff && (
+              <BattleHandoffCard
+                handoff={handoff}
+                preview={battlePreview}
+                reference={reference}
+              />
+            )}
+            </Fragment>
           );
         })}
       </div>
