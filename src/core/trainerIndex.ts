@@ -678,7 +678,7 @@ function customTrainerInteraction(
     interaction,
     wrapperSource,
     scriptPath,
-    wrapperSection?.startLine ?? 1,
+    wrapperSection ? wrapperSection.startLine + 1 : 1,
   );
 
   // Follow the state selected for the post-battle continuation.
