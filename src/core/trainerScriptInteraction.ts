@@ -1,3 +1,4 @@
+import { textBlockPreview } from "./textPreview";
 import type { TrainerScriptReference } from "./types";
 
 interface TextBlock {
@@ -73,20 +74,6 @@ function scriptPointers(source: string): Map<string, string> {
   return result;
 }
 
-function parseQuotedText(block: string): string | null {
-  const parts: string[] = [];
-  for (const line of block.split(/\r?\n/)) {
-    const clean = withoutComment(line);
-    const match = clean.match(/^(text|line|cont|para|page|next)\s+"((?:[^"\\]|\\.)*)"/);
-    if (!match) continue;
-    const separator = match[1] === "para" || match[1] === "page"
-      ? "\n\n"
-      : parts.length ? "\n" : "";
-    parts.push(separator + match[2].replace(/\\"/g, '"'));
-  }
-  return parts.length ? parts.join("") : null;
-}
-
 function wrapperSource(
   reference: TrainerScriptReference,
   wrapperLabel: string,
@@ -114,7 +101,7 @@ function resolveWrapper(
       const block = textBlocks.get(label);
       return {
         label,
-        text: block ? parseQuotedText(block.source) : null,
+        text: block ? textBlockPreview(block.source) : null,
         sourcePath: block?.path ?? null,
       };
     });
@@ -124,14 +111,14 @@ function resolveWrapper(
   if (external) {
     return [{
       label: wrapperLabel,
-      text: parseQuotedText(external.source),
+      text: textBlockPreview(external.source),
       sourcePath: external.path,
     }];
   }
 
   return [{
     label: wrapperLabel,
-    text: source ? parseQuotedText(source) : null,
+    text: source ? textBlockPreview(source) : null,
     sourcePath: source ? reference.scriptPath : null,
   }];
 }

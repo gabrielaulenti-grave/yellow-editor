@@ -14,7 +14,7 @@ const HISTORY_META_STORE = "project-history-meta";
 const HISTORY_ENTRY_STORE = "project-history-entries";
 const HISTORY_ENTRY_PROJECT_INDEX = "projectId";
 const TRAINER_CACHE_STORE = "trainer-catalog-cache";
-const TRAINER_CACHE_VERSION = 3;
+const TRAINER_CACHE_VERSION = 4;
 
 export interface WebDirectoryIdentityHandle {
   name: string;

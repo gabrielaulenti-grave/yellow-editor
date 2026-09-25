@@ -3,9 +3,8 @@ import type { HistorySummary } from "./core/types";
 import {
   TEXT_BOX_BOTTOM_LINE_WIDTH,
   TEXT_BOX_LINE_WIDTH,
-  textLineDisplayWidth,
-  textLineLengthError,
-  textSegmentLineWidth,
+  textDocumentDisplayPreview,
+  textDocumentSegmentMetrics,
   type TextDocument,
   type TextSegment,
   type TextSegmentControl,
@@ -37,17 +36,6 @@ function controlLabel(control: TextSegmentControl): string {
   }
 }
 
-function segmentsToPreview(segments: TextSegment[]): string {
-  let result = "";
-  segments.forEach((segment, index) => {
-    if (index > 0) {
-      result += segment.control === "para" || segment.control === "page" ? "\n\n" : "\n";
-    }
-    result += segment.text;
-  });
-  return result;
-}
-
 function sameSegments(left: TextSegment[], right: TextSegment[]): boolean {
   return left.length === right.length && left.every((segment, index) =>
     segment.control === right[index]?.control && segment.text === right[index]?.text,
@@ -69,10 +57,10 @@ export function TextEditor({
   const [error, setError] = useState<string | null>(null);
 
   const dirty = Boolean(document && !sameSegments(draft, document.segments));
-  const lineErrors = draft.map((segment) => textLineLengthError(
-    segment.text,
-    textSegmentLineWidth(segment.control),
-  ));
+  const segmentMetrics = document
+    ? textDocumentSegmentMetrics(document, draft)
+    : draft.map(() => ({ width: 0, maxWidth: TEXT_BOX_LINE_WIDTH, error: null }));
+  const lineErrors = segmentMetrics.map((metric) => metric.error);
   const hasLineErrors = lineErrors.some(Boolean);
 
   useEffect(() => {
@@ -88,7 +76,7 @@ export function TextEditor({
       label: target.label,
     }).then((next) => {
       if (cancelled || next.segments.length === 0) return;
-      setPreview(segmentsToPreview(next.segments));
+      setPreview(textDocumentDisplayPreview(next));
     }).catch(() => {
       // A custom wrapper may need contextual disambiguation. Leave its preview
       // unresolved rather than surfacing a background-loading error.
@@ -116,7 +104,7 @@ export function TextEditor({
           const next = await invoke<TextDocument>("get_text_document", { path, label });
           setDocument(next);
           setDraft(next.segments.map((segment) => ({ ...segment })));
-          setPreview(segmentsToPreview(next.segments));
+          setPreview(textDocumentDisplayPreview(next));
           setError(null);
         } catch (reloadError) {
           setError(String(reloadError));
@@ -143,7 +131,7 @@ export function TextEditor({
       });
       setDocument(next);
       setDraft(next.segments.map((segment) => ({ ...segment })));
-      setPreview(segmentsToPreview(next.segments));
+      setPreview(textDocumentDisplayPreview(next));
     } catch (loadError) {
       setDocument(null);
       setDraft([]);
@@ -184,7 +172,7 @@ export function TextEditor({
       const savedSegments = draft.map((segment) => ({ ...segment }));
       setDocument({ ...document, segments: savedSegments });
       setDraft(savedSegments);
-      setPreview(segmentsToPreview(savedSegments));
+      setPreview(textDocumentDisplayPreview(document, savedSegments));
       onSaved?.(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
       setOpen(false);
@@ -231,7 +219,7 @@ export function TextEditor({
             {document && (
               <>
                 <p className="help-text">
-                  Yellow Editor preserves the existing text flow. Upper dialogue rows have {TEXT_BOX_LINE_WIDTH} character spaces; the bottom row has {TEXT_BOX_BOTTOM_LINE_WIDTH} safe spaces because the continue arrow uses the final cell. The counter uses the longest runtime value: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, and <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names.
+                  Yellow Editor preserves the existing text flow. Upper dialogue rows have {TEXT_BOX_LINE_WIDTH} character spaces; the bottom row has {TEXT_BOX_BOTTOM_LINE_WIDTH} safe spaces because the continue arrow uses the final cell. The counter includes runtime inserts where their maximum width is known: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names, and common dynamic item/name buffers are reserved automatically. Source terminator <code>@</code> characters are hidden and preserved for you.
                 </p>
                 {document.warnings.length > 0 && (
                   <div className="text-editor-warning">
@@ -242,8 +230,9 @@ export function TextEditor({
 
                 <div className="text-editor-segments">
                   {draft.map((segment, index) => {
-                    const width = textLineDisplayWidth(segment.text);
-                    const maxWidth = textSegmentLineWidth(segment.control);
+                    const metric = segmentMetrics[index];
+                    const width = metric?.width ?? 0;
+                    const maxWidth = metric?.maxWidth ?? TEXT_BOX_LINE_WIDTH;
                     const lineError = lineErrors[index];
                     return (
                       <label className={`text-editor-segment${lineError ? " invalid" : ""}`} key={`${segment.control}:${index}`}>
@@ -266,7 +255,7 @@ export function TextEditor({
 
                 <div className="text-editor-preview-card">
                   <strong>Combined preview</strong>
-                  <p>{segmentsToPreview(draft)}</p>
+                  <p>{textDocumentDisplayPreview(document, draft)}</p>
                 </div>
 
                 <div className="text-editor-actions">
