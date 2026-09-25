@@ -100,13 +100,23 @@ function partyUsageLabel(trainer: TrainerPartyEntry): string {
   return parts.length > 0 ? parts.join(" · ") : "Unreferenced party";
 }
 
-function InteractionDialogueBlock({ dialogue }: { dialogue: TrainerInteractionDialogue }) {
+function InteractionDialogueBlock({
+  dialogue,
+  title,
+}: {
+  dialogue: TrainerInteractionDialogue;
+  title?: string;
+}) {
   const target = dialogue.sourcePath && dialogue.textLabel
     ? { path: dialogue.sourcePath, label: dialogue.textLabel }
     : null;
   return (
     <div className="trainer-dialogue-block">
-      <TextEditor title={dialogue.title} target={target} initialText={dialogue.text} />
+      <TextEditor
+        title={title ?? dialogue.title}
+        target={target}
+        initialText={target ? null : dialogue.text}
+      />
     </div>
   );
 }
@@ -127,13 +137,25 @@ function rewardLabel(reward: TrainerInteraction["rewards"][number]): string {
 }
 
 function TrainerInteractionPanel({ trainer }: { trainer: TrainerPartyEntry }) {
+  const scriptedMaps = new Set(
+    trainer.scriptReferences
+      .filter((reference) => interactionHasContent(reference.interaction))
+      .map((reference) => reference.mapConstant),
+  );
   const groups = [
     ...trainer.instances
-      .filter((instance) => interactionHasContent(instance.interaction))
+      .filter((instance) =>
+        interactionHasContent(instance.interaction)
+        && !(
+          scriptedMaps.has(instance.mapConstant)
+          && (instance.partyResolution === "script" || instance.partyResolution === "conditional-script")
+        )
+      )
       .map((instance) => ({
         id: "instance:" + instance.id,
         locationName: instance.locationName,
         subtitle: triggerLabel(instance),
+        scripted: false,
         interaction: instance.interaction,
       })),
     ...trainer.scriptReferences
@@ -142,6 +164,7 @@ function TrainerInteractionPanel({ trainer }: { trainer: TrainerPartyEntry }) {
         id: "script:" + reference.id,
         locationName: reference.locationName,
         subtitle: "Scripted encounter",
+        scripted: true,
         interaction: reference.interaction,
       })),
   ];
@@ -174,9 +197,21 @@ function TrainerInteractionPanel({ trainer }: { trainer: TrainerPartyEntry }) {
               <div className="trainer-interaction-body">
                 {group.interaction.dialogues.length > 0 && (
                   <div className="trainer-dialogue-grid trainer-interaction-dialogues">
-                    {group.interaction.dialogues.map((dialogue) => (
-                      <InteractionDialogueBlock key={dialogue.id} dialogue={dialogue} />
-                    ))}
+                    {group.interaction.dialogues.map((dialogue) => {
+                      const hasResultBranches = group.scripted
+                        && group.interaction.dialogues.some((entry) => entry.role === "player-wins")
+                        && group.interaction.dialogues.some((entry) => entry.role === "player-loses");
+                      const title = hasResultBranches && dialogue.role === "post-battle"
+                        ? "If the player wins — after the battle"
+                        : undefined;
+                      return (
+                        <InteractionDialogueBlock
+                          key={dialogue.id}
+                          dialogue={dialogue}
+                          title={title}
+                        />
+                      );
+                    })}
                   </div>
                 )}
                 {group.interaction.rewards.length > 0 && (
