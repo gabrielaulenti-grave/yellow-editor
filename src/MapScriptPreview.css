@@ -281,3 +281,78 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+.map-script-prepared-dialogue {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.55rem 0.65rem;
+  border-left: 3px solid var(--border-color, rgba(127, 127, 127, 0.35));
+  border-radius: 0.35rem;
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.map-script-prepared-dialogue p {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.map-script-dialogue-resolution {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  opacity: 0.72;
+}
+
+.map-script-battle-handoff {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.85rem 0.9rem;
+  border: 2px dashed var(--border-color, rgba(127, 127, 127, 0.4));
+  border-radius: 0.7rem;
+  background: rgba(127, 127, 127, 0.04);
+}
+
+.map-script-battle-handoff-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.map-script-battle-handoff-heading > span:first-child {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.map-script-battle-handoff-heading small,
+.map-script-battle-resume small {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.65;
+}
+
+.map-script-battle-handoff-heading strong {
+  font-size: 1.05rem;
+}
+
+.map-script-battle-resume {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.55rem 0.65rem;
+  border-radius: 0.4rem;
+  background: rgba(127, 127, 127, 0.06);
+}
+
+.map-script-battle-resume code {
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 680px) {
+  .map-script-battle-handoff-heading {
+    display: grid;
+  }
+}
