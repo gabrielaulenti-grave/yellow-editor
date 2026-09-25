@@ -32,6 +32,10 @@ import {
   prepareTrainerPartyWrites,
   validateTrainerPartyValues,
 } from "./trainerEditing";
+import {
+  loadTrainerRewardEditDocument,
+  prepareTrainerRewardWrite,
+} from "./trainerRewardEditing";
 import type {
   BuildService,
   ProjectSession,
@@ -321,6 +325,30 @@ export async function createProjectSession(
         catalog.warnings.push(`Trainer location cache could not be saved: ${String(error)}`);
       }
       return catalog;
+    },
+    getTrainerRewardEditDocument: (path, sourceLine) =>
+      loadTrainerRewardEditDocument(source, path, sourceLine),
+    saveTrainerReward: async (
+      path,
+      sourceLine,
+      expectedHash,
+      itemConstant,
+      quantity,
+    ) => {
+      const change = await prepareTrainerRewardWrite(
+        source,
+        path,
+        sourceLine,
+        itemConstant,
+        quantity,
+      );
+      const result = await history.save(`Edit trainer reward ${itemConstant}`, [
+        { ...change, expectedHash },
+      ]);
+      if (trainerCacheAffected([path])) {
+        await trainerCatalogCache?.clear();
+      }
+      return result;
     },
     saveTrainerParty: async (
       partyId,

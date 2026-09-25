@@ -1,11 +1,15 @@
+import { useEffect, useState } from "react";
 import type {
+  HistorySummary,
   MoveData,
   PokemonIndexEntry,
   ProjectInfo,
   TrainerClassEntry,
   TrainerInteraction,
   TrainerInteractionDialogue,
+  TrainerInteractionReward,
   TrainerPartyEntry,
+  TrainerRewardEditDocument,
 } from "./core/types";
 import {
   trainerLevelError,
@@ -14,6 +18,7 @@ import {
 } from "./editor/trainerPartyForm";
 import { MapScriptPreview } from "./MapScriptPreview";
 import { TextEditor } from "./TextEditor";
+import { invoke } from "./platform/compat";
 
 export type TrainerSection = "parties" | "classes";
 
@@ -136,6 +141,223 @@ function rewardLabel(reward: TrainerInteraction["rewards"][number]): string {
   return reward.quantity && reward.quantity > 1 ? item + " ×" + reward.quantity : item;
 }
 
+function RewardEditor({ reward }: { reward: TrainerInteractionReward }) {
+  const editable = reward.kind === "item"
+    && Boolean(reward.sourcePath)
+    && reward.sourceLine !== null;
+  const [document, setDocument] = useState<TrainerRewardEditDocument | null>(null);
+  const [open, setOpen] = useState(false);
+  const [itemConstant, setItemConstant] = useState(reward.constant);
+  const [quantity, setQuantity] = useState(reward.quantity ?? 1);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const visibleConstant = document?.itemConstant ?? reward.constant;
+  const visibleQuantity = document?.quantity ?? reward.quantity;
+  const option = document?.itemOptions.find((entry) => entry.constant === visibleConstant);
+  const visibleLabel = option?.label
+    ?? rewardLabel({ ...reward, constant: visibleConstant, quantity: 1 });
+  const dirty = Boolean(
+    document
+    && (itemConstant !== document.itemConstant || quantity !== document.quantity),
+  );
+
+  async function loadDocument() {
+    if (!editable || !reward.sourcePath || reward.sourceLine === null) return null;
+    const next = await invoke<TrainerRewardEditDocument>("get_trainer_reward_edit_document", {
+      path: reward.sourcePath,
+      sourceLine: reward.sourceLine,
+    });
+    setDocument(next);
+    setItemConstant(next.itemConstant);
+    setQuantity(next.quantity);
+    window.dispatchEvent(new CustomEvent("yellow-editor:trainer-reward-changed", {
+      detail: {
+        path: next.path,
+        sourceLine: next.sourceLine,
+        itemConstant: next.itemConstant,
+        quantity: next.quantity,
+      },
+    }));
+    return next;
+  }
+
+  async function beginEdit() {
+    setOpen(true);
+    setBusy(true);
+    setError(null);
+    try {
+      await loadDocument();
+    } catch (loadError) {
+      setError(String(loadError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function save() {
+    if (!document || !dirty) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const history = await invoke<HistorySummary>("save_trainer_reward", {
+        path: document.path,
+        sourceLine: document.sourceLine,
+        expectedHash: document.sourceHash,
+        itemConstant,
+        quantity,
+      });
+      const next = await loadDocument();
+      if (next) {
+        setDocument(next);
+        setItemConstant(next.itemConstant);
+        setQuantity(next.quantity);
+      }
+      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+      setOpen(false);
+    } catch (saveError) {
+      setError(String(saveError));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!document || !editable) return;
+
+    const handleHistoryChanged = () => {
+      void loadDocument().catch((reloadError) => setError(String(reloadError)));
+    };
+    window.addEventListener("yellow-editor:history-changed", handleHistoryChanged);
+    return () => window.removeEventListener("yellow-editor:history-changed", handleHistoryChanged);
+  }, [document?.path, document?.sourceLine, editable]);
+
+  const itemOptions = document?.itemOptions ?? [];
+  const ordinaryItems = itemOptions.filter((entry) => entry.kind === "item");
+  const tms = itemOptions.filter((entry) => entry.kind === "tm");
+  const hms = itemOptions.filter((entry) => entry.kind === "hm");
+
+  return (
+    <div className="trainer-reward">
+      <div className="trainer-reward-summary">
+        <span>{visibleLabel}{visibleQuantity && visibleQuantity > 1 ? ` ×${visibleQuantity}` : ""}</span>
+        <code>{visibleConstant}</code>
+      </div>
+      {editable ? (
+        <button className="small-button" type="button" onClick={() => void beginEdit()}>
+          Edit reward
+        </button>
+      ) : (
+        <span className="read-only-badge">{reward.kind === "badge" ? "Badge" : "Read-only"}</span>
+      )}
+
+      {open && (
+        <div className="text-editor-backdrop" role="presentation">
+          <section className="text-editor-dialog trainer-reward-dialog" role="dialog" aria-modal="true" aria-label="Edit trainer reward">
+            <div className="text-editor-dialog-heading">
+              <div>
+                <h3>Edit reward</h3>
+                {reward.sourcePath && reward.sourceLine !== null && (
+                  <p><code>{reward.sourcePath}:{reward.sourceLine}</code></p>
+                )}
+              </div>
+              <button
+                type="button"
+                className="small-button"
+                disabled={busy}
+                onClick={() => setOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+
+            {busy && !document && <p>Loading reward…</p>}
+            {error && <p className="text-editor-error">{error}</p>}
+
+            {document && (
+              <>
+                <p className="help-text">
+                  Yellow Editor changes only this <code>GiveItem</code> reward.
+                  Dialogue and other trainer behavior are left exactly as the project defines them.
+                </p>
+                <label className="trainer-reward-field">
+                  <span>Item</span>
+                  <select
+                    value={itemConstant}
+                    disabled={busy}
+                    onChange={(event) => setItemConstant(event.target.value)}
+                  >
+                    {ordinaryItems.length > 0 && (
+                      <optgroup label="Items">
+                        {ordinaryItems.map((entry) => (
+                          <option key={entry.constant} value={entry.constant}>{entry.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {tms.length > 0 && (
+                      <optgroup label="TMs">
+                        {tms.map((entry) => (
+                          <option key={entry.constant} value={entry.constant}>{entry.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {hms.length > 0 && (
+                      <optgroup label="HMs">
+                        {hms.map((entry) => (
+                          <option key={entry.constant} value={entry.constant}>{entry.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                </label>
+                <label className="trainer-reward-field">
+                  <span>Quantity</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={255}
+                    step={1}
+                    value={quantity}
+                    disabled={busy}
+                    onChange={(event) => setQuantity(Number(event.target.value))}
+                  />
+                </label>
+                <div className="trainer-reward-selection-preview">
+                  <strong>Selected reward</strong>
+                  <span>
+                    {itemOptions.find((entry) => entry.constant === itemConstant)?.label
+                      ?? titleCaseConstant(itemConstant)}
+                    {quantity > 1 ? ` ×${quantity}` : ""}
+                  </span>
+                  <code>{itemConstant}</code>
+                </div>
+                <div className="text-editor-actions">
+                  <button
+                    type="button"
+                    className="small-button"
+                    disabled={busy}
+                    onClick={() => setOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="small-button primary-action"
+                    disabled={busy || !dirty || !Number.isInteger(quantity) || quantity < 1 || quantity > 255}
+                    onClick={() => void save()}
+                  >
+                    {busy ? "Saving…" : "Save reward"}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TrainerInteractionPanel({ trainer }: { trainer: TrainerPartyEntry }) {
   const scriptedMaps = new Set(
     trainer.scriptReferences
@@ -179,7 +401,7 @@ function TrainerInteractionPanel({ trainer }: { trainer: TrainerPartyEntry }) {
             even when the game stores the behavior in a map script.
           </p>
         </div>
-        {groups.length > 0 && <span className="editable-badge">Dialogue editable</span>}
+        {groups.length > 0 && <span className="editable-badge">Interaction editable</span>}
       </div>
       {groups.length === 0 ? (
         <p className="empty-state">
@@ -218,10 +440,7 @@ function TrainerInteractionPanel({ trainer }: { trainer: TrainerPartyEntry }) {
                   <div className="trainer-reward-list">
                     <strong>Rewards &amp; gifts</strong>
                     {group.interaction.rewards.map((reward) => (
-                      <div key={reward.id} className="trainer-reward">
-                        <span>{rewardLabel(reward)}</span>
-                        <code>{reward.constant}</code>
-                      </div>
+                      <RewardEditor key={reward.id} reward={reward} />
                     ))}
                   </div>
                 )}

@@ -407,6 +407,21 @@ export async function invoke<T>(
     case "get_trainers":
       return (await session.getTrainers(trainerProgressArg(args))) as T;
 
+    case "get_trainer_reward_edit_document":
+      return (await session.getTrainerRewardEditDocument(
+        stringArg(args, "path"),
+        numberArg(args, "sourceLine"),
+      )) as T;
+
+    case "save_trainer_reward":
+      return (await session.saveTrainerReward(
+        stringArg(args, "path"),
+        numberArg(args, "sourceLine"),
+        stringArg(args, "expectedHash"),
+        stringArg(args, "itemConstant"),
+        numberArg(args, "quantity"),
+      )) as T;
+
     case "save_trainer_party":
       return (await session.saveTrainerParty(
         stringArg(args, "partyId"),

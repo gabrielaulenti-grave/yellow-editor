@@ -987,3 +987,67 @@ pre {
     text-align: left;
   }
 }
+
+
+.trainer-reward {
+  align-items: center;
+}
+
+.trainer-reward-summary {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.trainer-reward-summary code {
+  width: fit-content;
+  max-width: 100%;
+}
+
+.trainer-reward-dialog {
+  width: min(620px, 96vw);
+}
+
+.trainer-reward-field {
+  display: grid;
+  gap: 6px;
+}
+
+.trainer-reward-field > span {
+  font-size: 0.82rem;
+  font-weight: 700;
+  opacity: 0.82;
+}
+
+.trainer-reward-field select,
+.trainer-reward-field input {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.trainer-reward-selection-preview {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-soft);
+}
+
+.trainer-reward-selection-preview code {
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 680px) {
+  .trainer-reward {
+    align-items: stretch;
+  }
+
+  .trainer-reward > .small-button,
+  .trainer-reward > .read-only-badge {
+    width: fit-content;
+  }
+}
