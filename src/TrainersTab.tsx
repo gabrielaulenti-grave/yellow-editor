@@ -137,9 +137,20 @@ function rewardLabel(reward: TrainerInteraction["rewards"][number]): string {
 }
 
 function TrainerInteractionPanel({ trainer }: { trainer: TrainerPartyEntry }) {
+  const scriptedMaps = new Set(
+    trainer.scriptReferences
+      .filter((reference) => interactionHasContent(reference.interaction))
+      .map((reference) => reference.mapConstant),
+  );
   const groups = [
     ...trainer.instances
-      .filter((instance) => interactionHasContent(instance.interaction))
+      .filter((instance) =>
+        interactionHasContent(instance.interaction)
+        && !(
+          scriptedMaps.has(instance.mapConstant)
+          && (instance.partyResolution === "script" || instance.partyResolution === "conditional-script")
+        )
+      )
       .map((instance) => ({
         id: "instance:" + instance.id,
         locationName: instance.locationName,
