@@ -32,6 +32,7 @@ interface MapScriptPreviewProps {
 
 interface NodeDialoguePreview {
   text?: string;
+  target?: TextEditorTarget;
   battle?: ResolvedScriptBattleDialogue;
 }
 
@@ -190,22 +191,54 @@ function flattenFlowNodes(items: MapScriptFlowItem[]): MapScriptSemanticNode[] {
   return result.sort((left, right) => left.source.lineStart - right.source.lineStart);
 }
 
+function interactionTarget(
+  dialogue: TrainerScriptReference["interaction"]["dialogues"][number] | undefined,
+): TextEditorTarget | undefined {
+  return dialogue?.sourcePath && dialogue.textLabel
+    ? { path: dialogue.sourcePath, label: dialogue.textLabel }
+    : undefined;
+}
+
 function dialoguePreviewsForFlow(
   flow: MapScriptFlowItem[],
   phaseDialogue: ResolvedScriptPhaseDialogue | undefined,
+  reference: TrainerScriptReference,
+  state: MapScriptState,
+  resumeLabels: Set<string>,
 ): Map<string, NodeDialoguePreview> {
   const previews = new Map<string, NodeDialoguePreview>();
+  const role = state.label === reference.routineLabel
+    ? "before-battle"
+    : resumeLabels.has(state.label)
+      ? "post-battle"
+      : null;
+  const interactionDialogues = role
+    ? reference.interaction.dialogues.filter((dialogue) => dialogue.role === role)
+    : [];
+  const playerWins = reference.interaction.dialogues.find((dialogue) => dialogue.role === "player-wins");
+  const playerLoses = reference.interaction.dialogues.find((dialogue) => dialogue.role === "player-loses");
+
   let dialogueIndex = 0;
   let battleDialogueIndex = 0;
   for (const node of flattenFlowNodes(flow)) {
     if (node.type === "dialogue") {
-      const text = phaseDialogue?.dialogues[dialogueIndex];
+      const interaction = interactionDialogues[dialogueIndex];
+      const text = interaction?.text ?? phaseDialogue?.dialogues[dialogueIndex];
       dialogueIndex += 1;
-      if (text) previews.set(node.id, { text });
+      if (text || interaction) {
+        previews.set(node.id, {
+          text: text ?? undefined,
+          target: interactionTarget(interaction),
+        });
+      }
     } else if (node.type === "battle-dialogue") {
-      const battle = phaseDialogue?.battleDialogues[battleDialogueIndex];
+      const fallback = phaseDialogue?.battleDialogues[battleDialogueIndex];
       battleDialogueIndex += 1;
-      if (battle?.playerWins || battle?.playerLoses) previews.set(node.id, { battle });
+      const battle = {
+        playerWins: playerWins?.text ?? fallback?.playerWins ?? null,
+        playerLoses: playerLoses?.text ?? fallback?.playerLoses ?? null,
+      };
+      if (battle.playerWins || battle.playerLoses) previews.set(node.id, { battle });
     }
   }
   return previews;
@@ -231,8 +264,8 @@ function DialoguePreview({
     <div className="map-script-dialogue-preview">
       <TextEditor
         title="Dialogue"
-        target={textEditorTarget(reference, displayedLabel ?? node.textLabel)}
-        initialText={displayedLabel ? null : preview?.text ?? null}
+        target={preview?.target ?? textEditorTarget(reference, displayedLabel ?? node.textLabel)}
+        initialText={preview?.text ?? (displayedLabel ? null : null)}
       />
       {displayedLabel && displayedLabel !== node.textLabel && (
         <small className="map-script-dialogue-resolution">
@@ -264,6 +297,8 @@ function BattleHandoffCard({
   preview: ResolvedScriptBattleDialogue | undefined;
   reference: TrainerScriptReference;
 }) {
+  const playerWins = reference.interaction.dialogues.find((dialogue) => dialogue.role === "player-wins");
+  const playerLoses = reference.interaction.dialogues.find((dialogue) => dialogue.role === "player-loses");
   return (
     <section className="map-script-battle-handoff">
       <div className="map-script-battle-handoff-heading">
@@ -288,15 +323,15 @@ function BattleHandoffCard({
         <div className="map-script-dialogue-preview">
           <TextEditor
             title="If the player wins — display dialogue"
-            target={textEditorTarget(reference, handoff.playerWins)}
-            initialText={preview?.playerWins ?? null}
+            target={interactionTarget(playerWins) ?? textEditorTarget(reference, handoff.playerWins)}
+            initialText={playerWins?.text ?? preview?.playerWins ?? null}
           />
         </div>
         <div className="map-script-dialogue-preview">
           <TextEditor
             title="If the player loses — display dialogue"
-            target={textEditorTarget(reference, handoff.playerLoses)}
-            initialText={preview?.playerLoses ?? null}
+            target={interactionTarget(playerLoses) ?? textEditorTarget(reference, handoff.playerLoses)}
+            initialText={playerLoses?.text ?? preview?.playerLoses ?? null}
           />
         </div>
       </div>
@@ -515,7 +550,8 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
     const states = focusedMapScriptStates(program, reference.routineLabel, 1, 1);
     const dialoguePhases = parseResolvedScriptDialogueSummary(reference.routineSource);
     const battleHandoffs = mapScriptBattleHandoffs(program, reference.mapScriptSource);
-    return { states, dialoguePhases, battleHandoffs };
+    const resumeLabels = new Set(battleHandoffs.map((handoff) => handoff.resumeStateLabel));
+    return { states, dialoguePhases, battleHandoffs, resumeLabels };
   }, [reference.mapScriptSource, reference.routineLabel, reference.routineSource]);
 
   if (model.states.length === 0) {
@@ -545,7 +581,13 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
             model.dialoguePhases,
             summaryStateTitle(state.label, reference.scriptPath),
           );
-          const previews = dialoguePreviewsForFlow(flow, phaseDialogue ?? undefined);
+          const previews = dialoguePreviewsForFlow(
+            flow,
+            phaseDialogue ?? undefined,
+            reference,
+            state,
+            model.resumeLabels,
+          );
           const handoff = model.battleHandoffs.find(
             (candidate) => candidate.setupStateLabel === state.label,
           );
