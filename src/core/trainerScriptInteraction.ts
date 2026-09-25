@@ -111,7 +111,7 @@ function resolveWrapper(
   if (external) {
     return [{
       label: wrapperLabel,
-      text: parseQuotedText(external.source),
+      text: textBlockPreview(external.source),
       sourcePath: external.path,
     }];
   }
