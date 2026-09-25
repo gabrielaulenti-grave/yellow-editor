@@ -1,5 +1,6 @@
 import { mapConstantDisplayName } from "./mapMetadata";
 import { hashText } from "./history";
+import { textBlockPreview } from "./textPreview";
 import type {
   ProjectSource,
   TrainerCatalog,
@@ -423,20 +424,6 @@ function headerForWrapper(
   return null;
 }
 
-function parseQuotedText(block: string): string | null {
-  const parts: string[] = [];
-  for (const line of block.split(/\r?\n/)) {
-    const clean = withoutComment(line);
-    const match = clean.match(/^(text|line|cont|para|page|next)\s+"((?:[^"\\]|\\.)*)"/);
-    if (!match) {
-      continue;
-    }
-    const separator = match[1] === "para" || match[1] === "page" ? "\n\n" : parts.length ? "\n" : "";
-    parts.push(`${separator}${match[2].replace(/\\"/g, '"')}`);
-  }
-  return parts.length ? parts.join("") : null;
-}
-
 function dialogueFor(
   wrapperLabel: string,
   scriptBlocks: Map<string, string>,
@@ -448,7 +435,7 @@ function dialogueFor(
   return {
     wrapperLabel,
     textLabel,
-    text: sourceBlock ? parseQuotedText(sourceBlock.block) : null,
+    text: sourceBlock ? textBlockPreview(sourceBlock.block) : null,
     sourcePath: sourceBlock?.path ?? null,
   };
 }
@@ -469,7 +456,7 @@ function dialoguePartsFor(
     return {
       wrapperLabel,
       textLabel,
-      text: sourceBlock ? parseQuotedText(sourceBlock.block) : null,
+      text: sourceBlock ? textBlockPreview(sourceBlock.block) : null,
       sourcePath: sourceBlock?.path ?? null,
     };
   });
