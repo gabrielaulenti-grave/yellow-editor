@@ -232,7 +232,7 @@ function DialoguePreview({
       <TextEditor
         title="Dialogue"
         target={textEditorTarget(reference, displayedLabel ?? node.textLabel)}
-        initialText={preview?.text ?? null}
+        initialText={displayedLabel ? null : preview?.text ?? null}
       />
       {displayedLabel && displayedLabel !== node.textLabel && (
         <small className="map-script-dialogue-resolution">
