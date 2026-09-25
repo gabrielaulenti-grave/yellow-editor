@@ -123,8 +123,43 @@ function App() {
       }
     }
 
+    function handleTrainerRewardChanged(event: Event) {
+      const detail = (event as CustomEvent<{
+        path: string;
+        sourceLine: number;
+        itemConstant: string;
+        quantity: number;
+      }>).detail;
+      if (!detail) return;
+
+      const updateInteraction = (interaction: TrainerPartyEntry["instances"][number]["interaction"]) => ({
+        ...interaction,
+        rewards: interaction.rewards.map((reward) =>
+          reward.sourcePath === detail.path && reward.sourceLine === detail.sourceLine
+            ? { ...reward, constant: detail.itemConstant, quantity: detail.quantity }
+            : reward,
+        ),
+      });
+
+      setTrainers((current) => current.map((trainer) => ({
+        ...trainer,
+        instances: trainer.instances.map((instance) => ({
+          ...instance,
+          interaction: updateInteraction(instance.interaction),
+        })),
+        scriptReferences: trainer.scriptReferences.map((reference) => ({
+          ...reference,
+          interaction: updateInteraction(reference.interaction),
+        })),
+      })));
+    }
+
     window.addEventListener("yellow-editor:history-changed", handleHistoryChanged);
-    return () => window.removeEventListener("yellow-editor:history-changed", handleHistoryChanged);
+    window.addEventListener("yellow-editor:trainer-reward-changed", handleTrainerRewardChanged);
+    return () => {
+      window.removeEventListener("yellow-editor:history-changed", handleHistoryChanged);
+      window.removeEventListener("yellow-editor:trainer-reward-changed", handleTrainerRewardChanged);
+    };
   }, []);
 
   const selectedPokemonEntry =
@@ -807,14 +842,18 @@ function App() {
       const history = await invoke<HistorySummary>("undo_last_save");
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
-      const refreshTrainers = historySummary.latestLabel?.startsWith("Edit trainer party ") ?? false;
-      const [refreshedEncounters, refreshedTrainers] = await Promise.all([
+      const refreshTrainerBase = historySummary.latestLabel?.startsWith("Edit trainer party ") ?? false;
+      const refreshTrainerRewards = historySummary.latestLabel?.startsWith("Edit trainer reward ") ?? false;
+      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
-        refreshTrainers ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
+        refreshTrainerBase ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
+        refreshTrainerRewards ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
       ]);
       setEncounters(refreshedEncounters);
-      if (refreshedTrainers) {
-        refreshTrainerBaseCatalog(refreshedTrainers, selectedTrainerId, selectedTrainerClass);
+      if (refreshedTrainerCatalog) {
+        installTrainerCatalog(refreshedTrainerCatalog, selectedTrainerId, selectedTrainerClass);
+      } else if (refreshedTrainerBase) {
+        refreshTrainerBaseCatalog(refreshedTrainerBase, selectedTrainerId, selectedTrainerClass);
       }
       await loadFishing("Undid the last saved change.");
       if (selectedPokemonEntry?.sourceSlug) {
@@ -845,14 +884,18 @@ function App() {
       const history = await invoke<HistorySummary>("redo_last_undo");
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
-      const refreshTrainers = history.latestLabel?.startsWith("Edit trainer party ") ?? false;
-      const [refreshedEncounters, refreshedTrainers] = await Promise.all([
+      const refreshTrainerBase = history.latestLabel?.startsWith("Edit trainer party ") ?? false;
+      const refreshTrainerRewards = history.latestLabel?.startsWith("Edit trainer reward ") ?? false;
+      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
-        refreshTrainers ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
+        refreshTrainerBase ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
+        refreshTrainerRewards ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
       ]);
       setEncounters(refreshedEncounters);
-      if (refreshedTrainers) {
-        refreshTrainerBaseCatalog(refreshedTrainers, selectedTrainerId, selectedTrainerClass);
+      if (refreshedTrainerCatalog) {
+        installTrainerCatalog(refreshedTrainerCatalog, selectedTrainerId, selectedTrainerClass);
+      } else if (refreshedTrainerBase) {
+        refreshTrainerBaseCatalog(refreshedTrainerBase, selectedTrainerId, selectedTrainerClass);
       }
       await loadFishing("Redid the last saved change.");
       if (selectedPokemonEntry?.sourceSlug) {
