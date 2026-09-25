@@ -1,4 +1,9 @@
 import { hashText } from "./history";
+import {
+  decodeAsmTextString,
+  runtimeTextCommandPreview,
+  visibleAsmText,
+} from "./textPreview";
 import type {
   HistorySummary,
   ProjectSession,
@@ -21,11 +26,23 @@ export interface TextSegment {
   text: string;
 }
 
+export type TextDisplayPart =
+  | { type: "segment"; segmentIndex: number }
+  | { type: "dynamic"; text: string; maxWidth?: number }
+  | { type: "break"; kind: "line" | "paragraph" };
+
+export interface TextSegmentMetric {
+  width: number;
+  maxWidth: number;
+  error: string | null;
+}
+
 export interface TextDocument {
   path: string;
   label: string;
   sourceHash: string;
   segments: TextSegment[];
+  displayParts: TextDisplayPart[];
   terminator: TextTerminator;
   editable: boolean;
   warnings: string[];
@@ -82,12 +99,6 @@ function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function decodeAsmString(value: string): string {
-  return value
-    .replace(/\\"/g, '"')
-    .replace(/\\\\/g, "\\");
-}
-
 function encodeAsmString(value: string): string {
   return value
     .replace(/\\/g, "\\\\")
@@ -129,17 +140,85 @@ export function textSegmentLineWidth(control: TextSegmentControl): number {
     : TEXT_BOX_LINE_WIDTH;
 }
 
+function textRowLengthError(width: number, maxWidth: number): string | null {
+  if (width <= maxWidth) return null;
+  return maxWidth === TEXT_BOX_BOTTOM_LINE_WIDTH
+    ? `This displayed row uses up to ${width} character spaces, but the bottom dialogue row only has ${maxWidth} safe spaces because the continue arrow uses the last cell.`
+    : `This displayed row uses up to ${width} character spaces, but a dialogue row only has ${maxWidth} spaces.`;
+}
+
 export function textLineLengthError(
   value: string,
   maxWidth = TEXT_BOX_LINE_WIDTH,
 ): string | null {
-  const width = textLineDisplayWidth(value);
-  if (width <= maxWidth) {
-    return null;
+  if (value.includes("@")) {
+    return "The @ symbol is a source terminator, not visible dialogue. Yellow Editor preserves it automatically.";
   }
-  return maxWidth === TEXT_BOX_BOTTOM_LINE_WIDTH
-    ? `This line can display up to ${width} characters, but the bottom dialogue row only has ${maxWidth} safe spaces because the continue arrow uses the last cell.`
-    : `This line can display up to ${width} characters, but a dialogue line only has ${maxWidth} spaces.`;
+  return textRowLengthError(textLineDisplayWidth(value), maxWidth);
+}
+
+function textSegmentMetrics(
+  displayParts: TextDisplayPart[],
+  segments: TextSegment[],
+): TextSegmentMetric[] {
+  const metrics = segments.map((): TextSegmentMetric => ({
+    width: 0,
+    maxWidth: TEXT_BOX_LINE_WIDTH,
+    error: null,
+  }));
+
+  let rowWidth = 0;
+  let rowMaxWidth = TEXT_BOX_LINE_WIDTH;
+  let rowSegments: number[] = [];
+  let rowContentError: string | null = null;
+
+  const flushRow = () => {
+    const widthError = textRowLengthError(rowWidth, rowMaxWidth);
+    const error = rowContentError ?? widthError;
+    for (const segmentIndex of rowSegments) {
+      metrics[segmentIndex] = {
+        width: rowWidth,
+        maxWidth: rowMaxWidth,
+        error,
+      };
+    }
+    rowWidth = 0;
+    rowSegments = [];
+    rowContentError = null;
+  };
+
+  for (const part of displayParts) {
+    if (part.type === "break") {
+      flushRow();
+      rowMaxWidth = part.kind === "line"
+        ? TEXT_BOX_BOTTOM_LINE_WIDTH
+        : TEXT_BOX_LINE_WIDTH;
+      continue;
+    }
+
+    if (part.type === "dynamic") {
+      rowWidth += part.maxWidth ?? 0;
+      continue;
+    }
+
+    const segment = segments[part.segmentIndex];
+    if (!segment) continue;
+    rowSegments.push(part.segmentIndex);
+    if (segment.text.includes("@")) {
+      rowContentError = "The @ symbol is a source terminator, not visible dialogue. Yellow Editor preserves it automatically.";
+    }
+    rowWidth += textLineDisplayWidth(segment.text);
+  }
+  flushRow();
+
+  return metrics;
+}
+
+export function textDocumentSegmentMetrics(
+  document: Pick<TextDocument, "displayParts" | "segments">,
+  segments: TextSegment[] = document.segments,
+): TextSegmentMetric[] {
+  return textSegmentMetrics(document.displayParts, segments);
 }
 
 function findLabelRange(lines: string[], label: string): LabelRange {
@@ -205,8 +284,9 @@ function findGlobalLabelRange(lines: string[], label: string): LabelRange {
 function parseBlock(
   lines: string[],
   range: LabelRange,
-): Pick<TextDocument, "segments" | "terminator" | "editable" | "warnings"> {
+): Pick<TextDocument, "segments" | "displayParts" | "terminator" | "editable" | "warnings"> {
   const segments: TextSegment[] = [];
+  const displayParts: TextDisplayPart[] = [];
   const warnings: string[] = [];
   let terminator: TextTerminator = null;
 
@@ -219,16 +299,43 @@ function parseBlock(
 
     const textLine = raw.match(TEXT_LINE_PATTERN);
     if (textLine) {
+      const control = textLine[2].toLowerCase() as TextSegmentControl;
+      if (control === "next" || control === "line" || control === "cont") {
+        displayParts.push({ type: "break", kind: "line" });
+      } else if (control === "para" || control === "page") {
+        displayParts.push({ type: "break", kind: "paragraph" });
+      }
+      const segmentIndex = segments.length;
       segments.push({
-        control: textLine[2].toLowerCase() as TextSegmentControl,
-        text: decodeAsmString(textLine[3]),
+        control,
+        text: visibleAsmText(textLine[3]),
       });
+      displayParts.push({ type: "segment", segmentIndex });
       continue;
     }
 
     const terminatorMatch = clean.match(TERMINATOR_PATTERN)?.[1]?.toLowerCase();
     if (terminatorMatch) {
       terminator = terminatorMatch as Exclude<TextTerminator, null>;
+      continue;
+    }
+
+    const runtime = runtimeTextCommandPreview(clean);
+    if (runtime) {
+      if (runtime.kind === "break") {
+        displayParts.push({ type: "break", kind: "line" });
+      } else if (runtime.kind === "dynamic" && runtime.text) {
+        displayParts.push({
+          type: "dynamic",
+          text: runtime.text,
+          maxWidth: runtime.maxWidth,
+        });
+      }
+      if (!runtime.safeToEdit) {
+        warnings.push(
+          `Yellow Editor can preview but cannot safely measure this runtime text command on line ${index + 1}: ${clean}`,
+        );
+      }
       continue;
     }
 
@@ -243,6 +350,7 @@ function parseBlock(
 
   return {
     segments,
+    displayParts,
     terminator,
     editable: warnings.length === 0 && segments.length > 0,
     warnings,
@@ -289,14 +397,24 @@ function containsLabel(contents: string, label: string): boolean {
   return exact.test(contents);
 }
 
-function textDocumentPreview(document: TextDocument): string {
+export function textDocumentDisplayPreview(
+  document: Pick<TextDocument, "displayParts" | "segments">,
+  segments: TextSegment[] = document.segments,
+): string {
   let result = "";
-  document.segments.forEach((segment, index) => {
-    if (index > 0) {
-      result += segment.control === "para" || segment.control === "page" ? "\n\n" : "\n";
+  for (const part of document.displayParts) {
+    if (part.type === "break") {
+      if (!result) continue;
+      const separator = part.kind === "paragraph" ? "\n\n" : "\n";
+      if (!result.endsWith(separator)) result += separator;
+      continue;
     }
-    result += segment.text;
-  });
+    if (part.type === "dynamic") {
+      result += part.text;
+      continue;
+    }
+    result += segments[part.segmentIndex]?.text ?? "";
+  }
   return result.trim();
 }
 
@@ -379,7 +497,7 @@ async function resolveTextLeafDocument(
 
   const expected = comparableText(previewText);
   const exactMatches = resolved.filter((document) =>
-    comparableText(textDocumentPreview(document)) === expected
+    comparableText(textDocumentDisplayPreview(document)) === expected
   );
   if (exactMatches.length === 1) return exactMatches[0];
   if (resolved.length === 1) return resolved[0];
@@ -427,6 +545,12 @@ export function applyTextDocumentEdits(
     );
   }
 
+  const metrics = textSegmentMetrics(current.displayParts, segments);
+  const firstMetricError = metrics.find((metric) => metric.error)?.error;
+  if (firstMetricError) {
+    throw new Error(`${firstMetricError} Shorten the affected displayed row before saving.`);
+  }
+
   let segmentIndex = 0;
   for (let index = range.start + 1; index < range.end; index += 1) {
     const match = lines[index].match(TEXT_LINE_PATTERN);
@@ -446,15 +570,10 @@ export function applyTextDocumentEdits(
         "A single text segment cannot contain a raw line break. Use the existing text-flow segments instead.",
       );
     }
-    const lineError = textLineLengthError(
-      next.text,
-      textSegmentLineWidth(currentControl),
-    );
-    if (lineError) {
-      throw new Error(`${lineError} Shorten the '${currentControl}' line before saving.`);
-    }
-
-    lines[index] = `${match[1]}${match[2]} "${encodeAsmString(next.text)}"${match[4]}`;
+    const originalText = decodeAsmTextString(match[3]);
+    const terminatorIndex = originalText.indexOf("@");
+    const sourceSuffix = terminatorIndex >= 0 ? originalText.slice(terminatorIndex) : "";
+    lines[index] = `${match[1]}${match[2]} "${encodeAsmString(next.text + sourceSuffix)}"${match[4]}`;
     segmentIndex += 1;
   }
 
