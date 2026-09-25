@@ -156,7 +156,7 @@ function RewardEditor({ reward }: { reward: TrainerInteractionReward }) {
   const visibleQuantity = document?.quantity ?? reward.quantity;
   const option = document?.itemOptions.find((entry) => entry.constant === visibleConstant);
   const visibleLabel = option?.label
-    ?? rewardLabel({ ...reward, constant: visibleConstant, quantity: visibleQuantity });
+    ?? rewardLabel({ ...reward, constant: visibleConstant, quantity: 1 });
   const dirty = Boolean(
     document
     && (itemConstant !== document.itemConstant || quantity !== document.quantity),
@@ -171,6 +171,14 @@ function RewardEditor({ reward }: { reward: TrainerInteractionReward }) {
     setDocument(next);
     setItemConstant(next.itemConstant);
     setQuantity(next.quantity);
+    window.dispatchEvent(new CustomEvent("yellow-editor:trainer-reward-changed", {
+      detail: {
+        path: next.path,
+        sourceLine: next.sourceLine,
+        itemConstant: next.itemConstant,
+        quantity: next.quantity,
+      },
+    }));
     return next;
   }
 
