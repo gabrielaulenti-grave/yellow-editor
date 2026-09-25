@@ -453,6 +453,279 @@ function dialogueFor(
   };
 }
 
+function dialoguePartsFor(
+  wrapperLabel: string,
+  scriptBlocks: Map<string, string>,
+  textBlocks: Map<string, TextSourceBlock>,
+): TrainerDialogue[] {
+  const wrapper = scriptBlocks.get(wrapperLabel) ?? "";
+  const labels = [...new Set(
+    [...wrapper.matchAll(/^\s*text_far\s+([A-Za-z_.][A-Za-z0-9_.]*)\b/gm)]
+      .map((match) => match[1]),
+  )];
+  if (labels.length === 0) return [dialogueFor(wrapperLabel, scriptBlocks, textBlocks)];
+  return labels.map((textLabel) => {
+    const sourceBlock = textBlocks.get(textLabel);
+    return {
+      wrapperLabel,
+      textLabel,
+      text: sourceBlock ? parseQuotedText(sourceBlock.block) : null,
+      sourcePath: sourceBlock?.path ?? null,
+    };
+  });
+}
+
+function scriptPointerLabels(contents: string): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const match of contents.matchAll(
+    /^\s*dw_const\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(SCRIPT_[A-Z0-9_]+)\b/gm,
+  )) {
+    result.set(match[2], match[1]);
+  }
+  return result;
+}
+
+function recentRegisterValue(
+  lines: string[],
+  beforeIndex: number,
+  register: "a" | "hl" | "de",
+  maxBack = 16,
+): string | null {
+  const pattern = new RegExp(`^ld\\s+${register}\\s*,\\s*([^\\s;]+)\\b`, "i");
+  for (let index = beforeIndex - 1; index >= Math.max(0, beforeIndex - maxBack); index -= 1) {
+    const value = withoutComment(lines[index]).match(pattern)?.[1];
+    if (value) return value;
+  }
+  return null;
+}
+
+function customDialogueRole(label: string): {
+  role: TrainerInstance["interaction"]["dialogues"][number]["role"];
+  title: string;
+} {
+  const normalized = label.replace(/^\./, "").toLowerCase();
+  if (/post.*battle|after.*battle|afterbeat|advice/.test(normalized)) {
+    return { role: "post-battle", title: "After the battle" };
+  }
+  if (/reward|received|take.*this|tm\d|no.*room/.test(normalized)) {
+    return { role: "reward", title: "Reward dialogue" };
+  }
+  return { role: "before-battle", title: "Before the battle" };
+}
+
+function addInteractionDialogue(
+  interaction: TrainerInstance["interaction"],
+  role: TrainerInstance["interaction"]["dialogues"][number]["role"],
+  title: string,
+  wrapperLabel: string,
+  scriptBlocks: Map<string, string>,
+  textBlocks: Map<string, TextSourceBlock>,
+): void {
+  for (const [partIndex, dialogue] of dialoguePartsFor(wrapperLabel, scriptBlocks, textBlocks).entries()) {
+    if (!dialogue.textLabel && !dialogue.text) continue;
+    const id = `${role}:${wrapperLabel}:${dialogue.textLabel ?? partIndex}`;
+    if (interaction.dialogues.some((entry) => entry.id === id)) continue;
+    interaction.dialogues.push({
+      id,
+      role,
+      title: partIndex === 0 ? title : `${title} — continued`,
+      ...dialogue,
+    });
+  }
+}
+
+function standardTrainerInteraction(
+  dialogue: TrainerInstance["dialogue"],
+): TrainerInstance["interaction"] {
+  const interaction: TrainerInstance["interaction"] = { dialogues: [], rewards: [] };
+  const entries: Array<{
+    role: TrainerInstance["interaction"]["dialogues"][number]["role"];
+    title: string;
+    dialogue: TrainerDialogue | null;
+  }> = [
+    { role: "before-battle", title: "Before the battle", dialogue: dialogue.before },
+    { role: "player-wins", title: "When you defeat this trainer", dialogue: dialogue.defeat },
+    { role: "post-battle", title: "After the battle", dialogue: dialogue.after },
+  ];
+  for (const entry of entries) {
+    if (!entry.dialogue) continue;
+    interaction.dialogues.push({
+      id: `${entry.role}:${entry.dialogue.wrapperLabel}:${entry.dialogue.textLabel ?? "wrapper"}`,
+      role: entry.role,
+      title: entry.title,
+      ...entry.dialogue,
+    });
+  }
+  return interaction;
+}
+
+function customTrainerInteraction(
+  wrapperLabel: string,
+  scriptPath: string | null,
+  scriptContents: string,
+  scriptBlocks: Map<string, string>,
+  textBlocks: Map<string, TextSourceBlock>,
+): TrainerInstance["interaction"] {
+  const interaction: TrainerInstance["interaction"] = { dialogues: [], rewards: [] };
+  if (!scriptPath) return interaction;
+
+  const wrapperSource = globalLabelBlocks(scriptContents).get(wrapperLabel) ?? "";
+  const wrapperLines = wrapperSource.split(/\r?\n/);
+
+  // Dialogue printed directly by the trainer's text_asm wrapper.
+  for (let index = 0; index < wrapperLines.length; index += 1) {
+    if (!/^call\s+PrintText\b/i.test(withoutComment(wrapperLines[index]))) continue;
+    const label = recentRegisterValue(wrapperLines, index, "hl", 6);
+    if (!label) continue;
+    const classification = customDialogueRole(label);
+    addInteractionDialogue(
+      interaction,
+      classification.role,
+      classification.title,
+      label,
+      scriptBlocks,
+      textBlocks,
+    );
+  }
+
+  // Battle-result text prepared by a custom trainer wrapper.
+  for (let index = 0; index < wrapperLines.length; index += 1) {
+    if (!/^call\s+SaveEndBattleTextPointers\b/i.test(withoutComment(wrapperLines[index]))) continue;
+    const playerWins = recentRegisterValue(wrapperLines, index, "hl", 16);
+    const playerLoses = recentRegisterValue(wrapperLines, index, "de", 16);
+    if (playerWins && playerWins === playerLoses) {
+      addInteractionDialogue(
+        interaction,
+        "player-wins",
+        "Battle result dialogue",
+        playerWins,
+        scriptBlocks,
+        textBlocks,
+      );
+    } else {
+      if (playerWins) addInteractionDialogue(
+        interaction,
+        "player-wins",
+        "If the player wins",
+        playerWins,
+        scriptBlocks,
+        textBlocks,
+      );
+      if (playerLoses) addInteractionDialogue(
+        interaction,
+        "player-loses",
+        "If the player loses",
+        playerLoses,
+        scriptBlocks,
+        textBlocks,
+      );
+    }
+  }
+
+  const sections = globalLabelSections(scriptContents);
+  const sectionByLabel = new Map(sections.map((section, index) => [section.label, { ...section, index }]));
+  const scriptPointers = scriptPointerLabels(scriptContents);
+  const relatedLabels = new Set<string>();
+
+  // Follow the state selected for the post-battle continuation.
+  for (let index = 0; index < wrapperLines.length; index += 1) {
+    const constant = withoutComment(wrapperLines[index]).match(/^ld\s+a\s*,\s*(SCRIPT_[A-Z0-9_]+)\b/i)?.[1];
+    if (!constant) continue;
+    const nextLines = wrapperLines.slice(index + 1, index + 5).map(withoutComment);
+    if (!nextLines.some((line) => /^ld\s+\[w[A-Za-z0-9_]*CurScript\]\s*,\s*a\b/i.test(line))) continue;
+    const target = scriptPointers.get(constant);
+    if (target) relatedLabels.add(target);
+  }
+
+  // Reward helpers are often called directly from the trainer's text_asm.
+  for (const match of wrapperSource.matchAll(/^\s*call(?:\s+[zn]c?|\s+[zn])?\s*,?\s*([A-Za-z_][A-Za-z0-9_]*)\b/gm)) {
+    const target = match[1];
+    const section = sectionByLabel.get(target);
+    if (section && /\b(?:GiveItem|DisplayTextID)\b/.test(section.source)) relatedLabels.add(target);
+  }
+
+  // If a post-battle state intentionally falls through into the next global
+  // routine, include that routine as part of the same trainer interaction.
+  for (const label of [...relatedLabels]) {
+    const section = sectionByLabel.get(label);
+    if (!section) continue;
+    const executable = section.source.split(/\r?\n/).map(withoutComment).filter(Boolean);
+    const terminates = executable.some((line, index) =>
+      index > 0 && /^(?:ret|jp\s+)/i.test(line)
+    );
+    if (!terminates) {
+      const next = sections[section.index + 1];
+      if (next) relatedLabels.add(next.label);
+    }
+  }
+
+  const pointers = textPointerLabels(scriptContents);
+  for (const label of relatedLabels) {
+    const section = sectionByLabel.get(label);
+    if (!section) continue;
+    const lines = section.source.split(/\r?\n/);
+
+    for (let index = 1; index < lines.length; index += 1) {
+      const clean = withoutComment(lines[index]);
+      if (/^call\s+[A-Za-z0-9_]*DisplayTextID[A-Za-z0-9_]*\b/i.test(clean)) {
+        const textConstant = recentRegisterValue(lines, index, "a", 8);
+        const textWrapper = textConstant?.startsWith("TEXT_") ? pointers.get(textConstant) : null;
+        if (textWrapper) {
+          const rewardLike = /(?:RECEIVED|TM\d|TAKE_THIS|NO_ROOM|REWARD)/i.test(textConstant ?? "")
+            || /\bGiveItem\b/.test(section.source);
+          addInteractionDialogue(
+            interaction,
+            rewardLike ? "reward" : "post-battle",
+            rewardLike ? "Reward dialogue" : "After the battle",
+            textWrapper,
+            scriptBlocks,
+            textBlocks,
+          );
+        }
+      }
+
+      if (/^call\s+GiveItem\b/i.test(clean)) {
+        for (let back = index - 1; back >= Math.max(1, index - 6); back -= 1) {
+          const values = splitArguments(lines[back], "lb");
+          if (!values || values[0] !== "bc" || values.length < 3) continue;
+          const quantity = parseNumber(values[2]);
+          const rewardId = `item:${values[1]}:${quantity ?? "?"}`;
+          if (!interaction.rewards.some((reward) => reward.id === rewardId)) {
+            interaction.rewards.push({
+              id: rewardId,
+              kind: "item",
+              constant: values[1],
+              quantity,
+              sourcePath: scriptPath,
+              sourceLine: section.startLine + index,
+            });
+          }
+          break;
+        }
+      }
+    }
+
+    const badgeMatch = section.source.match(
+      /ld\s+hl\s*,\s*wObtainedBadges[\s\S]{0,160}?set\s+BIT_([A-Z0-9_]*BADGE)\s*,\s*\[hl\]/i,
+    );
+    if (badgeMatch) {
+      const rewardId = `badge:${badgeMatch[1]}`;
+      if (!interaction.rewards.some((reward) => reward.id === rewardId)) {
+        interaction.rewards.push({
+          id: rewardId,
+          kind: "badge",
+          constant: badgeMatch[1],
+          quantity: null,
+          sourcePath: scriptPath,
+          sourceLine: section.startLine,
+        });
+      }
+    }
+  }
+
+  return interaction;
+}
+
 function objectConstants(contents: string): string[] {
   return [...contents.matchAll(/^\s*const_export\s+([A-Z][A-Z0-9_]*)\b/gm)]
     .map((match) => match[1]);
@@ -577,6 +850,7 @@ function parseScriptReferences(
     selectionSummary: selection.selectionSummary,
     routineSource: selection.routineSource,
     mapScriptSource: scriptContents,
+    interaction: { dialogues: [], rewards: [] },
   }));
 }
 
@@ -664,6 +938,17 @@ function parseMapInstances(
       defeat: dialogueFor(header.defeatLabel, scriptBlocks, textBlocks),
       after: dialogueFor(header.afterLabel, scriptBlocks, textBlocks),
     } : { before: null, defeat: null, after: null };
+    const interaction = header
+      ? standardTrainerInteraction(dialogue)
+      : wrapperLabel
+        ? customTrainerInteraction(
+            wrapperLabel,
+            scriptPath,
+            scriptContents,
+            scriptBlocks,
+            textBlocks,
+          )
+        : { dialogues: [], rewards: [] };
     results.push({
       partyIds: effectivePartyIds,
       loneMoveIndex,
@@ -687,6 +972,7 @@ function parseMapInstances(
         effectivePartyIds,
         partyResolution,
         dialogue,
+        interaction,
       },
     });
   }

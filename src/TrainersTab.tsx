@@ -3,6 +3,8 @@ import type {
   PokemonIndexEntry,
   ProjectInfo,
   TrainerClassEntry,
+  TrainerInteraction,
+  TrainerInteractionDialogue,
   TrainerPartyEntry,
 } from "./core/types";
 import {
@@ -98,30 +100,102 @@ function partyUsageLabel(trainer: TrainerPartyEntry): string {
   return parts.length > 0 ? parts.join(" · ") : "Unreferenced party";
 }
 
-function DialogueBlock({
-  label,
-  dialogue,
-}: {
-  label: string;
-  dialogue: TrainerPartyEntry["instances"][number]["dialogue"]["before"];
-}) {
-  if (!dialogue) {
-    return (
-      <div className="trainer-dialogue-block">
-        <strong>{label}</strong>
-        <p className="help-text">Handled by this trainer's custom map script.</p>
-      </div>
-    );
-  }
-
+function InteractionDialogueBlock({ dialogue }: { dialogue: TrainerInteractionDialogue }) {
   const target = dialogue.sourcePath && dialogue.textLabel
     ? { path: dialogue.sourcePath, label: dialogue.textLabel }
     : null;
-
   return (
     <div className="trainer-dialogue-block">
-      <TextEditor title={label} target={target} initialText={dialogue.text} />
+      <TextEditor title={dialogue.title} target={target} initialText={dialogue.text} />
     </div>
+  );
+}
+
+function interactionHasContent(interaction: TrainerInteraction): boolean {
+  return interaction.dialogues.length > 0 || interaction.rewards.length > 0;
+}
+
+function rewardLabel(reward: TrainerInteraction["rewards"][number]): string {
+  if (reward.kind === "badge") {
+    const badge = reward.constant.replace(/BADGE$/i, "_BADGE");
+    return titleCaseConstant(badge);
+  }
+  const item = reward.constant.startsWith("TM_")
+    ? "TM " + titleCaseConstant(reward.constant.slice(3))
+    : titleCaseConstant(reward.constant);
+  return reward.quantity && reward.quantity > 1 ? item + " ×" + reward.quantity : item;
+}
+
+function TrainerInteractionPanel({ trainer }: { trainer: TrainerPartyEntry }) {
+  const groups = [
+    ...trainer.instances
+      .filter((instance) => interactionHasContent(instance.interaction))
+      .map((instance) => ({
+        id: "instance:" + instance.id,
+        locationName: instance.locationName,
+        subtitle: triggerLabel(instance),
+        interaction: instance.interaction,
+      })),
+    ...trainer.scriptReferences
+      .filter((reference) => interactionHasContent(reference.interaction))
+      .map((reference) => ({
+        id: "script:" + reference.id,
+        locationName: reference.locationName,
+        subtitle: "Scripted encounter",
+        interaction: reference.interaction,
+      })),
+  ];
+
+  return (
+    <section className="editor-card trainer-interaction-editor">
+      <div className="section-heading">
+        <div>
+          <h4>Trainer interaction</h4>
+          <p className="help-text">
+            Dialogue and rewards are organized under the trainer who delivers them,
+            even when the game stores the behavior in a map script.
+          </p>
+        </div>
+        {groups.length > 0 && <span className="editable-badge">Dialogue editable</span>}
+      </div>
+      {groups.length === 0 ? (
+        <p className="empty-state">
+          Yellow Editor has not resolved trainer-owned dialogue or rewards for this
+          party yet. The encounter source is still available below.
+        </p>
+      ) : (
+        <div className="trainer-interaction-list">
+          {groups.map((group) => (
+            <details key={group.id} open={groups.length === 1}>
+              <summary>
+                <span>{group.locationName}</span>
+                <small>{group.subtitle}</small>
+              </summary>
+              <div className="trainer-interaction-body">
+                {group.interaction.dialogues.length > 0 && (
+                  <div className="trainer-dialogue-grid trainer-interaction-dialogues">
+                    {group.interaction.dialogues.map((dialogue) => (
+                      <InteractionDialogueBlock key={dialogue.id} dialogue={dialogue} />
+                    ))}
+                  </div>
+                )}
+                {group.interaction.rewards.length > 0 && (
+                  <div className="trainer-reward-list">
+                    <strong>Rewards &amp; gifts</strong>
+                    {group.interaction.rewards.map((reward) => (
+                      <div key={reward.id} className="trainer-reward">
+                        <span>{rewardLabel(reward)}</span>
+                        <code>{reward.constant}</code>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -171,12 +245,27 @@ function PartyBrowser({
     trainer.className,
     trainer.classConstant,
     ...trainer.pokemon.map((pokemon) => pokemon.speciesConstant),
-    ...trainer.instances.flatMap((instance) => [instance.locationName, instance.mapConstant]),
+    ...trainer.instances.flatMap((instance) => [
+      instance.locationName,
+      instance.mapConstant,
+      ...instance.interaction.dialogues.flatMap((dialogue) => [
+        dialogue.title,
+        dialogue.text ?? "",
+        dialogue.textLabel ?? "",
+      ]),
+      ...instance.interaction.rewards.map((reward) => reward.constant),
+    ]),
     ...trainer.scriptReferences.flatMap((reference) => [
       reference.locationName,
       reference.mapConstant,
       reference.routineLabel,
       reference.scriptPath,
+      ...reference.interaction.dialogues.flatMap((dialogue) => [
+        dialogue.title,
+        dialogue.text ?? "",
+        dialogue.textLabel ?? "",
+      ]),
+      ...reference.interaction.rewards.map((reward) => reward.constant),
     ]),
   ].some((value) => value.toLowerCase().includes(query)));
   const species = pokemonIndex.filter((entry) => entry.kind === "pokemon" && entry.constant);
@@ -309,10 +398,12 @@ function PartyBrowser({
               </section>
             )}
 
+            <TrainerInteractionPanel trainer={selectedTrainer} />
+
             {selectedTrainer.scriptReferences.length > 0 && (
               <section className="editor-card">
-                <h4>Map script references</h4>
-                <p className="help-text">Yellow Editor now translates recognized map-script engine operations into beginner-friendly steps. The complete assembly remains available for unusual behavior and verification.</p>
+                <h4>Scripted encounter logic</h4>
+                <p className="help-text">Trainer-owned dialogue and rewards are collected in Trainer interaction above. This section explains the underlying event flow and keeps the complete assembly available for unusual behavior and verification.</p>
                 <div className="trainer-instance-list">
                   {selectedTrainer.scriptReferences.map((reference) => (
                     <details key={`${reference.id}:${selectedTrainer.id}`} open={selectedTrainer.scriptReferences.length === 1}>
@@ -362,11 +453,9 @@ function PartyBrowser({
                         {instance.partyResolution === "conditional-script" && <p className="shared-warning">The map script chooses one of {instance.effectivePartyIds.length} parties at runtime. This instance is shown under every possible party.</p>}
                         {instance.partyResolution === "unresolved" && <p className="shared-warning">The custom script could not be resolved safely. This instance remains linked through its raw object metadata and must be reviewed before editing.</p>}
                         {instance.triggerKind === "scripted" && instance.partyResolution === "object" && <p className="help-text">Custom trigger logic starts the battle, but the script explicitly loads this object's trainer data.</p>}
-                        <div className="trainer-dialogue-grid">
-                          <DialogueBlock label="Before battle" dialogue={instance.dialogue.before} />
-                          <DialogueBlock label="Defeat text" dialogue={instance.dialogue.defeat} />
-                          <DialogueBlock label="After battle" dialogue={instance.dialogue.after} />
-                        </div>
+                        {interactionHasContent(instance.interaction) && (
+                          <p className="help-text">This trainer's dialogue and rewards are collected in Trainer interaction above.</p>
+                        )}
                         <p className="trainer-source-paths"><code>{instance.objectPath}</code>{instance.scriptPath && <code>{instance.scriptPath}</code>}</p>
                       </div>
                     </details>

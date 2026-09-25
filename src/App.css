@@ -911,3 +911,79 @@ pre {
     background: repeating-conic-gradient(#2b2b28 0 25%, #32322f 0 50%) 50% / 16px 16px;
   }
 }
+
+
+.trainer-interaction-list {
+  display: grid;
+  gap: 10px;
+}
+
+.trainer-interaction-list > details {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.trainer-interaction-list summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 13px;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.trainer-interaction-list summary small {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.trainer-interaction-body {
+  display: grid;
+  gap: 14px;
+  padding: 2px 13px 13px;
+}
+
+.trainer-interaction-dialogues {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  margin-top: 0;
+}
+
+.trainer-reward-list {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.trainer-reward-list > strong {
+  color: var(--muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.trainer-reward {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.trainer-reward code {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+@media (max-width: 680px) {
+  .trainer-interaction-list summary,
+  .trainer-reward {
+    display: grid;
+  }
+
+  .trainer-reward code {
+    text-align: left;
+  }
+}
