@@ -3,6 +3,7 @@ import type {
   TrainerCatalog,
   TrainerScriptReference,
 } from "./types";
+import { buildTrainerScriptInteraction } from "./trainerScriptInteraction";
 
 interface LabelSection {
   label: string;
@@ -488,7 +489,7 @@ function actionsForPhase(
       });
     }
 
-    if (/^call\s+DisplayTextID\b/i.test(clean)) {
+    if (/^call\s+[A-Za-z0-9_]*DisplayTextID[A-Za-z0-9_]*\b/i.test(clean)) {
       const textConstant = recentRegisterValue(lines, index, "a", 8);
       if (textConstant?.startsWith("TEXT_")) {
         for (const resolved of resolveTextConstant(reference, textConstant, phase.source, textBlocks)) {
@@ -775,6 +776,7 @@ export async function enrichTrainerScriptSummaries(
   }
 
   for (const reference of references.values()) {
+    reference.interaction = buildTrainerScriptInteraction(reference, textBlocks);
     const phases = relatedPhases(reference).map(({ section, role }) => ({
       label: section.label,
       title: humanizeScriptLabel(section.label, reference),
