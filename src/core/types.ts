@@ -125,6 +125,16 @@ export type TrainerScriptSelectionKind =
   | "computed"
   | "table";
 
+export interface TrainerPresentation {
+  classConstant: string;
+  partyNumber: number;
+  picLabel: string | null;
+  spritePath: string | null;
+  spriteSourcePath: string | null;
+  paletteConstant: string | null;
+  paletteOptions: PokemonPaletteOption[];
+}
+
 export interface TrainerSpecialMove {
   scope: TrainerSpecialMoveScope;
   pokemonIndex: number | null;
@@ -556,6 +566,10 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
+  getTrainerPresentation(
+    classConstant: string,
+    partyNumber: number,
+  ): Promise<TrainerPresentation>;
   getTrainerRewardEditDocument(
     path: string,
     sourceLine: number,
