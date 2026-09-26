@@ -407,6 +407,12 @@ export async function invoke<T>(
     case "get_trainers":
       return (await session.getTrainers(trainerProgressArg(args))) as T;
 
+    case "get_trainer_presentation":
+      return (await session.getTrainerPresentation(
+        stringArg(args, "classConstant"),
+        numberArg(args, "partyNumber"),
+      )) as T;
+
     case "get_trainer_reward_edit_document":
       return (await session.getTrainerRewardEditDocument(
         stringArg(args, "path"),
