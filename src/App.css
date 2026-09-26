@@ -1051,3 +1051,28 @@ pre {
     width: fit-content;
   }
 }
+
+
+.trainer-sprite-preview-grid {
+  grid-template-columns: minmax(160px, 260px);
+}
+
+.trainer-sprite-preview-grid figure {
+  min-height: 210px;
+}
+
+.trainer-sprite-card .pokemon-sprite {
+  width: 140px;
+  height: 140px;
+}
+
+@media (max-width: 680px) {
+  .trainer-sprite-preview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trainer-sprite-card .pokemon-sprite {
+    width: 128px;
+    height: 128px;
+  }
+}
