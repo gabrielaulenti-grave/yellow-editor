@@ -18,6 +18,7 @@ import {
 } from "./editor/trainerPartyForm";
 import { MapScriptPreview } from "./MapScriptPreview";
 import { TextEditor } from "./TextEditor";
+import { TrainerSpritePanel } from "./TrainerSpritePanel";
 import { invoke } from "./platform/compat";
 
 export type TrainerSection = "parties" | "classes";
@@ -613,6 +614,12 @@ function PartyBrowser({
                 </>
               ) : <p>Trainer party data is unavailable.</p>}
             </section>
+
+            <TrainerSpritePanel
+              classConstant={selectedTrainer.classConstant}
+              partyNumber={selectedTrainer.partyNumber}
+              displayName={`${selectedTrainer.className} #${selectedTrainer.partyNumber}`}
+            />
 
             {draft && (
               <section className="editor-card trainer-special-move-editor">

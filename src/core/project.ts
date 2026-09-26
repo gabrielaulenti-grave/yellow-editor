@@ -36,6 +36,7 @@ import {
   loadTrainerRewardEditDocument,
   prepareTrainerRewardWrite,
 } from "./trainerRewardEditing";
+import { parseTrainerPresentation } from "./trainerPresentation";
 import type {
   BuildService,
   ProjectSession,
@@ -296,6 +297,8 @@ export async function createProjectSession(
     },
     getMoves: () => parseMoves(source),
     getTrainerBaseCatalog,
+    getTrainerPresentation: (classConstant, partyNumber) =>
+      parseTrainerPresentation(source, classConstant, partyNumber),
     getTrainers: async (onProgress) => {
       const cachedCatalog = await trainerCatalogCache?.load();
       if (cachedCatalog) {

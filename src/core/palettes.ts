@@ -46,7 +46,7 @@ function parsePokedexConstants(contents: string): Map<string, number> {
   return result;
 }
 
-function parseMonsterPalettes(contents: string): string[] {
+export function parseMonsterPalettes(contents: string): string[] {
   const palettes: string[] = [];
   let inTable = false;
 
@@ -86,7 +86,7 @@ function rgb5ToHex(red: number, green: number, blue: number): string {
   return `#${toHexChannel(red)}${toHexChannel(green)}${toHexChannel(blue)}`;
 }
 
-function parsePaletteBlock(
+export function parsePaletteBlock(
   contents: string,
   blockLabel: string,
   paletteConstant: string,
@@ -151,6 +151,32 @@ function parsePaletteBlock(
   return null;
 }
 
+
+export async function parsePaletteOptionsForConstant(
+  source: ProjectSource,
+  paletteConstant: string,
+): Promise<PokemonPaletteOption[]> {
+  const paletteDefinitions = await source.readText("data/sgb/sgb_palettes.asm");
+  const options: PokemonPaletteOption[] = [];
+
+  const cgb = parsePaletteBlock(
+    paletteDefinitions,
+    "CGBBasePalettes",
+    paletteConstant,
+    "cgb",
+  );
+  const sgb = parsePaletteBlock(
+    paletteDefinitions,
+    "SuperPalettes",
+    paletteConstant,
+    "sgb",
+  );
+
+  if (cgb) options.push(cgb);
+  if (sgb) options.push(sgb);
+  return options;
+}
+
 export async function parsePokemonPalette(
   source: ProjectSource,
   dexConstant: string,
@@ -185,12 +211,8 @@ export async function parsePokemonPalette(
     "sgb",
   );
 
-  if (cgb) {
-    options.push(cgb);
-  }
-  if (sgb) {
-    options.push(sgb);
-  }
+  if (cgb) options.push(cgb);
+  if (sgb) options.push(sgb);
 
   return {
     constant: paletteConstant,
