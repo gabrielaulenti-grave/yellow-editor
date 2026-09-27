@@ -32,7 +32,6 @@ import {
   updatePokemonPaletteConstant,
   type PokemonDraft,
 } from "./editor/pokemonForm";
-} from "./editor/pokemonBaseStatsForm";
 import type { EditorController } from "./editor/types";
 import {
   parseTrainerClassDraft,
@@ -999,8 +998,13 @@ function App() {
         refreshTrainerBaseCatalog(refreshedTrainerBase, selectedTrainerId, selectedTrainerClass);
       }
       await loadFishing("Undid the last saved change.");
-      if (selectedPokemonEntry?.sourceSlug) {
-        await loadPokemon(selectedPokemonEntry, "Undid the last saved change.");
+      const refreshedPokemonIndex = await invoke<PokemonIndexEntry[]>("get_pokemon_index");
+      setPokemonIndex(refreshedPokemonIndex);
+      const refreshedPokemonEntry = refreshedPokemonIndex.find(
+        (entry) => entry.internalId === selectedPokemonId,
+      ) ?? selectedPokemonEntry;
+      if (refreshedPokemonEntry?.sourceSlug) {
+        await loadPokemon(refreshedPokemonEntry, "Undid the last saved change.");
       }
       const selectedEncounter = refreshedEncounters.find(
         (entry) => entry.path === selectedEncounterPath,
@@ -1046,8 +1050,13 @@ function App() {
         refreshTrainerBaseCatalog(refreshedTrainerBase, selectedTrainerId, selectedTrainerClass);
       }
       await loadFishing("Redid the last saved change.");
-      if (selectedPokemonEntry?.sourceSlug) {
-        await loadPokemon(selectedPokemonEntry, "Redid the last saved change.");
+      const refreshedPokemonIndex = await invoke<PokemonIndexEntry[]>("get_pokemon_index");
+      setPokemonIndex(refreshedPokemonIndex);
+      const refreshedPokemonEntry = refreshedPokemonIndex.find(
+        (entry) => entry.internalId === selectedPokemonId,
+      ) ?? selectedPokemonEntry;
+      if (refreshedPokemonEntry?.sourceSlug) {
+        await loadPokemon(refreshedPokemonEntry, "Redid the last saved change.");
       }
       const selectedEncounter = refreshedEncounters.find(
         (entry) => entry.path === selectedEncounterPath,
