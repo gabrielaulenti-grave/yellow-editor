@@ -17,6 +17,7 @@ import {
   trainerSpecialMoveError,
   type TrainerPartyDraft,
 } from "./editor/trainerPartyForm";
+import type { TrainerClassDraft } from "./editor/trainerClassForm";
 import { MapScriptPreview } from "./MapScriptPreview";
 import { TextEditor } from "./TextEditor";
 import { TrainerSpritePanel } from "./TrainerSpritePanel";
@@ -36,9 +37,11 @@ interface TrainersTabProps {
   partySearch: string;
   classSearch: string;
   draft: TrainerPartyDraft | null;
+  classDraft: TrainerClassDraft | null;
   pokemonIndex: PokemonIndexEntry[];
   moves: MoveData[];
   dirty: boolean;
+  classDirty: boolean;
   busy: boolean;
   onSectionChange(section: TrainerSection): void;
   onSelectTrainer(id: string): void;
@@ -56,6 +59,11 @@ interface TrainersTabProps {
   ): void;
   onAddSpecialMove(): void;
   onRemoveSpecialMove(index: number): void;
+  onUpdateClassField(
+    field: "name" | "picLabel" | "baseRewardPerLevel" | "aiRoutine" | "aiUsesPerPokemon",
+    value: string,
+  ): void;
+  onToggleClassMoveChoice(modifier: number): void;
   onCreateClass(values: TrainerClassCreateValues): Promise<void>;
 }
 
