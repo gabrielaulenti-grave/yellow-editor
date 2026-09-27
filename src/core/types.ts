@@ -128,9 +128,13 @@ export type TrainerScriptSelectionKind =
 export interface TrainerPresentation {
   classConstant: string;
   partyNumber: number;
+  basePicLabel: string | null;
+  baseSpritePath: string | null;
+  baseSpriteSourcePath: string | null;
   picLabel: string | null;
   spritePath: string | null;
   spriteSourcePath: string | null;
+  picOverrideSourcePath: string | null;
   paletteConstant: string | null;
   paletteOptions: PokemonPaletteOption[];
 }

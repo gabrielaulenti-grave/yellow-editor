@@ -626,6 +626,13 @@ function PartyBrowser({
               ) : <p>Trainer party data is unavailable.</p>}
             </section>
 
+            <TrainerSpritePanel
+              classConstant={selectedTrainer.classConstant}
+              partyNumber={selectedTrainer.partyNumber}
+              displayName={`${selectedTrainer.className} #${selectedTrainer.partyNumber}`}
+              onlyWhenOverride
+            />
+
             {draft && (
               <section className="editor-card trainer-special-move-editor">
                 <div className="section-heading">
@@ -938,6 +945,7 @@ function ClassBrowser({
               classConstant={selectedClass.constant}
               partyNumber={spritePartyNumber}
               displayName={classDraft?.name || selectedClass.name}
+              portraitMode="base"
             />
 
             <section className="editor-card">
