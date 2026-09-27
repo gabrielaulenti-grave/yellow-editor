@@ -116,12 +116,31 @@ async function parseBaseStatsSlugs(
   return result;
 }
 
+async function parsePokemonNames(source: ProjectSource): Promise<string[]> {
+  const contents = await source.readText("data/pokemon/names.asm");
+  const names: string[] = [];
+  let inTable = false;
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (line === "MonsterNames:" || line === "MonsterNames::") {
+      inTable = true;
+      continue;
+    }
+    if (!inTable) continue;
+    if (line.startsWith("assert_table_length")) break;
+    const match = codeOnly(rawLine).match(/^dname[ \t]+"([^"]*)"/);
+    if (match) names.push(match[1].replace(/@+$/, ""));
+  }
+  return names;
+}
+
 export async function parsePokemonIndex(
   source: ProjectSource,
 ): Promise<PokemonIndexEntry[]> {
-  const [sourceSlugs, contents] = await Promise.all([
+  const [sourceSlugs, contents, names] = await Promise.all([
     parseBaseStatsSlugs(source),
     source.readText("constants/pokemon_constants.asm"),
+    parsePokemonNames(source),
   ]);
 
   const entries: PokemonIndexEntry[] = [];
@@ -142,7 +161,7 @@ export async function parsePokemonIndex(
       entries.push({
         internalId: currentId,
         constant: null,
-        displayName: "MissingNo.",
+        displayName: currentId > 0 ? (names[currentId - 1] ?? "MissingNo.") : "MissingNo.",
         kind: "missingno",
         sourceSlug: null,
       });
@@ -169,7 +188,9 @@ export async function parsePokemonIndex(
     entries.push({
       internalId: currentId,
       constant,
-      displayName: formatDisplayName(constant),
+      displayName: currentId > 0
+        ? (names[currentId - 1] ?? formatDisplayName(constant))
+        : formatDisplayName(constant),
       kind,
       sourceSlug: sourceSlugs.get(normalizeSpeciesName(constant)) ?? null,
     });
@@ -590,18 +611,50 @@ async function parsePokedexInfo(
   };
 }
 
+async function parsePokemonSpriteUrls(
+  source: ProjectSource,
+  sourceSlug: string,
+): Promise<{ front: string | null; back: string | null }> {
+  const [baseContents, picsContents] = await Promise.all([
+    source.readText(`data/pokemon/base_stats/${sourceSlug}.asm`),
+    source.readText("gfx/pics.asm"),
+  ]);
+  const pointer = baseContents.match(
+    /^[ \t]*dw[ \t]+([^,;\r\n]+)[ \t]*,[ \t]*([^;\r\n]+)(?:[ \t]*;[^\r\n]*)?$/m,
+  );
+
+  const paths = new Map<string, string>();
+  for (const rawLine of picsContents.split(/\r?\n/)) {
+    const match = rawLine.match(
+      /^[ \t]*([A-Za-z0-9_.]+)::?[ \t]+INCBIN[ \t]+"([^"]+\.pic)"/,
+    );
+    if (match) paths.set(match[1], match[2]);
+  }
+
+  const frontPath = pointer ? paths.get(pointer[1].trim()) : null;
+  const backPath = pointer ? paths.get(pointer[2].trim()) : null;
+  const [front, back] = await Promise.all([
+    source.assetUrl(
+      (frontPath ?? `gfx/pokemon/front/${sourceSlug}.pic`).replace(/\.pic$/i, ".png"),
+    ),
+    source.assetUrl(
+      (backPath ?? `gfx/pokemon/back/${sourceSlug}b.pic`).replace(/\.pic$/i, ".png"),
+    ),
+  ]);
+  return { front, back };
+}
+
 export async function parsePokemonDetails(
   source: ProjectSource,
   internalId: number,
   sourceSlug: string,
 ): Promise<PokemonDetails> {
-  const [stats, startingMoves, evolutionData, pokedex, front, back] = await Promise.all([
+  const [stats, startingMoves, evolutionData, pokedex, sprites] = await Promise.all([
     parseBaseStats(source, sourceSlug),
     parseStartingMoves(source, sourceSlug),
     parseEvosMoves(source, internalId),
     parsePokedexInfo(source, internalId),
-    source.assetUrl(`gfx/pokemon/front/${sourceSlug}.png`),
-    source.assetUrl(`gfx/pokemon/back/${sourceSlug}b.png`),
+    parsePokemonSpriteUrls(source, sourceSlug),
   ]);
 
   return {
@@ -609,7 +662,7 @@ export async function parsePokemonDetails(
     evolutions: evolutionData.evolutions,
     learnset: [...startingMoves, ...evolutionData.learnset],
     pokedex,
-    sprites: { front, back },
+    sprites,
   };
 }
 
