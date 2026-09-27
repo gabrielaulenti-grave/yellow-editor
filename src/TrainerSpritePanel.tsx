@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type {
   HistorySummary,
   PokemonPaletteOption,
+  TrainerCatalog,
   TrainerPresentation,
 } from "./core/types";
 import { convertFileSrc, invoke } from "./platform/compat";
@@ -218,10 +219,13 @@ export function TrainerSpritePanel({
         partyNumber,
         picLabel,
       });
-      const next = await invoke<TrainerPresentation>("get_trainer_presentation", {
-        classConstant,
-        partyNumber,
-      });
+      const [next, catalog] = await Promise.all([
+        invoke<TrainerPresentation>("get_trainer_presentation", {
+          classConstant,
+          partyNumber,
+        }),
+        invoke<TrainerCatalog>("get_trainer_base_catalog"),
+      ]);
       setPresentation(next);
       setOverrideDraft(
         next.editorPicLabel
@@ -231,6 +235,9 @@ export function TrainerSpritePanel({
           ?? "",
       );
       setOverrideEditing(false);
+      window.dispatchEvent(new CustomEvent("yellow-editor:trainer-edit-sources-changed", {
+        detail: catalog.editSources,
+      }));
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
     } catch (saveError) {
       setError(String(saveError));
