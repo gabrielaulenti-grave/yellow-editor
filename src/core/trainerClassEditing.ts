@@ -190,7 +190,199 @@ function replaceStaticTrainerName(
   name: string,
 ): string {
   const escaped = escapeRegex(label);
-  const pattern = new RegExp(`^(\\s*${escaped}:\\s*db\\s+")[^"]*("@.*)$`);
+  const pattern = new RegExp(`^(\\s*${escaped}:\\s*db\\s+")[^"]*(@".*)import type {
+  ProjectSource,
+  TextWriteRequest,
+  TrainerClassCreateValues,
+  TrainerClassEditValues,
+  TrainerClassEntry,
+  TrainerEditSourceDocument,
+} from "./types";
+
+const CONSTANTS_PATH = "constants/trainer_constants.asm";
+const NAMES_PATH = "data/trainers/names.asm";
+const NAME_POINTERS_PATH = "data/trainers/name_pointers.asm";
+const PARTIES_PATH = "data/trainers/parties.asm";
+const MONEY_PATH = "data/trainers/pic_pointers_money.asm";
+const AI_PATH = "data/trainers/ai_pointers.asm";
+const MOVE_CHOICES_PATH = "data/trainers/move_choices.asm";
+
+export const VANILLA_MAX_TRAINER_CLASSES = 55;
+
+const CLASS_SOURCE_PATHS = [
+  CONSTANTS_PATH,
+  NAMES_PATH,
+  NAME_POINTERS_PATH,
+  PARTIES_PATH,
+  MONEY_PATH,
+  AI_PATH,
+  MOVE_CHOICES_PATH,
+] as const;
+
+function sourceDocument(
+  sources: TrainerEditSourceDocument[],
+  path: string,
+): TrainerEditSourceDocument {
+  const document = sources.find((source) => source.path === path);
+  if (!document) {
+    throw new Error(`Trainer class creation requires ${path}.`);
+  }
+  return document;
+}
+
+function newlineInfo(contents: string): { newline: string; trailing: boolean } {
+  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
+  return { newline, trailing: contents.endsWith(newline) };
+}
+
+function splitLines(contents: string): string[] {
+  const { trailing } = newlineInfo(contents);
+  const lines = contents.split(/\r?\n/);
+  if (trailing && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
+function joinLines(lines: string[], contents: string): string {
+  const { newline, trailing } = newlineInfo(contents);
+  return lines.join(newline) + (trailing ? newline : "");
+}
+
+function insertBefore(
+  contents: string,
+  predicate: (line: string) => boolean,
+  line: string,
+  description: string,
+): string {
+  const lines = splitLines(contents);
+  const index = lines.findIndex(predicate);
+  if (index < 0) {
+    throw new Error(`Could not find ${description} while creating the trainer class.`);
+  }
+  lines.splice(index, 0, line);
+  return joinLines(lines, contents);
+}
+
+function appendBlock(contents: string, linesToAppend: string[]): string {
+  const lines = splitLines(contents);
+  if (lines.length > 0 && lines[lines.length - 1].trim() !== "") {
+    lines.push("");
+  }
+  lines.push(...linesToAppend);
+  return joinLines(lines, contents);
+}
+
+function withoutComment(line: string): string {
+  return line.split(";", 1)[0].trim();
+}
+
+function parseAsmNumber(value: string): number | null {
+  const clean = value.trim();
+  if (/^\$[0-9a-f]+$/i.test(clean)) {
+    return Number.parseInt(clean.slice(1), 16);
+  }
+  if (/^\d+$/.test(clean)) {
+    return Number.parseInt(clean, 10);
+  }
+  return null;
+}
+
+function trainerConstants(contents: string): string[] {
+  return [...contents.matchAll(/^\s*trainer_const\s+([A-Z][A-Z0-9_]*)\b/gm)]
+    .map((match) => match[1])
+    .filter((constant) => constant !== "NOBODY");
+}
+
+function opponentIdOffset(contents: string): number | null {
+  const value = contents.match(/^\s*DEF\s+OPP_ID_OFFSET\s+EQU\s+([^\s;]+)/im)?.[1];
+  return value ? parseAsmNumber(value) : null;
+}
+
+function pointerEntries(contents: string, label: string): string[] {
+  const lines = contents.split(/\r?\n/);
+  const start = lines.findIndex((line) =>
+    new RegExp(`^\\s*${label}::{0,1}\\s*(?:;.*)?$`, "i").test(line),
+  );
+  if (start < 0) return [];
+
+  const entries: string[] = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const clean = withoutComment(lines[index]);
+    if (/^assert_table_length\b/i.test(clean)) break;
+    const pointer = clean.match(/^dw\s+([A-Za-z_.][A-Za-z0-9_.]*)\b/i)?.[1];
+    if (pointer) entries.push(pointer);
+  }
+  return entries;
+}
+
+function trainerNames(contents: string): string[] {
+  return [...contents.matchAll(/^\s*li\s+"([^"]*)"/gm)].map((match) => match[1]);
+}
+
+function picMoneyEntries(contents: string): Array<{ picLabel: string; amount: number }> {
+  return [...contents.matchAll(
+    /^\s*pic_money\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(\d+)\b/gm,
+  )].map((match) => ({
+    picLabel: match[1],
+    amount: Number(match[2]),
+  }));
+}
+
+function aiEntries(contents: string): Array<{ uses: number; routine: string }> {
+  return [...contents.matchAll(
+    /^\s*dbw\s+(\d+)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\b/gm,
+  )].map((match) => ({
+    uses: Number(match[1]),
+    routine: match[2],
+  }));
+}
+
+function moveChoiceEntries(contents: string): string[] {
+  return contents.split(/\r?\n/)
+    .map(withoutComment)
+    .filter((line) => /^move_choices(?:\s|$)/i.test(line));
+}
+function replaceNthMatchingLine(
+  contents: string,
+  matches: (line: string) => boolean,
+  index: number,
+  replacement: (line: string) => string,
+  description: string,
+): string {
+  const lines = splitLines(contents);
+  let seen = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    if (!matches(lines[lineIndex])) continue;
+    if (seen === index) {
+      lines[lineIndex] = replacement(lines[lineIndex]);
+      return joinLines(lines, contents);
+    }
+    seen += 1;
+  }
+  throw new Error(`Could not find trainer class ${description} entry ${index + 1}.`);
+}
+
+function lineComment(line: string): string {
+  const index = line.indexOf(";");
+  return index >= 0 ? line.slice(index).trimEnd() : "";
+}
+
+function leadingWhitespace(line: string): string {
+  return line.match(/^\s*/)?.[0] ?? "";
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replaceStaticTrainerName(
+  contents: string,
+  label: string,
+  name: string,
+): string {
+  const escaped = escapeRegex(label);
+);
   const lines = splitLines(contents);
   const index = lines.findIndex((line) => pattern.test(line));
   if (index < 0) {
