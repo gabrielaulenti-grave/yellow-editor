@@ -4,6 +4,7 @@ import type {
   MoveData,
   PokemonIndexEntry,
   ProjectInfo,
+  TrainerClassCreateValues,
   TrainerClassEntry,
   TrainerInteraction,
   TrainerInteractionDialogue,
@@ -19,6 +20,7 @@ import {
 import { MapScriptPreview } from "./MapScriptPreview";
 import { TextEditor } from "./TextEditor";
 import { TrainerSpritePanel } from "./TrainerSpritePanel";
+import { TrainerClassCreateDialog } from "./TrainerClassCreateDialog";
 import { invoke } from "./platform/compat";
 
 export type TrainerSection = "parties" | "classes";
@@ -54,6 +56,7 @@ interface TrainersTabProps {
   ): void;
   onAddSpecialMove(): void;
   onRemoveSpecialMove(index: number): void;
+  onCreateClass(values: TrainerClassCreateValues): Promise<void>;
 }
 
 function titleCaseConstant(value: string): string {
@@ -738,14 +741,28 @@ function PartyBrowser({
   );
 }
 
-function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSelectClass, onOpenParty, onSearchChange }: {
+function ClassBrowser({
+  classes,
+  trainers,
+  pokemonIndex,
+  selectedClassConstant,
+  search,
+  busy,
+  onSelectClass,
+  onOpenParty,
+  onSearchChange,
+  onCreateClass,
+}: {
   classes: TrainerClassEntry[];
   trainers: TrainerPartyEntry[];
+  pokemonIndex: PokemonIndexEntry[];
   selectedClassConstant: string | null;
   search: string;
+  busy: boolean;
   onSelectClass(constant: string): void;
   onOpenParty(id: string): void;
   onSearchChange(value: string): void;
+  onCreateClass(values: TrainerClassCreateValues): Promise<void>;
 }) {
   const selectedClass = classes.find((trainerClass) => trainerClass.constant === selectedClassConstant) ?? null;
   const query = search.trim().toLowerCase();
@@ -755,10 +772,22 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
     .map((partyId) => partyById.get(partyId)?.partyNumber)
     .find((partyNumber): partyNumber is number => typeof partyNumber === "number")
     ?? 1;
+  const [creatingClass, setCreatingClass] = useState(false);
 
   return (
+    <>
     <div className="trainer-browser">
       <aside>
+        <div className="trainer-class-browser-actions">
+          <button
+            type="button"
+            className="small-button primary-action"
+            disabled={busy || classes.length >= 55}
+            onClick={() => setCreatingClass(true)}
+          >
+            Add trainer class
+          </button>
+        </div>
         <input type="search" placeholder="Search classes, AI, or maps..." value={search} onChange={(event) => onSearchChange(event.target.value)} className="full-width-input" />
         <p className="browser-count">{filtered.length} of {classes.length} classes</p>
         <div className="trainer-list">
@@ -827,6 +856,16 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
         ) : <section className="editor-card"><p>Select a trainer class.</p></section>}
       </section>
     </div>
+    {creatingClass && (
+      <TrainerClassCreateDialog
+        classes={classes}
+        pokemonIndex={pokemonIndex}
+        busy={busy}
+        onCancel={() => setCreatingClass(false)}
+        onCreate={onCreateClass}
+      />
+    )}
+    </>
   );
 }
 
@@ -857,6 +896,7 @@ export function TrainersTab({
   onUpdateSpecialMove,
   onAddSpecialMove,
   onRemoveSpecialMove,
+  onCreateClass,
 }: TrainersTabProps) {
   return (
     <section className="tab-content">
@@ -887,7 +927,18 @@ export function TrainersTab({
           onRemoveSpecialMove={onRemoveSpecialMove}
         />
       ) : (
-        <ClassBrowser classes={classes} trainers={trainers} selectedClassConstant={selectedClassConstant} search={classSearch} onSelectClass={onSelectClass} onSearchChange={onClassSearchChange} onOpenParty={(id) => { onSelectTrainer(id); onSectionChange("parties"); }} />
+        <ClassBrowser
+          classes={classes}
+          trainers={trainers}
+          pokemonIndex={pokemonIndex}
+          selectedClassConstant={selectedClassConstant}
+          search={classSearch}
+          busy={busy}
+          onSelectClass={onSelectClass}
+          onSearchChange={onClassSearchChange}
+          onCreateClass={onCreateClass}
+          onOpenParty={(id) => { onSelectTrainer(id); onSectionChange("parties"); }}
+        />
       )}
       {project && warnings.length > 0 && <details className="editor-card trainer-warnings trainer-global-warnings"><summary>Parser notices ({warnings.length})</summary><ul>{warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></details>}
     </section>
