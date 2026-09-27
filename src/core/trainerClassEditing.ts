@@ -2,6 +2,7 @@ import type {
   ProjectSource,
   TextWriteRequest,
   TrainerClassCreateValues,
+  TrainerClassEditValues,
   TrainerClassEntry,
   TrainerEditSourceDocument,
 } from "./types";
@@ -150,6 +151,93 @@ function moveChoiceEntries(contents: string): string[] {
     .map(withoutComment)
     .filter((line) => /^move_choices(?:\s|$)/i.test(line));
 }
+function replaceNthMatchingLine(
+  contents: string,
+  matches: (line: string) => boolean,
+  index: number,
+  replacement: (line: string) => string,
+  description: string,
+): string {
+  const lines = splitLines(contents);
+  let seen = 0;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    if (!matches(lines[lineIndex])) continue;
+    if (seen === index) {
+      lines[lineIndex] = replacement(lines[lineIndex]);
+      return joinLines(lines, contents);
+    }
+    seen += 1;
+  }
+  throw new Error(`Could not find trainer class ${description} entry ${index + 1}.`);
+}
+
+function lineComment(line: string): string {
+  const index = line.indexOf(";");
+  return index >= 0 ? line.slice(index).trimEnd() : "";
+}
+
+function leadingWhitespace(line: string): string {
+  return line.match(/^\s*/)?.[0] ?? "";
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function replaceStaticTrainerName(
+  contents: string,
+  label: string,
+  name: string,
+): string {
+  const escaped = escapeRegex(label);
+  const pattern = new RegExp(`^(\\s*${escaped}:\\s*db\\s+")[^"]*(@".*)$`);
+  const lines = splitLines(contents);
+  const index = lines.findIndex((line) => pattern.test(line));
+  if (index < 0) {
+    throw new Error(`Trainer defeat-speech name ${label} is not a simple editable string.`);
+  }
+  lines[index] = lines[index].replace(
+    pattern,
+    (_match, start, end) => `${start}${name}${end}`,
+  );
+  return joinLines(lines, contents);
+}
+
+function validateCommonClassValues(values: TrainerClassEditValues): void {
+  const name = values.name.trim();
+  if (!name || name.length > 12 || /["@\r\n]/.test(name)) {
+    throw new Error("Trainer class name must be 1 to 12 characters and cannot contain quotes or @.");
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(values.picLabel)) {
+    throw new Error("Trainer portrait label is invalid.");
+  }
+  if (!Number.isInteger(values.baseRewardPerLevel) || values.baseRewardPerLevel < 0 || values.baseRewardPerLevel > 99) {
+    throw new Error("Base prize rate must be a whole number from 0 to 99.");
+  }
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(values.aiRoutine)) {
+    throw new Error("Trainer AI routine is invalid.");
+  }
+  if (!Number.isInteger(values.aiUsesPerPokemon) || values.aiUsesPerPokemon < 0 || values.aiUsesPerPokemon > 255) {
+    throw new Error("AI uses per Pokémon must be a whole number from 0 to 255.");
+  }
+
+  const modifiers = new Set<number>();
+  for (const modifier of values.moveChoiceModifiers) {
+    if (!Number.isInteger(modifier) || modifier < 1 || modifier > 3) {
+      throw new Error("Move-choice groups must use the vanilla groups 1, 2, or 3.");
+    }
+    if (modifiers.has(modifier)) {
+      throw new Error("Move-choice groups cannot contain duplicates.");
+    }
+    modifiers.add(modifier);
+  }
+}
+
+export function validateTrainerClassEditValues(
+  values: TrainerClassEditValues,
+): void {
+  validateCommonClassValues(values);
+}
 
 function pascalConstant(constant: string): string {
   return constant
@@ -236,6 +324,142 @@ export function validateTrainerClassCreateValues(
   }
 }
 
+export async function prepareTrainerClassEditWrites(
+  source: ProjectSource,
+  sources: TrainerEditSourceDocument[],
+  classConstant: string,
+  values: TrainerClassEditValues,
+): Promise<TextWriteRequest[]> {
+  validateCommonClassValues(values);
+
+  const requiredPaths = [
+    CONSTANTS_PATH,
+    NAMES_PATH,
+    NAME_POINTERS_PATH,
+    MONEY_PATH,
+    AI_PATH,
+    MOVE_CHOICES_PATH,
+  ] as const;
+  const sourceDocuments = new Map<string, TrainerEditSourceDocument>(
+    requiredPaths.map((path) => [path, sourceDocument(sources, path)]),
+  );
+  const contents = new Map<string, string>();
+  await Promise.all(requiredPaths.map(async (path) => {
+    contents.set(path, await source.readText(path));
+  }));
+
+  const constantsContents = contents.get(CONSTANTS_PATH)!;
+  const constants = trainerConstants(constantsContents);
+  const classIndex = constants.indexOf(classConstant);
+  if (classIndex < 0) {
+    throw new Error(`Trainer class ${classConstant} no longer exists.`);
+  }
+
+  const namesContents = contents.get(NAMES_PATH)!;
+  const namePointersContents = contents.get(NAME_POINTERS_PATH)!;
+  const moneyContents = contents.get(MONEY_PATH)!;
+  const aiContents = contents.get(AI_PATH)!;
+  const choicesContents = contents.get(MOVE_CHOICES_PATH)!;
+
+  const names = trainerNames(namesContents);
+  const namePointers = pointerEntries(namePointersContents, "TrainerNamePointers");
+  const money = picMoneyEntries(moneyContents);
+  const ai = aiEntries(aiContents);
+  const choices = moveChoiceEntries(choicesContents);
+  const lengths = {
+    constants: constants.length,
+    names: names.length,
+    namePointers: namePointers.length,
+    money: money.length,
+    ai: ai.length,
+    moveChoices: choices.length,
+  };
+  for (const [label, length] of Object.entries(lengths)) {
+    if (length !== constants.length) {
+      throw new Error(
+        `Trainer class editing requires synchronized trainer tables; ${label} has ${length} entries but constants has ${constants.length}.`,
+      );
+    }
+  }
+
+  if (!money.some((entry) => entry.picLabel === values.picLabel)) {
+    throw new Error(`Trainer portrait ${values.picLabel} is not used by an existing class.`);
+  }
+  if (!ai.some((entry) => entry.routine === values.aiRoutine)) {
+    throw new Error(`AI routine ${values.aiRoutine} is not used by an existing trainer class.`);
+  }
+
+  const updatedNames = replaceNthMatchingLine(
+    namesContents,
+    (line) => /^\s*li\s+"[^"]*"/.test(line),
+    classIndex,
+    (line) => {
+      const comment = lineComment(line);
+      return `${leadingWhitespace(line)}li "${values.name.trim()}"${comment ? ` ${comment}` : ""}`;
+    },
+    "name",
+  );
+
+  const defeatNamePointer = namePointers[classIndex];
+  let updatedNamePointers = namePointersContents;
+  if (defeatNamePointer?.startsWith(".")) {
+    updatedNamePointers = replaceStaticTrainerName(
+      namePointersContents,
+      defeatNamePointer,
+      values.name.trim(),
+    );
+  } else if (defeatNamePointer !== "wTrainerName") {
+    throw new Error(
+      `Trainer class ${classConstant} uses an unsupported defeat-speech name pointer.`,
+    );
+  }
+
+  const updatedMoney = replaceNthMatchingLine(
+    moneyContents,
+    (line) => /^pic_money\s+/i.test(withoutComment(line)),
+    classIndex,
+    (line) => {
+      const comment = lineComment(line);
+      return `${leadingWhitespace(line)}pic_money ${values.picLabel}, ${values.baseRewardPerLevel * 100}${comment ? ` ${comment}` : ""}`;
+    },
+    "portrait/money",
+  );
+
+  const updatedAi = replaceNthMatchingLine(
+    aiContents,
+    (line) => /^dbw\s+/i.test(withoutComment(line)),
+    classIndex,
+    (line) => `${leadingWhitespace(line)}dbw ${values.aiUsesPerPokemon}, ${values.aiRoutine} ; ${classConstant}`,
+    "AI",
+  );
+
+  const choiceArgs = values.moveChoiceModifiers.length > 0
+    ? ` ${[...values.moveChoiceModifiers].sort((a, b) => a - b).join(", ")}`
+    : "";
+  const updatedChoices = replaceNthMatchingLine(
+    choicesContents,
+    (line) => /^move_choices(?:\s|$)/i.test(withoutComment(line)),
+    classIndex,
+    (line) => `${leadingWhitespace(line)}move_choices${choiceArgs} ; ${classConstant}`,
+    "move-choice",
+  );
+
+  const updates = new Map<string, string>([
+    [NAMES_PATH, updatedNames],
+    [NAME_POINTERS_PATH, updatedNamePointers],
+    [MONEY_PATH, updatedMoney],
+    [AI_PATH, updatedAi],
+    [MOVE_CHOICES_PATH, updatedChoices],
+  ]);
+
+  return [...updates.entries()]
+    .filter(([path, nextContents]) => nextContents !== contents.get(path))
+    .map(([path, nextContents]) => ({
+      path,
+      contents: nextContents,
+      expectedHash: sourceDocuments.get(path)!.sourceHash,
+    }));
+}
 export async function prepareTrainerClassWrites(
   source: ProjectSource,
   sources: TrainerEditSourceDocument[],

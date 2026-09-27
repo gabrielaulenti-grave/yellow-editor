@@ -17,6 +17,7 @@ import {
   trainerSpecialMoveError,
   type TrainerPartyDraft,
 } from "./editor/trainerPartyForm";
+import type { TrainerClassDraft } from "./editor/trainerClassForm";
 import { MapScriptPreview } from "./MapScriptPreview";
 import { TextEditor } from "./TextEditor";
 import { TrainerSpritePanel } from "./TrainerSpritePanel";
@@ -36,9 +37,11 @@ interface TrainersTabProps {
   partySearch: string;
   classSearch: string;
   draft: TrainerPartyDraft | null;
+  classDraft: TrainerClassDraft | null;
   pokemonIndex: PokemonIndexEntry[];
   moves: MoveData[];
   dirty: boolean;
+  classDirty: boolean;
   busy: boolean;
   onSectionChange(section: TrainerSection): void;
   onSelectTrainer(id: string): void;
@@ -56,6 +59,11 @@ interface TrainersTabProps {
   ): void;
   onAddSpecialMove(): void;
   onRemoveSpecialMove(index: number): void;
+  onUpdateClassField(
+    field: "name" | "picLabel" | "baseRewardPerLevel" | "aiRoutine" | "aiUsesPerPokemon",
+    value: string,
+  ): void;
+  onToggleClassMoveChoice(modifier: number): void;
   onCreateClass(values: TrainerClassCreateValues): Promise<void>;
 }
 
@@ -747,10 +755,14 @@ function ClassBrowser({
   pokemonIndex,
   selectedClassConstant,
   search,
+  classDraft,
+  classDirty,
   busy,
   onSelectClass,
   onOpenParty,
   onSearchChange,
+  onUpdateClassField,
+  onToggleClassMoveChoice,
   onCreateClass,
 }: {
   classes: TrainerClassEntry[];
@@ -758,10 +770,17 @@ function ClassBrowser({
   pokemonIndex: PokemonIndexEntry[];
   selectedClassConstant: string | null;
   search: string;
+  classDraft: TrainerClassDraft | null;
+  classDirty: boolean;
   busy: boolean;
   onSelectClass(constant: string): void;
   onOpenParty(id: string): void;
   onSearchChange(value: string): void;
+  onUpdateClassField(
+    field: "name" | "picLabel" | "baseRewardPerLevel" | "aiRoutine" | "aiUsesPerPokemon",
+    value: string,
+  ): void;
+  onToggleClassMoveChoice(modifier: number): void;
   onCreateClass(values: TrainerClassCreateValues): Promise<void>;
 }) {
   const selectedClass = classes.find((trainerClass) => trainerClass.constant === selectedClassConstant) ?? null;
@@ -773,6 +792,14 @@ function ClassBrowser({
     .find((partyNumber): partyNumber is number => typeof partyNumber === "number")
     ?? 1;
   const [creatingClass, setCreatingClass] = useState(false);
+  const portraitOptions = [...new Map(
+    classes
+      .filter((entry): entry is TrainerClassEntry & { picLabel: string } => Boolean(entry.picLabel))
+      .map((entry) => [entry.picLabel, entry]),
+  ).values()];
+  const aiRoutines = [...new Set(
+    classes.flatMap((entry) => entry.aiRoutine ? [entry.aiRoutine] : []),
+  )].sort((left, right) => left.localeCompare(right));
 
   return (
     <>
@@ -782,7 +809,7 @@ function ClassBrowser({
           <button
             type="button"
             className="small-button primary-action"
-            disabled={busy || classes.length >= 55}
+            disabled={busy || classDirty || classes.length >= 55}
             onClick={() => setCreatingClass(true)}
           >
             Add trainer class
@@ -805,15 +832,100 @@ function ClassBrowser({
           <>
             <section className="editor-card">
               <div className="section-heading">
-                <div><h3>{selectedClass.name}</h3><p className="muted-code">{selectedClass.constant}</p></div>
-                <span className="read-only-badge">Read-only</span>
+                <div><h3>{classDraft?.name || selectedClass.name}</h3><p className="muted-code">{selectedClass.constant}</p></div>
+                <span className="read-only-badge">Class ID locked</span>
               </div>
-              <p className="shared-warning">Shared class data: future edits here will affect {selectedClass.partyCount} parties, {selectedClass.placedInstanceCount} map objects, and {selectedClass.scriptReferenceCount} script-selected battles.</p>
-              <div className="trainer-facts">
-                <div><strong>Base prize rate</strong><span>{selectedClass.baseRewardPerLevel === null ? "Unknown" : `₽${selectedClass.baseRewardPerLevel} × last Pokémon level`}</span></div>
-                <div><strong>AI routine</strong><code>{selectedClass.aiRoutine ?? "Unknown"}</code></div>
-                <div><strong>AI uses / Pokémon</strong><span>{selectedClass.aiUsesPerPokemon ?? "Unknown"}</span></div>
-                <div><strong>Move-choice groups</strong><span>{selectedClass.moveChoiceModifiers.length ? selectedClass.moveChoiceModifiers.join(", ") : "None"}</span></div>
+              <p className="shared-warning">Shared class data: edits here affect {selectedClass.partyCount} parties, {selectedClass.placedInstanceCount} map objects, and {selectedClass.scriptReferenceCount} script-selected battles. The class constant stays fixed so existing map and script references remain valid.</p>
+
+              <div className="trainer-class-edit-grid">
+                <label className="trainer-reward-field">
+                  <span>Class name</span>
+                  <input
+                    value={classDraft?.name ?? ""}
+                    maxLength={12}
+                    disabled={busy || !classDraft}
+                    onChange={(event) => onUpdateClassField("name", event.target.value)}
+                  />
+                  <small>Used for the trainer class name and matching fixed defeat-speech name.</small>
+                </label>
+
+                <label className="trainer-reward-field">
+                  <span>Battle portrait</span>
+                  <select
+                    value={classDraft?.picLabel ?? ""}
+                    disabled={busy || !classDraft}
+                    onChange={(event) => onUpdateClassField("picLabel", event.target.value)}
+                  >
+                    {portraitOptions.map((entry) => (
+                      <option key={entry.picLabel} value={entry.picLabel}>
+                        {entry.name} — {entry.picLabel}
+                      </option>
+                    ))}
+                  </select>
+                  <small>Reuses an existing trainer sprite. The preview below refreshes after saving.</small>
+                </label>
+
+                <label className="trainer-reward-field">
+                  <span>Base prize rate</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={99}
+                    step={1}
+                    value={classDraft?.baseRewardPerLevel ?? ""}
+                    disabled={busy || !classDraft}
+                    onChange={(event) => onUpdateClassField("baseRewardPerLevel", event.target.value)}
+                  />
+                  <small>Prize money is this value × the last enemy Pokémon's level.</small>
+                </label>
+
+                <label className="trainer-reward-field">
+                  <span>AI routine</span>
+                  <select
+                    value={classDraft?.aiRoutine ?? ""}
+                    disabled={busy || !classDraft}
+                    onChange={(event) => onUpdateClassField("aiRoutine", event.target.value)}
+                  >
+                    {aiRoutines.map((routine) => (
+                      <option key={routine} value={routine}>{routine}</option>
+                    ))}
+                  </select>
+                  <small>Choose from AI routines already used by this project.</small>
+                </label>
+
+                <label className="trainer-reward-field">
+                  <span>AI uses / Pokémon</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={255}
+                    step={1}
+                    value={classDraft?.aiUsesPerPokemon ?? ""}
+                    disabled={busy || !classDraft}
+                    onChange={(event) => onUpdateClassField("aiUsesPerPokemon", event.target.value)}
+                  />
+                  <small>Maximum number of times the class AI routine can occur per Pokémon.</small>
+                </label>
+
+                <fieldset className="trainer-class-move-choice-field" disabled={busy || !classDraft}>
+                  <legend>Move-choice groups</legend>
+                  <p className="help-text">Enable the same vanilla move-choice modifier groups used by trainer classes in R/B/Y.</p>
+                  <div className="trainer-class-move-choice-options">
+                    {[1, 2, 3].map((modifier) => (
+                      <label key={modifier}>
+                        <input
+                          type="checkbox"
+                          checked={classDraft?.moveChoiceModifiers.includes(modifier) ?? false}
+                          onChange={() => onToggleClassMoveChoice(modifier)}
+                        />
+                        Group {modifier}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              </div>
+
+              <div className="trainer-facts trainer-class-usage-facts">
                 <div><strong>Party records</strong><span>{selectedClass.partyCount}</span></div>
                 <div><strong>Placed instances</strong><span>{selectedClass.placedInstanceCount}</span></div>
                 <div><strong>Script references</strong><span>{selectedClass.scriptReferenceCount}</span></div>
@@ -822,9 +934,10 @@ function ClassBrowser({
             </section>
 
             <TrainerSpritePanel
+              key={`${selectedClass.constant}:${selectedClass.picLabel ?? "none"}`}
               classConstant={selectedClass.constant}
               partyNumber={spritePartyNumber}
-              displayName={selectedClass.name}
+              displayName={classDraft?.name || selectedClass.name}
             />
 
             <section className="editor-card">
@@ -841,7 +954,7 @@ function ClassBrowser({
                     <tbody>{selectedClass.partyIds.map((partyId) => {
                       const party = partyById.get(partyId);
                       if (!party) return null;
-                      return <tr key={party.id}><td>#{party.partyNumber}</td><td>{party.pokemon.map((pokemon) => `Lv.${pokemon.level} ${titleCaseConstant(pokemon.speciesConstant)}`).join(", ")}</td><td>{party.instances.length}</td><td>{party.scriptReferences.length}</td><td><button className="small-button" onClick={() => onOpenParty(party.id)}>View party</button></td></tr>;
+                      return <tr key={party.id}><td>#{party.partyNumber}</td><td>{party.pokemon.map((pokemon) => `Lv.${pokemon.level} ${titleCaseConstant(pokemon.speciesConstant)}`).join(", ")}</td><td>{party.instances.length}</td><td>{party.scriptReferences.length}</td><td><button className="small-button" disabled={busy || classDirty} onClick={() => onOpenParty(party.id)}>View party</button></td></tr>;
                     })}</tbody>
                   </table>
                 </div>
@@ -880,9 +993,11 @@ export function TrainersTab({
   partySearch,
   classSearch,
   draft,
+  classDraft,
   pokemonIndex,
   moves,
   dirty,
+  classDirty,
   busy,
   onSectionChange,
   onSelectTrainer,
@@ -896,6 +1011,8 @@ export function TrainersTab({
   onUpdateSpecialMove,
   onAddSpecialMove,
   onRemoveSpecialMove,
+  onUpdateClassField,
+  onToggleClassMoveChoice,
   onCreateClass,
 }: TrainersTabProps) {
   return (
@@ -933,9 +1050,13 @@ export function TrainersTab({
           pokemonIndex={pokemonIndex}
           selectedClassConstant={selectedClassConstant}
           search={classSearch}
+          classDraft={classDraft}
+          classDirty={classDirty}
           busy={busy}
           onSelectClass={onSelectClass}
           onSearchChange={onClassSearchChange}
+          onUpdateClassField={onUpdateClassField}
+          onToggleClassMoveChoice={onToggleClassMoveChoice}
           onCreateClass={onCreateClass}
           onOpenParty={(id) => { onSelectTrainer(id); onSectionChange("parties"); }}
         />

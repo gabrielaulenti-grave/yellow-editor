@@ -28,6 +28,7 @@ interface TrainerClassData {
   constant: string;
   label: string;
   name: string;
+  picLabel: string | null;
   baseRewardPerLevel: number | null;
   aiRoutine: string | null;
   aiUsesPerPokemon: number | null;
@@ -161,9 +162,13 @@ function trainerNamePointers(contents: string): string[] {
     .map((match) => match[1]);
 }
 
-function rewardRates(contents: string): number[] {
-  return [...contents.matchAll(/^\s*pic_money\s+[^,]+,\s*(\d+)\b/gm)]
-    .map((match) => Number(match[1]) / 100);
+function picMoneyEntries(contents: string): Array<{ picLabel: string; reward: number }> {
+  return [...contents.matchAll(
+    /^\s*pic_money\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*(\d+)\b/gm,
+  )].map((match) => ({
+    picLabel: match[1],
+    reward: Number(match[2]) / 100,
+  }));
 }
 
 function aiEntries(contents: string): Array<{ uses: number; routine: string }> {
@@ -189,7 +194,7 @@ function parseClassData(
   constants: string[],
   labels: string[],
   names: string[],
-  rewards: number[],
+  picMoney: Array<{ picLabel: string; reward: number }>,
   ai: Array<{ uses: number; routine: string }>,
   choices: number[][],
 ): TrainerClassData[] {
@@ -197,7 +202,8 @@ function parseClassData(
     constant,
     label: labels[index] ?? "",
     name: names[index] ?? constant,
-    baseRewardPerLevel: rewards[index] ?? null,
+    picLabel: picMoney[index]?.picLabel ?? null,
+    baseRewardPerLevel: picMoney[index]?.reward ?? null,
     aiRoutine: ai[index]?.routine ?? null,
     aiUsesPerPokemon: ai[index]?.uses ?? null,
     moveChoiceModifiers: choices[index] ?? [],
@@ -1060,6 +1066,7 @@ function buildClassCatalog(
     return {
       constant: trainerClass.constant,
       name: trainerClass.name,
+      picLabel: trainerClass.picLabel,
       partyIds: parties.map((party) => party.id),
       partyCount: parties.length,
       placedInstanceCount: uniqueInstances.size,
@@ -1118,11 +1125,11 @@ export async function parseTrainerCatalog(
   const labels = partyPointerLabels(partiesContents);
   const names = trainerNames(namesContents);
   const namePointers = trainerNamePointers(namePointersContents);
-  const rewards = rewardRates(moneyContents);
+  const picMoney = picMoneyEntries(moneyContents);
   const ai = aiEntries(aiContents);
   const choices = moveChoiceEntries(choicesContents);
   const warnings: string[] = [];
-  const lengths = { constants: constants.length, labels: labels.length, names: names.length, namePointers: namePointers.length, rewards: rewards.length, ai: ai.length, choices: choices.length };
+  const lengths = { constants: constants.length, labels: labels.length, names: names.length, namePointers: namePointers.length, picMoney: picMoney.length, ai: ai.length, choices: choices.length };
   const expected = constants.length;
   for (const [label, length] of Object.entries(lengths)) {
     if (length !== expected) {
@@ -1130,7 +1137,7 @@ export async function parseTrainerCatalog(
     }
   }
 
-  const classes = parseClassData(constants, labels, names, rewards, ai, choices);
+  const classes = parseClassData(constants, labels, names, picMoney, ai, choices);
   const trainers = parsePartyEntries(partiesContents, classes);
   const specialMovesContents = await source.exists(SPECIAL_MOVES_PATH)
     ? await source.readText(SPECIAL_MOVES_PATH)
