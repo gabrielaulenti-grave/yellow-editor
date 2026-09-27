@@ -2,6 +2,7 @@ import type {
   ProjectSource,
   TextWriteRequest,
   TrainerClassCreateValues,
+  TrainerClassEditValues,
   TrainerClassEntry,
   TrainerEditSourceDocument,
 } from "./types";
