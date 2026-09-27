@@ -470,6 +470,142 @@ export function validateTrainerClassCreateValues(
   }
 }
 
+export async function prepareTrainerClassEditWrites(
+  source: ProjectSource,
+  sources: TrainerEditSourceDocument[],
+  classConstant: string,
+  values: TrainerClassEditValues,
+): Promise<TextWriteRequest[]> {
+  validateCommonClassValues(values);
+
+  const requiredPaths = [
+    CONSTANTS_PATH,
+    NAMES_PATH,
+    NAME_POINTERS_PATH,
+    MONEY_PATH,
+    AI_PATH,
+    MOVE_CHOICES_PATH,
+  ] as const;
+  const sourceDocuments = new Map(
+    requiredPaths.map((path) => [path, sourceDocument(sources, path)]),
+  );
+  const contents = new Map<string, string>();
+  await Promise.all(requiredPaths.map(async (path) => {
+    contents.set(path, await source.readText(path));
+  }));
+
+  const constantsContents = contents.get(CONSTANTS_PATH)!;
+  const constants = trainerConstants(constantsContents);
+  const classIndex = constants.indexOf(classConstant);
+  if (classIndex < 0) {
+    throw new Error(`Trainer class ${classConstant} no longer exists.`);
+  }
+
+  const namesContents = contents.get(NAMES_PATH)!;
+  const namePointersContents = contents.get(NAME_POINTERS_PATH)!;
+  const moneyContents = contents.get(MONEY_PATH)!;
+  const aiContents = contents.get(AI_PATH)!;
+  const choicesContents = contents.get(MOVE_CHOICES_PATH)!;
+
+  const names = trainerNames(namesContents);
+  const namePointers = pointerEntries(namePointersContents, "TrainerNamePointers");
+  const money = picMoneyEntries(moneyContents);
+  const ai = aiEntries(aiContents);
+  const choices = moveChoiceEntries(choicesContents);
+  const lengths = {
+    constants: constants.length,
+    names: names.length,
+    namePointers: namePointers.length,
+    money: money.length,
+    ai: ai.length,
+    moveChoices: choices.length,
+  };
+  for (const [label, length] of Object.entries(lengths)) {
+    if (length !== constants.length) {
+      throw new Error(
+        `Trainer class editing requires synchronized trainer tables; ${label} has ${length} entries but constants has ${constants.length}.`,
+      );
+    }
+  }
+
+  if (!money.some((entry) => entry.picLabel === values.picLabel)) {
+    throw new Error(`Trainer portrait ${values.picLabel} is not used by an existing class.`);
+  }
+  if (!ai.some((entry) => entry.routine === values.aiRoutine)) {
+    throw new Error(`AI routine ${values.aiRoutine} is not used by an existing trainer class.`);
+  }
+
+  const updatedNames = replaceNthMatchingLine(
+    namesContents,
+    (line) => /^\s*li\s+"[^"]*"/.test(line),
+    classIndex,
+    (line) => {
+      const comment = lineComment(line);
+      return `${leadingWhitespace(line)}li "${values.name.trim()}"${comment ? ` ${comment}` : ""}`;
+    },
+    "name",
+  );
+
+  const defeatNamePointer = namePointers[classIndex];
+  let updatedNamePointers = namePointersContents;
+  if (defeatNamePointer?.startsWith(".")) {
+    updatedNamePointers = replaceStaticTrainerName(
+      namePointersContents,
+      defeatNamePointer,
+      values.name.trim(),
+    );
+  } else if (defeatNamePointer !== "wTrainerName") {
+    throw new Error(
+      `Trainer class ${classConstant} uses unsupported defeat-speech name pointer '${defeatNamePointer ?? "missing"}'.`,
+    );
+  }
+
+  const updatedMoney = replaceNthMatchingLine(
+    moneyContents,
+    (line) => /^\s*pic_money\s+/i.test(withoutComment(line)),
+    classIndex,
+    (line) => {
+      const comment = lineComment(line);
+      return `${leadingWhitespace(line)}pic_money ${values.picLabel}, ${values.baseRewardPerLevel * 100}${comment ? ` ${comment}` : ""}`;
+    },
+    "portrait/money",
+  );
+
+  const updatedAi = replaceNthMatchingLine(
+    aiContents,
+    (line) => /^\s*dbw\s+/i.test(withoutComment(line)),
+    classIndex,
+    (line) => `${leadingWhitespace(line)}dbw ${values.aiUsesPerPokemon}, ${values.aiRoutine} ; ${classConstant}`,
+    "AI",
+  );
+
+  const choiceArgs = values.moveChoiceModifiers.length > 0
+    ? ` ${[...values.moveChoiceModifiers].sort((a, b) => a - b).join(", ")}`
+    : "";
+  const updatedChoices = replaceNthMatchingLine(
+    choicesContents,
+    (line) => /^\s*move_choices(?:\s|$)/i.test(withoutComment(line)),
+    classIndex,
+    (line) => `${leadingWhitespace(line)}move_choices${choiceArgs} ; ${classConstant}`,
+    "move-choice",
+  );
+
+  const updates = new Map<string, string>([
+    [NAMES_PATH, updatedNames],
+    [NAME_POINTERS_PATH, updatedNamePointers],
+    [MONEY_PATH, updatedMoney],
+    [AI_PATH, updatedAi],
+    [MOVE_CHOICES_PATH, updatedChoices],
+  ]);
+
+  return [...updates.entries()]
+    .filter(([path, nextContents]) => nextContents !== contents.get(path))
+    .map(([path, nextContents]) => ({
+      path,
+      contents: nextContents,
+      expectedHash: sourceDocuments.get(path)!.sourceHash,
+    }));
+}
 export async function prepareTrainerClassWrites(
   source: ProjectSource,
   sources: TrainerEditSourceDocument[],
