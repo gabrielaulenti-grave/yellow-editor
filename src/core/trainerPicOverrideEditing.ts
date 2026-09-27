@@ -9,7 +9,7 @@ export const TRAINER_PIC_ENGINE_PATH = "home/trainers2.asm";
 export const TRAINER_PICS_PATH = "gfx/pics.asm";
 export const TRAINER_CONSTANTS_PATH = "constants/trainer_constants.asm";
 
-const ENGINE_MARKER = "; Yellow Editor trainer party portrait overrides";
+const ENGINE_MARKER = "; Yellow Editor trainer party portrait override hook";
 const TABLE_MARKER = "; Yellow Editor trainer party portrait override table";
 const OVERRIDE_LABEL = "TrainerPicOverrides";
 const OVERRIDE_ROUTINE = "ApplyTrainerPicOverride";
@@ -20,6 +20,10 @@ function codeOnly(line: string): string {
 
 function newlineFor(contents: string): string {
   return contents.includes("\r\n") ? "\r\n" : "\n";
+}
+
+function labelPattern(label: string): RegExp {
+  return new RegExp(`^\\s*${label}::{0,1}\\s*(?:;.*)?$`, "m");
 }
 
 function parseTrainerConstants(contents: string): Set<string> {
@@ -66,18 +70,61 @@ function parseTrainerPicLabels(contents: string): Set<string> {
 }
 
 function hasEditorTable(contents: string): boolean {
-  return contents.includes(TABLE_MARKER)
-    && new RegExp(`^\\s*${OVERRIDE_LABEL}::{0,1}\\s*(?:;.*)?$`, "m").test(contents);
+  return contents.includes(TABLE_MARKER) && labelPattern(OVERRIDE_LABEL).test(contents);
+}
+
+function overrideRoutineLines(): string[] {
+  return [
+    OVERRIDE_ROUTINE + "::",
+    "\tld a, [wTrainerClass]",
+    "\tld b, a",
+    "\tld a, [wTrainerNo]",
+    "\tld c, a",
+    "\tld hl, " + OVERRIDE_LABEL,
+    ".loop",
+    "\tld a, [hli]",
+    "\tand a",
+    "\tret z",
+    "\tcp b",
+    "\tjr nz, .skipPartyAndPic",
+    "\tld a, [hli]",
+    "\tcp c",
+    "\tjr nz, .skipPic",
+    "\tld a, [hli]",
+    "\tld e, a",
+    "\tld a, [hl]",
+    "\tld d, a",
+    "\tld hl, wTrainerPicPointer",
+    "\tld a, e",
+    "\tld [hli], a",
+    "\tld [hl], d",
+    "\tret",
+    ".skipPartyAndPic",
+    "\tinc hl",
+    ".skipPic",
+    "\tinc hl",
+    "\tinc hl",
+    "\tjr .loop",
+  ];
 }
 
 function installOverrideTable(contents: string): string {
-  const hasLabel = new RegExp(`^\\s*${OVERRIDE_LABEL}::{0,1}\\s*(?:;.*)?$`, "m").test(contents);
-  if (hasLabel && !contents.includes(TABLE_MARKER)) {
+  const hasLabel = labelPattern(OVERRIDE_LABEL).test(contents);
+  const hasRoutine = labelPattern(OVERRIDE_ROUTINE).test(contents);
+
+  if ((hasLabel || hasRoutine) && !contents.includes(TABLE_MARKER)) {
     throw new Error(
-      `${TRAINER_PIC_TABLE_PATH} already defines ${OVERRIDE_LABEL}, but it is not owned by Yellow Editor. The existing custom table was left untouched.`,
+      `${TRAINER_PIC_TABLE_PATH} already defines Yellow Editor's override labels, but the table is not owned by Yellow Editor. The existing custom code was left untouched.`,
     );
   }
-  if (hasLabel) return contents;
+  if (hasLabel) {
+    if (!hasRoutine) {
+      throw new Error(
+        `${TRAINER_PIC_TABLE_PATH} contains an incomplete Yellow Editor portrait override table.`,
+      );
+    }
+    return contents;
+  }
 
   if (/^\s*MACRO\s+trainer_pic_override\b/im.test(contents)) {
     throw new Error(
@@ -87,18 +134,23 @@ function installOverrideTable(contents: string): string {
 
   const nl = newlineFor(contents);
   const suffix = contents.endsWith(nl) ? "" : nl;
-  return contents
-    + suffix
-    + nl
-    + TABLE_MARKER + nl
-    + "; class, exact party number, replacement battle portrait" + nl
-    + "MACRO trainer_pic_override" + nl
-    + "\tdb \\1, \\2" + nl
-    + "\tdw \\3" + nl
-    + "ENDM" + nl
-    + nl
-    + OVERRIDE_LABEL + "::" + nl
-    + "\tdb 0" + nl;
+  const block = [
+    TABLE_MARKER,
+    "; This table is read while BANK(TrainerPicAndMoneyPointers) is selected.",
+    "; class, exact party number, replacement battle portrait",
+    "MACRO trainer_pic_override",
+    "\tdb \\1, \\2",
+    "\tdw \\3",
+    "ENDM",
+    "",
+    OVERRIDE_LABEL + "::",
+    "\tdb 0",
+    "",
+    ...overrideRoutineLines(),
+    "",
+  ].join(nl);
+
+  return contents + suffix + nl + block;
 }
 
 function updateOverrideTable(
@@ -113,9 +165,7 @@ function updateOverrideTable(
   }
 
   const lines = contents.split(/\r?\n/);
-  const start = lines.findIndex((line) =>
-    new RegExp(`^\\s*${OVERRIDE_LABEL}::{0,1}\\s*(?:;.*)?$`).test(line),
-  );
+  const start = lines.findIndex((line) => labelPattern(OVERRIDE_LABEL).test(line));
   if (start < 0) {
     throw new Error(`Could not locate ${OVERRIDE_LABEL} after installing it.`);
   }
@@ -160,23 +210,16 @@ function updateOverrideTable(
   return lines.join(newlineFor(contents));
 }
 
-function hasEditorHook(contents: string): boolean {
-  return contents.includes(ENGINE_MARKER)
-    && new RegExp(`^\\s*${OVERRIDE_ROUTINE}::{0,1}\\s*(?:;.*)?$`, "m").test(contents)
-    && new RegExp(`^\\s*call\\s+${OVERRIDE_ROUTINE}\\b`, "m").test(contents);
-}
-
 function installOverrideHook(contents: string): string {
-  const routinePattern = new RegExp(
-    `^\\s*${OVERRIDE_ROUTINE}::{0,1}\\s*(?:;.*)?$`,
-    "m",
-  );
-  if (routinePattern.test(contents) && !contents.includes(ENGINE_MARKER)) {
-    throw new Error(
-      `${TRAINER_PIC_ENGINE_PATH} already defines ${OVERRIDE_ROUTINE}, but it is not owned by Yellow Editor. The existing custom routine was left untouched.`,
-    );
+  const callPattern = new RegExp(`^\\s*call\\s+${OVERRIDE_ROUTINE}\\b`, "m");
+  if (callPattern.test(contents)) {
+    if (!contents.includes(ENGINE_MARKER)) {
+      throw new Error(
+        `${TRAINER_PIC_ENGINE_PATH} already calls ${OVERRIDE_ROUTINE}, but the hook is not owned by Yellow Editor. The existing custom code was left untouched.`,
+      );
+    }
+    return contents;
   }
-  if (hasEditorHook(contents)) return contents;
 
   const nl = newlineFor(contents);
   const start = contents.search(/^GetTrainerInformation::{0,1}\s*$/m);
@@ -200,54 +243,10 @@ function installOverrideHook(contents: string): string {
   const absoluteReturn = start + lastReturn.index;
   const returnLine = lastReturn[0];
   const indent = lastReturn[1] || "\t";
-  let next = contents.slice(0, absoluteReturn)
+  return contents.slice(0, absoluteReturn)
+    + ENGINE_MARKER + nl
     + `${indent}call ${OVERRIDE_ROUTINE}${nl}${returnLine}`
     + contents.slice(absoluteReturn + returnLine.length);
-
-  const getNameMatch = /^GetTrainerName::{0,1}\s*$/m.exec(next);
-  if (!getNameMatch || getNameMatch.index === undefined) {
-    throw new Error(
-      `Could not safely locate GetTrainerName in ${TRAINER_PIC_ENGINE_PATH}.`,
-    );
-  }
-
-  const routine = [
-    ENGINE_MARKER,
-    OVERRIDE_ROUTINE + "::",
-    "\tld a, [wTrainerClass]",
-    "\tld b, a",
-    "\tld a, [wTrainerNo]",
-    "\tld c, a",
-    "\tld hl, " + OVERRIDE_LABEL,
-    ".loop",
-    "\tld a, [hli]",
-    "\tand a",
-    "\tret z",
-    "\tcp b",
-    "\tjr nz, .skipPartyAndPic",
-    "\tld a, [hli]",
-    "\tcp c",
-    "\tjr nz, .skipPic",
-    "\tld a, [hli]",
-    "\tld e, a",
-    "\tld a, [hl]",
-    "\tld d, a",
-    "\tld hl, wTrainerPicPointer",
-    "\tld a, e",
-    "\tld [hli], a",
-    "\tld [hl], d",
-    "\tret",
-    ".skipPartyAndPic",
-    "\tinc hl",
-    ".skipPic",
-    "\tinc hl",
-    "\tinc hl",
-    "\tjr .loop",
-    "",
-  ].join(nl);
-
-  next = next.slice(0, getNameMatch.index) + routine + nl + next.slice(getNameMatch.index);
-  return next;
 }
 
 export function parseEditorTrainerPicOverride(
@@ -258,9 +257,7 @@ export function parseEditorTrainerPicOverride(
   if (!hasEditorTable(contents)) return null;
 
   const lines = contents.split(/\r?\n/);
-  const start = lines.findIndex((line) =>
-    new RegExp(`^\\s*${OVERRIDE_LABEL}::{0,1}\\s*(?:;.*)?$`).test(line),
-  );
+  const start = lines.findIndex((line) => labelPattern(OVERRIDE_LABEL).test(line));
   if (start < 0) return null;
 
   for (let index = start + 1; index < lines.length; index += 1) {
