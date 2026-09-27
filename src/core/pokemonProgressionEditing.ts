@@ -756,41 +756,137 @@ export async function preparePokemonWrites(
   const read = await Promise.all(writePaths.map((path) => source.readText(path)));
   const before = new Map(writePaths.map((path, index) => [path, read[index]]));
 
+  const original = current.values;
   let baseContents = before.get(baseStatsPath)!;
-  baseContents = replaceDb(baseContents, 1, [values.hp, values.attack, values.defense, values.speed, values.special].join(", "));
-  baseContents = replaceDb(baseContents, 2, values.type1 + ", " + values.type2);
-  baseContents = replaceDb(baseContents, 3, String(values.catchRate));
-  baseContents = replaceDb(baseContents, 4, String(values.baseExp));
-  baseContents = replaceDb(baseContents, 5, values.startingMoves.join(", "));
-  baseContents = replaceDb(baseContents, 6, values.growthRate);
-  baseContents = replaceSprite(baseContents, sprite);
-  baseContents = replaceTmhm(baseContents, values.tmhmMoves);
+  if (
+    values.hp !== original.hp
+    || values.attack !== original.attack
+    || values.defense !== original.defense
+    || values.speed !== original.speed
+    || values.special !== original.special
+  ) {
+    baseContents = replaceDb(
+      baseContents,
+      1,
+      [values.hp, values.attack, values.defense, values.speed, values.special].join(", "),
+    );
+  }
+  if (values.type1 !== original.type1 || values.type2 !== original.type2) {
+    baseContents = replaceDb(baseContents, 2, values.type1 + ", " + values.type2);
+  }
+  if (values.catchRate !== original.catchRate) {
+    baseContents = replaceDb(baseContents, 3, String(values.catchRate));
+  }
+  if (values.baseExp !== original.baseExp) {
+    baseContents = replaceDb(baseContents, 4, String(values.baseExp));
+  }
+  if (JSON.stringify(values.startingMoves) !== JSON.stringify(original.startingMoves)) {
+    baseContents = replaceDb(baseContents, 5, values.startingMoves.join(", "));
+  }
+  if (values.growthRate !== original.growthRate) {
+    baseContents = replaceDb(baseContents, 6, values.growthRate);
+  }
+  if (values.spriteChoiceId !== original.spriteChoiceId) {
+    baseContents = replaceSprite(baseContents, sprite);
+  }
+  if (JSON.stringify(values.tmhmMoves) !== JSON.stringify(original.tmhmMoves)) {
+    baseContents = replaceTmhm(baseContents, values.tmhmMoves);
+  }
 
-  const namesContents = replaceName(before.get(NAMES_PATH)!, internalId, values.displayName);
+  const namesContents = values.displayName === original.displayName
+    ? before.get(NAMES_PATH)!
+    : replaceName(before.get(NAMES_PATH)!, internalId, values.displayName);
 
   let evosContents = before.get(EVOS_PATH)!;
-  const evosLabel = pointerTable(evosContents, "EvosMovesPointerTable:")[internalId - 1];
-  if (!evosLabel) throw new Error("Could not resolve evolution/move block.");
-  evosContents = replaceBlock(evosContents, evosLabel, formatEvosMoves(values.evolutions, values.learnset));
+  if (
+    JSON.stringify(values.evolutions) !== JSON.stringify(original.evolutions)
+    || JSON.stringify(values.learnset) !== JSON.stringify(original.learnset)
+  ) {
+    const evosLabel = pointerTable(evosContents, "EvosMovesPointerTable:")[internalId - 1];
+    if (!evosLabel) throw new Error("Could not resolve evolution/move block.");
+    evosContents = replaceBlock(
+      evosContents,
+      evosLabel,
+      formatEvosMoves(values.evolutions, values.learnset),
+    );
+  }
 
   let dexEntriesContents = before.get(DEX_ENTRIES_PATH)!;
-  const dexLabel = pointerTable(dexEntriesContents, "PokedexEntryPointers:")[internalId - 1];
-  if (!dexLabel) throw new Error("Could not resolve Pokédex entry.");
-  const oldDex = dexEntry(dexEntriesContents, dexLabel);
+  let dexTextContents = before.get(DEX_TEXT_PATH)!;
+  const originalPokedex = original.pokedex;
   const pokedex = values.pokedex!;
-  dexEntriesContents = replaceBlock(dexEntriesContents, dexLabel, formatDexEntry(pokedex, oldDex.textLabel));
+  if (!originalPokedex) throw new Error("Could not resolve the original Pokédex entry.");
 
-  const dexTextContents = replaceBlock(before.get(DEX_TEXT_PATH)!, oldDex.textLabel, formatDexText(pokedex.textLines));
+  const dexMetadataChanged =
+    pokedex.category !== originalPokedex.category
+    || pokedex.heightFeet !== originalPokedex.heightFeet
+    || pokedex.heightInches !== originalPokedex.heightInches
+    || pokedex.weightTenthsLb !== originalPokedex.weightTenthsLb;
+  const dexTextChanged =
+    JSON.stringify(pokedex.textLines) !== JSON.stringify(originalPokedex.textLines);
 
-  const originalBase = parseBaseData(before.get(baseStatsPath)!);
-  const dexConstants = await source.readText("constants/pokedex_constants.asm");
-  const dexNumber = dexNumbers(dexConstants).get(originalBase.dexConstant);
-  if (dexNumber === undefined) throw new Error("Could not resolve Pokédex constant " + originalBase.dexConstant + ".");
+  if (dexMetadataChanged || dexTextChanged) {
+    const dexLabel = pointerTable(dexEntriesContents, "PokedexEntryPointers:")[internalId - 1];
+    if (!dexLabel) throw new Error("Could not resolve Pokédex entry.");
+    const oldDex = dexEntry(dexEntriesContents, dexLabel);
+    if (dexMetadataChanged) {
+      dexEntriesContents = replaceBlock(
+        dexEntriesContents,
+        dexLabel,
+        formatDexEntry(pokedex, oldDex.textLabel),
+      );
+    }
+    if (dexTextChanged) {
+      dexTextContents = replaceBlock(
+        dexTextContents,
+        oldDex.textLabel,
+        formatDexText(pokedex.textLines),
+      );
+    }
+  }
 
-  const monPaletteContents = replacePaletteAssignment(before.get(MON_PALETTES_PATH)!, dexNumber, values.paletteConstant);
+  let monPaletteContents = before.get(MON_PALETTES_PATH)!;
+  if (values.paletteConstant !== original.paletteConstant) {
+    const originalBase = parseBaseData(before.get(baseStatsPath)!);
+    const dexConstants = await source.readText("constants/pokedex_constants.asm");
+    const dexNumber = dexNumbers(dexConstants).get(originalBase.dexConstant);
+    if (dexNumber === undefined) {
+      throw new Error("Could not resolve Pokédex constant " + originalBase.dexConstant + ".");
+    }
+    monPaletteContents = replacePaletteAssignment(
+      monPaletteContents,
+      dexNumber,
+      values.paletteConstant,
+    );
+  }
+
   let paletteDefsContents = before.get(PALETTE_DEFS_PATH)!;
-  if (values.cgbPalette) paletteDefsContents = replacePaletteRow(paletteDefsContents, "CGBBasePalettes", values.paletteConstant, values.cgbPalette);
-  if (values.sgbPalette) paletteDefsContents = replacePaletteRow(paletteDefsContents, "SuperPalettes", values.paletteConstant, values.sgbPalette);
+  const selectedPalette = current.options.paletteChoices.find(
+    (choice) => choice.constant === values.paletteConstant,
+  );
+  if (!selectedPalette) throw new Error("Selected palette is no longer available.");
+  if (
+    values.cgbPalette
+    && JSON.stringify(values.cgbPalette) !== JSON.stringify(selectedPalette.cgbColors)
+  ) {
+    paletteDefsContents = replacePaletteRow(
+      paletteDefsContents,
+      "CGBBasePalettes",
+      values.paletteConstant,
+      values.cgbPalette,
+    );
+  }
+  if (
+    values.sgbPalette
+    && JSON.stringify(values.sgbPalette) !== JSON.stringify(selectedPalette.sgbColors)
+  ) {
+    paletteDefsContents = replacePaletteRow(
+      paletteDefsContents,
+      "SuperPalettes",
+      values.paletteConstant,
+      values.sgbPalette,
+    );
+  }
 
   const after = new Map<string, string>([
     [baseStatsPath, baseContents],
