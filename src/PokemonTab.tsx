@@ -1,4 +1,5 @@
 import type {
+  PokedexTextLine,
   PokemonDetails,
   PokemonEditDocument,
   PokemonIndexEntry,
@@ -133,7 +134,7 @@ export function PokemonTab({
     });
   }
 
-  function updateDexLine(index: number, values: Partial<PokemonDraft["pokedex"]["textLines"][number]>) {
+  function updateDexLine(index: number, values: Partial<PokedexTextLine>) {
     if (!draft?.pokedex) return;
     patch({
       pokedex: {
