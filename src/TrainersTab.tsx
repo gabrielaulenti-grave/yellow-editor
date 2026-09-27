@@ -615,12 +615,6 @@ function PartyBrowser({
               ) : <p>Trainer party data is unavailable.</p>}
             </section>
 
-            <TrainerSpritePanel
-              classConstant={selectedTrainer.classConstant}
-              partyNumber={selectedTrainer.partyNumber}
-              displayName={`${selectedTrainer.className} #${selectedTrainer.partyNumber}`}
-            />
-
             {draft && (
               <section className="editor-card trainer-special-move-editor">
                 <div className="section-heading">
@@ -757,6 +751,10 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
   const query = search.trim().toLowerCase();
   const filtered = classes.filter((trainerClass) => !query || [trainerClass.constant, trainerClass.name, trainerClass.aiRoutine ?? "", ...trainerClass.affectedLocations].some((value) => value.toLowerCase().includes(query)));
   const partyById = new Map(trainers.map((party) => [party.id, party]));
+  const spritePartyNumber = selectedClass?.partyIds
+    .map((partyId) => partyById.get(partyId)?.partyNumber)
+    .find((partyNumber): partyNumber is number => typeof partyNumber === "number")
+    ?? 1;
 
   return (
     <div className="trainer-browser">
@@ -793,6 +791,12 @@ function ClassBrowser({ classes, trainers, selectedClassConstant, search, onSele
               </div>
               {selectedClass.classSpecialMoves.length > 0 && <p className="help-text">Class-wide move override: {selectedClass.classSpecialMoves.map((move) => `${titleCaseConstant(move.moveConstant)} (Pokémon ${move.pokemonIndex}, slot ${move.moveSlot})`).join(", ")}.</p>}
             </section>
+
+            <TrainerSpritePanel
+              classConstant={selectedClass.constant}
+              partyNumber={spritePartyNumber}
+              displayName={selectedClass.name}
+            />
 
             <section className="editor-card">
               <h4>Affected locations</h4>
