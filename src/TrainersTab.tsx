@@ -471,9 +471,11 @@ function PartyBrowser({
   search,
   projectName,
   draft,
+  classDraft,
   pokemonIndex,
   moves,
   dirty,
+  classDirty,
   busy,
   onSelectTrainer,
   onSearchChange,
@@ -1009,6 +1011,8 @@ export function TrainersTab({
   onUpdateSpecialMove,
   onAddSpecialMove,
   onRemoveSpecialMove,
+  onUpdateClassField,
+  onToggleClassMoveChoice,
   onCreateClass,
 }: TrainersTabProps) {
   return (
@@ -1046,9 +1050,13 @@ export function TrainersTab({
           pokemonIndex={pokemonIndex}
           selectedClassConstant={selectedClassConstant}
           search={classSearch}
+          classDraft={classDraft}
+          classDirty={classDirty}
           busy={busy}
           onSelectClass={onSelectClass}
           onSearchChange={onClassSearchChange}
+          onUpdateClassField={onUpdateClassField}
+          onToggleClassMoveChoice={onToggleClassMoveChoice}
           onCreateClass={onCreateClass}
           onOpenParty={(id) => { onSelectTrainer(id); onSectionChange("parties"); }}
         />
