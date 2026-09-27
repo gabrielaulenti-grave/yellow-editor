@@ -55,14 +55,17 @@ function parseTrainerPicTable(contents: string): string[] {
 function parsePicSourcePaths(contents: string): Map<string, string> {
   const result = new Map<string, string>();
   let pendingLabels: string[] = [];
+  let inTrainerPicsSection = false;
 
   for (const rawLine of contents.split(/\r?\n/)) {
     const clean = codeOnly(rawLine);
     if (!clean) continue;
     if (/^SECTION\b/i.test(clean)) {
+      inTrainerPicsSection = /^SECTION\s+"Trainer Pics"\s*,\s*ROMX\b/i.test(clean);
       pendingLabels = [];
       continue;
     }
+    if (!inTrainerPicsSection) continue;
 
     const labelMatch = clean.match(/^([A-Za-z_][A-Za-z0-9_]*):{1,2}(.*)$/);
     let remainder = clean;
@@ -189,9 +192,7 @@ export async function parseTrainerPresentation(
       : null;
 
   const picSources = parsePicSourcePaths(picsSource);
-  const availablePicLabels = [...picSources.entries()]
-    .filter(([, path]) => path.startsWith("gfx/trainers/"))
-    .map(([label]) => label);
+  const availablePicLabels = [...picSources.keys()];
 
   const baseRawPicPath = basePicLabel ? picSources.get(basePicLabel) ?? null : null;
   const baseSpriteSourcePath = baseRawPicPath ? pngSourceForPic(baseRawPicPath) : null;
