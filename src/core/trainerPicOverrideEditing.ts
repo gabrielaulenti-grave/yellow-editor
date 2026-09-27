@@ -127,23 +127,12 @@ function installOverrideTable(contents: string): string {
     return contents;
   }
 
-  if (/^\s*MACRO\s+trainer_pic_override\b/im.test(contents)) {
-    throw new Error(
-      `${TRAINER_PIC_TABLE_PATH} already defines trainer_pic_override without the Yellow Editor override table.`,
-    );
-  }
-
   const nl = newlineFor(contents);
   const suffix = contents.endsWith(nl) ? "" : nl;
   const block = [
     TABLE_MARKER,
     "; This table is read while BANK(TrainerPicAndMoneyPointers) is selected.",
-    "; class, exact party number, replacement battle portrait",
-    "MACRO trainer_pic_override",
-    "\tdb \\1, \\2",
-    "\tdw \\3",
-    "ENDM",
-    "",
+    "; Each record is: db trainer class, exact party number / dw replacement portrait",
     OVERRIDE_LABEL + "::",
     "\tdb 0",
     "",
@@ -175,20 +164,32 @@ function updateOverrideTable(
   let existing = -1;
   for (let index = start + 1; index < lines.length; index += 1) {
     const clean = codeOnly(lines[index]);
+    if (!clean) continue;
     if (/^db\s+0\b/i.test(clean)) {
       terminator = index;
       break;
     }
     const match = clean.match(
-      /^trainer_pic_override\s+([A-Z][A-Z0-9_]*)\s*,\s*([^,]+)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)$/i,
+      /^db\s+([A-Z][A-Z0-9_]*)\s*,\s*([^,]+)$/i,
     );
-    if (!match) continue;
+    if (!match) {
+      throw new Error(
+        `${OVERRIDE_LABEL} contains an unsupported row. Yellow Editor will not rewrite an ambiguous table.`,
+      );
+    }
+    const pointerLine = codeOnly(lines[index + 1] ?? "");
+    if (!/^dw\s+[A-Za-z_][A-Za-z0-9_]*$/i.test(pointerLine)) {
+      throw new Error(
+        `${OVERRIDE_LABEL} contains an incomplete portrait pointer row.`,
+      );
+    }
     const parsedParty = /^\$[0-9a-f]+$/i.test(match[2].trim())
       ? Number.parseInt(match[2].trim().slice(1), 16)
       : Number.parseInt(match[2].trim(), 10);
     if (match[1].toUpperCase() === classConstant && parsedParty === partyNumber) {
       existing = index;
     }
+    index += 1;
   }
 
   if (terminator < 0) {
@@ -198,13 +199,16 @@ function updateOverrideTable(
   }
 
   if (picLabel === null) {
-    if (existing >= 0) lines.splice(existing, 1);
+    if (existing >= 0) lines.splice(existing, 2);
   } else {
-    const row = `\ttrainer_pic_override ${classConstant}, ${partyNumber}, ${picLabel}`;
+    const row = [
+      `\tdb ${classConstant}, ${partyNumber}`,
+      `\tdw ${picLabel}`,
+    ];
     if (existing >= 0) {
-      lines[existing] = row;
+      lines.splice(existing, 2, ...row);
     } else {
-      lines.splice(terminator, 0, row);
+      lines.splice(terminator, 0, ...row);
     }
   }
 
@@ -269,17 +273,20 @@ export function parseEditorTrainerPicOverride(
 
   for (let index = start + 1; index < lines.length; index += 1) {
     const clean = codeOnly(lines[index]);
+    if (!clean) continue;
     if (/^db\s+0\b/i.test(clean)) break;
-    const match = clean.match(
-      /^trainer_pic_override\s+([A-Z][A-Z0-9_]*)\s*,\s*([^,]+)\s*,\s*([A-Za-z_][A-Za-z0-9_]*)$/i,
-    );
+    const match = clean.match(/^db\s+([A-Z][A-Z0-9_]*)\s*,\s*([^,]+)$/i);
     if (!match) continue;
+    const pointer = codeOnly(lines[index + 1] ?? "")
+      .match(/^dw\s+([A-Za-z_][A-Za-z0-9_]*)$/i)?.[1];
+    if (!pointer) continue;
     const parsedParty = /^\$[0-9a-f]+$/i.test(match[2].trim())
       ? Number.parseInt(match[2].trim().slice(1), 16)
       : Number.parseInt(match[2].trim(), 10);
     if (match[1].toUpperCase() === classConstant && parsedParty === partyNumber) {
-      return match[3];
+      return pointer;
     }
+    index += 1;
   }
 
   return null;
