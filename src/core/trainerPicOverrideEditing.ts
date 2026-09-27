@@ -180,7 +180,8 @@ function installOverrideHook(contents: string): string {
 
   const nl = newlineFor(contents);
   const start = contents.search(/^GetTrainerInformation::{0,1}\s*$/m);
-  const link = contents.search(/^\.linkBattle\s*$/m);
+  const linkOffset = start < 0 ? -1 : contents.slice(start).search(/^\.linkBattle\s*$/m);
+  const link = linkOffset < 0 ? -1 : start + linkOffset;
   if (start < 0 || link < 0 || link <= start) {
     throw new Error(
       `Could not safely locate the normal trainer portrait path in ${TRAINER_PIC_ENGINE_PATH}.`,
@@ -189,7 +190,7 @@ function installOverrideHook(contents: string): string {
 
   const beforeLink = contents.slice(start, link);
   const returnMatches = [...beforeLink.matchAll(/^([ \t]*)jp\s+BankswitchBack\s*(?:;.*)?$/gm)];
-  const lastReturn = returnMatches.at(-1);
+  const lastReturn = returnMatches[returnMatches.length - 1];
   if (!lastReturn || lastReturn.index === undefined) {
     throw new Error(
       `Could not safely locate the trainer portrait BankswitchBack call in ${TRAINER_PIC_ENGINE_PATH}.`,
