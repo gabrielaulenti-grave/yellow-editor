@@ -630,7 +630,7 @@ function PartyBrowser({
               classConstant={selectedTrainer.classConstant}
               partyNumber={selectedTrainer.partyNumber}
               displayName={`${selectedTrainer.className} #${selectedTrainer.partyNumber}`}
-              onlyWhenOverride
+              allowOverrideEditing
             />
 
             {draft && (
