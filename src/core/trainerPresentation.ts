@@ -2,6 +2,7 @@ import {
   parseMonsterPalettes,
   parsePaletteOptionsForConstant,
 } from "./palettes";
+import { parseEditorTrainerPicOverride } from "./trainerPicOverrideEditing";
 import type {
   ProjectSource,
   TrainerPresentation,
@@ -157,8 +158,7 @@ export async function parseTrainerPresentation(
   const classIndex = trainerConstants.indexOf(classConstant);
 
   const basePicLabel = classIndex >= 0 ? picTable[classIndex] ?? null : null;
-  let picLabel = basePicLabel;
-  let picOverrideSourcePath: string | null = null;
+  let legacyPicLabel: string | null = null;
 
   if (await source.exists(TRAINER_ENGINE_PATH)) {
     const override = trainerPicOverride(
@@ -166,15 +166,32 @@ export async function parseTrainerPresentation(
       classConstant,
       partyNumber,
     );
-    if (override) {
-      picLabel = override;
-      if (override !== basePicLabel) {
-        picOverrideSourcePath = TRAINER_ENGINE_PATH;
-      }
+    if (override && override !== basePicLabel) {
+      legacyPicLabel = override;
     }
   }
 
+  const editorPicLabel = parseEditorTrainerPicOverride(
+    picTableSource,
+    classConstant,
+    partyNumber,
+  );
+  const picLabel = editorPicLabel ?? legacyPicLabel ?? basePicLabel;
+  const picOverrideSourceKind = editorPicLabel
+    ? "editor-table" as const
+    : legacyPicLabel
+      ? "legacy-engine" as const
+      : null;
+  const picOverrideSourcePath = editorPicLabel
+    ? TRAINER_PIC_TABLE_PATH
+    : legacyPicLabel
+      ? TRAINER_ENGINE_PATH
+      : null;
+
   const picSources = parsePicSourcePaths(picsSource);
+  const availablePicLabels = [...picSources.entries()]
+    .filter(([, path]) => path.startsWith("gfx/trainers/"))
+    .map(([label]) => label);
 
   const baseRawPicPath = basePicLabel ? picSources.get(basePicLabel) ?? null : null;
   const baseSpriteSourcePath = baseRawPicPath ? pngSourceForPic(baseRawPicPath) : null;
@@ -203,10 +220,14 @@ export async function parseTrainerPresentation(
     basePicLabel,
     baseSpritePath,
     baseSpriteSourcePath,
+    legacyPicLabel,
+    editorPicLabel,
     picLabel,
     spritePath,
     spriteSourcePath,
+    picOverrideSourceKind,
     picOverrideSourcePath,
+    availablePicLabels,
     paletteConstant,
     paletteOptions,
   };
