@@ -109,10 +109,14 @@ export function TrainerSpritePanel({
   classConstant,
   partyNumber,
   displayName,
+  portraitMode = "effective",
+  onlyWhenOverride = false,
 }: {
   classConstant: string;
   partyNumber: number;
   displayName: string;
+  portraitMode?: "base" | "effective";
+  onlyWhenOverride?: boolean;
 }) {
   const [presentation, setPresentation] = useState<TrainerPresentation | null>(null);
   const [palette, setPalette] = useState<Palette>(PALETTE_PRESETS[0].colors);
@@ -178,14 +182,37 @@ export function TrainerSpritePanel({
     setSelection("custom");
   }
 
+  const hasOverride = Boolean(
+    presentation
+      && presentation.picOverrideSourcePath
+      && presentation.picLabel
+      && presentation.picLabel !== presentation.basePicLabel,
+  );
+
+  if (onlyWhenOverride && !hasOverride) {
+    return null;
+  }
+
+  const activePicLabel = portraitMode === "base"
+    ? presentation?.basePicLabel ?? null
+    : presentation?.picLabel ?? null;
+  const activeSpritePath = portraitMode === "base"
+    ? presentation?.baseSpritePath ?? null
+    : presentation?.spritePath ?? null;
+  const activeSpriteSourcePath = portraitMode === "base"
+    ? presentation?.baseSpriteSourcePath ?? null
+    : presentation?.spriteSourcePath ?? null;
+  const overrideCard = onlyWhenOverride && hasOverride;
+
   return (
     <section className="editor-card sprite-card trainer-sprite-card">
       <div className="section-heading">
         <div>
-          <h4>Trainer sprite</h4>
+          <h4>{overrideCard ? "Sprite override" : "Trainer sprite"}</h4>
           <p>
-            Preview the battle portrait using the sprite and battle palette defined
-            by the loaded project.
+            {overrideCard
+              ? "This party uses a different battle portrait from its trainer class."
+              : "Preview the battle portrait using the sprite and battle palette defined by the loaded project."}
           </p>
         </div>
         <div className="palette-presets">
@@ -216,7 +243,7 @@ export function TrainerSpritePanel({
         <div className="sprite-preview-grid trainer-sprite-preview-grid">
           <figure>
             <TrainerSpritePreview
-              src={presentation?.spritePath ?? null}
+              src={activeSpritePath}
               alt={`${displayName} trainer battle sprite`}
               palette={palette}
             />
@@ -246,10 +273,20 @@ export function TrainerSpritePanel({
             </label>
           ))}
 
-          {presentation?.picLabel && (
+          {activePicLabel && (
             <p className="help-text">
-              Sprite: <code>{presentation.picLabel}</code>
-              {presentation.spriteSourcePath ? <> · <code>{presentation.spriteSourcePath}</code></> : null}
+              Sprite: <code>{activePicLabel}</code>
+              {activeSpriteSourcePath ? <> · <code>{activeSpriteSourcePath}</code></> : null}
+            </p>
+          )}
+          {hasOverride && (
+            <p className="help-text">
+              Class portrait: <code>{presentation?.basePicLabel ?? "Unknown"}</code>
+              {" → "}
+              Party portrait: <code>{presentation?.picLabel ?? "Unknown"}</code>
+              {presentation?.picOverrideSourcePath
+                ? <> · Override logic: <code>{presentation.picOverrideSourcePath}</code></>
+                : null}
             </p>
           )}
           {error && <p className="help-text">Trainer sprite read error: {error}</p>}
