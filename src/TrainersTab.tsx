@@ -755,10 +755,14 @@ function ClassBrowser({
   pokemonIndex,
   selectedClassConstant,
   search,
+  classDraft,
+  classDirty,
   busy,
   onSelectClass,
   onOpenParty,
   onSearchChange,
+  onUpdateClassField,
+  onToggleClassMoveChoice,
   onCreateClass,
 }: {
   classes: TrainerClassEntry[];
@@ -766,10 +770,17 @@ function ClassBrowser({
   pokemonIndex: PokemonIndexEntry[];
   selectedClassConstant: string | null;
   search: string;
+  classDraft: TrainerClassDraft | null;
+  classDirty: boolean;
   busy: boolean;
   onSelectClass(constant: string): void;
   onOpenParty(id: string): void;
   onSearchChange(value: string): void;
+  onUpdateClassField(
+    field: "name" | "picLabel" | "baseRewardPerLevel" | "aiRoutine" | "aiUsesPerPokemon",
+    value: string,
+  ): void;
+  onToggleClassMoveChoice(modifier: number): void;
   onCreateClass(values: TrainerClassCreateValues): Promise<void>;
 }) {
   const selectedClass = classes.find((trainerClass) => trainerClass.constant === selectedClassConstant) ?? null;
@@ -781,6 +792,14 @@ function ClassBrowser({
     .find((partyNumber): partyNumber is number => typeof partyNumber === "number")
     ?? 1;
   const [creatingClass, setCreatingClass] = useState(false);
+  const portraitOptions = [...new Map(
+    classes
+      .filter((entry): entry is TrainerClassEntry & { picLabel: string } => Boolean(entry.picLabel))
+      .map((entry) => [entry.picLabel, entry]),
+  ).values()];
+  const aiRoutines = [...new Set(
+    classes.flatMap((entry) => entry.aiRoutine ? [entry.aiRoutine] : []),
+  )].sort((left, right) => left.localeCompare(right));
 
   return (
     <>
@@ -790,7 +809,7 @@ function ClassBrowser({
           <button
             type="button"
             className="small-button primary-action"
-            disabled={busy || classes.length >= 55}
+            disabled={busy || classDirty || classes.length >= 55}
             onClick={() => setCreatingClass(true)}
           >
             Add trainer class
