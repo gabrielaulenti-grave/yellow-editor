@@ -337,7 +337,7 @@ export async function prepareTrainerClassEditWrites(
     AI_PATH,
     MOVE_CHOICES_PATH,
   ] as const;
-  const sourceDocuments = new Map(
+  const sourceDocuments = new Map<string, TrainerEditSourceDocument>(
     requiredPaths.map((path) => [path, sourceDocument(sources, path)]),
   );
   const contents = new Map<string, string>();
