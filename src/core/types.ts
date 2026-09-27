@@ -244,6 +244,7 @@ export interface TrainerScriptReference {
 export interface TrainerClassEntry {
   constant: string;
   name: string;
+  picLabel: string | null;
   partyIds: string[];
   partyCount: number;
   placedInstanceCount: number;
@@ -296,6 +297,15 @@ export interface TrainerClassCreateValues {
       speciesConstant: string;
     }>;
   };
+}
+
+export interface TrainerClassEditValues {
+  name: string;
+  picLabel: string;
+  baseRewardPerLevel: number;
+  aiRoutine: string;
+  aiUsesPerPokemon: number;
+  moveChoiceModifiers: number[];
 }
 
 export interface TrainerPartyEditValues {
@@ -610,6 +620,11 @@ export interface ProjectSession {
     sources: TrainerEditSourceDocument[],
     values: TrainerClassCreateValues,
     knownSpecies: string[],
+  ): Promise<HistorySummary>;
+  saveTrainerClass(
+    classConstant: string,
+    sources: TrainerEditSourceDocument[],
+    values: TrainerClassEditValues,
   ): Promise<HistorySummary>;
   getEncounterIndex(): Promise<EncounterTableIndexEntry[]>;
   getEncounterTable(path: string): Promise<EncounterTableEditDocument>;
