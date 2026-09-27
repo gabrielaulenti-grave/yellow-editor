@@ -898,9 +898,15 @@ export async function preparePokemonWrites(
     [PALETTE_DEFS_PATH, paletteDefsContents],
   ]);
 
-  return writePaths.map((path) => ({
-    path,
-    contents: after.get(path)!,
-    expectedHash: expectedHash(sources, path),
-  }));
+  return writePaths.flatMap((path) => {
+    const contents = after.get(path)!;
+    if (contents === before.get(path)) {
+      return [];
+    }
+    return [{
+      path,
+      contents,
+      expectedHash: expectedHash(sources, path),
+    }];
+  });
 }
