@@ -37,14 +37,17 @@ function parseTrainerConstants(contents: string): Set<string> {
 function parseTrainerPicLabels(contents: string): Set<string> {
   const result = new Set<string>();
   let pendingLabels: string[] = [];
+  let inTrainerPicsSection = false;
 
   for (const rawLine of contents.split(/\r?\n/)) {
     const clean = codeOnly(rawLine);
     if (!clean) continue;
     if (/^SECTION\b/i.test(clean)) {
+      inTrainerPicsSection = /^SECTION\s+"Trainer Pics"\s*,\s*ROMX\b/i.test(clean);
       pendingLabels = [];
       continue;
     }
+    if (!inTrainerPicsSection) continue;
 
     const labelMatch = clean.match(/^([A-Za-z_][A-Za-z0-9_]*):{1,2}(.*)$/);
     let remainder = clean;
@@ -56,9 +59,7 @@ function parseTrainerPicLabels(contents: string): Set<string> {
 
     const incbin = remainder.match(/^INCBIN\s+"([^"]+)"$/i);
     if (incbin) {
-      if (incbin[1].startsWith("gfx/trainers/")) {
-        for (const label of pendingLabels) result.add(label);
-      }
+      for (const label of pendingLabels) result.add(label);
       pendingLabels = [];
       continue;
     }
