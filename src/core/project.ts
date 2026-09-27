@@ -12,6 +12,10 @@ import {
   preparePokemonBaseStatsWrite,
   validatePokemonBaseStats,
 } from "./pokemonEditing";
+import {
+  loadPokemonEditDocument,
+  preparePokemonWrites,
+} from "./pokemonProgressionEditing";
 import { getSaveCompatibilityDescriptor } from "./saveCompatibility";
 import {
   loadEncounterTableEditDocument,
@@ -312,6 +316,18 @@ export async function createProjectSession(
           expectedHash,
         },
       ]);
+    },
+    getPokemonEditDocument: (internalId, sourceSlug) =>
+      loadPokemonEditDocument(source, internalId, sourceSlug),
+    savePokemon: async (internalId, sourceSlug, sources, values) => {
+      const changes = await preparePokemonWrites(
+        source,
+        internalId,
+        sourceSlug,
+        sources,
+        values,
+      );
+      return history.save(`Edit Pokémon ${values.displayName}`, changes);
     },
     getMoves: () => parseMoves(source),
     getTrainerBaseCatalog,
