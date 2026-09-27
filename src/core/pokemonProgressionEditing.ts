@@ -180,7 +180,7 @@ function picDefinitions(contents: string): Map<string, PicDef> {
 
 function choiceLabel(path: string): string {
   const file = path.split("/").pop() || path;
-  const name = file.replace(/b?\.pic$/i, "").replace(/[._-]+/g, " ");
+  const name = file.replace(/\.pic$/i, "").replace(/[._-]+/g, " ");
   return name.replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
