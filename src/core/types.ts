@@ -40,6 +40,78 @@ export interface PokemonBaseStatsEditDocument {
   values: PokemonBaseStatValues;
 }
 
+export interface PokemonEditSourceDocument {
+  path: string;
+  sourceHash: string;
+}
+
+export interface PokemonSpriteChoice {
+  id: string;
+  label: string;
+  frontLabel: string;
+  backLabel: string;
+  dimensionPath: string;
+  frontAssetPath: string;
+  backAssetPath: string;
+}
+
+export interface PokemonPaletteChoice {
+  constant: string;
+  cgbColors: [string, string, string, string] | null;
+  sgbColors: [string, string, string, string] | null;
+}
+
+export interface PokemonPokedexEditValues {
+  category: string;
+  heightFeet: number;
+  heightInches: number;
+  weightTenthsLb: number;
+  textLines: PokedexTextLine[];
+}
+
+export interface PokemonEditValues {
+  displayName: string;
+  hp: number;
+  attack: number;
+  defense: number;
+  speed: number;
+  special: number;
+  type1: string;
+  type2: string;
+  catchRate: number;
+  baseExp: number;
+  growthRate: string;
+  startingMoves: string[];
+  spriteChoiceId: string;
+  paletteConstant: string;
+  cgbPalette: [string, string, string, string] | null;
+  sgbPalette: [string, string, string, string] | null;
+  evolutions: Evolution[];
+  learnset: LearnsetMove[];
+  tmhmMoves: string[];
+  pokedex: PokemonPokedexEditValues | null;
+}
+
+export interface PokemonEditOptions {
+  types: string[];
+  growthRates: string[];
+  moves: string[];
+  species: string[];
+  items: string[];
+  tmhmMoves: string[];
+  spriteChoices: PokemonSpriteChoice[];
+  paletteChoices: PokemonPaletteChoice[];
+}
+
+export interface PokemonEditDocument {
+  internalId: number;
+  sourceSlug: string;
+  dexConstant: string;
+  sources: PokemonEditSourceDocument[];
+  values: PokemonEditValues;
+  options: PokemonEditOptions;
+}
+
 export interface PokemonSprites {
   front: string | null;
   back: string | null;
@@ -600,6 +672,16 @@ export interface ProjectSession {
     sourceSlug: string,
     expectedHash: string,
     values: PokemonBaseStatValues,
+  ): Promise<HistorySummary>;
+  getPokemonEditDocument(
+    internalId: number,
+    sourceSlug: string,
+  ): Promise<PokemonEditDocument>;
+  savePokemon(
+    internalId: number,
+    sourceSlug: string,
+    sources: PokemonEditSourceDocument[],
+    values: PokemonEditValues,
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
