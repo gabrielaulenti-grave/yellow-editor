@@ -21,6 +21,12 @@ const MON_PALETTES_PATH = "data/pokemon/palettes.asm";
 const PALETTE_DEFS_PATH = "data/sgb/sgb_palettes.asm";
 const PICS_PATH = "gfx/pics.asm";
 
+const SPECIAL_POKEMON_CONSTANTS = new Set([
+  "FOSSIL_KABUTOPS",
+  "FOSSIL_AERODACTYL",
+  "MON_GHOST",
+]);
+
 function basePath(slug: string): string {
   return "data/pokemon/base_stats/" + slug + ".asm";
 }
@@ -232,6 +238,17 @@ function consts(contents: string, filter?: (constant: string) => boolean): strin
   for (const line of contents.split(/\r?\n/)) {
     const match = codeOnly(line).match(/^const[ \t]+([A-Za-z0-9_]+)/);
     if (match && (!filter || filter(match[1]))) result.push(match[1]);
+  }
+  return result;
+}
+
+function moveConstants(contents: string): string[] {
+  const result: string[] = [];
+  for (const line of contents.split(/\r?\n/)) {
+    const clean = codeOnly(line);
+    if (/^DEF[ \t]+NUM_ATTACKS\b/.test(clean)) break;
+    const match = clean.match(/^const[ \t]+([A-Za-z0-9_]+)/);
+    if (match && match[1] !== "NO_MOVE") result.push(match[1]);
   }
   return result;
 }
@@ -595,7 +612,10 @@ export async function loadPokemonEditDocument(
   const paletteConstant = paletteAssignments(monPaletteContents)[dexNumber];
   if (!paletteConstant) throw new Error("Could not resolve this Pokémon's palette.");
 
-  const palettes = paletteChoices(paletteDefsContents);
+  const assignedPaletteConstants = new Set(paletteAssignments(monPaletteContents));
+  const palettes = paletteChoices(paletteDefsContents).filter(
+    (choice) => assignedPaletteConstants.has(choice.constant) || choice.constant.endsWith("MON"),
+  );
   const palette = palettes.find((choice) => choice.constant === paletteConstant);
   if (!palette) throw new Error("Could not resolve colors for " + paletteConstant + ".");
 
@@ -606,8 +626,10 @@ export async function loadPokemonEditDocument(
   const options: PokemonEditOptions = {
     types: consts(byPath.get("constants/type_constants.asm")!),
     growthRates: consts(byPath.get("constants/pokemon_data_constants.asm")!, (constant) => constant.startsWith("GROWTH_")),
-    moves: consts(byPath.get("constants/move_constants.asm")!).filter((constant) => constant !== "NO_MOVE"),
-    species: consts(byPath.get("constants/pokemon_constants.asm")!).filter((constant) => constant !== "NO_MON"),
+    moves: moveConstants(byPath.get("constants/move_constants.asm")!),
+    species: consts(byPath.get("constants/pokemon_constants.asm")!).filter(
+      (constant) => constant !== "NO_MON" && !SPECIAL_POKEMON_CONSTANTS.has(constant),
+    ),
     items: items(byPath.get("constants/item_constants.asm")!),
     tmhmMoves: tmhmOptions(byPath.get("constants/item_constants.asm")!),
     spriteChoices: sprites,
