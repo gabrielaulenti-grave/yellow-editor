@@ -367,7 +367,7 @@ export function TrainerSpritePanel({
               {activeSpriteSourcePath ? <> · <code>{activeSpriteSourcePath}</code></> : null}
             </p>
           )}
-          {hasOverride && (
+          {portraitMode === "effective" && hasOverride && (
             <p className="help-text">
               Class portrait: <code>{presentation?.basePicLabel ?? "Unknown"}</code>
               {" → "}
@@ -382,7 +382,7 @@ export function TrainerSpritePanel({
                 : null}
             </p>
           )}
-          {presentation?.editorPicLabel && presentation.legacyPicLabel && (
+          {portraitMode === "effective" && presentation?.editorPicLabel && presentation.legacyPicLabel && (
             <p className="help-text">
               Underlying engine override: <code>{presentation.legacyPicLabel}</code>.
               Removing the Yellow Editor override will restore it.
