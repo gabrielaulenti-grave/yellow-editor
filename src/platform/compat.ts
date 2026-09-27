@@ -196,6 +196,17 @@ function optionalStringArg(args: InvokeArgs | undefined, name: string): string |
   return value;
 }
 
+function nullableStringArg(args: InvokeArgs | undefined, name: string): string | null {
+  const value = args?.[name];
+  if (value === null) {
+    return null;
+  }
+  if (typeof value !== "string") {
+    throw new Error(`Argument '${name}' must be a string or null.`);
+  }
+  return value;
+}
+
 function buildTargetArg(args: InvokeArgs | undefined): BuildTarget {
   const value = stringArg(args, "target");
   if (value !== "yellow" && value !== "red" && value !== "blue") {
@@ -429,6 +440,13 @@ export async function invoke<T>(
       return (await session.getTrainerPresentation(
         stringArg(args, "classConstant"),
         numberArg(args, "partyNumber"),
+      )) as T;
+
+    case "save_trainer_pic_override":
+      return (await session.saveTrainerPicOverride(
+        stringArg(args, "classConstant"),
+        numberArg(args, "partyNumber"),
+        nullableStringArg(args, "picLabel"),
       )) as T;
 
     case "get_trainer_reward_edit_document":
