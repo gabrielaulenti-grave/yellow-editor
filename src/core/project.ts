@@ -475,7 +475,11 @@ export async function createProjectSession(
     getHistorySummary: () => history.getSummary(),
     saveTextChanges: async (label, changes) => {
       const result = await history.save(label, changes);
-      if (trainerCacheAffected(changes.map((change) => change.path))) {
+      const changedPaths = changes.map((change) => change.path);
+      if (trainerBaseAffected(changedPaths)) {
+        invalidateTrainerBaseCatalog(changedPaths);
+      }
+      if (trainerCacheAffected(changedPaths)) {
         await trainerCatalogCache?.clear();
       }
       return result;
