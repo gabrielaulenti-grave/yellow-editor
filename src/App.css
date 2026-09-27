@@ -1154,3 +1154,22 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+.trainer-sprite-compact-card .section-heading {
+  margin-bottom: 0;
+}
+
+.trainer-sprite-override-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.trainer-sprite-override-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+

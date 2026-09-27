@@ -125,16 +125,22 @@ export type TrainerScriptSelectionKind =
   | "computed"
   | "table";
 
+export type TrainerPicOverrideSourceKind = "editor-table" | "legacy-engine";
+
 export interface TrainerPresentation {
   classConstant: string;
   partyNumber: number;
   basePicLabel: string | null;
   baseSpritePath: string | null;
   baseSpriteSourcePath: string | null;
+  legacyPicLabel: string | null;
+  editorPicLabel: string | null;
   picLabel: string | null;
   spritePath: string | null;
   spriteSourcePath: string | null;
+  picOverrideSourceKind: TrainerPicOverrideSourceKind | null;
   picOverrideSourcePath: string | null;
+  availablePicLabels: string[];
   paletteConstant: string | null;
   paletteOptions: PokemonPaletteOption[];
 }
@@ -601,6 +607,11 @@ export interface ProjectSession {
     classConstant: string,
     partyNumber: number,
   ): Promise<TrainerPresentation>;
+  saveTrainerPicOverride(
+    classConstant: string,
+    partyNumber: number,
+    picLabel: string | null,
+  ): Promise<HistorySummary>;
   getTrainerRewardEditDocument(
     path: string,
     sourceLine: number,

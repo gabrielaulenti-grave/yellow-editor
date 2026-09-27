@@ -133,6 +133,13 @@ function App() {
       }
     }
 
+    function handleTrainerEditSourcesChanged(event: Event) {
+      const detail = (event as CustomEvent<TrainerEditSourceDocument[]>).detail;
+      if (Array.isArray(detail)) {
+        setTrainerEditSources(detail);
+      }
+    }
+
     function handleTrainerRewardChanged(event: Event) {
       const detail = (event as CustomEvent<{
         path: string;
@@ -165,9 +172,11 @@ function App() {
     }
 
     window.addEventListener("yellow-editor:history-changed", handleHistoryChanged);
+    window.addEventListener("yellow-editor:trainer-edit-sources-changed", handleTrainerEditSourcesChanged);
     window.addEventListener("yellow-editor:trainer-reward-changed", handleTrainerRewardChanged);
     return () => {
       window.removeEventListener("yellow-editor:history-changed", handleHistoryChanged);
+      window.removeEventListener("yellow-editor:trainer-edit-sources-changed", handleTrainerEditSourcesChanged);
       window.removeEventListener("yellow-editor:trainer-reward-changed", handleTrainerRewardChanged);
     };
   }, []);
@@ -984,7 +993,8 @@ function App() {
       const refreshTrainerBase = Boolean(
         historySummary.latestLabel?.startsWith("Edit trainer party ")
         || historySummary.latestLabel?.startsWith("Add trainer class ")
-        || historySummary.latestLabel?.startsWith("Edit trainer class "),
+        || historySummary.latestLabel?.startsWith("Edit trainer class ")
+        || historySummary.latestLabel?.startsWith("Edit trainer portrait "),
       );
       const refreshTrainerRewards = historySummary.latestLabel?.startsWith("Edit trainer reward ") ?? false;
       const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
@@ -1030,7 +1040,8 @@ function App() {
       const refreshTrainerBase = Boolean(
         history.latestLabel?.startsWith("Edit trainer party ")
         || history.latestLabel?.startsWith("Add trainer class ")
-        || history.latestLabel?.startsWith("Edit trainer class "),
+        || history.latestLabel?.startsWith("Edit trainer class ")
+        || history.latestLabel?.startsWith("Edit trainer portrait "),
       );
       const refreshTrainerRewards = history.latestLabel?.startsWith("Edit trainer reward ") ?? false;
       const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([

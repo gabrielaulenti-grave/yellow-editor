@@ -43,6 +43,7 @@ import {
   prepareTrainerRewardWrite,
 } from "./trainerRewardEditing";
 import { parseTrainerPresentation } from "./trainerPresentation";
+import { prepareTrainerPicOverrideWrites } from "./trainerPicOverrideEditing";
 import type {
   BuildService,
   ProjectSession,
@@ -316,6 +317,29 @@ export async function createProjectSession(
     getTrainerBaseCatalog,
     getTrainerPresentation: (classConstant, partyNumber) =>
       parseTrainerPresentation(source, classConstant, partyNumber),
+    saveTrainerPicOverride: async (classConstant, partyNumber, picLabel) => {
+      const changes = await prepareTrainerPicOverrideWrites(
+        source,
+        classConstant,
+        partyNumber,
+        picLabel,
+      );
+      if (changes.length === 0) {
+        return history.getSummary();
+      }
+      const result = await history.save(
+        `Edit trainer portrait ${classConstant} #${partyNumber}`,
+        changes,
+      );
+      const changedPaths = changes.map((change) => change.path);
+      if (trainerBaseAffected(changedPaths)) {
+        invalidateTrainerBaseCatalog(changedPaths);
+      }
+      if (trainerCacheAffected(changedPaths)) {
+        await trainerCatalogCache?.clear();
+      }
+      return result;
+    },
     getTrainers: async (onProgress) => {
       const cachedCatalog = await trainerCatalogCache?.load();
       if (cachedCatalog) {

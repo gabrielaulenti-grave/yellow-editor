@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type {
+  HistorySummary,
   PokemonPaletteOption,
+  TrainerCatalog,
   TrainerPresentation,
 } from "./core/types";
 import { convertFileSrc, invoke } from "./platform/compat";
@@ -11,6 +13,13 @@ const PALETTE_PRESETS: { name: string; colors: Palette }[] = [
   { name: "Grayscale", colors: ["#ffffff", "#aaaaaa", "#555555", "#000000"] },
   { name: "DMG Green", colors: ["#e0f8cf", "#86c06c", "#306850", "#071821"] },
 ];
+
+function displayPicLabel(value: string): string {
+  return value
+    .replace(/Pic$/, "")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/([A-Z])([A-Z][a-z])/g, "$1 $2");
+}
 
 function hexToRgb(hex: string) {
   const value = hex.replace("#", "");
@@ -111,17 +120,22 @@ export function TrainerSpritePanel({
   displayName,
   portraitMode = "effective",
   onlyWhenOverride = false,
+  allowOverrideEditing = false,
 }: {
   classConstant: string;
   partyNumber: number;
   displayName: string;
   portraitMode?: "base" | "effective";
   onlyWhenOverride?: boolean;
+  allowOverrideEditing?: boolean;
 }) {
   const [presentation, setPresentation] = useState<TrainerPresentation | null>(null);
   const [palette, setPalette] = useState<Palette>(PALETTE_PRESETS[0].colors);
   const [selection, setSelection] = useState("preset:Grayscale");
   const [error, setError] = useState<string | null>(null);
+  const [overrideEditing, setOverrideEditing] = useState(false);
+  const [overrideDraft, setOverrideDraft] = useState("");
+  const [overrideBusy, setOverrideBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +149,13 @@ export function TrainerSpritePanel({
         if (cancelled) return;
 
         setPresentation(next);
+        setOverrideDraft(
+          next.editorPicLabel
+            ?? next.picLabel
+            ?? next.basePicLabel
+            ?? next.availablePicLabels[0]
+            ?? "",
+        );
         setError(null);
         const preferred =
           next.paletteOptions.find((option) => option.source === "cgb")
@@ -157,9 +178,16 @@ export function TrainerSpritePanel({
       }
     }
 
+    function handleHistoryChanged() {
+      void loadPresentation();
+    }
+
+    setOverrideEditing(false);
     void loadPresentation();
+    window.addEventListener("yellow-editor:history-changed", handleHistoryChanged);
     return () => {
       cancelled = true;
+      window.removeEventListener("yellow-editor:history-changed", handleHistoryChanged);
     };
   }, [classConstant, partyNumber]);
 
@@ -182,15 +210,78 @@ export function TrainerSpritePanel({
     setSelection("custom");
   }
 
+  async function saveOverride(picLabel: string | null) {
+    setOverrideBusy(true);
+    setError(null);
+    try {
+      const history = await invoke<HistorySummary>("save_trainer_pic_override", {
+        classConstant,
+        partyNumber,
+        picLabel,
+      });
+      const [next, catalog] = await Promise.all([
+        invoke<TrainerPresentation>("get_trainer_presentation", {
+          classConstant,
+          partyNumber,
+        }),
+        invoke<TrainerCatalog>("get_trainer_base_catalog"),
+      ]);
+      setPresentation(next);
+      setOverrideDraft(
+        next.editorPicLabel
+          ?? next.picLabel
+          ?? next.basePicLabel
+          ?? next.availablePicLabels[0]
+          ?? "",
+      );
+      setOverrideEditing(false);
+      window.dispatchEvent(new CustomEvent("yellow-editor:trainer-edit-sources-changed", {
+        detail: catalog.editSources,
+      }));
+      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+    } catch (saveError) {
+      setError(String(saveError));
+    } finally {
+      setOverrideBusy(false);
+    }
+  }
+
   const hasOverride = Boolean(
-    presentation
-      && presentation.picOverrideSourcePath
-      && presentation.picLabel
-      && presentation.picLabel !== presentation.basePicLabel,
+    presentation?.editorPicLabel || presentation?.legacyPicLabel,
   );
 
-  if (onlyWhenOverride && !hasOverride) {
+  if (onlyWhenOverride && !hasOverride && !allowOverrideEditing) {
     return null;
+  }
+
+  if (
+    allowOverrideEditing
+    && presentation
+    && !hasOverride
+    && !overrideEditing
+  ) {
+    return (
+      <section className="editor-card trainer-sprite-compact-card">
+        <div className="section-heading">
+          <div>
+            <h4>Battle portrait</h4>
+            <p>
+              Uses the class portrait
+              {presentation.basePicLabel ? <> <code>{presentation.basePicLabel}</code></> : null}.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="small-button"
+            disabled={overrideBusy || presentation.availablePicLabels.length === 0}
+            onClick={() => setOverrideEditing(true)}
+          >
+            Add sprite override
+          </button>
+        </div>
+        {error && <p className="help-text">Trainer sprite edit error: {error}</p>}
+      </section>
+    );
   }
 
   const activePicLabel = portraitMode === "base"
@@ -202,7 +293,11 @@ export function TrainerSpritePanel({
   const activeSpriteSourcePath = portraitMode === "base"
     ? presentation?.baseSpriteSourcePath ?? null
     : presentation?.spriteSourcePath ?? null;
-  const overrideCard = onlyWhenOverride && hasOverride;
+  const overrideCard = (onlyWhenOverride || allowOverrideEditing) && hasOverride;
+  const underlyingPicLabel = presentation?.legacyPicLabel ?? presentation?.basePicLabel ?? null;
+  const overrideUnchanged = presentation?.editorPicLabel
+    ? overrideDraft === presentation.editorPicLabel
+    : overrideDraft === underlyingPicLabel;
 
   return (
     <section className="editor-card sprite-card trainer-sprite-card">
@@ -279,15 +374,105 @@ export function TrainerSpritePanel({
               {activeSpriteSourcePath ? <> · <code>{activeSpriteSourcePath}</code></> : null}
             </p>
           )}
-          {hasOverride && (
+          {portraitMode === "effective" && hasOverride && (
             <p className="help-text">
               Class portrait: <code>{presentation?.basePicLabel ?? "Unknown"}</code>
               {" → "}
               Party portrait: <code>{presentation?.picLabel ?? "Unknown"}</code>
+              {presentation?.picOverrideSourceKind === "editor-table"
+                ? <> · Yellow Editor override</>
+                : presentation?.picOverrideSourceKind === "legacy-engine"
+                  ? <> · Engine override</>
+                  : null}
               {presentation?.picOverrideSourcePath
-                ? <> · Override logic: <code>{presentation.picOverrideSourcePath}</code></>
+                ? <> · <code>{presentation.picOverrideSourcePath}</code></>
                 : null}
             </p>
+          )}
+          {portraitMode === "effective" && presentation?.editorPicLabel && presentation.legacyPicLabel && (
+            <p className="help-text">
+              Underlying engine override: <code>{presentation.legacyPicLabel}</code>.
+              Removing the Yellow Editor override will restore it.
+            </p>
+          )}
+          {allowOverrideEditing && presentation && (
+            <div className="trainer-sprite-override-editor">
+              {overrideEditing ? (
+                <>
+                  <label className="editor-field">
+                    <span>Party portrait override</span>
+                    <select
+                      value={overrideDraft}
+                      disabled={overrideBusy}
+                      onChange={(event) => setOverrideDraft(event.target.value)}
+                    >
+                      {presentation.availablePicLabels.map((picLabel) => (
+                        <option key={picLabel} value={picLabel}>
+                          {displayPicLabel(picLabel)} — {picLabel}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <p className="help-text">
+                    This exact override applies only to {displayName}. Existing engine behavior remains underneath it.
+                  </p>
+                  <div className="trainer-sprite-override-actions">
+                    <button
+                      type="button"
+                      className="small-button"
+                      disabled={overrideBusy || !overrideDraft || overrideUnchanged}
+                      onClick={() => void saveOverride(overrideDraft)}
+                    >
+                      Save override
+                    </button>
+                    <button
+                      type="button"
+                      className="small-button"
+                      disabled={overrideBusy}
+                      onClick={() => {
+                        setOverrideDraft(
+                          presentation.editorPicLabel
+                            ?? presentation.picLabel
+                            ?? presentation.basePicLabel
+                            ?? "",
+                        );
+                        setOverrideEditing(false);
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : presentation.editorPicLabel ? (
+                <div className="trainer-sprite-override-actions">
+                  <button
+                    type="button"
+                    className="small-button"
+                    disabled={overrideBusy}
+                    onClick={() => setOverrideEditing(true)}
+                  >
+                    Change override
+                  </button>
+                  <button
+                    type="button"
+                    className="small-button danger-action"
+                    disabled={overrideBusy}
+                    onClick={() => void saveOverride(null)}
+                  >
+                    Remove override
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="small-button"
+                  disabled={overrideBusy || presentation.availablePicLabels.length === 0}
+                  onClick={() => setOverrideEditing(true)}
+                >
+                  Add Yellow Editor override
+                </button>
+              )}
+            </div>
           )}
           {error && <p className="help-text">Trainer sprite read error: {error}</p>}
           <p className="help-text">
