@@ -281,6 +281,23 @@ export interface TrainerEditSourceDocument {
   sourceHash: string;
 }
 
+export interface TrainerClassCreateValues {
+  constant: string;
+  name: string;
+  portraitClassConstant: string;
+  baseRewardPerLevel: number;
+  aiRoutine: string;
+  aiUsesPerPokemon: number;
+  moveChoiceModifiers: number[];
+  initialParty: {
+    partyFormat: TrainerPartyFormat;
+    pokemon: Array<{
+      level: number;
+      speciesConstant: string;
+    }>;
+  };
+}
+
 export interface TrainerPartyEditValues {
   partyFormat: TrainerPartyFormat;
   pokemon: Array<{
@@ -588,6 +605,11 @@ export interface ProjectSession {
     values: TrainerPartyEditValues,
     knownSpecies: string[],
     knownMoves: string[],
+  ): Promise<HistorySummary>;
+  createTrainerClass(
+    sources: TrainerEditSourceDocument[],
+    values: TrainerClassCreateValues,
+    knownSpecies: string[],
   ): Promise<HistorySummary>;
   getEncounterIndex(): Promise<EncounterTableIndexEntry[]>;
   getEncounterTable(path: string): Promise<EncounterTableEditDocument>;
