@@ -954,7 +954,7 @@ function ClassBrowser({
                     <tbody>{selectedClass.partyIds.map((partyId) => {
                       const party = partyById.get(partyId);
                       if (!party) return null;
-                      return <tr key={party.id}><td>#{party.partyNumber}</td><td>{party.pokemon.map((pokemon) => `Lv.${pokemon.level} ${titleCaseConstant(pokemon.speciesConstant)}`).join(", ")}</td><td>{party.instances.length}</td><td>{party.scriptReferences.length}</td><td><button className="small-button" onClick={() => onOpenParty(party.id)}>View party</button></td></tr>;
+                      return <tr key={party.id}><td>#{party.partyNumber}</td><td>{party.pokemon.map((pokemon) => `Lv.${pokemon.level} ${titleCaseConstant(pokemon.speciesConstant)}`).join(", ")}</td><td>{party.instances.length}</td><td>{party.scriptReferences.length}</td><td><button className="small-button" disabled={busy || classDirty} onClick={() => onOpenParty(party.id)}>View party</button></td></tr>;
                     })}</tbody>
                   </table>
                 </div>
