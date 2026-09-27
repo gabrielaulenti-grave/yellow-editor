@@ -5,6 +5,8 @@ import type {
   FishingData,
   FishingSourceDocument,
   PokemonBaseStatValues,
+  PokemonEditSourceDocument,
+  PokemonEditValues,
   ProjectSession,
   TextWriteRequest,
   TrainerClassCreateValues,
@@ -262,6 +264,22 @@ function baseStatValuesArg(args: InvokeArgs | undefined): PokemonBaseStatValues 
   return result;
 }
 
+function pokemonEditSourcesArg(args: InvokeArgs | undefined): PokemonEditSourceDocument[] {
+  const value = args?.sources;
+  if (!Array.isArray(value)) {
+    throw new Error("Missing Pokémon edit source documents.");
+  }
+  return value as PokemonEditSourceDocument[];
+}
+
+function pokemonEditValuesArg(args: InvokeArgs | undefined): PokemonEditValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing Pokémon edit values.");
+  }
+  return value as PokemonEditValues;
+}
+
 function textChangesArg(args: InvokeArgs | undefined): TextWriteRequest[] {
   const value = args?.changes;
   if (!Array.isArray(value)) {
@@ -425,6 +443,20 @@ export async function invoke<T>(
         stringArg(args, "sourceSlug"),
         stringArg(args, "expectedHash"),
         baseStatValuesArg(args),
+      )) as T;
+
+    case "get_pokemon_edit_document":
+      return (await session.getPokemonEditDocument(
+        numberArg(args, "internalId"),
+        stringArg(args, "sourceSlug"),
+      )) as T;
+
+    case "save_pokemon":
+      return (await session.savePokemon(
+        numberArg(args, "internalId"),
+        stringArg(args, "sourceSlug"),
+        pokemonEditSourcesArg(args),
+        pokemonEditValuesArg(args),
       )) as T;
 
     case "get_moves":
