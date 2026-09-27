@@ -115,7 +115,7 @@ function trainerPicOverride(
       if (!clean) continue;
       if (/^[A-Za-z_][A-Za-z0-9_]*:{1,2}$/.test(clean) && next > index + 1) break;
 
-      if (/^ld\s+a\s*,\s*\[wTrainerNo\]\b/i.test(clean)) {
+      if (/^ld\s+a\s*,\s*\[wTrainerNo\]\s*$/i.test(clean)) {
         sawTrainerNo = true;
         continue;
       }
