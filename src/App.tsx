@@ -7,7 +7,7 @@ import type {
   FishingEditDocument,
   HistorySummary,
   MoveData,
-  PokemonBaseStatsEditDocument,
+  PokemonEditDocument,
   PokemonDetails,
   PokemonIndexEntry,
   ProjectInfo,
@@ -25,13 +25,13 @@ import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
 import { TrainersTab, type TrainerSection } from "./TrainersTab";
 import {
-  BASE_STAT_FIELDS,
-  EMPTY_BASE_STATS_DRAFT,
-  draftFromValues,
-  parseBaseStatsDraft,
-  type BaseStatKey,
-  type BaseStatsDraft,
-  validateBaseStatInput,
+  parsePokemonDraft,
+  pokemonDraftFromDocument,
+  pokemonDraftIsDirty,
+  pokemonDraftIsValid,
+  updatePokemonPaletteConstant,
+  type PokemonDraft,
+} from "./editor/pokemonForm";
 } from "./editor/pokemonBaseStatsForm";
 import type { EditorController } from "./editor/types";
 import {
@@ -87,7 +87,6 @@ function App() {
   const [status, setStatus] = useState("No project loaded.");
   const [selectedPokemonId, setSelectedPokemonId] = useState<number | null>(null);
   const [selectedPokemon, setSelectedPokemon] = useState<PokemonDetails | null>(null);
-  const [tmhmMoves, setTmhmMoves] = useState<string[]>([]);
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
@@ -117,10 +116,9 @@ function App() {
     useState<FishingEditDocument | null>(null);
   const [fishingDraft, setFishingDraft] = useState<FishingDraft | null>(null);
   const [fishingError, setFishingError] = useState<string | null>(null);
-  const [baseStatsDocument, setBaseStatsDocument] =
-    useState<PokemonBaseStatsEditDocument | null>(null);
-  const [baseStatsDraft, setBaseStatsDraft] =
-    useState<BaseStatsDraft>(EMPTY_BASE_STATS_DRAFT);
+  const [pokemonEditDocument, setPokemonEditDocument] =
+    useState<PokemonEditDocument | null>(null);
+  const [pokemonDraft, setPokemonDraft] = useState<PokemonDraft | null>(null);
   const [historySummary, setHistorySummary] = useState<HistorySummary | null>(null);
   const [editBusy, setEditBusy] = useState(false);
   const projectLoadGeneration = useRef(0);
@@ -188,17 +186,8 @@ function App() {
   const selectedTrainerClassEntry =
     trainerClasses.find((entry) => entry.constant === selectedTrainerClass) ?? null;
 
-  const baseStatErrors = Object.fromEntries(
-    BASE_STAT_FIELDS.map((field) => [field.key, validateBaseStatInput(baseStatsDraft[field.key])]),
-  ) as Record<BaseStatKey, string | null>;
-
-  const baseStatsValid = BASE_STAT_FIELDS.every((field) => !baseStatErrors[field.key]);
-  const baseStatsDirty = Boolean(
-    baseStatsDocument &&
-      BASE_STAT_FIELDS.some(
-        (field) => baseStatsDraft[field.key] !== String(baseStatsDocument.values[field.key]),
-      ),
-  );
+  const pokemonDirty = pokemonDraftIsDirty(pokemonDraft, pokemonEditDocument);
+  const pokemonValid = pokemonDraftIsValid(pokemonDraft, pokemonEditDocument);
   const encounterDirty = encounterDraftIsDirty(encounterDraft, encounterDocument);
   const encounterValid = encounterDraftIsValid(encounterDraft);
   const fishingDirty = fishingDraftIsDirty(fishingDraft, fishingDocument);
@@ -229,14 +218,13 @@ function App() {
     knownTrainerAiRoutines,
   );
   const hasUnsavedChanges =
-    baseStatsDirty || encounterDirty || fishingDirty || trainerDirty || trainerClassDirty;
+    pokemonDirty || encounterDirty || fishingDirty || trainerDirty || trainerClassDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
     setSelectedPokemonId(null);
-    setTmhmMoves([]);
-    setBaseStatsDocument(null);
-    setBaseStatsDraft(EMPTY_BASE_STATS_DRAFT);
+    setPokemonEditDocument(null);
+    setPokemonDraft(null);
   }
 
   function clearEncounterEditor() {
@@ -466,38 +454,32 @@ function App() {
 
     if (!project || !entry.sourceSlug) {
       setSelectedPokemon(null);
-      setTmhmMoves([]);
-      setBaseStatsDocument(null);
-      setBaseStatsDraft(EMPTY_BASE_STATS_DRAFT);
+      setPokemonEditDocument(null);
+      setPokemonDraft(null);
       return;
     }
 
     try {
-      const [details, compatibleMoves, editDocument] = await Promise.all([
+      const [details, editDocument] = await Promise.all([
         invoke<PokemonDetails>("get_pokemon_details", {
           projectPath: project.path,
           internalId: entry.internalId,
           sourceSlug: entry.sourceSlug,
         }),
-        invoke<string[]>("get_pokemon_tmhm_moves", {
-          projectPath: project.path,
-          sourceSlug: entry.sourceSlug,
-        }),
-        invoke<PokemonBaseStatsEditDocument>("get_pokemon_base_stats_edit_document", {
+        invoke<PokemonEditDocument>("get_pokemon_edit_document", {
+          internalId: entry.internalId,
           sourceSlug: entry.sourceSlug,
         }),
       ]);
 
       setSelectedPokemon(details);
-      setTmhmMoves(compatibleMoves);
-      setBaseStatsDocument(editDocument);
-      setBaseStatsDraft(draftFromValues(editDocument.values));
+      setPokemonEditDocument(editDocument);
+      setPokemonDraft(pokemonDraftFromDocument(editDocument));
       setStatus(successMessage);
     } catch (error) {
       setSelectedPokemon(null);
-      setTmhmMoves([]);
-      setBaseStatsDocument(null);
-      setBaseStatsDraft(EMPTY_BASE_STATS_DRAFT);
+      setPokemonEditDocument(null);
+      setPokemonDraft(null);
       setStatus(String(error));
     }
   }
@@ -641,9 +623,9 @@ function App() {
 
   async function selectPokemon(entry: PokemonIndexEntry) {
     if (
-      baseStatsDirty &&
+      pokemonDirty &&
       entry.internalId !== selectedPokemonId &&
-      !window.confirm("Discard the unsaved base stat changes and switch Pokémon?")
+      !window.confirm("Discard the unsaved Pokémon changes and switch Pokémon?")
     ) {
       return;
     }
@@ -651,38 +633,46 @@ function App() {
     await loadPokemon(entry);
   }
 
-  function updateBaseStat(key: BaseStatKey, value: string) {
-    setBaseStatsDraft((current) => ({
-      ...current,
-      [key]: value,
-    }));
+  function changePokemonPaletteConstant(value: string) {
+    setPokemonDraft((current) =>
+      current && pokemonEditDocument
+        ? updatePokemonPaletteConstant(current, pokemonEditDocument, value)
+        : current,
+    );
   }
 
-  async function saveBaseStats() {
+  async function savePokemon() {
     if (
       !selectedPokemonEntry?.sourceSlug ||
-      !baseStatsDocument ||
-      !baseStatsDirty ||
-      !baseStatsValid
+      !pokemonEditDocument ||
+      !pokemonDraft ||
+      !pokemonDirty ||
+      !pokemonValid
     ) {
       return;
     }
 
-    const values = parseBaseStatsDraft(baseStatsDraft);
+    const values = parsePokemonDraft(pokemonDraft, pokemonEditDocument);
     if (!values) {
-      setStatus("Base stats must be integer values between 1 and 255.");
+      setStatus("Fix the invalid Pokémon fields before saving.");
       return;
     }
 
     setEditBusy(true);
     try {
-      const history = await invoke<HistorySummary>("save_pokemon_base_stats", {
+      const history = await invoke<HistorySummary>("save_pokemon", {
+        internalId: selectedPokemonEntry.internalId,
         sourceSlug: selectedPokemonEntry.sourceSlug,
-        expectedHash: baseStatsDocument.sourceHash,
+        sources: pokemonEditDocument.sources,
         values,
       });
       setHistorySummary(history);
-      await loadPokemon(selectedPokemonEntry, "Base stats saved successfully.");
+      const refreshedIndex = await invoke<PokemonIndexEntry[]>("get_pokemon_index");
+      setPokemonIndex(refreshedIndex);
+      const refreshedEntry = refreshedIndex.find(
+        (entry) => entry.internalId === selectedPokemonEntry.internalId,
+      ) ?? selectedPokemonEntry;
+      await loadPokemon(refreshedEntry, "Pokémon saved successfully.");
     } catch (error) {
       setStatus(String(error));
     } finally {
@@ -1075,13 +1065,13 @@ function App() {
   }
 
   async function revertUnsavedChanges() {
-    if (!baseStatsDirty || !selectedPokemonEntry?.sourceSlug || editBusy) {
+    if (!pokemonDirty || !selectedPokemonEntry?.sourceSlug || editBusy) {
       return;
     }
 
     setEditBusy(true);
     try {
-      await loadPokemon(selectedPokemonEntry, "Unsaved base stat changes reverted.");
+      await loadPokemon(selectedPokemonEntry, "Unsaved Pokémon changes reverted.");
     } finally {
       setEditBusy(false);
     }
@@ -1210,10 +1200,10 @@ function App() {
   }
 
   const pokemonEditorController: EditorController = {
-    dirty: baseStatsDirty,
-    valid: baseStatsValid,
+    dirty: pokemonDirty,
+    valid: pokemonValid,
     busy: editBusy,
-    save: saveBaseStats,
+    save: savePokemon,
     revert: revertUnsavedChanges,
   };
   const encounterEditorController: EditorController = {
@@ -1264,7 +1254,7 @@ function App() {
     ) {
       return;
     }
-    if (baseStatsDirty) {
+    if (pokemonDirty) {
       await revertUnsavedChanges();
     }
     if (encounterDirty) {
@@ -1363,13 +1353,13 @@ function App() {
           selectedPokemonId={selectedPokemonId}
           selectedPokemonEntry={selectedPokemonEntry}
           selectedPokemon={selectedPokemon}
-          tmhmMoves={tmhmMoves}
-          baseStatsDraft={baseStatsDraft}
-          baseStatErrors={baseStatErrors}
-          baseStatsDirty={baseStatsDirty}
+          document={pokemonEditDocument}
+          draft={pokemonDraft}
+          dirty={pokemonDirty}
           editBusy={editBusy}
           onSelectPokemon={selectPokemon}
-          onUpdateBaseStat={updateBaseStat}
+          onDraftChange={setPokemonDraft}
+          onPaletteConstantChange={changePokemonPaletteConstant}
         />
       )}
 
