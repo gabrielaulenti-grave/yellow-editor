@@ -1,14 +1,14 @@
 import type {
   PokemonDetails,
+  PokemonEditDocument,
   PokemonIndexEntry,
   ProjectInfo,
 } from "./core/types";
-import {
-  BASE_STAT_FIELDS,
-  type BaseStatKey,
-  type BaseStatsDraft,
-} from "./editor/pokemonBaseStatsForm";
-import { ReadonlyField } from "./editor/EditorFields";
+import type {
+  PokemonDraft,
+  PokemonEvolutionDraft,
+  PokemonLearnsetDraft,
+} from "./editor/pokemonForm";
 import { formatHex } from "./editor/format";
 import { PokemonSpritePanel } from "./PokemonSpritePanel";
 
@@ -18,42 +18,67 @@ interface PokemonTabProps {
   selectedPokemonId: number | null;
   selectedPokemonEntry: PokemonIndexEntry | null;
   selectedPokemon: PokemonDetails | null;
-  tmhmMoves: string[];
-  baseStatsDraft: BaseStatsDraft;
-  baseStatErrors: Record<BaseStatKey, string | null>;
-  baseStatsDirty: boolean;
+  document: PokemonEditDocument | null;
+  draft: PokemonDraft | null;
+  dirty: boolean;
   editBusy: boolean;
   onSelectPokemon(entry: PokemonIndexEntry): Promise<void>;
-  onUpdateBaseStat(key: BaseStatKey, value: string): void;
+  onDraftChange(draft: PokemonDraft): void;
+  onPaletteConstantChange(value: string): void;
 }
 
-function EditableStatField({
+function NumberField({
   label,
   value,
-  error,
+  min,
+  max,
   disabled,
   onChange,
 }: {
   label: string;
   value: string;
-  error: string | null;
+  min: number;
+  max: number;
   disabled: boolean;
   onChange(value: string): void;
 }) {
   return (
-    <label className={`editor-field editable-stat-field${error ? " field-invalid" : ""}`}>
+    <label className="editor-field">
       <span>{label}</span>
       <input
         type="number"
-        min={1}
-        max={255}
+        min={min}
+        max={max}
         step={1}
         value={value}
         disabled={disabled}
-        aria-invalid={error ? "true" : "false"}
         onChange={(event) => onChange(event.target.value)}
       />
-      {error && <small className="field-error">{error}</small>}
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  disabled: boolean;
+  onChange(value: string): void;
+}) {
+  return (
+    <label className="editor-field">
+      <span>{label}</span>
+      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
     </label>
   );
 }
@@ -64,34 +89,79 @@ export function PokemonTab({
   selectedPokemonId,
   selectedPokemonEntry,
   selectedPokemon,
-  tmhmMoves,
-  baseStatsDraft,
-  baseStatErrors,
-  baseStatsDirty,
+  document,
+  draft,
+  dirty,
   editBusy,
   onSelectPokemon,
-  onUpdateBaseStat,
+  onDraftChange,
+  onPaletteConstantChange,
 }: PokemonTabProps) {
+  function patch(values: Partial<PokemonDraft>) {
+    if (draft) onDraftChange({ ...draft, ...values });
+  }
+
+  function updateEvolution(index: number, values: Partial<PokemonEvolutionDraft>) {
+    if (!draft || !document) return;
+    const evolutions = draft.evolutions.map((item, itemIndex) => {
+      if (itemIndex !== index) return item;
+      const next = { ...item, ...values };
+      if (values.method) {
+        next.item = values.method === "item" ? (item.item || document.options.items[0] || "") : "";
+      }
+      return next;
+    });
+    patch({ evolutions });
+  }
+
+  function updateLearnset(index: number, values: Partial<PokemonLearnsetDraft>) {
+    if (!draft) return;
+    patch({
+      learnset: draft.learnset.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, ...values } : item,
+      ),
+    });
+  }
+
+  function toggleTmhm(move: string) {
+    if (!draft || !document) return;
+    const selected = new Set(draft.tmhmMoves);
+    if (selected.has(move)) selected.delete(move);
+    else selected.add(move);
+    patch({
+      tmhmMoves: document.options.tmhmMoves.filter((option) => selected.has(option)),
+    });
+  }
+
+  function updateDexLine(index: number, values: Partial<PokemonDraft["pokedex"]["textLines"][number]>) {
+    if (!draft?.pokedex) return;
+    patch({
+      pokedex: {
+        ...draft.pokedex,
+        textLines: draft.pokedex.textLines.map((line, lineIndex) =>
+          lineIndex === index ? { ...line, ...values } : line,
+        ),
+      },
+    });
+  }
+
   return (
     <section className="tab-content">
       <div className="tab-heading-row">
         <div>
           <h2>Pokémon</h2>
-          <p>Base stats are editable; the remaining fields are still read-only.</p>
+          <p>Edit the complete species progression data, presentation, learnsets, evolutions, and Pokédex entry.</p>
         </div>
         <select
           value={selectedPokemonId ?? ""}
+          disabled={editBusy}
           onChange={(event) => {
             const id = Number(event.target.value);
             const entry = pokemonIndex.find((pokemon) => pokemon.internalId === id);
-            if (entry) {
-              void onSelectPokemon(entry);
-            }
+            if (entry) void onSelectPokemon(entry);
           }}
         >
-          <option value="" disabled>
-            Select a Pokémon
-          </option>
+          <option value="" disabled>Select a Pokémon</option>
           {pokemonIndex
             .filter((entry) => entry.kind !== "system")
             .map((entry) => (
@@ -104,79 +174,162 @@ export function PokemonTab({
 
       {!project && <p>Open a project to browse Pokémon.</p>}
 
-      {selectedPokemon && selectedPokemonEntry?.sourceSlug && (
+      {selectedPokemon && selectedPokemonEntry?.sourceSlug && document && draft && (
         <div className="pokemon-editor">
           <div className="pokemon-title-row">
             <div>
-              <h3>{selectedPokemonEntry.displayName}</h3>
+              <h3>{draft.displayName || selectedPokemonEntry.displayName}</h3>
               <p className="muted-code">
                 {formatHex(selectedPokemonEntry.internalId)}
-                {selectedPokemonEntry.constant ? ` — ${selectedPokemonEntry.constant}` : ""}
+                {selectedPokemonEntry.constant ? " — " + selectedPokemonEntry.constant : ""}
               </p>
             </div>
+            {dirty && <span className="editable-badge">Modified</span>}
           </div>
 
+          <section className="editor-card">
+            <h4>Identity</h4>
+            <div className="field-grid dex-grid">
+              <label className="editor-field">
+                <span>Name</span>
+                <input
+                  value={draft.displayName}
+                  maxLength={10}
+                  disabled={editBusy}
+                  onChange={(event) => patch({ displayName: event.target.value })}
+                />
+              </label>
+              <label className="editor-field">
+                <span>Internal Constant</span>
+                <input value={selectedPokemonEntry.constant ?? ""} readOnly />
+              </label>
+              <label className="editor-field">
+                <span>Pokédex Constant</span>
+                <input value={document.dexConstant} readOnly />
+              </label>
+            </div>
+            <p className="help-text">The internal constant and Pokédex identity stay fixed; the in-game display name is editable.</p>
+          </section>
+
           <PokemonSpritePanel
-            sourceSlug={selectedPokemonEntry.sourceSlug}
-            displayName={selectedPokemonEntry.displayName}
+            document={document}
+            draft={draft}
+            displayName={draft.displayName || selectedPokemonEntry.displayName}
             front={selectedPokemon.sprites.front}
             back={selectedPokemon.sprites.back}
+            disabled={editBusy}
+            onSpriteChoiceChange={(value) => patch({ spriteChoiceId: value })}
+            onPaletteConstantChange={onPaletteConstantChange}
+            onPaletteColorChange={(source, index, value) => {
+              const colors = source === "cgb" ? draft.cgbPalette : draft.sgbPalette;
+              if (!colors) return;
+              const next = [...colors] as [string, string, string, string];
+              next[index] = value;
+              patch(source === "cgb" ? { cgbPalette: next } : { sgbPalette: next });
+            }}
           />
 
           <section className="editor-card">
-            <div className="section-heading">
-              <div>
-                <h4>Base Stats</h4>
-                <p>Each editable stat must be a whole number from 1 to 255.</p>
-              </div>
-              {baseStatsDirty && <span className="unsaved-indicator">Modified</span>}
+            <h4>Battle &amp; Growth Data</h4>
+            <div className="field-grid stat-grid">
+              <NumberField label="HP" value={draft.hp} min={1} max={255} disabled={editBusy} onChange={(value) => patch({ hp: value })} />
+              <NumberField label="Attack" value={draft.attack} min={1} max={255} disabled={editBusy} onChange={(value) => patch({ attack: value })} />
+              <NumberField label="Defense" value={draft.defense} min={1} max={255} disabled={editBusy} onChange={(value) => patch({ defense: value })} />
+              <NumberField label="Speed" value={draft.speed} min={1} max={255} disabled={editBusy} onChange={(value) => patch({ speed: value })} />
+              <NumberField label="Special" value={draft.special} min={1} max={255} disabled={editBusy} onChange={(value) => patch({ special: value })} />
+              <NumberField label="Catch Rate" value={draft.catchRate} min={0} max={255} disabled={editBusy} onChange={(value) => patch({ catchRate: value })} />
+              <NumberField label="Base EXP" value={draft.baseExp} min={0} max={255} disabled={editBusy} onChange={(value) => patch({ baseExp: value })} />
             </div>
 
+            <h5>Typing &amp; Growth</h5>
             <div className="field-grid stat-grid">
-              {BASE_STAT_FIELDS.map((field) => (
-                <EditableStatField
-                  key={field.key}
-                  label={field.label}
-                  value={baseStatsDraft[field.key]}
-                  error={baseStatErrors[field.key]}
+              <SelectField label="Type 1" value={draft.type1} options={document.options.types} disabled={editBusy} onChange={(value) => patch({ type1: value })} />
+              <SelectField label="Type 2" value={draft.type2} options={document.options.types} disabled={editBusy} onChange={(value) => patch({ type2: value })} />
+              <SelectField label="Growth Rate" value={draft.growthRate} options={document.options.growthRates} disabled={editBusy} onChange={(value) => patch({ growthRate: value })} />
+            </div>
+
+            <h5>Level 1 Moves</h5>
+            <div className="field-grid stat-grid">
+              {draft.startingMoves.map((move, index) => (
+                <SelectField
+                  key={index}
+                  label={"Move " + (index + 1)}
+                  value={move}
+                  options={["NO_MOVE", ...document.options.moves]}
                   disabled={editBusy}
-                  onChange={(value) => onUpdateBaseStat(field.key, value)}
+                  onChange={(value) => {
+                    const next = [...draft.startingMoves];
+                    next[index] = value;
+                    patch({ startingMoves: next });
+                  }}
                 />
               ))}
-              <ReadonlyField label="Catch Rate" value={selectedPokemon.stats.catchRate} />
-              <ReadonlyField label="Base EXP" value={selectedPokemon.stats.baseExp} />
-              <ReadonlyField label="Dex Constant" value={selectedPokemon.stats.dexConstant} />
-            </div>
-
-            <h5>Typing</h5>
-            <div className="field-grid two-column-fields">
-              <ReadonlyField label="Type 1" value={selectedPokemon.stats.type1} />
-              <ReadonlyField label="Type 2" value={selectedPokemon.stats.type2} />
             </div>
           </section>
 
           <section className="editor-card">
-            <h4>Evolution</h4>
-            {selectedPokemon.evolutions.length === 0 ? (
+            <div className="section-heading">
+              <div>
+                <h4>Evolution</h4>
+                <p>Level, item, and trade evolutions are supported by the Gen I data format.</p>
+              </div>
+              <button
+                type="button"
+                className="small-button"
+                disabled={editBusy || document.options.species.length === 0}
+                onClick={() => patch({
+                  evolutions: [
+                    ...draft.evolutions,
+                    {
+                      method: "level",
+                      level: "16",
+                      item: "",
+                      target: document.options.species[0] || "",
+                    },
+                  ],
+                })}
+              >
+                Add Evolution
+              </button>
+            </div>
+            {draft.evolutions.length === 0 ? (
               <p className="empty-state">Does not evolve.</p>
             ) : (
               <div className="table-wrap">
-                <table className="editor-table">
+                <table className="editor-table pokemon-edit-table">
                   <thead>
-                    <tr>
-                      <th>Method</th>
-                      <th>Level</th>
-                      <th>Item</th>
-                      <th>Target</th>
-                    </tr>
+                    <tr><th>Method</th><th>Level / minimum</th><th>Item</th><th>Target</th><th /></tr>
                   </thead>
                   <tbody>
-                    {selectedPokemon.evolutions.map((evolution, index) => (
+                    {draft.evolutions.map((item, index) => (
                       <tr key={index}>
-                        <td><input value={evolution.method} readOnly /></td>
-                        <td><input value={evolution.level ?? ""} readOnly /></td>
-                        <td><input value={evolution.item ?? ""} readOnly /></td>
-                        <td><input value={evolution.target} readOnly /></td>
+                        <td>
+                          <select value={item.method} disabled={editBusy} onChange={(event) => updateEvolution(index, { method: event.target.value as PokemonEvolutionDraft["method"] })}>
+                            <option value="level">Level</option>
+                            <option value="item">Item</option>
+                            <option value="trade">Trade</option>
+                          </select>
+                        </td>
+                        <td><input type="number" min={1} max={255} value={item.level} disabled={editBusy} onChange={(event) => updateEvolution(index, { level: event.target.value })} /></td>
+                        <td>
+                          {item.method === "item" ? (
+                            <select value={item.item} disabled={editBusy} onChange={(event) => updateEvolution(index, { item: event.target.value })}>
+                              {document.options.items.map((option) => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                          ) : (
+                            <span className="help-text">—</span>
+                          )}
+                        </td>
+                        <td>
+                          <select value={item.target} disabled={editBusy} onChange={(event) => updateEvolution(index, { target: event.target.value })}>
+                            {document.options.species.map((option) => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        </td>
+                        <td>
+                          <button type="button" className="small-button danger-action" disabled={editBusy} onClick={() => patch({ evolutions: draft.evolutions.filter((_, itemIndex) => itemIndex !== index) })}>
+                            Remove
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -186,69 +339,148 @@ export function PokemonTab({
           </section>
 
           <section className="editor-card">
-            <h4>Level-up Learnset</h4>
-            <div className="table-wrap">
-              <table className="editor-table compact-table">
-                <thead>
-                  <tr>
-                    <th>Level</th>
-                    <th>Move</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {selectedPokemon.learnset.map((move, index) => (
-                    <tr key={index}>
-                      <td><input value={move.level} readOnly /></td>
-                      <td><input value={move.moveConstant} readOnly /></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="section-heading">
+              <div>
+                <h4>Level-up Learnset</h4>
+                <p>These are learned after the four level-1 move slots above.</p>
+              </div>
+              <button
+                type="button"
+                className="small-button"
+                disabled={editBusy || document.options.moves.length === 0}
+                onClick={() => {
+                  const last = Number(draft.learnset[draft.learnset.length - 1]?.level || 0);
+                  patch({
+                    learnset: [
+                      ...draft.learnset,
+                      {
+                        level: String(Math.min(100, Math.max(1, last + 1))),
+                        moveConstant: document.options.moves[0] || "",
+                      },
+                    ],
+                  });
+                }}
+              >
+                Add Move
+              </button>
             </div>
-          </section>
-
-          <section className="editor-card">
-            <h4>TM/HM Compatibility</h4>
-            {tmhmMoves.length === 0 ? (
-              <p className="empty-state">No compatible TM/HM moves.</p>
+            {draft.learnset.length === 0 ? (
+              <p className="empty-state">No later level-up moves.</p>
             ) : (
-              <div className="move-chip-grid">
-                {tmhmMoves.map((move) => (
-                  <label key={move} className="compatibility-chip">
-                    <input type="checkbox" checked readOnly />
-                    <span>{move}</span>
-                  </label>
-                ))}
+              <div className="table-wrap">
+                <table className="editor-table compact-table pokemon-edit-table">
+                  <thead><tr><th>Level</th><th>Move</th><th /></tr></thead>
+                  <tbody>
+                    {draft.learnset.map((move, index) => (
+                      <tr key={index}>
+                        <td><input type="number" min={1} max={100} value={move.level} disabled={editBusy} onChange={(event) => updateLearnset(index, { level: event.target.value })} /></td>
+                        <td>
+                          <select value={move.moveConstant} disabled={editBusy} onChange={(event) => updateLearnset(index, { moveConstant: event.target.value })}>
+                            {document.options.moves.map((option) => <option key={option} value={option}>{option}</option>)}
+                          </select>
+                        </td>
+                        <td><button type="button" className="small-button danger-action" disabled={editBusy} onClick={() => patch({ learnset: draft.learnset.filter((_, itemIndex) => itemIndex !== index) })}>Remove</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </section>
 
           <section className="editor-card">
-            <h4>Pokédex</h4>
-            {selectedPokemon.pokedex ? (
+            <h4>TM/HM Compatibility</h4>
+            <p className="help-text">Toggle every TM and HM the species can learn.</p>
+            <div className="move-chip-grid">
+              {document.options.tmhmMoves.map((move) => (
+                <label key={move} className="compatibility-chip">
+                  <input
+                    type="checkbox"
+                    checked={draft.tmhmMoves.includes(move)}
+                    disabled={editBusy}
+                    onChange={() => toggleTmhm(move)}
+                  />
+                  <span>{move}</span>
+                </label>
+              ))}
+            </div>
+          </section>
+
+          <section className="editor-card">
+            <div className="section-heading">
+              <div>
+                <h4>Pokédex</h4>
+                <p>Edit the species category, measurements, and the exact line/page structure of the entry.</p>
+              </div>
+            </div>
+            {draft.pokedex ? (
               <>
                 <div className="field-grid dex-grid">
-                  <ReadonlyField label="Species" value={selectedPokemon.pokedex.category} />
-                  <ReadonlyField label="Height (ft)" value={selectedPokemon.pokedex.heightFeet} />
-                  <ReadonlyField label="Height (in)" value={selectedPokemon.pokedex.heightInches} />
-                  <ReadonlyField
-                    label="Weight (lb)"
-                    value={(selectedPokemon.pokedex.weightTenthsLb / 10).toFixed(1)}
-                  />
+                  <label className="editor-field">
+                    <span>Species</span>
+                    <input value={draft.pokedex.category} maxLength={11} disabled={editBusy} onChange={(event) => patch({ pokedex: { ...draft.pokedex!, category: event.target.value } })} />
+                  </label>
+                  <NumberField label="Height (ft)" value={draft.pokedex.heightFeet} min={0} max={255} disabled={editBusy} onChange={(value) => patch({ pokedex: { ...draft.pokedex!, heightFeet: value } })} />
+                  <NumberField label="Height (in)" value={draft.pokedex.heightInches} min={0} max={11} disabled={editBusy} onChange={(value) => patch({ pokedex: { ...draft.pokedex!, heightInches: value } })} />
+                  <label className="editor-field">
+                    <span>Weight (lb)</span>
+                    <input type="number" min={0} max={6553.5} step={0.1} value={draft.pokedex.weightLb} disabled={editBusy} onChange={(event) => patch({ pokedex: { ...draft.pokedex!, weightLb: event.target.value } })} />
+                  </label>
                 </div>
 
                 <h5>Entry Text</h5>
-                <div className="dex-text-lines">
-                  {selectedPokemon.pokedex.textLines.map((line, index) => (
-                    <label key={index} className="dex-line-field">
-                      <span>{line.kind}</span>
-                      <input value={line.text} maxLength={18} readOnly />
-                    </label>
+                <div className="dex-text-lines pokemon-dex-edit-lines">
+                  {draft.pokedex.textLines.map((line, index) => (
+                    <div key={index} className="pokemon-dex-edit-line">
+                      <select
+                        value={line.kind}
+                        disabled={editBusy}
+                        onChange={(event) => updateDexLine(index, { kind: event.target.value as typeof line.kind })}
+                      >
+                        <option value="text">text</option>
+                        <option value="next">next</option>
+                        <option value="page">page</option>
+                      </select>
+                      <input
+                        value={line.text}
+                        maxLength={18}
+                        disabled={editBusy}
+                        onChange={(event) => updateDexLine(index, { text: event.target.value })}
+                      />
+                      <span className="help-text">{line.text.length}/18</span>
+                      <button
+                        type="button"
+                        className="small-button danger-action"
+                        disabled={editBusy || draft.pokedex!.textLines.length <= 1}
+                        onClick={() => patch({
+                          pokedex: {
+                            ...draft.pokedex!,
+                            textLines: draft.pokedex!.textLines.filter((_, lineIndex) => lineIndex !== index),
+                          },
+                        })}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   ))}
                 </div>
+                <button
+                  type="button"
+                  className="small-button pokemon-add-row"
+                  disabled={editBusy}
+                  onClick={() => patch({
+                    pokedex: {
+                      ...draft.pokedex!,
+                      textLines: [...draft.pokedex!.textLines, { kind: "next", text: "" }],
+                    },
+                  })}
+                >
+                  Add Text Line
+                </button>
+                <p className="help-text">The first line must use <code>text</code>. Use <code>page</code> where the Pokédex should start a new page.</p>
               </>
             ) : (
-              <p className="empty-state">No Pokédex data.</p>
+              <p className="empty-state">No editable Pokédex data.</p>
             )}
           </section>
         </div>
