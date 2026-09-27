@@ -33,8 +33,10 @@ import {
   validateTrainerPartyValues,
 } from "./trainerEditing";
 import {
+  prepareTrainerClassEditWrites,
   prepareTrainerClassWrites,
   validateTrainerClassCreateValues,
+  validateTrainerClassEditValues,
 } from "./trainerClassEditing";
 import {
   loadTrainerRewardEditDocument,
@@ -48,6 +50,7 @@ import type {
   TextWriteRequest,
   TrainerCatalog,
   TrainerClassCreateValues,
+  TrainerClassEditValues,
   TrainerPartyEditValues,
 } from "./types";
 
@@ -428,6 +431,32 @@ export async function createProjectSession(
       const changes = await prepareTrainerClassWrites(source, sources, values);
       const result = await history.save(
         `Add trainer class ${values.constant}`,
+        changes,
+      );
+      const changedPaths = changes.map((change) => change.path);
+      invalidateTrainerBaseCatalog(changedPaths);
+      if (trainerCacheAffected(changedPaths)) {
+        await trainerCatalogCache?.clear();
+      }
+      return result;
+    },
+    saveTrainerClass: async (
+      classConstant,
+      sources,
+      values: TrainerClassEditValues,
+    ) => {
+      validateTrainerClassEditValues(values);
+      const changes = await prepareTrainerClassEditWrites(
+        source,
+        sources,
+        classConstant,
+        values,
+      );
+      if (changes.length === 0) {
+        return history.getSummary();
+      }
+      const result = await history.save(
+        `Edit trainer class ${classConstant}`,
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
