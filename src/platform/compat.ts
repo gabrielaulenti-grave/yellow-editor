@@ -8,6 +8,7 @@ import type {
   ProjectSession,
   TextWriteRequest,
   TrainerClassCreateValues,
+  TrainerClassEditValues,
   TrainerEditSourceDocument,
   TrainerLoadProgressListener,
   TrainerPartyEditValues,
@@ -366,6 +367,14 @@ function trainerClassCreateValuesArg(args: InvokeArgs | undefined): TrainerClass
   return value as TrainerClassCreateValues;
 }
 
+function trainerClassEditValuesArg(args: InvokeArgs | undefined): TrainerClassEditValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing trainer class edit values.");
+  }
+  return value as TrainerClassEditValues;
+}
+
 export async function invoke<T>(
   command: string,
   args?: InvokeArgs,
@@ -452,6 +461,13 @@ export async function invoke<T>(
         trainerSourcesArg(args),
         trainerClassCreateValuesArg(args),
         stringListArg(args, "knownSpecies"),
+      )) as T;
+
+    case "save_trainer_class":
+      return (await session.saveTrainerClass(
+        stringArg(args, "classConstant"),
+        trainerSourcesArg(args),
+        trainerClassEditValuesArg(args),
       )) as T;
 
     case "get_text_document":
