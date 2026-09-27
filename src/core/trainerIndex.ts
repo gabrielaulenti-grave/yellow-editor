@@ -15,7 +15,9 @@ import type {
 } from "./types";
 
 const PARTIES_PATH = "data/trainers/parties.asm";
+const CONSTANTS_PATH = "constants/trainer_constants.asm";
 const NAMES_PATH = "data/trainers/names.asm";
+const NAME_POINTERS_PATH = "data/trainers/name_pointers.asm";
 const MONEY_PATH = "data/trainers/pic_pointers_money.asm";
 const AI_PATH = "data/trainers/ai_pointers.asm";
 const MOVE_CHOICES_PATH = "data/trainers/move_choices.asm";
@@ -151,6 +153,12 @@ function partyPointerLabels(contents: string): string[] {
 
 function trainerNames(contents: string): string[] {
   return [...contents.matchAll(/^\s*li\s+"([^"]*)"/gm)].map((match) => match[1]);
+}
+
+function trainerNamePointers(contents: string): string[] {
+  const block = labelBlocks(contents).get("TrainerNamePointers") ?? "";
+  return [...block.matchAll(/^\s*dw\s+([A-Za-z_.][A-Za-z0-9_.]*)\b/gm)]
+    .map((match) => match[1]);
 }
 
 function rewardRates(contents: string): number[] {
@@ -1066,8 +1074,9 @@ function buildClassCatalog(
       moveChoiceModifiers: trainerClass.moveChoiceModifiers,
       classSpecialMoves: [...classSpecialMoves.values()],
       sourcePaths: [
-        "constants/trainer_constants.asm",
+        CONSTANTS_PATH,
         NAMES_PATH,
+        NAME_POINTERS_PATH,
         MONEY_PATH,
         AI_PATH,
         MOVE_CHOICES_PATH,
@@ -1089,16 +1098,17 @@ export async function parseTrainerCatalog(
     total: 1,
     percent: 10,
   });
-  const required = [PARTIES_PATH, NAMES_PATH, MONEY_PATH, AI_PATH, MOVE_CHOICES_PATH, MAPS_PATH];
+  const required = [PARTIES_PATH, CONSTANTS_PATH, NAMES_PATH, NAME_POINTERS_PATH, MONEY_PATH, AI_PATH, MOVE_CHOICES_PATH, MAPS_PATH];
   for (const path of required) {
     if (!(await source.exists(path))) {
       throw new Error(`Trainer browser requires ${path}.`);
     }
   }
-  const [partiesContents, constantsContents, namesContents, moneyContents, aiContents, choicesContents, mapsContents] = await Promise.all([
+  const [partiesContents, constantsContents, namesContents, namePointersContents, moneyContents, aiContents, choicesContents, mapsContents] = await Promise.all([
     source.readText(PARTIES_PATH),
-    source.readText("constants/trainer_constants.asm"),
+    source.readText(CONSTANTS_PATH),
     source.readText(NAMES_PATH),
+    source.readText(NAME_POINTERS_PATH),
     source.readText(MONEY_PATH),
     source.readText(AI_PATH),
     source.readText(MOVE_CHOICES_PATH),
@@ -1107,11 +1117,12 @@ export async function parseTrainerCatalog(
   const constants = trainerConstants(constantsContents);
   const labels = partyPointerLabels(partiesContents);
   const names = trainerNames(namesContents);
+  const namePointers = trainerNamePointers(namePointersContents);
   const rewards = rewardRates(moneyContents);
   const ai = aiEntries(aiContents);
   const choices = moveChoiceEntries(choicesContents);
   const warnings: string[] = [];
-  const lengths = { constants: constants.length, labels: labels.length, names: names.length, rewards: rewards.length, ai: ai.length, choices: choices.length };
+  const lengths = { constants: constants.length, labels: labels.length, names: names.length, namePointers: namePointers.length, rewards: rewards.length, ai: ai.length, choices: choices.length };
   const expected = constants.length;
   for (const [label, length] of Object.entries(lengths)) {
     if (length !== expected) {
@@ -1279,7 +1290,13 @@ export async function parseTrainerCatalog(
     trainers,
     classes: classCatalog,
     editSources: await Promise.all(([
+      [CONSTANTS_PATH, constantsContents],
+      [NAMES_PATH, namesContents],
+      [NAME_POINTERS_PATH, namePointersContents],
       [PARTIES_PATH, partiesContents],
+      [MONEY_PATH, moneyContents],
+      [AI_PATH, aiContents],
+      [MOVE_CHOICES_PATH, choicesContents],
       ...(specialMovesContents === null ? [] : [[SPECIAL_MOVES_PATH, specialMovesContents]]),
     ] as Array<[string, string]>).map(async ([path, contents]) => ({
       path,
