@@ -156,7 +156,9 @@ export async function parseTrainerPresentation(
   const picTable = parseTrainerPicTable(picTableSource);
   const classIndex = trainerConstants.indexOf(classConstant);
 
-  let picLabel = classIndex >= 0 ? picTable[classIndex] ?? null : null;
+  const basePicLabel = classIndex >= 0 ? picTable[classIndex] ?? null : null;
+  let picLabel = basePicLabel;
+  let picOverrideSourcePath: string | null = null;
 
   if (await source.exists(TRAINER_ENGINE_PATH)) {
     const override = trainerPicOverride(
@@ -164,10 +166,22 @@ export async function parseTrainerPresentation(
       classConstant,
       partyNumber,
     );
-    if (override) picLabel = override;
+    if (override) {
+      picLabel = override;
+      if (override !== basePicLabel) {
+        picOverrideSourcePath = TRAINER_ENGINE_PATH;
+      }
+    }
   }
 
   const picSources = parsePicSourcePaths(picsSource);
+
+  const baseRawPicPath = basePicLabel ? picSources.get(basePicLabel) ?? null : null;
+  const baseSpriteSourcePath = baseRawPicPath ? pngSourceForPic(baseRawPicPath) : null;
+  const baseSpritePath = baseSpriteSourcePath && await source.exists(baseSpriteSourcePath)
+    ? await source.assetUrl(baseSpriteSourcePath)
+    : null;
+
   const rawPicPath = picLabel ? picSources.get(picLabel) ?? null : null;
   const spriteSourcePath = rawPicPath ? pngSourceForPic(rawPicPath) : null;
   const spritePath = spriteSourcePath && await source.exists(spriteSourcePath)
@@ -186,9 +200,13 @@ export async function parseTrainerPresentation(
   return {
     classConstant,
     partyNumber,
+    basePicLabel,
+    baseSpritePath,
+    baseSpriteSourcePath,
     picLabel,
     spritePath,
     spriteSourcePath,
+    picOverrideSourcePath,
     paletteConstant,
     paletteOptions,
   };
