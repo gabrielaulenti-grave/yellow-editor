@@ -12,6 +12,7 @@ import type {
   PokemonIndexEntry,
   ProjectInfo,
   TrainerCatalog,
+  TrainerClassCreateValues,
   TrainerClassEntry,
   TrainerEditSourceDocument,
   TrainerLoadProgress,
@@ -749,6 +750,30 @@ function App() {
     }
   }
 
+  async function createTrainerClass(values: TrainerClassCreateValues): Promise<void> {
+    if (!project) {
+      throw new Error("Open a project before adding a trainer class.");
+    }
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("create_trainer_class", {
+        sources: trainerEditSources,
+        values,
+        knownSpecies: [...knownTrainerSpecies],
+      });
+      setHistorySummary(history);
+      const catalog = await invoke<TrainerCatalog>("get_trainer_base_catalog");
+      refreshTrainerBaseCatalog(catalog, `${values.constant}:1`, values.constant);
+      setTrainerSection("classes");
+      setStatus(`Trainer class ${values.name} added successfully.`);
+    } catch (error) {
+      setStatus(String(error));
+      throw error;
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   function selectTrainerParty(id: string) {
     if (id === selectedTrainerId) {
       return;
@@ -842,7 +867,10 @@ function App() {
       const history = await invoke<HistorySummary>("undo_last_save");
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
-      const refreshTrainerBase = historySummary.latestLabel?.startsWith("Edit trainer party ") ?? false;
+      const refreshTrainerBase = Boolean(
+        historySummary.latestLabel?.startsWith("Edit trainer party ")
+        || historySummary.latestLabel?.startsWith("Add trainer class "),
+      );
       const refreshTrainerRewards = historySummary.latestLabel?.startsWith("Edit trainer reward ") ?? false;
       const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
@@ -884,7 +912,10 @@ function App() {
       const history = await invoke<HistorySummary>("redo_last_undo");
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
-      const refreshTrainerBase = history.latestLabel?.startsWith("Edit trainer party ") ?? false;
+      const refreshTrainerBase = Boolean(
+        history.latestLabel?.startsWith("Edit trainer party ")
+        || history.latestLabel?.startsWith("Add trainer class "),
+      );
       const refreshTrainerRewards = history.latestLabel?.startsWith("Edit trainer reward ") ?? false;
       const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
@@ -1231,6 +1262,7 @@ function App() {
           onUpdateSpecialMove={changeTrainerSpecialMove}
           onAddSpecialMove={appendTrainerSpecialMove}
           onRemoveSpecialMove={deleteTrainerSpecialMove}
+          onCreateClass={createTrainerClass}
         />
       )}
 
