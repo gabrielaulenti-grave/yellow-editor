@@ -9,6 +9,7 @@ import type {
 
 const PARTIES_PATH = "data/trainers/parties.asm";
 const NAMES_PATH = "data/trainers/names.asm";
+const NAME_POINTERS_PATH = "data/trainers/name_pointers.asm";
 const MONEY_PATH = "data/trainers/pic_pointers_money.asm";
 const AI_PATH = "data/trainers/ai_pointers.asm";
 const MOVE_CHOICES_PATH = "data/trainers/move_choices.asm";
@@ -101,6 +102,12 @@ function partyPointerLabels(contents: string): string[] {
 
 function trainerNames(contents: string): string[] {
   return [...contents.matchAll(/^\s*li\s+"([^"]*)"/gm)].map((match) => match[1]);
+}
+
+function trainerNamePointers(contents: string): string[] {
+  const block = labelBlocks(contents).get("TrainerNamePointers") ?? "";
+  return [...block.matchAll(/^\s*dw\s+([A-Za-z_.][A-Za-z0-9_.]*)\b/gm)]
+    .map((match) => match[1]);
 }
 
 function rewardRates(contents: string): number[] {
@@ -328,6 +335,7 @@ function buildClassCatalog(
       sourcePaths: [
         CONSTANTS_PATH,
         NAMES_PATH,
+        NAME_POINTERS_PATH,
         MONEY_PATH,
         AI_PATH,
         MOVE_CHOICES_PATH,
@@ -345,6 +353,7 @@ export async function parseTrainerBaseCatalog(
     PARTIES_PATH,
     CONSTANTS_PATH,
     NAMES_PATH,
+    NAME_POINTERS_PATH,
     MONEY_PATH,
     AI_PATH,
     MOVE_CHOICES_PATH,
@@ -359,6 +368,7 @@ export async function parseTrainerBaseCatalog(
     partiesContents,
     constantsContents,
     namesContents,
+    namePointersContents,
     moneyContents,
     aiContents,
     choicesContents,
@@ -366,6 +376,7 @@ export async function parseTrainerBaseCatalog(
     source.readText(PARTIES_PATH),
     source.readText(CONSTANTS_PATH),
     source.readText(NAMES_PATH),
+    source.readText(NAME_POINTERS_PATH),
     source.readText(MONEY_PATH),
     source.readText(AI_PATH),
     source.readText(MOVE_CHOICES_PATH),
@@ -374,6 +385,7 @@ export async function parseTrainerBaseCatalog(
   const constants = trainerConstants(constantsContents);
   const labels = partyPointerLabels(partiesContents);
   const names = trainerNames(namesContents);
+  const namePointers = trainerNamePointers(namePointersContents);
   const rewards = rewardRates(moneyContents);
   const ai = aiEntries(aiContents);
   const choices = moveChoiceEntries(choicesContents);
@@ -382,6 +394,7 @@ export async function parseTrainerBaseCatalog(
     constants: constants.length,
     labels: labels.length,
     names: names.length,
+    namePointers: namePointers.length,
     rewards: rewards.length,
     ai: ai.length,
     choices: choices.length,
@@ -403,7 +416,13 @@ export async function parseTrainerBaseCatalog(
   }
 
   const editSourceContents: Array<[string, string]> = [
+    [CONSTANTS_PATH, constantsContents],
+    [NAMES_PATH, namesContents],
+    [NAME_POINTERS_PATH, namePointersContents],
     [PARTIES_PATH, partiesContents],
+    [MONEY_PATH, moneyContents],
+    [AI_PATH, aiContents],
+    [MOVE_CHOICES_PATH, choicesContents],
     ...(specialMovesContents === null
       ? []
       : [[SPECIAL_MOVES_PATH, specialMovesContents] as [string, string]]),

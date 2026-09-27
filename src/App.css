@@ -1076,3 +1076,30 @@ pre {
     height: 128px;
   }
 }
+
+
+.trainer-class-browser-actions {
+  display: flex;
+  margin-bottom: 10px;
+}
+
+.trainer-class-create-dialog {
+  width: min(760px, 96vw);
+}
+
+.trainer-class-create-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.trainer-class-create-grid small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+@media (max-width: 680px) {
+  .trainer-class-create-grid {
+    grid-template-columns: 1fr;
+  }
+}

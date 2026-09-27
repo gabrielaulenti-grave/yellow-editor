@@ -7,6 +7,7 @@ import type {
   PokemonBaseStatValues,
   ProjectSession,
   TextWriteRequest,
+  TrainerClassCreateValues,
   TrainerEditSourceDocument,
   TrainerLoadProgressListener,
   TrainerPartyEditValues,
@@ -357,6 +358,14 @@ function trainerPartyValuesArg(args: InvokeArgs | undefined): TrainerPartyEditVa
   return value as TrainerPartyEditValues;
 }
 
+function trainerClassCreateValuesArg(args: InvokeArgs | undefined): TrainerClassCreateValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing trainer class creation values.");
+  }
+  return value as TrainerClassCreateValues;
+}
+
 export async function invoke<T>(
   command: string,
   args?: InvokeArgs,
@@ -436,6 +445,13 @@ export async function invoke<T>(
         trainerPartyValuesArg(args),
         stringListArg(args, "knownSpecies"),
         stringListArg(args, "knownMoves"),
+      )) as T;
+
+    case "create_trainer_class":
+      return (await session.createTrainerClass(
+        trainerSourcesArg(args),
+        trainerClassCreateValuesArg(args),
+        stringListArg(args, "knownSpecies"),
       )) as T;
 
     case "get_text_document":

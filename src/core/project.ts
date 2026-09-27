@@ -33,6 +33,10 @@ import {
   validateTrainerPartyValues,
 } from "./trainerEditing";
 import {
+  prepareTrainerClassWrites,
+  validateTrainerClassCreateValues,
+} from "./trainerClassEditing";
+import {
   loadTrainerRewardEditDocument,
   prepareTrainerRewardWrite,
 } from "./trainerRewardEditing";
@@ -43,6 +47,7 @@ import type {
   ProjectSource,
   TextWriteRequest,
   TrainerCatalog,
+  TrainerClassCreateValues,
   TrainerPartyEditValues,
 } from "./types";
 
@@ -50,6 +55,16 @@ const REQUIRED_FILES = ["main.asm", "Makefile"];
 const REQUIRED_DIRS = ["data", "engine", "maps"];
 const PARTIES_PATH = "data/trainers/parties.asm";
 const SPECIAL_MOVES_PATH = "data/trainers/special_moves.asm";
+const TRAINER_BASE_PATHS = new Set([
+  "constants/trainer_constants.asm",
+  "data/trainers/names.asm",
+  "data/trainers/name_pointers.asm",
+  PARTIES_PATH,
+  "data/trainers/pic_pointers_money.asm",
+  "data/trainers/ai_pointers.asm",
+  "data/trainers/move_choices.asm",
+  SPECIAL_MOVES_PATH,
+]);
 
 interface TrainerCatalogCache {
   load(): Promise<TrainerCatalog | null>;
@@ -95,6 +110,7 @@ function clarifyTrainerMovementPaths(catalog: TrainerCatalog): void {
 
 function trainerCacheAffected(paths: string[]): boolean {
   return paths.some((path) =>
+    TRAINER_BASE_PATHS.has(path) ||
     path === "maps.asm" ||
     path === "text.asm" ||
     path.startsWith("scripts/") ||
@@ -104,13 +120,11 @@ function trainerCacheAffected(paths: string[]): boolean {
 }
 
 function trainerBaseAffected(paths: string[]): boolean {
-  return paths.some((path) => path === PARTIES_PATH || path === SPECIAL_MOVES_PATH);
+  return paths.some((path) => TRAINER_BASE_PATHS.has(path));
 }
 
 function onlyTrainerBaseFiles(paths: string[]): boolean {
-  return paths.length > 0 && paths.every((path) =>
-    path === PARTIES_PATH || path === SPECIAL_MOVES_PATH,
-  );
+  return paths.length > 0 && paths.every((path) => TRAINER_BASE_PATHS.has(path));
 }
 
 export async function createProjectSession(
@@ -395,6 +409,32 @@ export async function createProjectSession(
 
       const result = await history.save(`Edit trainer party ${partyId}`, changes);
       await updateTrainerBaseAfterSave(partyId, values, changes);
+      if (trainerCacheAffected(changes.map((change) => change.path))) {
+        await trainerCatalogCache?.clear();
+      }
+      return result;
+    },
+    createTrainerClass: async (
+      sources,
+      values: TrainerClassCreateValues,
+      knownSpecies,
+    ) => {
+      const catalog = await getTrainerBaseCatalog();
+      validateTrainerClassCreateValues(
+        values,
+        catalog.classes,
+        new Set(knownSpecies),
+      );
+      const changes = await prepareTrainerClassWrites(source, sources, values);
+      const result = await history.save(
+        `Add trainer class ${values.constant}`,
+        changes,
+      );
+      const changedPaths = changes.map((change) => change.path);
+      invalidateTrainerBaseCatalog(changedPaths);
+      if (trainerCacheAffected(changedPaths)) {
+        await trainerCatalogCache?.clear();
+      }
       return result;
     },
     getEncounterIndex,
@@ -435,7 +475,11 @@ export async function createProjectSession(
     getHistorySummary: () => history.getSummary(),
     saveTextChanges: async (label, changes) => {
       const result = await history.save(label, changes);
-      if (trainerCacheAffected(changes.map((change) => change.path))) {
+      const changedPaths = changes.map((change) => change.path);
+      if (trainerBaseAffected(changedPaths)) {
+        invalidateTrainerBaseCatalog(changedPaths);
+      }
+      if (trainerCacheAffected(changedPaths)) {
         await trainerCatalogCache?.clear();
       }
       return result;
