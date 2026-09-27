@@ -112,17 +112,18 @@ function installOverrideTable(contents: string): string {
   const hasLabel = labelPattern(OVERRIDE_LABEL).test(contents);
   const hasRoutine = labelPattern(OVERRIDE_ROUTINE).test(contents);
 
-  if ((hasLabel || hasRoutine) && !contents.includes(TABLE_MARKER)) {
+  const hasMarker = contents.includes(TABLE_MARKER);
+  if ((hasLabel || hasRoutine) && !hasMarker) {
     throw new Error(
       `${TRAINER_PIC_TABLE_PATH} already defines Yellow Editor's override labels, but the table is not owned by Yellow Editor. The existing custom code was left untouched.`,
     );
   }
+  if (hasMarker && (!hasLabel || !hasRoutine)) {
+    throw new Error(
+      `${TRAINER_PIC_TABLE_PATH} contains an incomplete Yellow Editor portrait override table.`,
+    );
+  }
   if (hasLabel) {
-    if (!hasRoutine) {
-      throw new Error(
-        `${TRAINER_PIC_TABLE_PATH} contains an incomplete Yellow Editor portrait override table.`,
-      );
-    }
     return contents;
   }
 
@@ -212,13 +213,19 @@ function updateOverrideTable(
 
 function installOverrideHook(contents: string): string {
   const callPattern = new RegExp(`^\\s*call\\s+${OVERRIDE_ROUTINE}\\b`, "m");
+  const hasMarker = contents.includes(ENGINE_MARKER);
   if (callPattern.test(contents)) {
-    if (!contents.includes(ENGINE_MARKER)) {
+    if (!hasMarker) {
       throw new Error(
         `${TRAINER_PIC_ENGINE_PATH} already calls ${OVERRIDE_ROUTINE}, but the hook is not owned by Yellow Editor. The existing custom code was left untouched.`,
       );
     }
     return contents;
+  }
+  if (hasMarker) {
+    throw new Error(
+      `${TRAINER_PIC_ENGINE_PATH} contains an incomplete Yellow Editor portrait override hook.`,
+    );
   }
 
   const nl = newlineFor(contents);
