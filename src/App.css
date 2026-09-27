@@ -1173,3 +1173,47 @@ pre {
   gap: 8px;
 }
 
+
+
+.pokemon-edit-table select,
+.pokemon-edit-table input {
+  width: 100%;
+  min-width: 120px;
+}
+
+.pokemon-edit-table td:last-child {
+  width: 88px;
+  text-align: right;
+}
+
+.pokemon-dex-edit-lines {
+  max-width: none;
+}
+
+.pokemon-dex-edit-line {
+  display: grid;
+  grid-template-columns: 90px minmax(220px, 1fr) 54px auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.pokemon-dex-edit-line select,
+.pokemon-dex-edit-line input {
+  width: 100%;
+  min-width: 0;
+}
+
+.pokemon-add-row {
+  margin-top: 10px;
+}
+
+@media (max-width: 680px) {
+  .pokemon-dex-edit-line {
+    grid-template-columns: 90px minmax(0, 1fr);
+  }
+
+  .pokemon-dex-edit-line .help-text,
+  .pokemon-dex-edit-line button {
+    width: fit-content;
+  }
+}

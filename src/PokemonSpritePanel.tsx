@@ -1,31 +1,17 @@
 import { useEffect, useRef, useState } from "react";
-import { convertFileSrc, invoke } from "./platform/compat";
-
-interface PokemonPaletteOption {
-  source: "cgb" | "sgb";
-  label: string;
-  colors: [string, string, string, string];
-}
-
-interface PokemonPaletteData {
-  constant: string;
-  dexNumber: number;
-  options: PokemonPaletteOption[];
-}
+import type { PokemonEditDocument } from "./core/types";
+import type { PokemonDraft } from "./editor/pokemonForm";
+import { convertFileSrc } from "./platform/compat";
 
 type Palette = [string, string, string, string];
+type PaletteSource = "cgb" | "sgb" | "grayscale" | "dmg";
 
-const PALETTE_PRESETS: { name: string; colors: Palette }[] = [
-  { name: "Grayscale", colors: ["#ffffff", "#aaaaaa", "#555555", "#000000"] },
-  { name: "DMG Green", colors: ["#e0f8cf", "#86c06c", "#306850", "#071821"] },
-];
+const GRAYSCALE: Palette = ["#ffffff", "#aaaaaa", "#555555", "#000000"];
+const DMG: Palette = ["#e0f8cf", "#86c06c", "#306850", "#071821"];
 
 function hexToRgb(hex: string) {
   const value = hex.replace("#", "");
-  if (!/^[0-9a-fA-F]{6}$/.test(value)) {
-    return { r: 0, g: 0, b: 0 };
-  }
-
+  if (!/^[0-9a-fA-F]{6}$/.test(value)) return { r: 0, g: 0, b: 0 };
   return {
     r: Number.parseInt(value.slice(0, 2), 16),
     g: Number.parseInt(value.slice(2, 4), 16),
@@ -47,77 +33,48 @@ function SpritePreview({
 
   useEffect(() => {
     setFallback(false);
-
-    if (!src || !canvasRef.current) {
-      return;
-    }
+    if (!src || !canvasRef.current) return;
 
     let cancelled = false;
     const image = new Image();
-    const resolvedSrc = convertFileSrc(src);
-
     image.onload = () => {
-      if (cancelled) {
-        return;
-      }
-
+      if (cancelled) return;
       const canvas = canvasRef.current;
-      if (!canvas) {
-        return;
-      }
-
+      if (!canvas) return;
       try {
         canvas.width = image.naturalWidth || image.width;
         canvas.height = image.naturalHeight || image.height;
-
         const context = canvas.getContext("2d", { willReadFrequently: true });
         if (!context) {
           setFallback(true);
           return;
         }
-
         context.imageSmoothingEnabled = false;
         context.clearRect(0, 0, canvas.width, canvas.height);
         context.drawImage(image, 0, 0);
-
         const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
         const colors = palette.map(hexToRgb);
-
-        for (let i = 0; i < imageData.data.length; i += 4) {
-          if (imageData.data[i + 3] === 0) {
-            continue;
-          }
-
+        for (let index = 0; index < imageData.data.length; index += 4) {
+          if (imageData.data[index + 3] === 0) continue;
           const luminance =
-            imageData.data[i] * 0.2126 +
-            imageData.data[i + 1] * 0.7152 +
-            imageData.data[i + 2] * 0.0722;
+            imageData.data[index] * 0.2126 +
+            imageData.data[index + 1] * 0.7152 +
+            imageData.data[index + 2] * 0.0722;
           const shade = Math.max(0, Math.min(3, Math.round((255 - luminance) / 85)));
           const color = colors[shade];
-
-          imageData.data[i] = color.r;
-          imageData.data[i + 1] = color.g;
-          imageData.data[i + 2] = color.b;
+          imageData.data[index] = color.r;
+          imageData.data[index + 1] = color.g;
+          imageData.data[index + 2] = color.b;
         }
-
         context.putImageData(imageData, 0, 0);
       } catch {
         setFallback(true);
       }
     };
-
     image.onerror = () => {
-      if (!cancelled) {
-        setFallback(true);
-      }
+      if (!cancelled) setFallback(true);
     };
-
-    // Install the handlers before assigning src. Desktop Tauri serves project
-    // sprites from in-memory blob URLs, which may finish loading immediately.
-    // Assigning src first can therefore lose the load event and leave the
-    // preview canvas blank.
-    image.src = resolvedSrc;
-
+    image.src = convertFileSrc(src);
     return () => {
       cancelled = true;
       image.onload = null;
@@ -125,173 +82,147 @@ function SpritePreview({
     };
   }, [src, palette]);
 
-  if (!src) {
-    return <div className="sprite-empty">No sprite.</div>;
-  }
-
-  if (fallback) {
-    return <img className="pokemon-sprite" src={convertFileSrc(src)} alt={alt} />;
-  }
-
+  if (!src) return <div className="sprite-empty">No sprite.</div>;
+  if (fallback) return <img className="pokemon-sprite" src={convertFileSrc(src)} alt={alt} />;
   return <canvas ref={canvasRef} className="pokemon-sprite" aria-label={alt} />;
 }
 
 export function PokemonSpritePanel({
-  sourceSlug,
+  document,
+  draft,
   displayName,
   front,
   back,
+  disabled,
+  onSpriteChoiceChange,
+  onPaletteConstantChange,
+  onPaletteColorChange,
 }: {
-  sourceSlug: string;
+  document: PokemonEditDocument;
+  draft: PokemonDraft;
   displayName: string;
   front: string | null;
   back: string | null;
+  disabled: boolean;
+  onSpriteChoiceChange(value: string): void;
+  onPaletteConstantChange(value: string): void;
+  onPaletteColorChange(source: "cgb" | "sgb", index: number, value: string): void;
 }) {
-  const [paletteData, setPaletteData] = useState<PokemonPaletteData | null>(null);
-  const [palette, setPalette] = useState<Palette>(PALETTE_PRESETS[0].colors);
-  const [selection, setSelection] = useState("preset:Grayscale");
-  const [paletteError, setPaletteError] = useState<string | null>(null);
+  const initialSource: PaletteSource = draft.cgbPalette ? "cgb" : draft.sgbPalette ? "sgb" : "grayscale";
+  const [source, setSource] = useState<PaletteSource>(initialSource);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadPalette() {
-      try {
-        const data = await invoke<PokemonPaletteData | null>("get_pokemon_palette", {
-          sourceSlug,
-        });
-
-        if (cancelled) {
-          return;
-        }
-
-        setPaletteData(data);
-        setPaletteError(null);
-
-        const preferred =
-          data?.options.find((option) => option.source === "cgb") ?? data?.options[0];
-
-        if (preferred) {
-          setPalette([...preferred.colors] as Palette);
-          setSelection(`game:${preferred.source}`);
-        } else {
-          setPalette([...PALETTE_PRESETS[0].colors] as Palette);
-          setSelection("preset:Grayscale");
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setPaletteData(null);
-          setPalette([...PALETTE_PRESETS[0].colors] as Palette);
-          setSelection("preset:Grayscale");
-          setPaletteError(String(error));
-        }
-      }
+    if (source === "cgb" && !draft.cgbPalette) {
+      setSource(draft.sgbPalette ? "sgb" : "grayscale");
+    } else if (source === "sgb" && !draft.sgbPalette) {
+      setSource(draft.cgbPalette ? "cgb" : "grayscale");
     }
+  }, [draft.paletteConstant, draft.cgbPalette, draft.sgbPalette, source]);
 
-    void loadPalette();
-    return () => {
-      cancelled = true;
-    };
-  }, [sourceSlug]);
+  const palette: Palette =
+    source === "cgb" && draft.cgbPalette
+      ? draft.cgbPalette
+      : source === "sgb" && draft.sgbPalette
+        ? draft.sgbPalette
+        : source === "dmg"
+          ? DMG
+          : GRAYSCALE;
 
-  function applyGamePalette(option: PokemonPaletteOption) {
-    setPalette([...option.colors] as Palette);
-    setSelection(`game:${option.source}`);
-  }
-
-  function applyPreset(name: string, colors: Palette) {
-    setPalette([...colors] as Palette);
-    setSelection(`preset:${name}`);
-  }
-
-  function updatePaletteColor(index: number, color: string) {
-    setPalette((current) => {
-      const next = [...current] as Palette;
-      next[index] = color;
-      return next;
-    });
-    setSelection("custom");
-  }
+  const selectedSprite = document.options.spriteChoices.find(
+    (choice) => choice.id === draft.spriteChoiceId,
+  );
+  const selectedPalette = document.options.paletteChoices.find(
+    (choice) => choice.constant === draft.paletteConstant,
+  );
+  const editableSource = source === "cgb" || source === "sgb";
+  const savedSpriteChanged = draft.spriteChoiceId !== document.values.spriteChoiceId;
 
   return (
     <section className="editor-card sprite-card">
       <div className="section-heading">
         <div>
-          <h4>Sprites</h4>
-          <p>
-            Preview the sprite using the palette data in the selected disassembly or a custom palette.
-          </p>
+          <h4>Sprites &amp; Palette</h4>
+          <p>Choose a project-defined sprite pair and edit the species palette assignment.</p>
         </div>
         <div className="palette-presets">
-          {paletteData?.options.map((option) => (
-            <button
-              key={option.source}
-              type="button"
-              className={selection === `game:${option.source}` ? "small-button active" : "small-button"}
-              onClick={() => applyGamePalette(option)}
-            >
-              {option.label}
+          {draft.cgbPalette && (
+            <button type="button" className={source === "cgb" ? "small-button active" : "small-button"} onClick={() => setSource("cgb")}>
+              Game Boy Color
             </button>
-          ))}
-          {PALETTE_PRESETS.map((preset) => (
-            <button
-              key={preset.name}
-              type="button"
-              className={selection === `preset:${preset.name}` ? "small-button active" : "small-button"}
-              onClick={() => applyPreset(preset.name, preset.colors)}
-            >
-              {preset.name}
+          )}
+          {draft.sgbPalette && (
+            <button type="button" className={source === "sgb" ? "small-button active" : "small-button"} onClick={() => setSource("sgb")}>
+              Super Game Boy
             </button>
-          ))}
+          )}
+          <button type="button" className={source === "grayscale" ? "small-button active" : "small-button"} onClick={() => setSource("grayscale")}>
+            Grayscale
+          </button>
+          <button type="button" className={source === "dmg" ? "small-button active" : "small-button"} onClick={() => setSource("dmg")}>
+            DMG Green
+          </button>
         </div>
       </div>
 
       <div className="sprite-layout">
         <div className="sprite-preview-grid">
           <figure>
-            <SpritePreview
-              src={front}
-              alt={`${displayName} front sprite`}
-              palette={palette}
-            />
+            <SpritePreview src={front} alt={displayName + " front sprite"} palette={palette} />
             <figcaption>Front</figcaption>
           </figure>
           <figure>
-            <SpritePreview
-              src={back}
-              alt={`${displayName} back sprite`}
-              palette={palette}
-            />
+            <SpritePreview src={back} alt={displayName + " back sprite"} palette={palette} />
             <figcaption>Back</figcaption>
           </figure>
         </div>
 
         <div className="palette-editor">
-          <span className="field-label">Palette</span>
-          {paletteData ? (
+          <label className="editor-field">
+            <span>Sprite Pair</span>
+            <select value={draft.spriteChoiceId} disabled={disabled} onChange={(event) => onSpriteChoiceChange(event.target.value)}>
+              {document.options.spriteChoices.map((choice) => (
+                <option key={choice.id} value={choice.id}>{choice.label}</option>
+              ))}
+            </select>
+          </label>
+          {selectedSprite && (
             <p className="help-text">
-              Game mapping: <code>{paletteData.constant}</code> · Pokédex #{paletteData.dexNumber}
+              <code>{selectedSprite.frontLabel}</code> / <code>{selectedSprite.backLabel}</code>
             </p>
-          ) : (
-            <p className="help-text">No game palette mapping was found for this species.</p>
+          )}
+          {savedSpriteChanged && (
+            <p className="help-text">The preview switches to the new sprite pair after Save.</p>
           )}
 
-          {palette.map((color, index) => (
-            <label key={index} className="palette-row">
-              <span>Shade {index + 1}</span>
-              <input
-                type="color"
-                value={color}
-                onChange={(event) => updatePaletteColor(index, event.target.value)}
-              />
-              <code>{color.toUpperCase()}</code>
-            </label>
-          ))}
+          <label className="editor-field">
+            <span>Palette Mapping</span>
+            <select value={draft.paletteConstant} disabled={disabled} onChange={(event) => onPaletteConstantChange(event.target.value)}>
+              {document.options.paletteChoices.map((choice) => (
+                <option key={choice.constant} value={choice.constant}>{choice.constant}</option>
+              ))}
+            </select>
+          </label>
 
-          {paletteError && <p className="help-text">Palette read error: {paletteError}</p>}
-          <p className="help-text">
-            Game palettes are read from the project. Changing a color here is still preview-only.
+          <p className="shared-warning">
+            Palette constants are shared. Editing these colors changes every Pokémon that uses <code>{draft.paletteConstant}</code>.
           </p>
+
+          {editableSource && selectedPalette ? (
+            palette.map((color, index) => (
+              <label key={index} className="palette-row">
+                <span>Shade {index + 1}</span>
+                <input
+                  type="color"
+                  value={color}
+                  disabled={disabled}
+                  onChange={(event) => onPaletteColorChange(source, index, event.target.value)}
+                />
+                <code>{color.toUpperCase()}</code>
+              </label>
+            ))
+          ) : (
+            <p className="help-text">Grayscale and DMG Green are preview presets only.</p>
+          )}
         </div>
       </div>
     </section>
