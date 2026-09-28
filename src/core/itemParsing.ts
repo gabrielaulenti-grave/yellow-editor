@@ -1,100 +1,8 @@
+import { parseItemConstantDefinitions } from "./itemConstants";
 import type { ItemData, ItemMenuBehavior, ProjectSource } from "./types";
-
-type ItemDefinition = {
-  id: number;
-  constant: string;
-  machineKind: "tm" | "hm" | null;
-  machineNumber: number | null;
-  moveConstant: string | null;
-};
 
 function codeOnly(line: string): string {
   return (line.split(";", 1)[0] || "").trim();
-}
-
-function parseAsmNumber(value: string): number | null {
-  const clean = value.trim();
-  if (/^\$[0-9a-f]+$/i.test(clean)) return Number.parseInt(clean.slice(1), 16);
-  if (/^\d+$/.test(clean)) return Number.parseInt(clean, 10);
-  return null;
-}
-
-function parseItemDefinitions(contents: string): ItemDefinition[] {
-  const result: ItemDefinition[] = [];
-  let currentId = 0;
-  let regularItems = true;
-  let hmNumber = 0;
-  let tmNumber = 0;
-
-  for (const rawLine of contents.split(/\r?\n/)) {
-    const line = codeOnly(rawLine);
-    if (!line) continue;
-
-    const constDef = line.match(/^const_def(?:[ \t]+(.+))?$/);
-    if (constDef) {
-      currentId = constDef[1] ? (parseAsmNumber(constDef[1]) ?? currentId) : 0;
-      continue;
-    }
-
-    const constNext = line.match(/^const_next[ \t]+([^ \t]+)/);
-    if (constNext) {
-      const next = parseAsmNumber(constNext[1]);
-      if (next !== null) currentId = next;
-      continue;
-    }
-
-    if (/^DEF[ \t]+NUM_ITEMS\b/.test(line)) {
-      regularItems = false;
-      continue;
-    }
-
-    if (regularItems) {
-      const item = line.match(/^const[ \t]+([A-Za-z0-9_]+)/);
-      if (item) {
-        const id = currentId;
-        currentId += 1;
-        if (item[1] !== "NO_ITEM") {
-          result.push({
-            id,
-            constant: item[1],
-            machineKind: null,
-            machineNumber: null,
-            moveConstant: null,
-          });
-        }
-        continue;
-      }
-    }
-
-    const hm = line.match(/^add_hm[ \t]+([A-Za-z0-9_]+)/);
-    if (hm) {
-      hmNumber += 1;
-      result.push({
-        id: currentId,
-        constant: `HM_${hm[1]}`,
-        machineKind: "hm",
-        machineNumber: hmNumber,
-        moveConstant: hm[1],
-      });
-      currentId += 1;
-      continue;
-    }
-
-    const tm = line.match(/^add_tm[ \t]+([A-Za-z0-9_]+)/);
-    if (tm) {
-      tmNumber += 1;
-      result.push({
-        id: currentId,
-        constant: `TM_${tm[1]}`,
-        machineKind: "tm",
-        machineNumber: tmNumber,
-        moveConstant: tm[1],
-      });
-      currentId += 1;
-    }
-  }
-
-  return result;
 }
 
 function parseItemNames(contents: string): string[] {
@@ -237,7 +145,7 @@ export async function parseItems(source: ProjectSource): Promise<ItemData[]> {
     source.readText("data/items/tm_prices.asm"),
   ]);
 
-  const definitions = parseItemDefinitions(constantsContents);
+  const definitions = parseItemConstantDefinitions(constantsContents);
   const regularDefinitions = definitions.filter((item) => item.machineKind === null);
   const regularIndex = new Map(regularDefinitions.map((item, index) => [item.id, index]));
   const names = parseItemNames(namesContents);
