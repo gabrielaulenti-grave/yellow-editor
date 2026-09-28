@@ -30,6 +30,7 @@ import {
 } from "./fishingEditing";
 import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import { parseItems } from "./itemParsing";
+import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
 import { enrichTrainerScriptSummaries } from "./trainerScriptSummary";
@@ -59,6 +60,8 @@ import type {
   TrainerClassCreateValues,
   TrainerClassEditValues,
   TrainerPartyEditValues,
+  TmEditDocument,
+  TmEditValues,
 } from "./types";
 
 const REQUIRED_FILES = ["main.asm", "Makefile"];
@@ -379,6 +382,17 @@ export async function createProjectSession(
     getTmhmCompatibility: async (moveConstant) => {
       const index = await getTmhmCompatibilityIndex();
       return index.get(moveConstant) ?? [];
+    },
+    getTmEditDocument: (itemId) => loadTmEditDocument(source, itemId),
+    saveTmEdit: async (document: TmEditDocument, values: TmEditValues) => {
+      const changes = await prepareTmEditWrites(source, document, values);
+      if (changes.length === 0) {
+        return history.getSummary();
+      }
+      const label = `Edit TM${String(document.tmNumber).padStart(2, "0")} ${document.moveConstant} → ${values.moveConstant}`;
+      const result = await history.save(label, changes);
+      tmhmCompatibilityIndexPromise = null;
+      return result;
     },
     getTrainerBaseCatalog,
     getTrainerPresentation: (classConstant, partyNumber) =>
