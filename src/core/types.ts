@@ -196,6 +196,13 @@ export interface ItemData {
   moveConstant: string | null;
 }
 
+export interface PokemonTmhmCompatibilityReference {
+  internalId: number;
+  constant: string;
+  displayName: string;
+  sourceSlug: string;
+}
+
 export type TrainerPartyFormat = "shared-level" | "individual-levels";
 export type TrainerTriggerKind = "sight" | "talk" | "scripted";
 export type TrainerPartyResolution =
@@ -702,6 +709,7 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
   getItems(): Promise<ItemData[]>;
+  getTmhmCompatibility(moveConstant: string): Promise<PokemonTmhmCompatibilityReference[]>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,
