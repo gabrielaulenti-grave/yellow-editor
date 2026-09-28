@@ -14,10 +14,14 @@ interface ItemsTabProps {
   selectedItemId: number | null;
   itemSearch: string;
   affectedPokemon: PokemonTmhmCompatibilityReference[];
+  retainedPokemonIds: number[];
   compatibilityLoading: boolean;
   compatibilityError: string | null;
   onSelectItem(id: number): void;
   onSearchChange(value: string): void;
+  onCompatibilityRetainedChange(internalId: number, retained: boolean): void;
+  onSelectAllCompatibility(): void;
+  onDeselectAllCompatibility(): void;
   onOpenPokemon(internalId: number): void;
 }
 
@@ -52,10 +56,14 @@ export function ItemsTab({
   selectedItemId,
   itemSearch,
   affectedPokemon,
+  retainedPokemonIds,
   compatibilityLoading,
   compatibilityError,
   onSelectItem,
   onSearchChange,
+  onCompatibilityRetainedChange,
+  onSelectAllCompatibility,
+  onDeselectAllCompatibility,
   onOpenPokemon,
 }: ItemsTabProps) {
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
@@ -77,6 +85,11 @@ export function ItemsTab({
   const taughtMove = selectedItem?.moveConstant
     ? moveByConstant.get(selectedItem.moveConstant) ?? null
     : null;
+
+  const retainedPokemon = new Set(retainedPokemonIds);
+  const retainedCount = affectedPokemon.filter((pokemon) =>
+    retainedPokemon.has(pokemon.internalId),
+  ).length;
 
   return (
     <section className="tab-content">
@@ -189,23 +202,71 @@ export function ItemsTab({
                           No Pokémon currently reference this move in their TM/HM compatibility data.
                         </p>
                       ) : (
-                        <div className="item-affected-pokemon-list">
-                          {[...affectedPokemon]
-                            .sort((left, right) => left.displayName.localeCompare(right.displayName))
-                            .map((pokemon) => (
-                              <a
-                                key={pokemon.internalId}
-                                href="#pokemon"
-                                title={`${pokemon.constant} · ${formatHex(pokemon.internalId)}`}
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  onOpenPokemon(pokemon.internalId);
-                                }}
+                        <>
+                          <div className="item-compatibility-selection-summary">
+                            <span>
+                              <strong>{retainedCount}</strong> of {affectedPokemon.length} selected to retain this machine slot
+                            </span>
+                            <div className="item-compatibility-selection-actions">
+                              <button
+                                type="button"
+                                className="small-button"
+                                disabled={retainedCount === affectedPokemon.length}
+                                onClick={onSelectAllCompatibility}
                               >
-                                {pokemon.displayName}
-                              </a>
-                            ))}
-                        </div>
+                                Select all
+                              </button>
+                              <button
+                                type="button"
+                                className="small-button"
+                                disabled={retainedCount === 0}
+                                onClick={onDeselectAllCompatibility}
+                              >
+                                Deselect all
+                              </button>
+                            </div>
+                          </div>
+                          <p className="help-text">
+                            Checked Pokémon are marked to keep this TM/HM slot if the machine is reassigned.
+                            Unchecked Pokémon are marked to lose the slot. Click a Pokémon name to review it first.
+                          </p>
+                          <div className="item-affected-pokemon-list">
+                            {[...affectedPokemon]
+                              .sort((left, right) => left.displayName.localeCompare(right.displayName))
+                              .map((pokemon) => {
+                                const retained = retainedPokemon.has(pokemon.internalId);
+                                return (
+                                  <div
+                                    className={`item-affected-pokemon${retained ? " retained" : ""}`}
+                                    key={pokemon.internalId}
+                                  >
+                                    <label>
+                                      <input
+                                        type="checkbox"
+                                        checked={retained}
+                                        onChange={(event) =>
+                                          onCompatibilityRetainedChange(
+                                            pokemon.internalId,
+                                            event.target.checked,
+                                          )}
+                                      />
+                                      <span>Retain</span>
+                                    </label>
+                                    <a
+                                      href="#pokemon"
+                                      title={`${pokemon.constant} · ${formatHex(pokemon.internalId)}`}
+                                      onClick={(event) => {
+                                        event.preventDefault();
+                                        onOpenPokemon(pokemon.internalId);
+                                      }}
+                                    >
+                                      {pokemon.displayName}
+                                    </a>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </>
                       )}
                     </div>
                   </>
