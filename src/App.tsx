@@ -236,7 +236,7 @@ function App() {
       setTmMoveDraft(document?.moveConstant ?? null);
       setItemCompatibilitySelections((current) => {
         const affectedIds = affected.map((pokemon) => pokemon.internalId);
-        if (!(selectedItem.id in current) || document) {
+        if (!(selectedItem.id in current)) {
           return { ...current, [selectedItem.id]: affectedIds };
         }
         const affectedSet = new Set(affectedIds);
