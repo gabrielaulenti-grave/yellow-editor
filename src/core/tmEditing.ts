@@ -180,6 +180,17 @@ export async function loadTmEditDocument(
     throw new Error("Only existing TMs can be edited. HM editing is not enabled.");
   }
 
+  const duplicateMachine = definitions.find((definition) =>
+    definition.id !== itemId
+    && definition.machineKind !== null
+    && definition.moveConstant === tm.moveConstant,
+  );
+  if (duplicateMachine) {
+    throw new Error(
+      `${tm.moveConstant} is assigned to more than one TM/HM slot. Yellow Editor cannot safely migrate an ambiguous machine assignment yet.`,
+    );
+  }
+
   let affectedPokemon: PokemonTmhmCompatibilityReference[];
   let affectedRows: Array<{
     path: string;
