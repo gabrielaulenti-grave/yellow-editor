@@ -29,6 +29,7 @@ import {
   validateFishingData,
 } from "./fishingEditing";
 import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
+import { parseItems } from "./itemParsing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
 import { enrichTrainerScriptSummaries } from "./trainerScriptSummary";
@@ -330,6 +331,7 @@ export async function createProjectSession(
       return history.save(`Edit Pokémon ${values.displayName}`, changes);
     },
     getMoves: () => parseMoves(source),
+    getItems: () => parseItems(source),
     getTrainerBaseCatalog,
     getTrainerPresentation: (classConstant, partyNumber) =>
       parseTrainerPresentation(source, classConstant, partyNumber),
