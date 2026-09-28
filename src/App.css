@@ -419,6 +419,7 @@ input[readonly] {
 }
 
 .move-browser,
+.item-browser,
 .encounter-browser,
 .trainer-browser {
   display: grid;
@@ -433,6 +434,7 @@ input[readonly] {
 }
 
 .move-list,
+.item-list,
 .encounter-list,
 .trainer-list {
   max-height: 520px;
@@ -443,6 +445,7 @@ input[readonly] {
 }
 
 .move-list button,
+.item-list button,
 .encounter-list button,
 .trainer-list button {
   width: 100%;
@@ -454,6 +457,7 @@ input[readonly] {
 }
 
 .move-list button.active,
+.item-list button.active,
 .encounter-list button.active,
 .trainer-list button.active {
   background: var(--accent-soft);
@@ -461,14 +465,37 @@ input[readonly] {
 }
 
 .move-list p,
+.item-list p,
 .encounter-list p,
 .trainer-list p {
   padding: 10px;
 }
 
-.encounter-list button {
+.encounter-list button,
+.item-list button {
   display: grid;
   gap: 2px;
+}
+
+.item-list button small {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.item-source-details {
+  margin-top: 18px;
+}
+
+.item-source-details summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.item-source-details ul {
+  display: grid;
+  gap: 6px;
+  padding-left: 1.2rem;
 }
 
 .trainer-list button {
@@ -856,6 +883,7 @@ pre {
 
   .sprite-layout,
   .move-browser,
+  .item-browser,
   .encounter-browser,
   .trainer-browser,
   .super-rod-browser {
