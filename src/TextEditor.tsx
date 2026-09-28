@@ -5,9 +5,11 @@ import {
   TEXT_BOX_LINE_WIDTH,
   textDocumentDisplayPreview,
   textDocumentSegmentMetrics,
+  textSegmentsDisplayParts,
   type TextDocument,
   type TextSegment,
   type TextSegmentControl,
+  type TextTerminator,
 } from "./core/textEditing";
 import { invoke } from "./platform/compat";
 import "./TextEditor.css";
@@ -22,6 +24,9 @@ interface TextEditorProps {
   target: TextEditorTarget | null;
   initialText: string | null;
   disabled?: boolean;
+  controlledSegments?: TextSegment[];
+  controlledTerminator?: TextTerminator;
+  onControlledSegmentsChange?(segments: TextSegment[]): void;
   onSaved?(history: HistorySummary): void;
 }
 
@@ -47,6 +52,9 @@ export function TextEditor({
   target,
   initialText,
   disabled = false,
+  controlledSegments,
+  controlledTerminator = null,
+  onControlledSegmentsChange,
   onSaved,
 }: TextEditorProps) {
   const [open, setOpen] = useState(false);
@@ -56,16 +64,54 @@ export function TextEditor({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const controlled = Boolean(controlledSegments && onControlledSegmentsChange);
+  const workingDocument = document && document.terminator === "dex"
+    ? {
+        ...document,
+        displayParts: textSegmentsDisplayParts(draft),
+      }
+    : document;
   const dirty = Boolean(document && !sameSegments(draft, document.segments));
-  const segmentMetrics = document
-    ? textDocumentSegmentMetrics(document, draft)
+  const segmentMetrics = workingDocument
+    ? textDocumentSegmentMetrics(workingDocument, draft)
     : draft.map(() => ({ width: 0, maxWidth: TEXT_BOX_LINE_WIDTH, error: null }));
   const lineErrors = segmentMetrics.map((metric) => metric.error);
-  const hasLineErrors = lineErrors.some(Boolean);
+  const dexStructureError = workingDocument?.terminator === "dex" && (
+    draft.length === 0
+    || draft[0]?.control !== "text"
+    || draft.some((segment) => !["text", "next", "page"].includes(segment.control))
+  );
+  const hasLineErrors = lineErrors.some(Boolean) || dexStructureError;
 
   useEffect(() => {
     setPreview(initialText);
   }, [initialText]);
+
+  useEffect(() => {
+    if (!controlled || !controlledSegments) return;
+    const segments = controlledSegments.map((segment) => ({ ...segment }));
+    const localDocument: TextDocument = {
+      path: target?.path ?? "",
+      label: target?.label ?? title,
+      sourceHash: "",
+      segments,
+      displayParts: textSegmentsDisplayParts(segments),
+      terminator: controlledTerminator,
+      editable: true,
+      warnings: [],
+    };
+    setDocument(localDocument);
+    if (!open) setDraft(segments);
+    setPreview(textDocumentDisplayPreview(localDocument, segments));
+  }, [
+    controlled,
+    controlledSegments,
+    controlledTerminator,
+    open,
+    target?.path,
+    target?.label,
+    title,
+  ]);
 
   useEffect(() => {
     if (initialText !== null || !target) return;
@@ -117,12 +163,32 @@ export function TextEditor({
   }, [document?.path, document?.label]);
 
   async function beginEdit() {
-    if (!target || disabled) {
+    if ((!target && !controlled) || disabled) {
       return;
     }
     setOpen(true);
-    setBusy(true);
     setError(null);
+
+    if (controlled && controlledSegments) {
+      const segments = controlledSegments.map((segment) => ({ ...segment }));
+      const next: TextDocument = {
+        path: target?.path ?? "",
+        label: target?.label ?? title,
+        sourceHash: "",
+        segments,
+        displayParts: textSegmentsDisplayParts(segments),
+        terminator: controlledTerminator,
+        editable: true,
+        warnings: [],
+      };
+      setDocument(next);
+      setDraft(segments);
+      setPreview(textDocumentDisplayPreview(next, segments));
+      return;
+    }
+
+    if (!target) return;
+    setBusy(true);
     try {
       const next = await invoke<TextDocument>("get_text_document", {
         path: target.path,
@@ -156,10 +222,40 @@ export function TextEditor({
     ));
   }
 
+  function updateSegmentControl(index: number, control: TextSegmentControl) {
+    setDraft((current) => current.map((segment, segmentIndex) =>
+      segmentIndex === index ? { ...segment, control } : segment,
+    ));
+  }
+
+  function removeSegment(index: number) {
+    setDraft((current) => current.filter((_, segmentIndex) => segmentIndex !== index));
+  }
+
+  function addDexSegment() {
+    setDraft((current) => [...current, { control: "next", text: "" }]);
+  }
+
   async function save() {
     if (!document || !document.editable || !dirty || hasLineErrors) {
       return;
     }
+
+    const savedSegments = draft.map((segment) => ({ ...segment }));
+    if (controlled && onControlledSegmentsChange) {
+      onControlledSegmentsChange(savedSegments);
+      const nextDocument = {
+        ...document,
+        segments: savedSegments,
+        displayParts: textSegmentsDisplayParts(savedSegments),
+      };
+      setDocument(nextDocument);
+      setDraft(savedSegments);
+      setPreview(textDocumentDisplayPreview(nextDocument, savedSegments));
+      setOpen(false);
+      return;
+    }
+
     setBusy(true);
     setError(null);
     try {
@@ -169,7 +265,6 @@ export function TextEditor({
         sourceHash: document.sourceHash,
         segments: draft,
       });
-      const savedSegments = draft.map((segment) => ({ ...segment }));
       setDocument({ ...document, segments: savedSegments });
       setDraft(savedSegments);
       setPreview(textDocumentDisplayPreview(document, savedSegments));
@@ -191,7 +286,7 @@ export function TextEditor({
     <div className="text-editor-summary">
       <div className="text-editor-summary-heading">
         <strong>{title}</strong>
-        {target && (
+        {(target || controlled) && (
           <button className="small-button" type="button" disabled={disabled} onClick={() => void beginEdit()}>
             Edit text
           </button>
@@ -234,11 +329,36 @@ export function TextEditor({
                     const width = metric?.width ?? 0;
                     const maxWidth = metric?.maxWidth ?? TEXT_BOX_LINE_WIDTH;
                     const lineError = lineErrors[index];
+                    const dexMode = document.terminator === "dex";
                     return (
-                      <label className={`text-editor-segment${lineError ? " invalid" : ""}`} key={`${segment.control}:${index}`}>
+                      <label className={`text-editor-segment${lineError ? " invalid" : ""}`} key={`${index}:${segment.control}`}>
                         <span className="text-editor-segment-heading">
-                          <span>{controlLabel(segment.control)}</span>
-                          <small>{width} / {maxWidth}</small>
+                          {dexMode ? (
+                            <select
+                              value={segment.control}
+                              disabled={busy || !document.editable}
+                              onChange={(event) => updateSegmentControl(index, event.target.value as TextSegmentControl)}
+                            >
+                              <option value="text">Start text</option>
+                              <option value="next">Next line</option>
+                              <option value="page">New Pokédex page</option>
+                            </select>
+                          ) : (
+                            <span>{controlLabel(segment.control)}</span>
+                          )}
+                          <span className="text-editor-segment-meta">
+                            <small>{width} / {maxWidth}</small>
+                            {dexMode && (
+                              <button
+                                type="button"
+                                className="small-button danger-action"
+                                disabled={busy || !document.editable || draft.length <= 1}
+                                onClick={() => removeSegment(index)}
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </span>
                         </span>
                         <textarea
                           rows={2}
@@ -253,9 +373,27 @@ export function TextEditor({
                   })}
                 </div>
 
+                {document.terminator === "dex" && (
+                  <>
+                    <button
+                      type="button"
+                      className="small-button text-editor-add-segment"
+                      disabled={busy || !document.editable}
+                      onClick={addDexSegment}
+                    >
+                      Add text line
+                    </button>
+                    {dexStructureError && (
+                      <small className="text-editor-line-error">
+                        Pokédex text must begin with Start text and may only use Start text, Next line, or New Pokédex page.
+                      </small>
+                    )}
+                  </>
+                )}
+
                 <div className="text-editor-preview-card">
                   <strong>Combined preview</strong>
-                  <p>{textDocumentDisplayPreview(document, draft)}</p>
+                  <p>{textDocumentDisplayPreview(workingDocument ?? document, draft)}</p>
                 </div>
 
                 <div className="text-editor-actions">
@@ -266,7 +404,7 @@ export function TextEditor({
                     disabled={busy || !document.editable || !dirty || hasLineErrors}
                     onClick={() => void save()}
                   >
-                    {busy ? "Saving…" : "Save text"}
+                    {busy ? "Saving…" : controlled ? "Apply text" : "Save text"}
                   </button>
                 </div>
               </>
