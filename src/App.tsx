@@ -6,6 +6,7 @@ import type {
   EncounterVersion,
   FishingEditDocument,
   HistorySummary,
+  ItemData,
   MoveData,
   PokemonEditDocument,
   PokemonDetails,
@@ -21,6 +22,7 @@ import type {
 import { BuildTestTab } from "./BuildTestTab";
 import { EncountersTab, type EncounterSection } from "./EncountersTab";
 import { EditorToolbar } from "./EditorToolbar";
+import { ItemsTab } from "./ItemsTab";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
 import { TrainersTab, type TrainerSection } from "./TrainersTab";
@@ -77,7 +79,7 @@ import {
 import { invoke, open } from "./platform/compat";
 import "./App.css";
 
-type Tab = "pokemon" | "moves" | "trainers" | "encounters" | "build";
+type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -89,6 +91,9 @@ function App() {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
+  const [items, setItems] = useState<ItemData[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [itemSearch, setItemSearch] = useState("");
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -528,9 +533,10 @@ function App() {
 
       const result = await invoke<ProjectInfo>("open_project", { path: selected });
 
-      const [index, moveData, encounterData, fishingResult, history, trainerBaseResult] = await Promise.all([
+      const [index, moveData, itemData, encounterData, fishingResult, history, trainerBaseResult] = await Promise.all([
         invoke<PokemonIndexEntry[]>("get_pokemon_index", { projectPath: result.path }),
         invoke<MoveData[]>("get_moves", { projectPath: result.path }),
+        invoke<ItemData[]>("get_items", { projectPath: result.path }),
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         invoke<FishingEditDocument>("get_fishing")
           .then((document) => ({ document, error: null }))
@@ -544,6 +550,7 @@ function App() {
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
+      setItems(itemData);
       clearTrainerEditor();
       if (trainerBaseResult.catalog) {
         installTrainerCatalog(trainerBaseResult.catalog);
@@ -560,6 +567,8 @@ function App() {
       setFishingError(fishingResult.error);
       setSelectedMoveId(moveData[0]?.id ?? null);
       setMoveSearch("");
+      setSelectedItemId(itemData[0]?.id ?? null);
+      setItemSearch("");
       setTrainerSearch("");
       setTrainerClassSearch("");
       setTrainerSection("parties");
@@ -598,11 +607,13 @@ function App() {
       setProject(null);
       setPokemonIndex([]);
       setMoves([]);
+      setItems([]);
       clearTrainerEditor();
       setEncounters([]);
       clearPokemonEditor();
       clearEncounterEditor();
       setSelectedMoveId(null);
+      setSelectedItemId(null);
       setHistorySummary(null);
       setProjectLoadProgress(null);
       setStatus(String(error));
@@ -1336,6 +1347,12 @@ function App() {
           Moves
         </button>
         <button
+          className={activeTab === "items" ? "active" : ""}
+          onClick={() => void selectTab("items")}
+        >
+          Items
+        </button>
+        <button
           className={activeTab === "trainers" ? "active" : ""}
           onClick={() => void selectTab("trainers")}
         >
@@ -1380,6 +1397,18 @@ function App() {
           moveSearch={moveSearch}
           onSelectMove={setSelectedMoveId}
           onSearchChange={setMoveSearch}
+        />
+      )}
+
+      {activeTab === "items" && (
+        <ItemsTab
+          project={project}
+          items={items}
+          moves={moves}
+          selectedItemId={selectedItemId}
+          itemSearch={itemSearch}
+          onSelectItem={setSelectedItemId}
+          onSearchChange={setItemSearch}
         />
       )}
 
