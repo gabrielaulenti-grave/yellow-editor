@@ -204,6 +204,10 @@ export async function loadTmEditDocument(
       path: ITEM_CONSTANTS_PATH,
       sourceHash: await hashText(itemConstantsContents),
     },
+    {
+      path: MOVE_CONSTANTS_PATH,
+      sourceHash: await hashText(moveConstantsContents),
+    },
     ...await Promise.all(affectedRows.map(async ({ path, contents }) => ({
       path,
       sourceHash: await hashText(contents),
