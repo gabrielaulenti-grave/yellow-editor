@@ -121,3 +121,34 @@
 .text-editor-actions {
   justify-content: flex-end;
 }
+
+
+.text-editor-segment-heading select {
+  min-width: 170px;
+}
+
+.text-editor-segment-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.text-editor-add-segment {
+  width: fit-content;
+}
+
+@media (max-width: 560px) {
+  .text-editor-segment-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .text-editor-segment-heading select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .text-editor-segment-meta {
+    justify-content: space-between;
+  }
+}

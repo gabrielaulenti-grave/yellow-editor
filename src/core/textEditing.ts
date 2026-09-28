@@ -157,9 +157,23 @@ export function textLineLengthError(
   return textRowLengthError(textLineDisplayWidth(value), maxWidth);
 }
 
+export function textSegmentsDisplayParts(segments: TextSegment[]): TextDisplayPart[] {
+  const displayParts: TextDisplayPart[] = [];
+  for (const [segmentIndex, segment] of segments.entries()) {
+    if (segment.control === "next" || segment.control === "line" || segment.control === "cont") {
+      displayParts.push({ type: "break", kind: "line" });
+    } else if (segment.control === "para" || segment.control === "page") {
+      displayParts.push({ type: "break", kind: "paragraph" });
+    }
+    displayParts.push({ type: "segment", segmentIndex });
+  }
+  return displayParts;
+}
+
 function textSegmentMetrics(
   displayParts: TextDisplayPart[],
   segments: TextSegment[],
+  terminator: TextTerminator = null,
 ): TextSegmentMetric[] {
   const metrics = segments.map((): TextSegmentMetric => ({
     width: 0,
@@ -167,6 +181,7 @@ function textSegmentMetrics(
     error: null,
   }));
 
+  const dexMode = terminator === "dex";
   let rowWidth = 0;
   let rowMaxWidth = TEXT_BOX_LINE_WIDTH;
   let rowSegments: number[] = [];
@@ -190,9 +205,11 @@ function textSegmentMetrics(
   for (const part of displayParts) {
     if (part.type === "break") {
       flushRow();
-      rowMaxWidth = part.kind === "line"
-        ? TEXT_BOX_BOTTOM_LINE_WIDTH
-        : TEXT_BOX_LINE_WIDTH;
+      rowMaxWidth = dexMode
+        ? TEXT_BOX_LINE_WIDTH
+        : part.kind === "line"
+          ? TEXT_BOX_BOTTOM_LINE_WIDTH
+          : TEXT_BOX_LINE_WIDTH;
       continue;
     }
 
@@ -215,10 +232,10 @@ function textSegmentMetrics(
 }
 
 export function textDocumentSegmentMetrics(
-  document: Pick<TextDocument, "displayParts" | "segments">,
+  document: Pick<TextDocument, "displayParts" | "segments" | "terminator">,
   segments: TextSegment[] = document.segments,
 ): TextSegmentMetric[] {
-  return textSegmentMetrics(document.displayParts, segments);
+  return textSegmentMetrics(document.displayParts, segments, document.terminator);
 }
 
 function findLabelRange(lines: string[], label: string): LabelRange {
@@ -524,6 +541,44 @@ export async function parseTextDocument(
   };
 }
 
+function validateDexStructure(segments: TextSegment[]): void {
+  if (segments.length === 0 || segments[0].control !== "text") {
+    throw new Error("Pokédex text must begin with a text line.");
+  }
+  for (const segment of segments) {
+    if (!["text", "next", "page"].includes(segment.control)) {
+      throw new Error("Pokédex entries only support text, next, and page text controls.");
+    }
+    if (/\r|\n/.test(segment.text)) {
+      throw new Error(
+        "A single text segment cannot contain a raw line break. Use the text-flow controls instead.",
+      );
+    }
+  }
+}
+
+function rewriteDexTextBlock(
+  lines: string[],
+  range: LabelRange,
+  segments: TextSegment[],
+): void {
+  validateDexStructure(segments);
+
+  const firstTextLine = lines.slice(range.start + 1, range.end)
+    .map((line) => line.match(TEXT_LINE_PATTERN))
+    .find((match): match is RegExpMatchArray => Boolean(match));
+  const terminatorLine = lines.slice(range.start + 1, range.end)
+    .find((line) => /^\s*dex\b/i.test(line));
+  const indent = firstTextLine?.[1] ?? "\t";
+  const terminatorIndent = terminatorLine?.match(/^(\s*)/)?.[1] ?? indent;
+
+  const replacement = segments.map(
+    (segment) => `${indent}${segment.control} "${encodeAsmString(segment.text)}"`,
+  );
+  replacement.push(`${terminatorIndent}dex`);
+  lines.splice(range.start + 1, range.end - range.start - 1, ...replacement);
+}
+
 export function applyTextDocumentEdits(
   contents: string,
   label: string,
@@ -539,16 +594,27 @@ export function applyTextDocumentEdits(
       `Text label '${label}' contains commands Yellow Editor does not edit safely yet.`,
     );
   }
-  if (segments.length !== current.segments.length) {
-    throw new Error(
-      `Text label '${label}' changed structure while it was being edited. Reload it before saving.`,
-    );
-  }
 
-  const metrics = textSegmentMetrics(current.displayParts, segments);
+  const displayParts = current.terminator === "dex"
+    ? textSegmentsDisplayParts(segments)
+    : current.displayParts;
+  const metrics = textSegmentMetrics(displayParts, segments, current.terminator);
   const firstMetricError = metrics.find((metric) => metric.error)?.error;
   if (firstMetricError) {
     throw new Error(`${firstMetricError} Shorten the affected displayed row before saving.`);
+  }
+
+  const sameStructure = segments.length === current.segments.length
+    && segments.every((segment, index) => segment.control === current.segments[index]?.control);
+
+  if (!sameStructure) {
+    if (current.terminator !== "dex") {
+      throw new Error(
+        `Text label '${label}' changed structure while it was being edited. Reload it before saving.`,
+      );
+    }
+    rewriteDexTextBlock(lines, range, segments);
+    return lines.join(newline);
   }
 
   let segmentIndex = 0;
