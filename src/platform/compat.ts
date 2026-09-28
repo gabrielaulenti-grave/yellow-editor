@@ -462,6 +462,9 @@ export async function invoke<T>(
     case "get_moves":
       return (await session.getMoves()) as T;
 
+    case "get_items":
+      return (await session.getItems()) as T;
+
     case "get_trainer_base_catalog":
       return (await requireProgressiveTrainerSession(session).getTrainerBaseCatalog()) as T;
 
