@@ -483,6 +483,46 @@ input[readonly] {
   font-size: 0.78rem;
 }
 
+.item-compatibility-warning {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #c58a1f;
+  border-radius: 8px;
+  background: rgba(197, 138, 31, 0.09);
+}
+
+.item-compatibility-warning > p {
+  margin: 0;
+}
+
+.item-compatibility-error {
+  margin: 0;
+}
+
+.item-affected-pokemon-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.item-affected-pokemon-list a {
+  display: inline-block;
+  padding: 4px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 0.84rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.item-affected-pokemon-list a:hover,
+.item-affected-pokemon-list a:focus-visible {
+  text-decoration: underline;
+}
+
 .item-source-details {
   margin-top: 18px;
 }
