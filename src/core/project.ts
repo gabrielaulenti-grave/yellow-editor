@@ -383,7 +383,14 @@ export async function createProjectSession(
       const index = await getTmhmCompatibilityIndex();
       return index.get(moveConstant) ?? [];
     },
-    getTmEditDocument: (itemId) => loadTmEditDocument(source, itemId),
+    getTmEditDocument: (itemId) => loadTmEditDocument(
+      source,
+      itemId,
+      async (moveConstant) => {
+        const index = await getTmhmCompatibilityIndex();
+        return index.get(moveConstant) ?? [];
+      },
+    ),
     saveTmEdit: async (document: TmEditDocument, values: TmEditValues) => {
       const changes = await prepareTmEditWrites(source, document, values);
       if (changes.length === 0) {
