@@ -1,4 +1,5 @@
 import { hashText } from "./history";
+import { tmhmMoveOptions } from "./itemConstants";
 import type {
   Evolution,
   LearnsetMove,
@@ -255,19 +256,6 @@ function moveConstants(contents: string): string[] {
 
 function items(contents: string): string[] {
   return consts(contents.split("DEF NUM_ITEMS", 1)[0] || contents).filter((constant) => constant !== "NO_ITEM");
-}
-
-function tmhmOptions(contents: string): string[] {
-  const tms: string[] = [];
-  const hms: string[] = [];
-  for (const line of contents.split(/\r?\n/)) {
-    const clean = codeOnly(line);
-    const tm = clean.match(/^add_tm[ \t]+([A-Za-z0-9_]+)/);
-    const hm = clean.match(/^add_hm[ \t]+([A-Za-z0-9_]+)/);
-    if (tm) tms.push(tm[1]);
-    if (hm) hms.push(hm[1]);
-  }
-  return tms.concat(hms);
 }
 
 function nameRows(contents: string): string[] {
@@ -631,7 +619,7 @@ export async function loadPokemonEditDocument(
       (constant) => constant !== "NO_MON" && !SPECIAL_POKEMON_CONSTANTS.has(constant),
     ),
     items: items(byPath.get("constants/item_constants.asm")!),
-    tmhmMoves: tmhmOptions(byPath.get("constants/item_constants.asm")!),
+    tmhmMoves: tmhmMoveOptions(byPath.get("constants/item_constants.asm")!),
     spriteChoices: sprites,
     paletteChoices: palettes,
   };
