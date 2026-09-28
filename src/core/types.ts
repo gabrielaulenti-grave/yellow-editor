@@ -179,6 +179,23 @@ export interface MoveData {
   animationScript: string[];
 }
 
+export type ItemKind = "item" | "key-item" | "tm" | "hm" | "unused";
+
+export type ItemMenuBehavior = "direct" | "party" | "overworld" | "tmhm" | "unusable";
+
+export interface ItemData {
+  id: number;
+  constant: string;
+  name: string;
+  kind: ItemKind;
+  price: number | null;
+  keyItem: boolean;
+  useRoutine: string | null;
+  menuBehavior: ItemMenuBehavior;
+  machineNumber: number | null;
+  moveConstant: string | null;
+}
+
 export type TrainerPartyFormat = "shared-level" | "individual-levels";
 export type TrainerTriggerKind = "sight" | "talk" | "scripted";
 export type TrainerPartyResolution =
@@ -684,6 +701,7 @@ export interface ProjectSession {
     values: PokemonEditValues,
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
+  getItems(): Promise<ItemData[]>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,
