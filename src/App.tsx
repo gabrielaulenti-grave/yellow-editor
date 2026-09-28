@@ -1453,6 +1453,13 @@ function App() {
     save: savePokemon,
     revert: revertUnsavedChanges,
   };
+  const tmEditorController: EditorController = {
+    dirty: tmDirty,
+    valid: tmValid,
+    busy: editBusy || itemCompatibilityLoading,
+    save: saveTm,
+    revert: revertTmChanges,
+  };
   const encounterEditorController: EditorController = {
     dirty: encounterSection === "walking" ? encounterDirty : fishingDirty,
     valid: encounterSection === "walking" ? encounterValid : fishingValid,
@@ -1483,13 +1490,15 @@ function App() {
   };
   const editorController = activeTab === "pokemon"
     ? pokemonEditorController
-    : activeTab === "encounters"
-      ? encounterEditorController
-      : activeTab === "trainers"
-        ? trainerSection === "parties"
-          ? trainerPartyEditorController
-          : trainerClassEditorController
-        : readOnlyEditorController;
+    : activeTab === "items" && selectedItem?.kind === "tm"
+      ? tmEditorController
+      : activeTab === "encounters"
+        ? encounterEditorController
+        : activeTab === "trainers"
+          ? trainerSection === "parties"
+            ? trainerPartyEditorController
+            : trainerClassEditorController
+          : readOnlyEditorController;
 
   async function selectTab(nextTab: Tab) {
     if (nextTab === activeTab) {
@@ -1503,6 +1512,9 @@ function App() {
     }
     if (pokemonDirty) {
       await revertUnsavedChanges();
+    }
+    if (tmDirty) {
+      await revertTmChanges();
     }
     if (encounterDirty) {
       await revertEncounterChanges();
