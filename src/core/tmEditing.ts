@@ -164,6 +164,9 @@ function sameNumberSet(left: number[], right: number[]): boolean {
 export async function loadTmEditDocument(
   source: ProjectSource,
   itemId: number,
+  compatibilityResolver?: (
+    moveConstant: string,
+  ) => Promise<PokemonTmhmCompatibilityReference[]>,
 ): Promise<TmEditDocument> {
   const [itemConstantsContents, moveConstantsContents, pokemonIndex] = await Promise.all([
     source.readText(ITEM_CONSTANTS_PATH),
@@ -177,27 +180,48 @@ export async function loadTmEditDocument(
     throw new Error("Only existing TMs can be edited. HM editing is not enabled.");
   }
 
-  const pokemon = pokemonIndex.filter(
-    (entry) => entry.kind === "pokemon" && entry.constant && entry.sourceSlug,
-  );
-  const rows = await Promise.all(pokemon.map(async (entry) => {
-    const path = baseStatsPath(entry.sourceSlug as string);
-    const contents = await source.readText(path);
-    return {
-      entry,
-      path,
-      contents,
-      moves: tmhmBlock(contents).moves,
-    };
-  }));
+  let affectedPokemon: PokemonTmhmCompatibilityReference[];
+  let affectedRows: Array<{
+    path: string;
+    contents: string;
+  }>;
 
-  const affectedRows = rows.filter((row) => row.moves.includes(tm.moveConstant as string));
-  const affectedPokemon: PokemonTmhmCompatibilityReference[] = affectedRows.map(({ entry }) => ({
-    internalId: entry.internalId,
-    constant: entry.constant as string,
-    displayName: entry.displayName,
-    sourceSlug: entry.sourceSlug as string,
-  }));
+  if (compatibilityResolver) {
+    affectedPokemon = await compatibilityResolver(tm.moveConstant);
+    affectedRows = await Promise.all(affectedPokemon.map(async (pokemon) => {
+      const path = baseStatsPath(pokemon.sourceSlug);
+      const contents = await source.readText(path);
+      if (!tmhmBlock(contents).moves.includes(tm.moveConstant as string)) {
+        throw new Error(
+          `${pokemon.displayName}'s cached TM/HM compatibility is stale. Reload the project before editing this TM.`,
+        );
+      }
+      return { path, contents };
+    }));
+  } else {
+    const pokemon = pokemonIndex.filter(
+      (entry) => entry.kind === "pokemon" && entry.constant && entry.sourceSlug,
+    );
+    const rows = await Promise.all(pokemon.map(async (entry) => {
+      const path = baseStatsPath(entry.sourceSlug as string);
+      const contents = await source.readText(path);
+      return {
+        entry,
+        path,
+        contents,
+        moves: tmhmBlock(contents).moves,
+      };
+    }));
+
+    const matchingRows = rows.filter((row) => row.moves.includes(tm.moveConstant as string));
+    affectedPokemon = matchingRows.map(({ entry }) => ({
+      internalId: entry.internalId,
+      constant: entry.constant as string,
+      displayName: entry.displayName,
+      sourceSlug: entry.sourceSlug as string,
+    }));
+    affectedRows = matchingRows.map(({ path, contents }) => ({ path, contents }));
+  }
 
   const sources: TmEditSourceDocument[] = [
     {
