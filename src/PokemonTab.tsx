@@ -1,5 +1,4 @@
 import type {
-  PokedexTextLine,
   PokemonDetails,
   PokemonEditDocument,
   PokemonIndexEntry,
@@ -12,6 +11,7 @@ import type {
 } from "./editor/pokemonForm";
 import { formatHex } from "./editor/format";
 import { PokemonSpritePanel } from "./PokemonSpritePanel";
+import { TextEditor } from "./TextEditor";
 
 interface PokemonTabProps {
   project: ProjectInfo | null;
@@ -131,18 +131,6 @@ export function PokemonTab({
     else selected.add(move);
     patch({
       tmhmMoves: document.options.tmhmMoves.filter((option) => selected.has(option)),
-    });
-  }
-
-  function updateDexLine(index: number, values: Partial<PokedexTextLine>) {
-    if (!draft?.pokedex) return;
-    patch({
-      pokedex: {
-        ...draft.pokedex,
-        textLines: draft.pokedex.textLines.map((line, lineIndex) =>
-          lineIndex === index ? { ...line, ...values } : line,
-        ),
-      },
     });
   }
 
@@ -430,55 +418,34 @@ export function PokemonTab({
                 </div>
 
                 <h5>Entry Text</h5>
-                <div className="dex-text-lines pokemon-dex-edit-lines">
-                  {draft.pokedex.textLines.map((line, index) => (
-                    <div key={index} className="pokemon-dex-edit-line">
-                      <select
-                        value={line.kind}
-                        disabled={editBusy}
-                        onChange={(event) => updateDexLine(index, { kind: event.target.value as typeof line.kind })}
-                      >
-                        <option value="text">text</option>
-                        <option value="next">next</option>
-                        <option value="page">page</option>
-                      </select>
-                      <input
-                        value={line.text}
-                        maxLength={18}
-                        disabled={editBusy}
-                        onChange={(event) => updateDexLine(index, { text: event.target.value })}
-                      />
-                      <span className="help-text">{line.text.length}/18</span>
-                      <button
-                        type="button"
-                        className="small-button danger-action"
-                        disabled={editBusy || draft.pokedex!.textLines.length <= 1}
-                        onClick={() => patch({
-                          pokedex: {
-                            ...draft.pokedex!,
-                            textLines: draft.pokedex!.textLines.filter((_, lineIndex) => lineIndex !== index),
-                          },
-                        })}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
+                <div className="pokemon-dex-text-editor">
+                  <TextEditor
+                    title="Pokédex entry text"
+                    target={selectedPokemon.pokedex?.textLabel ? {
+                      path: "data/pokemon/dex_text.asm",
+                      label: selectedPokemon.pokedex.textLabel,
+                    } : null}
+                    initialText={null}
+                    disabled={editBusy}
+                    controlledTerminator="dex"
+                    controlledSegments={draft.pokedex.textLines.map((line) => ({
+                      control: line.kind,
+                      text: line.text,
+                    }))}
+                    onControlledSegmentsChange={(segments) => patch({
+                      pokedex: {
+                        ...draft.pokedex!,
+                        textLines: segments.map((segment) => ({
+                          kind: segment.control as "text" | "next" | "page",
+                          text: segment.text,
+                        })),
+                      },
+                    })}
+                  />
+                  <p className="help-text">
+                    Text edits stay in this Pokémon draft and are saved together with the rest of the species data.
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  className="small-button pokemon-add-row"
-                  disabled={editBusy}
-                  onClick={() => patch({
-                    pokedex: {
-                      ...draft.pokedex!,
-                      textLines: [...draft.pokedex!.textLines, { kind: "next", text: "" }],
-                    },
-                  })}
-                >
-                  Add Text Line
-                </button>
-                <p className="help-text">The first line must use <code>text</code>. Use <code>page</code> where the Pokédex should start a new page.</p>
               </>
             ) : (
               <p className="empty-state">No editable Pokédex data.</p>
