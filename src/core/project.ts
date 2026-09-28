@@ -201,7 +201,7 @@ export async function createProjectSession(
             displayName: entry.displayName,
             sourceSlug: entry.sourceSlug as string,
           };
-          for (const move of moves) {
+          for (const move of new Set(moves)) {
             const list = byMove.get(move) ?? [];
             list.push(reference);
             byMove.set(move, list);
