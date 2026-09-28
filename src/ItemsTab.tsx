@@ -3,6 +3,7 @@ import type {
   MoveData,
   PokemonTmhmCompatibilityReference,
   ProjectInfo,
+  TmEditDocument,
 } from "./core/types";
 import { ReadonlyField } from "./editor/EditorFields";
 import { formatHex } from "./editor/format";
@@ -15,10 +16,14 @@ interface ItemsTabProps {
   itemSearch: string;
   affectedPokemon: PokemonTmhmCompatibilityReference[];
   retainedPokemonIds: number[];
+  tmEditDocument: TmEditDocument | null;
+  tmMoveDraft: string | null;
+  editBusy: boolean;
   compatibilityLoading: boolean;
   compatibilityError: string | null;
   onSelectItem(id: number): void;
   onSearchChange(value: string): void;
+  onTmMoveChange(moveConstant: string): void;
   onCompatibilityRetainedChange(internalId: number, retained: boolean): void;
   onSelectAllCompatibility(): void;
   onDeselectAllCompatibility(): void;
@@ -57,10 +62,14 @@ export function ItemsTab({
   itemSearch,
   affectedPokemon,
   retainedPokemonIds,
+  tmEditDocument,
+  tmMoveDraft,
+  editBusy,
   compatibilityLoading,
   compatibilityError,
   onSelectItem,
   onSearchChange,
+  onTmMoveChange,
   onCompatibilityRetainedChange,
   onSelectAllCompatibility,
   onDeselectAllCompatibility,
@@ -85,6 +94,10 @@ export function ItemsTab({
   const taughtMove = selectedItem?.moveConstant
     ? moveByConstant.get(selectedItem.moveConstant) ?? null
     : null;
+  const replacementMoves = tmEditDocument
+    ? moves.filter((move) => tmEditDocument.replacementMoveConstants.includes(move.constant))
+    : [];
+  const pendingMove = tmMoveDraft ? moveByConstant.get(tmMoveDraft) ?? null : null;
 
   const retainedPokemon = new Set(retainedPokemonIds);
   const retainedCount = affectedPokemon.filter((pokemon) =>
@@ -165,15 +178,62 @@ export function ItemsTab({
                         label={selectedItem.kind === "tm" ? "TM Number" : "HM Number"}
                         value={String(selectedItem.machineNumber ?? "")}
                       />
-                      <ReadonlyField
-                        label="Move Constant"
-                        value={selectedItem.moveConstant ?? "Not resolved"}
-                      />
-                      <ReadonlyField
-                        label="Move Name"
-                        value={taughtMove?.name ?? selectedItem.moveConstant ?? "Not resolved"}
-                      />
+                      {selectedItem.kind === "tm" ? (
+                        <>
+                          <label className="editor-field">
+                            <span>Assigned Move</span>
+                            <select
+                              value={tmMoveDraft ?? selectedItem.moveConstant ?? ""}
+                              disabled={editBusy || compatibilityLoading || !tmEditDocument}
+                              onChange={(event) => onTmMoveChange(event.target.value)}
+                            >
+                              {replacementMoves.map((move) => (
+                                <option key={move.constant} value={move.constant}>
+                                  {move.name} — {move.constant}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <ReadonlyField
+                            label="Move Constant"
+                            value={tmMoveDraft ?? selectedItem.moveConstant ?? "Not resolved"}
+                          />
+                          <ReadonlyField
+                            label="Move Name"
+                            value={pendingMove?.name ?? tmMoveDraft ?? "Not resolved"}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <ReadonlyField
+                            label="Move Constant"
+                            value={selectedItem.moveConstant ?? "Not resolved"}
+                          />
+                          <ReadonlyField
+                            label="Move Name"
+                            value={taughtMove?.name ?? selectedItem.moveConstant ?? "Not resolved"}
+                          />
+                        </>
+                      )}
                     </div>
+                    {selectedItem.kind === "hm" && (
+                      <p className="help-text">
+                        HM editing is intentionally disabled until Yellow Editor can safely migrate
+                        field effects and badge requirements.
+                      </p>
+                    )}
+                    {selectedItem.kind === "tm"
+                      && tmEditDocument
+                      && tmMoveDraft
+                      && tmMoveDraft !== tmEditDocument.moveConstant && (
+                        <div className="item-tm-migration-preview">
+                          <strong>Pending TM migration</strong>
+                          <span>
+                            TM{String(tmEditDocument.tmNumber).padStart(2, "0")} will change from{" "}
+                            <code>{tmEditDocument.moveConstant}</code> to <code>{tmMoveDraft}</code>.
+                          </span>
+                        </div>
+                      )}
                     <p className="help-text">
                       This assignment comes directly from <code>constants/item_constants.asm</code>.
                       Pokémon TM/HM compatibility reads that same table, so machine assignments and
@@ -201,17 +261,17 @@ export function ItemsTab({
                         <p className="help-text">
                           No Pokémon currently reference this move in their TM/HM compatibility data.
                         </p>
-                      ) : (
+                      ) : selectedItem.kind === "tm" ? (
                         <>
                           <div className="item-compatibility-selection-summary">
                             <span>
-                              <strong>{retainedCount}</strong> of {affectedPokemon.length} selected to retain this machine slot
+                              <strong>{retainedCount}</strong> of {affectedPokemon.length} selected to retain this TM slot
                             </span>
                             <div className="item-compatibility-selection-actions">
                               <button
                                 type="button"
                                 className="small-button"
-                                disabled={retainedCount === affectedPokemon.length}
+                                disabled={editBusy || retainedCount === affectedPokemon.length}
                                 onClick={onSelectAllCompatibility}
                               >
                                 Select all
@@ -219,7 +279,7 @@ export function ItemsTab({
                               <button
                                 type="button"
                                 className="small-button"
-                                disabled={retainedCount === 0}
+                                disabled={editBusy || retainedCount === 0}
                                 onClick={onDeselectAllCompatibility}
                               >
                                 Deselect all
@@ -227,8 +287,8 @@ export function ItemsTab({
                             </div>
                           </div>
                           <p className="help-text">
-                            Checked Pokémon are marked to keep this TM/HM slot if the machine is reassigned.
-                            Unchecked Pokémon are marked to lose the slot. Click a Pokémon name to review it first.
+                            Checked Pokémon will keep this TM slot if you save a new assigned move.
+                            Unchecked Pokémon will lose the slot. Click a Pokémon name to review it first.
                           </p>
                           <div className="item-affected-pokemon-list">
                             {[...affectedPokemon]
@@ -244,6 +304,7 @@ export function ItemsTab({
                                       <input
                                         type="checkbox"
                                         checked={retained}
+                                        disabled={editBusy}
                                         onChange={(event) =>
                                           onCompatibilityRetainedChange(
                                             pokemon.internalId,
@@ -265,6 +326,30 @@ export function ItemsTab({
                                   </div>
                                 );
                               })}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="help-text">
+                            These Pokémon currently reference this HM move. HM compatibility is shown
+                            for review only; HM editing is not enabled.
+                          </p>
+                          <div className="item-affected-pokemon-list item-affected-pokemon-links-only">
+                            {[...affectedPokemon]
+                              .sort((left, right) => left.displayName.localeCompare(right.displayName))
+                              .map((pokemon) => (
+                                <a
+                                  key={pokemon.internalId}
+                                  href="#pokemon"
+                                  title={`${pokemon.constant} · ${formatHex(pokemon.internalId)}`}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    onOpenPokemon(pokemon.internalId);
+                                  }}
+                                >
+                                  {pokemon.displayName}
+                                </a>
+                              ))}
                           </div>
                         </>
                       )}
