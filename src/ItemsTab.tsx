@@ -1,4 +1,9 @@
-import type { ItemData, MoveData, ProjectInfo } from "./core/types";
+import type {
+  ItemData,
+  MoveData,
+  PokemonTmhmCompatibilityReference,
+  ProjectInfo,
+} from "./core/types";
 import { ReadonlyField } from "./editor/EditorFields";
 import { formatHex } from "./editor/format";
 
@@ -8,8 +13,12 @@ interface ItemsTabProps {
   moves: MoveData[];
   selectedItemId: number | null;
   itemSearch: string;
+  affectedPokemon: PokemonTmhmCompatibilityReference[];
+  compatibilityLoading: boolean;
+  compatibilityError: string | null;
   onSelectItem(id: number): void;
   onSearchChange(value: string): void;
+  onOpenPokemon(internalId: number): void;
 }
 
 function kindLabel(item: ItemData): string {
@@ -42,8 +51,12 @@ export function ItemsTab({
   moves,
   selectedItemId,
   itemSearch,
+  affectedPokemon,
+  compatibilityLoading,
+  compatibilityError,
   onSelectItem,
   onSearchChange,
+  onOpenPokemon,
 }: ItemsTabProps) {
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
   const moveByConstant = new Map(moves.map((move) => [move.constant, move]));
@@ -153,6 +166,48 @@ export function ItemsTab({
                       Pokémon TM/HM compatibility reads that same table, so machine assignments and
                       compatibility stay tied to one source of truth.
                     </p>
+
+                    <div className="item-compatibility-warning" role="note">
+                      <strong>
+                        Compatibility review
+                        {!compatibilityLoading && !compatibilityError
+                          ? ` — ${affectedPokemon.length} affected Pokémon`
+                          : ""}
+                      </strong>
+                      <p>
+                        If this machine's assigned move changes, every Pokémon currently carrying
+                        the <code>{selectedItem.moveConstant}</code> compatibility flag should be reviewed.
+                      </p>
+                      {compatibilityLoading ? (
+                        <p className="help-text">Cross-referencing Pokémon base stats…</p>
+                      ) : compatibilityError ? (
+                        <p className="item-compatibility-error">
+                          Could not load the compatibility cross-reference: {compatibilityError}
+                        </p>
+                      ) : affectedPokemon.length === 0 ? (
+                        <p className="help-text">
+                          No Pokémon currently reference this move in their TM/HM compatibility data.
+                        </p>
+                      ) : (
+                        <div className="item-affected-pokemon-list">
+                          {[...affectedPokemon]
+                            .sort((left, right) => left.displayName.localeCompare(right.displayName))
+                            .map((pokemon) => (
+                              <a
+                                key={pokemon.internalId}
+                                href="#pokemon"
+                                title={`${pokemon.constant} · ${formatHex(pokemon.internalId)}`}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  onOpenPokemon(pokemon.internalId);
+                                }}
+                              >
+                                {pokemon.displayName}
+                              </a>
+                            ))}
+                        </div>
+                      )}
+                    </div>
                   </>
                 )}
 
