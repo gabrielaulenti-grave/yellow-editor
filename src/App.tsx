@@ -99,6 +99,8 @@ function App() {
     useState<PokemonTmhmCompatibilityReference[]>([]);
   const [itemCompatibilityLoading, setItemCompatibilityLoading] = useState(false);
   const [itemCompatibilityError, setItemCompatibilityError] = useState<string | null>(null);
+  const [itemCompatibilitySelections, setItemCompatibilitySelections] =
+    useState<Record<number, number[]>>({});
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -215,6 +217,17 @@ function App() {
     }).then((affected) => {
       if (cancelled) return;
       setItemAffectedPokemon(affected);
+      setItemCompatibilitySelections((current) => {
+        const affectedIds = affected.map((pokemon) => pokemon.internalId);
+        if (!(selectedItem.id in current)) {
+          return { ...current, [selectedItem.id]: affectedIds };
+        }
+        const affectedSet = new Set(affectedIds);
+        return {
+          ...current,
+          [selectedItem.id]: current[selectedItem.id].filter((id) => affectedSet.has(id)),
+        };
+      });
     }).catch((error) => {
       if (cancelled) return;
       setItemCompatibilityError(String(error));
@@ -617,6 +630,7 @@ function App() {
       setMoveSearch("");
       setSelectedItemId(itemData[0]?.id ?? null);
       setItemSearch("");
+      setItemCompatibilitySelections({});
       setTrainerSearch("");
       setTrainerClassSearch("");
       setTrainerSection("parties");
@@ -662,6 +676,7 @@ function App() {
       clearEncounterEditor();
       setSelectedMoveId(null);
       setSelectedItemId(null);
+      setItemCompatibilitySelections({});
       setHistorySummary(null);
       setProjectLoadProgress(null);
       setStatus(String(error));
@@ -699,6 +714,34 @@ function App() {
     }
     setActiveTab("pokemon");
     await loadPokemon(entry, `${entry.displayName} loaded from the TM/HM compatibility list.`);
+  }
+
+  function setItemCompatibilityRetained(internalId: number, retained: boolean) {
+    if (selectedItemId === null) return;
+    setItemCompatibilitySelections((current) => {
+      const existing = new Set(
+        current[selectedItemId] ?? itemAffectedPokemon.map((pokemon) => pokemon.internalId),
+      );
+      if (retained) existing.add(internalId);
+      else existing.delete(internalId);
+      return { ...current, [selectedItemId]: [...existing] };
+    });
+  }
+
+  function selectAllItemCompatibility() {
+    if (selectedItemId === null) return;
+    setItemCompatibilitySelections((current) => ({
+      ...current,
+      [selectedItemId]: itemAffectedPokemon.map((pokemon) => pokemon.internalId),
+    }));
+  }
+
+  function deselectAllItemCompatibility() {
+    if (selectedItemId === null) return;
+    setItemCompatibilitySelections((current) => ({
+      ...current,
+      [selectedItemId]: [],
+    }));
   }
 
   function changePokemonPaletteConstant(value: string) {
@@ -1466,10 +1509,19 @@ function App() {
           selectedItemId={selectedItemId}
           itemSearch={itemSearch}
           affectedPokemon={itemAffectedPokemon}
+          retainedPokemonIds={
+            selectedItemId === null
+              ? []
+              : itemCompatibilitySelections[selectedItemId]
+                ?? itemAffectedPokemon.map((pokemon) => pokemon.internalId)
+          }
           compatibilityLoading={itemCompatibilityLoading}
           compatibilityError={itemCompatibilityError}
           onSelectItem={setSelectedItemId}
           onSearchChange={setItemSearch}
+          onCompatibilityRetainedChange={setItemCompatibilityRetained}
+          onSelectAllCompatibility={selectAllItemCompatibility}
+          onDeselectAllCompatibility={deselectAllItemCompatibility}
           onOpenPokemon={(internalId) => void openPokemonFromItem(internalId)}
         />
       )}
