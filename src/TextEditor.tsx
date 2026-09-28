@@ -114,7 +114,7 @@ export function TextEditor({
   ]);
 
   useEffect(() => {
-    if (initialText !== null || !target) return;
+    if (controlled || initialText !== null || !target) return;
 
     let cancelled = false;
     void invoke<TextDocument>("get_text_document", {
@@ -131,9 +131,10 @@ export function TextEditor({
     return () => {
       cancelled = true;
     };
-  }, [initialText, target?.path, target?.label]);
+  }, [controlled, initialText, target?.path, target?.label]);
 
   useEffect(() => {
+    if (controlled) return;
     const path = document?.path;
     const label = document?.label;
     if (!path || !label) {
@@ -160,7 +161,7 @@ export function TextEditor({
 
     window.addEventListener("yellow-editor:history-changed", handleHistoryChanged);
     return () => window.removeEventListener("yellow-editor:history-changed", handleHistoryChanged);
-  }, [document?.path, document?.label]);
+  }, [controlled, document?.path, document?.label]);
 
   async function beginEdit() {
     if ((!target && !controlled) || disabled) {
@@ -313,9 +314,15 @@ export function TextEditor({
 
             {document && (
               <>
-                <p className="help-text">
-                  Yellow Editor preserves the existing text flow. Upper dialogue rows have {TEXT_BOX_LINE_WIDTH} character spaces; the bottom row has {TEXT_BOX_BOTTOM_LINE_WIDTH} safe spaces because the continue arrow uses the final cell. The counter includes runtime inserts where their maximum width is known: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names, and common dynamic item/name buffers are reserved automatically. Source terminator <code>@</code> characters are hidden and preserved for you.
-                </p>
+                {document.terminator === "dex" ? (
+                  <p className="help-text">
+                    Pokédex rows have {TEXT_BOX_LINE_WIDTH} character spaces. Use <strong>Next line</strong> for another row on the same page and <strong>New Pokédex page</strong> to begin the next page. The entry must begin with <strong>Start text</strong>.
+                  </p>
+                ) : (
+                  <p className="help-text">
+                    Yellow Editor preserves the existing text flow. Upper dialogue rows have {TEXT_BOX_LINE_WIDTH} character spaces; the bottom row has {TEXT_BOX_BOTTOM_LINE_WIDTH} safe spaces because the continue arrow uses the final cell. The counter includes runtime inserts where their maximum width is known: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names, and common dynamic item/name buffers are reserved automatically. Source terminator <code>@</code> characters are hidden and preserved for you.
+                  </p>
+                )}
                 {document.warnings.length > 0 && (
                   <div className="text-editor-warning">
                     <strong>This text is read-only for now.</strong>
