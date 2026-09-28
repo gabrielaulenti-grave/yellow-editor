@@ -501,26 +501,66 @@ input[readonly] {
   margin: 0;
 }
 
-.item-affected-pokemon-list {
+.item-compatibility-selection-summary {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   flex-wrap: wrap;
+}
+
+.item-compatibility-selection-actions {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.item-affected-pokemon-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 7px;
 }
 
-.item-affected-pokemon-list a {
-  display: inline-block;
-  padding: 4px 7px;
+.item-affected-pokemon {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 7px;
   background: var(--panel);
-  font-size: 0.84rem;
+}
+
+.item-affected-pokemon label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.item-affected-pokemon input[type="checkbox"] {
+  margin: 0;
+}
+
+.item-affected-pokemon a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
   font-weight: 700;
   text-decoration: none;
 }
 
-.item-affected-pokemon-list a:hover,
-.item-affected-pokemon-list a:focus-visible {
+.item-affected-pokemon a:hover,
+.item-affected-pokemon a:focus-visible {
   text-decoration: underline;
+}
+
+.item-affected-pokemon:not(.retained) {
+  opacity: 0.72;
 }
 
 .item-source-details {
