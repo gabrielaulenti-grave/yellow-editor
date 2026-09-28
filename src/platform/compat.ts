@@ -14,6 +14,8 @@ import type {
   TrainerEditSourceDocument,
   TrainerLoadProgressListener,
   TrainerPartyEditValues,
+  TmEditDocument,
+  TmEditValues,
 } from "../core/types";
 import type { ProgressiveTrainerSession } from "../core/project";
 import type {
@@ -280,6 +282,22 @@ function pokemonEditValuesArg(args: InvokeArgs | undefined): PokemonEditValues {
   return value as PokemonEditValues;
 }
 
+function tmEditDocumentArg(args: InvokeArgs | undefined): TmEditDocument {
+  const value = args?.document;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing TM edit document.");
+  }
+  return value as TmEditDocument;
+}
+
+function tmEditValuesArg(args: InvokeArgs | undefined): TmEditValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing TM edit values.");
+  }
+  return value as TmEditValues;
+}
+
 function textChangesArg(args: InvokeArgs | undefined): TextWriteRequest[] {
   const value = args?.changes;
   if (!Array.isArray(value)) {
@@ -468,6 +486,17 @@ export async function invoke<T>(
     case "get_tmhm_compatibility":
       return (await session.getTmhmCompatibility(
         stringArg(args, "moveConstant"),
+      )) as T;
+
+    case "get_tm_edit_document":
+      return (await session.getTmEditDocument(
+        numberArg(args, "itemId"),
+      )) as T;
+
+    case "save_tm_edit":
+      return (await session.saveTmEdit(
+        tmEditDocumentArg(args),
+        tmEditValuesArg(args),
       )) as T;
 
     case "get_trainer_base_catalog":
