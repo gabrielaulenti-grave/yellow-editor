@@ -740,11 +740,36 @@ function App() {
     await loadPokemon(entry);
   }
 
+  function selectItem(itemId: number) {
+    if (itemId === selectedItemId) return;
+    if (
+      tmDirty
+      && !window.confirm("Discard the unsaved TM assignment and switch items?")
+    ) {
+      return;
+    }
+    if (tmEditDocument) {
+      setTmMoveDraft(tmEditDocument.moveConstant);
+    }
+    setSelectedItemId(itemId);
+  }
+
   async function openPokemonFromItem(internalId: number) {
     const entry = pokemonIndex.find((pokemon) => pokemon.internalId === internalId);
     if (!entry?.sourceSlug) {
       setStatus("That Pokémon could not be opened from the TM/HM cross-reference.");
       return;
+    }
+    if (
+      tmDirty
+      && !window.confirm(
+        "Discard the unsaved TM move assignment before opening this Pokémon? Your retain checkboxes will be preserved.",
+      )
+    ) {
+      return;
+    }
+    if (tmEditDocument) {
+      setTmMoveDraft(tmEditDocument.moveConstant);
     }
     setActiveTab("pokemon");
     await loadPokemon(entry, `${entry.displayName} loaded from the TM/HM compatibility list.`);
@@ -784,6 +809,69 @@ function App() {
         ? updatePokemonPaletteConstant(current, pokemonEditDocument, value)
         : current,
     );
+  }
+
+  async function saveTm() {
+    if (
+      !selectedItem
+      || selectedItem.kind !== "tm"
+      || !tmEditDocument
+      || !tmMoveDraft
+      || !tmDirty
+      || !tmValid
+    ) {
+      return;
+    }
+
+    const retainedPokemonIds =
+      itemCompatibilitySelections[selectedItem.id]
+      ?? itemAffectedPokemon.map((pokemon) => pokemon.internalId);
+
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("save_tm_edit", {
+        document: tmEditDocument,
+        values: {
+          moveConstant: tmMoveDraft,
+          retainedPokemonIds,
+        },
+      });
+      setHistorySummary(history);
+
+      const refreshedItems = await invoke<ItemData[]>("get_items");
+      setItems(refreshedItems);
+
+      const previouslySelectedPokemon = selectedPokemonEntry;
+      const selectedPokemonWasAffected = Boolean(
+        previouslySelectedPokemon
+        && tmEditDocument.affectedPokemon.some(
+          (pokemon) => pokemon.internalId === previouslySelectedPokemon.internalId,
+        )
+      );
+      if (selectedPokemonWasAffected && previouslySelectedPokemon) {
+        await loadPokemon(previouslySelectedPokemon, "TM assignment saved successfully.");
+      } else {
+        setStatus(
+          `TM${String(tmEditDocument.tmNumber).padStart(2, "0")} now teaches ${tmMoveDraft}.`,
+        );
+      }
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function revertTmChanges() {
+    if (!tmEditDocument || !tmDirty || editBusy) return;
+    setTmMoveDraft(tmEditDocument.moveConstant);
+    setItemCompatibilitySelections((current) => ({
+      ...current,
+      [tmEditDocument.itemId]: tmEditDocument.affectedPokemon.map(
+        (pokemon) => pokemon.internalId,
+      ),
+    }));
+    setStatus(`Unsaved TM${String(tmEditDocument.tmNumber).padStart(2, "0")} changes reverted.`);
   }
 
   async function savePokemon() {
