@@ -11,6 +11,7 @@ import type {
   PokemonEditDocument,
   PokemonDetails,
   PokemonIndexEntry,
+  PokemonTmhmCompatibilityReference,
   ProjectInfo,
   TrainerCatalog,
   TrainerClassCreateValues,
@@ -94,6 +95,10 @@ function App() {
   const [items, setItems] = useState<ItemData[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [itemSearch, setItemSearch] = useState("");
+  const [itemAffectedPokemon, setItemAffectedPokemon] =
+    useState<PokemonTmhmCompatibilityReference[]>([]);
+  const [itemCompatibilityLoading, setItemCompatibilityLoading] = useState(false);
+  const [itemCompatibilityError, setItemCompatibilityError] = useState<string | null>(null);
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -185,6 +190,44 @@ function App() {
 
   const selectedPokemonEntry =
     pokemonIndex.find((entry) => entry.internalId === selectedPokemonId) ?? null;
+  const selectedItem =
+    items.find((entry) => entry.id === selectedItemId) ?? null;
+
+  useEffect(() => {
+    if (
+      !project
+      || !selectedItem?.moveConstant
+      || (selectedItem.kind !== "tm" && selectedItem.kind !== "hm")
+    ) {
+      setItemAffectedPokemon([]);
+      setItemCompatibilityLoading(false);
+      setItemCompatibilityError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setItemAffectedPokemon([]);
+    setItemCompatibilityLoading(true);
+    setItemCompatibilityError(null);
+
+    void invoke<PokemonTmhmCompatibilityReference[]>("get_tmhm_compatibility", {
+      moveConstant: selectedItem.moveConstant,
+    }).then((affected) => {
+      if (cancelled) return;
+      setItemAffectedPokemon(affected);
+    }).catch((error) => {
+      if (cancelled) return;
+      setItemCompatibilityError(String(error));
+      setItemAffectedPokemon([]);
+    }).finally(() => {
+      if (!cancelled) setItemCompatibilityLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project, selectedItem?.kind, selectedItem?.moveConstant]);
+
   const selectedTrainer =
     trainers.find((trainer) => trainer.id === selectedTrainerId) ?? null;
   const selectedTrainerClassEntry =
@@ -641,6 +684,16 @@ function App() {
     }
 
     await loadPokemon(entry);
+  }
+
+  async function openPokemonFromItem(internalId: number) {
+    const entry = pokemonIndex.find((pokemon) => pokemon.internalId === internalId);
+    if (!entry?.sourceSlug) {
+      setStatus("That Pokémon could not be opened from the TM/HM cross-reference.");
+      return;
+    }
+    setActiveTab("pokemon");
+    await loadPokemon(entry, `${entry.displayName} loaded from the TM/HM compatibility list.`);
   }
 
   function changePokemonPaletteConstant(value: string) {
@@ -1407,8 +1460,12 @@ function App() {
           moves={moves}
           selectedItemId={selectedItemId}
           itemSearch={itemSearch}
+          affectedPokemon={itemAffectedPokemon}
+          compatibilityLoading={itemCompatibilityLoading}
+          compatibilityError={itemCompatibilityError}
           onSelectItem={setSelectedItemId}
           onSearchChange={setItemSearch}
+          onOpenPokemon={(internalId) => void openPokemonFromItem(internalId)}
         />
       )}
 
