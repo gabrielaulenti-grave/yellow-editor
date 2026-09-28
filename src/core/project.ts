@@ -51,6 +51,7 @@ import { parseTrainerPresentation } from "./trainerPresentation";
 import { prepareTrainerPicOverrideWrites } from "./trainerPicOverrideEditing";
 import type {
   BuildService,
+  PokemonTmhmCompatibilityReference,
   ProjectSession,
   ProjectSource,
   TextWriteRequest,
@@ -163,6 +164,7 @@ export async function createProjectSession(
   const trainerBaseSource = createTrainerScanSource(source);
   const trainerCatalogCache = (source as CacheCapableProjectSource).trainerCatalogCache;
   let trainerBaseCatalogPromise: Promise<TrainerCatalog> | null = null;
+  let tmhmCompatibilityIndexPromise: Promise<Map<string, PokemonTmhmCompatibilityReference[]>> | null = null;
   let encounterIndexPromise: ReturnType<typeof parseEncounterIndex> | null = null;
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
   const encounterTablePromises = new Map<
@@ -178,6 +180,41 @@ export async function createProjectSession(
       });
     }
     return trainerBaseCatalogPromise;
+  }
+
+  function getTmhmCompatibilityIndex(): Promise<Map<string, PokemonTmhmCompatibilityReference[]>> {
+    if (!tmhmCompatibilityIndexPromise) {
+      tmhmCompatibilityIndexPromise = (async () => {
+        const pokemon = (await parsePokemonIndex(source)).filter(
+          (entry) => entry.kind === "pokemon" && entry.constant && entry.sourceSlug,
+        );
+        const rows = await Promise.all(pokemon.map(async (entry) => ({
+          entry,
+          moves: await parsePokemonTmhmMoves(source, entry.sourceSlug as string),
+        })));
+        const byMove = new Map<string, PokemonTmhmCompatibilityReference[]>();
+
+        for (const { entry, moves } of rows) {
+          const reference: PokemonTmhmCompatibilityReference = {
+            internalId: entry.internalId,
+            constant: entry.constant as string,
+            displayName: entry.displayName,
+            sourceSlug: entry.sourceSlug as string,
+          };
+          for (const move of moves) {
+            const list = byMove.get(move) ?? [];
+            list.push(reference);
+            byMove.set(move, list);
+          }
+        }
+
+        return byMove;
+      })().catch((error) => {
+        tmhmCompatibilityIndexPromise = null;
+        throw error;
+      });
+    }
+    return tmhmCompatibilityIndexPromise;
   }
 
   function invalidateTrainerBaseCatalog(paths?: string[]): void {
@@ -219,6 +256,9 @@ export async function createProjectSession(
   }
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
+    if (paths.some((path) => path.startsWith("data/pokemon/base_stats/"))) {
+      tmhmCompatibilityIndexPromise = null;
+    }
     if (onlyTrainerBaseFiles(paths)) {
       return;
     }
@@ -328,10 +368,18 @@ export async function createProjectSession(
         sources,
         values,
       );
-      return history.save(`Edit Pokémon ${values.displayName}`, changes);
+      const result = await history.save(`Edit Pokémon ${values.displayName}`, changes);
+      if (changes.some((change) => change.path.startsWith("data/pokemon/base_stats/"))) {
+        tmhmCompatibilityIndexPromise = null;
+      }
+      return result;
     },
     getMoves: () => parseMoves(source),
     getItems: () => parseItems(source),
+    getTmhmCompatibility: async (moveConstant) => {
+      const index = await getTmhmCompatibilityIndex();
+      return index.get(moveConstant) ?? [];
+    },
     getTrainerBaseCatalog,
     getTrainerPresentation: (classConstant, partyNumber) =>
       parseTrainerPresentation(source, classConstant, partyNumber),
