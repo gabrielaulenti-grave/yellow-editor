@@ -19,6 +19,7 @@ import type {
   TrainerEditSourceDocument,
   TrainerLoadProgress,
   TrainerPartyEntry,
+  TmEditDocument,
 } from "./core/types";
 import { BuildTestTab } from "./BuildTestTab";
 import { EncountersTab, type EncounterSection } from "./EncountersTab";
@@ -101,6 +102,8 @@ function App() {
   const [itemCompatibilityError, setItemCompatibilityError] = useState<string | null>(null);
   const [itemCompatibilitySelections, setItemCompatibilitySelections] =
     useState<Record<number, number[]>>({});
+  const [tmEditDocument, setTmEditDocument] = useState<TmEditDocument | null>(null);
+  const [tmMoveDraft, setTmMoveDraft] = useState<string | null>(null);
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -204,6 +207,8 @@ function App() {
       setItemAffectedPokemon([]);
       setItemCompatibilityLoading(false);
       setItemCompatibilityError(null);
+      setTmEditDocument(null);
+      setTmMoveDraft(null);
       return;
     }
 
@@ -211,15 +216,27 @@ function App() {
     setItemAffectedPokemon([]);
     setItemCompatibilityLoading(true);
     setItemCompatibilityError(null);
+    setTmEditDocument(null);
+    setTmMoveDraft(null);
 
-    void invoke<PokemonTmhmCompatibilityReference[]>("get_tmhm_compatibility", {
-      moveConstant: selectedItem.moveConstant,
-    }).then((affected) => {
+    const request = selectedItem.kind === "tm"
+      ? invoke<TmEditDocument>("get_tm_edit_document", { itemId: selectedItem.id })
+          .then((document) => ({
+            affected: document.affectedPokemon,
+            document,
+          }))
+      : invoke<PokemonTmhmCompatibilityReference[]>("get_tmhm_compatibility", {
+          moveConstant: selectedItem.moveConstant,
+        }).then((affected) => ({ affected, document: null }));
+
+    void request.then(({ affected, document }) => {
       if (cancelled) return;
       setItemAffectedPokemon(affected);
+      setTmEditDocument(document);
+      setTmMoveDraft(document?.moveConstant ?? null);
       setItemCompatibilitySelections((current) => {
         const affectedIds = affected.map((pokemon) => pokemon.internalId);
-        if (!(selectedItem.id in current)) {
+        if (!(selectedItem.id in current) || document) {
           return { ...current, [selectedItem.id]: affectedIds };
         }
         const affectedSet = new Set(affectedIds);
@@ -232,6 +249,8 @@ function App() {
       if (cancelled) return;
       setItemCompatibilityError(String(error));
       setItemAffectedPokemon([]);
+      setTmEditDocument(null);
+      setTmMoveDraft(null);
     }).finally(() => {
       if (!cancelled) setItemCompatibilityLoading(false);
     });
@@ -241,6 +260,7 @@ function App() {
     };
   }, [
     project,
+    selectedItem?.id,
     selectedItem?.kind,
     selectedItem?.moveConstant,
     historySummary?.appliedCount,
@@ -253,6 +273,20 @@ function App() {
 
   const pokemonDirty = pokemonDraftIsDirty(pokemonDraft, pokemonEditDocument);
   const pokemonValid = pokemonDraftIsValid(pokemonDraft, pokemonEditDocument);
+  const tmDirty = Boolean(
+    selectedItem?.kind === "tm"
+    && tmEditDocument
+    && tmMoveDraft
+    && tmMoveDraft !== tmEditDocument.moveConstant,
+  );
+  const tmValid = Boolean(
+    !tmDirty
+    || (
+      tmEditDocument
+      && tmMoveDraft
+      && tmEditDocument.replacementMoveConstants.includes(tmMoveDraft)
+    ),
+  );
   const encounterDirty = encounterDraftIsDirty(encounterDraft, encounterDocument);
   const encounterValid = encounterDraftIsValid(encounterDraft);
   const fishingDirty = fishingDraftIsDirty(fishingDraft, fishingDocument);
@@ -283,7 +317,7 @@ function App() {
     knownTrainerAiRoutines,
   );
   const hasUnsavedChanges =
-    pokemonDirty || encounterDirty || fishingDirty || trainerDirty || trainerClassDirty;
+    pokemonDirty || tmDirty || encounterDirty || fishingDirty || trainerDirty || trainerClassDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
