@@ -842,13 +842,7 @@ function App() {
       setItems(refreshedItems);
 
       const previouslySelectedPokemon = selectedPokemonEntry;
-      const selectedPokemonWasAffected = Boolean(
-        previouslySelectedPokemon
-        && tmEditDocument.affectedPokemon.some(
-          (pokemon) => pokemon.internalId === previouslySelectedPokemon.internalId,
-        )
-      );
-      if (selectedPokemonWasAffected && previouslySelectedPokemon) {
+      if (previouslySelectedPokemon?.sourceSlug) {
         await loadPokemon(previouslySelectedPokemon, "TM assignment saved successfully.");
       } else {
         setStatus(
