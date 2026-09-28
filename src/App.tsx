@@ -226,7 +226,12 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [project, selectedItem?.kind, selectedItem?.moveConstant]);
+  }, [
+    project,
+    selectedItem?.kind,
+    selectedItem?.moveConstant,
+    historySummary?.appliedCount,
+  ]);
 
   const selectedTrainer =
     trainers.find((trainer) => trainer.id === selectedTrainerId) ?? null;
