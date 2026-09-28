@@ -1220,12 +1220,14 @@ function App() {
         || historySummary.latestLabel?.startsWith("Edit trainer portrait "),
       );
       const refreshTrainerRewards = historySummary.latestLabel?.startsWith("Edit trainer reward ") ?? false;
-      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
+      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog, refreshedItems] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         refreshTrainerBase ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
         refreshTrainerRewards ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
+        invoke<ItemData[]>("get_items"),
       ]);
       setEncounters(refreshedEncounters);
+      setItems(refreshedItems);
       if (refreshedTrainerCatalog) {
         installTrainerCatalog(refreshedTrainerCatalog, selectedTrainerId, selectedTrainerClass);
       } else if (refreshedTrainerBase) {
@@ -1272,12 +1274,14 @@ function App() {
         || history.latestLabel?.startsWith("Edit trainer portrait "),
       );
       const refreshTrainerRewards = history.latestLabel?.startsWith("Edit trainer reward ") ?? false;
-      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
+      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog, refreshedItems] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         refreshTrainerBase ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
         refreshTrainerRewards ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
+        invoke<ItemData[]>("get_items"),
       ]);
       setEncounters(refreshedEncounters);
+      setItems(refreshedItems);
       if (refreshedTrainerCatalog) {
         installTrainerCatalog(refreshedTrainerCatalog, selectedTrainerId, selectedTrainerClass);
       } else if (refreshedTrainerBase) {
