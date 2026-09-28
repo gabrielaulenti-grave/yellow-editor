@@ -1653,10 +1653,14 @@ function App() {
               : itemCompatibilitySelections[selectedItemId]
                 ?? itemAffectedPokemon.map((pokemon) => pokemon.internalId)
           }
+          tmEditDocument={tmEditDocument}
+          tmMoveDraft={tmMoveDraft}
+          editBusy={editBusy}
           compatibilityLoading={itemCompatibilityLoading}
           compatibilityError={itemCompatibilityError}
-          onSelectItem={setSelectedItemId}
+          onSelectItem={selectItem}
           onSearchChange={setItemSearch}
+          onTmMoveChange={setTmMoveDraft}
           onCompatibilityRetainedChange={setItemCompatibilityRetained}
           onSelectAllCompatibility={selectAllItemCompatibility}
           onDeselectAllCompatibility={deselectAllItemCompatibility}
