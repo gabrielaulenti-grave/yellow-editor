@@ -398,19 +398,34 @@ function App() {
         && routine.healAmount <= 255;
     }
     if (routine.kind === "ball") {
-      return [
+      const byteValues = [
         routine.greatRandomCeiling,
         routine.ultraSafariRandomCeiling,
+        routine.minorStatusCatchBonus,
+        routine.majorStatusCatchBonus,
+        routine.minorStatusShakeBonus,
+        routine.majorStatusShakeBonus,
+        routine.shakeOneThreshold,
+        routine.shakeTwoThreshold,
+        routine.shakeThreeThreshold,
+      ];
+      const positiveByteValues = [
         routine.greatHpDivisor,
         routine.otherHpDivisor,
+        routine.currentHpDivisor,
         routine.pokeShakeDivisor,
         routine.greatShakeDivisor,
         routine.ultraSafariShakeDivisor,
-      ].every((value, index) =>
-        Number.isInteger(value)
-        && value >= (index < 2 ? 0 : 1)
-        && value <= 255
-      );
+      ];
+      return routine.masterBallGuaranteed
+        && byteValues.every((value) =>
+          Number.isInteger(value) && value >= 0 && value <= 255
+        )
+        && positiveByteValues.every((value) =>
+          Number.isInteger(value) && value >= 1 && value <= 255
+        )
+        && routine.shakeOneThreshold < routine.shakeTwoThreshold
+        && routine.shakeTwoThreshold < routine.shakeThreeThreshold;
     }
     return true;
   })();
