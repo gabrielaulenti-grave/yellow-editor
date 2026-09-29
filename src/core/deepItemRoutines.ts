@@ -81,10 +81,25 @@ function parseRevive(contents: string, constant: string): ReviveRoutineParameter
     /cp REVIVE\s*\r?\n\s*jr z,\s*(\.setCurrentHPTo(?:HalfMaxHP|MaxHp))/i,
   );
   if (!match) throw new Error("Could not locate Revive HP recovery branch.");
+  if (/MaxHp/i.test(match[1]) && !/HalfMaxHP/i.test(match[1])) {
+    return { kind: "revive", restoreMode: "full", editable: true };
+  }
+
+  const partial = contents.match(
+    /^\.setCurrentHPToHalfMaxHP\s*\r?\n([\s\S]*?)(?=^\.setCurrentHPToMaxHp\s*$)/m,
+  )?.[1];
+  if (!partial) throw new Error("Could not locate Revive partial-HP recovery block.");
+
+  const canonicalShifts = (partial.match(/^\s*srl b\s*$/gm) ?? []).length;
+  const vanillaShift = /^\s*srl a\s*$/m.test(partial) && /^\s*rr a\s*$/m.test(partial);
+  const shifts = canonicalShifts || (vanillaShift ? 1 : 0);
+  if (shifts !== 1 && shifts !== 2) {
+    throw new Error("Unsupported Revive HP division structure.");
+  }
 
   return {
     kind: "revive",
-    restoreMode: /HalfMaxHP/i.test(match[1]) ? "half" : "full",
+    restoreMode: shifts === 2 ? "quarter" : "half",
     editable: true,
   };
 }
@@ -259,12 +274,53 @@ function rewriteRevive(
   if (constant !== "REVIVE" || !values.editable) {
     throw new Error("Max Revive remains a full-HP restore and is read-only.");
   }
-  const target = values.restoreMode === "half"
-    ? ".setCurrentHPToHalfMaxHP"
-    : ".setCurrentHPToMaxHp";
-  const pattern = /(cp REVIVE\s*\r?\n\s*jr z,\s*)\.setCurrentHPTo(?:HalfMaxHP|MaxHp)/i;
-  if (!pattern.test(contents)) throw new Error("Could not locate Revive HP recovery branch.");
-  return contents.replace(pattern, `$1${target}`);
+
+  const branchPattern =
+    /(cp REVIVE\s*\r?\n\s*jr z,\s*)\.setCurrentHPTo(?:HalfMaxHP|MaxHp)/i;
+  if (!branchPattern.test(contents)) {
+    throw new Error("Could not locate Revive HP recovery branch.");
+  }
+
+  if (values.restoreMode === "full") {
+    return contents.replace(branchPattern, "$1.setCurrentHPToMaxHp");
+  }
+
+  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
+  const shiftCount = values.restoreMode === "quarter" ? 2 : 1;
+  const shifts = Array.from(
+    { length: shiftCount },
+    () => ["\tsrl b", "\trr c"],
+  ).flat();
+
+  const block = [
+    ".setCurrentHPToHalfMaxHP",
+    "\tdec hl",
+    "\tdec de",
+    "\tld b, [hl]",
+    "\tinc hl",
+    "\tld c, [hl]",
+    ...shifts,
+    "\tld a, b",
+    "\tld [de], a",
+    "\tld [wHPBarNewHP+1], a",
+    "\tinc de",
+    "\tld a, c",
+    "\tld [de], a",
+    "\tld [wHPBarNewHP], a",
+    "\tdec de",
+    "\tjr .doneHealingPartyHP",
+    "",
+  ].join(newline);
+
+  const partialPattern =
+    /^\.setCurrentHPToHalfMaxHP\s*\r?\n[\s\S]*?(?=^\.setCurrentHPToMaxHp\s*$)/m;
+  if (!partialPattern.test(contents)) {
+    throw new Error("Could not locate Revive partial-HP recovery block.");
+  }
+
+  return contents
+    .replace(branchPattern, "$1.setCurrentHPToHalfMaxHP")
+    .replace(partialPattern, block);
 }
 
 function rewritePpRestore(
