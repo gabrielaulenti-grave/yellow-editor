@@ -331,13 +331,16 @@ function rewriteBicycle(
   );
   if (goFaster < 0) throw new Error("Could not locate DoBikeSpeedup .goFaster block.");
 
-  let nextGlobal = lines.length;
-  for (let i = goFaster + 1; i < lines.length; i += 1) {
-    const clean = codeOnly(lines[i]);
-    if (/^[A-Za-z_][A-Za-z0-9_]*::?$/.test(clean) && !clean.startsWith(".")) {
-      nextGlobal = i;
+  let blockEnd = goFaster + 1;
+  while (blockEnd < lines.length) {
+    const clean = codeOnly(lines[blockEnd]);
+    if (!clean) {
+      blockEnd += 1;
       break;
     }
+    if (clean.startsWith(";")) break;
+    if (/^[A-Za-z_][A-Za-z0-9_]*::?$/.test(clean) && !clean.startsWith(".")) break;
+    blockEnd += 1;
   }
 
   const calls = Array.from(
@@ -345,7 +348,7 @@ function rewriteBicycle(
     () => "\tcall AdvancePlayerSprite",
   );
   const replacement = [...calls, "\tret", ""];
-  lines.splice(goFaster + 1, nextGlobal - (goFaster + 1), ...replacement);
+  lines.splice(goFaster + 1, blockEnd - (goFaster + 1), ...replacement);
   return lines.join(newline);
 }
 
