@@ -268,6 +268,7 @@ export interface ItemEditDocument {
   price: number;
   keyItem: boolean;
   useRoutine: string | null;
+  maxNameLength: number;
   routineParameters: ItemRoutineParameters;
   sources: ItemEditSourceDocument[];
 }
