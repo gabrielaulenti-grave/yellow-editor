@@ -1,3 +1,4 @@
+import { DeepItemRoutinePanel } from "./DeepItemRoutinePanel";
 import { CatchFormulaPanel } from "./CatchFormulaPanel";
 import type {
   ItemData,
@@ -273,6 +274,23 @@ export function ItemsTab({
                           This edits the byte loaded by <code>ItemUseMedicine</code> for this item.
                         </p>
                       </div>
+                    ) : itemEditDraft && (
+                      itemEditDraft.routineParameters.kind === "repel"
+                      || itemEditDraft.routineParameters.kind === "vitamin"
+                      || itemEditDraft.routineParameters.kind === "revive"
+                      || itemEditDraft.routineParameters.kind === "pp-restore"
+                      || itemEditDraft.routineParameters.kind === "pp-up"
+                      || itemEditDraft.routineParameters.kind === "bicycle"
+                    ) ? (
+                      <DeepItemRoutinePanel
+                        constant={selectedItem.constant}
+                        routine={itemEditDraft.routineParameters}
+                        items={items}
+                        busy={editBusy}
+                        onChange={(routineParameters) =>
+                          changeItemDraft({ routineParameters })}
+                        onSelectItem={onSelectItem}
+                      />
                     ) : itemEditDraft?.routineParameters.kind === "special-heal" ? (
                       <div className="item-routine-panel">
                         <strong>Healing behavior</strong>
