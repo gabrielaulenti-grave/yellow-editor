@@ -30,6 +30,7 @@ import {
 } from "./fishingEditing";
 import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import { parseItems } from "./itemParsing";
+import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -52,6 +53,8 @@ import { parseTrainerPresentation } from "./trainerPresentation";
 import { prepareTrainerPicOverrideWrites } from "./trainerPicOverrideEditing";
 import type {
   BuildService,
+  ItemEditDocument,
+  ItemEditValues,
   PokemonTmhmCompatibilityReference,
   ProjectSession,
   ProjectSource,
@@ -379,6 +382,12 @@ export async function createProjectSession(
     },
     getMoves: () => parseMoves(source),
     getItems: () => parseItems(source),
+    getItemEditDocument: (itemId) => loadItemEditDocument(source, itemId),
+    saveItemEdit: async (document: ItemEditDocument, values: ItemEditValues) => {
+      const changes = await prepareItemEditWrites(source, document, values);
+      if (changes.length === 0) return history.getSummary();
+      return history.save(`Edit item ${document.constant}`, changes);
+    },
     getTmhmCompatibility: async (moveConstant) => {
       const index = await getTmhmCompatibilityIndex();
       return index.get(moveConstant) ?? [];
