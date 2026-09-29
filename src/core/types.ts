@@ -179,6 +179,49 @@ export interface MoveData {
   animationScript: string[];
 }
 
+export type ItemKind = "item" | "key-item" | "tm" | "hm" | "unused";
+
+export type ItemMenuBehavior = "direct" | "party" | "overworld" | "tmhm" | "unusable";
+
+export interface ItemData {
+  id: number;
+  constant: string;
+  name: string;
+  kind: ItemKind;
+  price: number | null;
+  keyItem: boolean;
+  useRoutine: string | null;
+  menuBehavior: ItemMenuBehavior;
+  machineNumber: number | null;
+  moveConstant: string | null;
+}
+
+export interface PokemonTmhmCompatibilityReference {
+  internalId: number;
+  constant: string;
+  displayName: string;
+  sourceSlug: string;
+}
+
+export interface TmEditSourceDocument {
+  path: string;
+  sourceHash: string;
+}
+
+export interface TmEditDocument {
+  itemId: number;
+  tmNumber: number;
+  moveConstant: string;
+  affectedPokemon: PokemonTmhmCompatibilityReference[];
+  replacementMoveConstants: string[];
+  sources: TmEditSourceDocument[];
+}
+
+export interface TmEditValues {
+  moveConstant: string;
+  retainedPokemonIds: number[];
+}
+
 export type TrainerPartyFormat = "shared-level" | "individual-levels";
 export type TrainerTriggerKind = "sight" | "talk" | "scripted";
 export type TrainerPartyResolution =
@@ -684,6 +727,10 @@ export interface ProjectSession {
     values: PokemonEditValues,
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
+  getItems(): Promise<ItemData[]>;
+  getTmhmCompatibility(moveConstant: string): Promise<PokemonTmhmCompatibilityReference[]>;
+  getTmEditDocument(itemId: number): Promise<TmEditDocument>;
+  saveTmEdit(document: TmEditDocument, values: TmEditValues): Promise<HistorySummary>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,

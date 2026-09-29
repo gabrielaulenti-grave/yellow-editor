@@ -6,10 +6,12 @@ import type {
   EncounterVersion,
   FishingEditDocument,
   HistorySummary,
+  ItemData,
   MoveData,
   PokemonEditDocument,
   PokemonDetails,
   PokemonIndexEntry,
+  PokemonTmhmCompatibilityReference,
   ProjectInfo,
   TrainerCatalog,
   TrainerClassCreateValues,
@@ -17,10 +19,12 @@ import type {
   TrainerEditSourceDocument,
   TrainerLoadProgress,
   TrainerPartyEntry,
+  TmEditDocument,
 } from "./core/types";
 import { BuildTestTab } from "./BuildTestTab";
 import { EncountersTab, type EncounterSection } from "./EncountersTab";
 import { EditorToolbar } from "./EditorToolbar";
+import { ItemsTab } from "./ItemsTab";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
 import { TrainersTab, type TrainerSection } from "./TrainersTab";
@@ -77,7 +81,7 @@ import {
 import { invoke, open } from "./platform/compat";
 import "./App.css";
 
-type Tab = "pokemon" | "moves" | "trainers" | "encounters" | "build";
+type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -89,6 +93,17 @@ function App() {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
+  const [items, setItems] = useState<ItemData[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
+  const [itemSearch, setItemSearch] = useState("");
+  const [itemAffectedPokemon, setItemAffectedPokemon] =
+    useState<PokemonTmhmCompatibilityReference[]>([]);
+  const [itemCompatibilityLoading, setItemCompatibilityLoading] = useState(false);
+  const [itemCompatibilityError, setItemCompatibilityError] = useState<string | null>(null);
+  const [itemCompatibilitySelections, setItemCompatibilitySelections] =
+    useState<Record<number, number[]>>({});
+  const [tmEditDocument, setTmEditDocument] = useState<TmEditDocument | null>(null);
+  const [tmMoveDraft, setTmMoveDraft] = useState<string | null>(null);
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -180,6 +195,77 @@ function App() {
 
   const selectedPokemonEntry =
     pokemonIndex.find((entry) => entry.internalId === selectedPokemonId) ?? null;
+  const selectedItem =
+    items.find((entry) => entry.id === selectedItemId) ?? null;
+
+  useEffect(() => {
+    if (
+      !project
+      || !selectedItem?.moveConstant
+      || (selectedItem.kind !== "tm" && selectedItem.kind !== "hm")
+    ) {
+      setItemAffectedPokemon([]);
+      setItemCompatibilityLoading(false);
+      setItemCompatibilityError(null);
+      setTmEditDocument(null);
+      setTmMoveDraft(null);
+      return;
+    }
+
+    let cancelled = false;
+    setItemAffectedPokemon([]);
+    setItemCompatibilityLoading(true);
+    setItemCompatibilityError(null);
+    setTmEditDocument(null);
+    setTmMoveDraft(null);
+
+    const request = selectedItem.kind === "tm"
+      ? invoke<TmEditDocument>("get_tm_edit_document", { itemId: selectedItem.id })
+          .then((document) => ({
+            affected: document.affectedPokemon,
+            document,
+          }))
+      : invoke<PokemonTmhmCompatibilityReference[]>("get_tmhm_compatibility", {
+          moveConstant: selectedItem.moveConstant,
+        }).then((affected) => ({ affected, document: null }));
+
+    void request.then(({ affected, document }) => {
+      if (cancelled) return;
+      setItemAffectedPokemon(affected);
+      setTmEditDocument(document);
+      setTmMoveDraft(document?.moveConstant ?? null);
+      setItemCompatibilitySelections((current) => {
+        const affectedIds = affected.map((pokemon) => pokemon.internalId);
+        if (!(selectedItem.id in current)) {
+          return { ...current, [selectedItem.id]: affectedIds };
+        }
+        const affectedSet = new Set(affectedIds);
+        return {
+          ...current,
+          [selectedItem.id]: current[selectedItem.id].filter((id) => affectedSet.has(id)),
+        };
+      });
+    }).catch((error) => {
+      if (cancelled) return;
+      setItemCompatibilityError(String(error));
+      setItemAffectedPokemon([]);
+      setTmEditDocument(null);
+      setTmMoveDraft(null);
+    }).finally(() => {
+      if (!cancelled) setItemCompatibilityLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    project,
+    selectedItem?.id,
+    selectedItem?.kind,
+    selectedItem?.moveConstant,
+    historySummary?.appliedCount,
+  ]);
+
   const selectedTrainer =
     trainers.find((trainer) => trainer.id === selectedTrainerId) ?? null;
   const selectedTrainerClassEntry =
@@ -187,6 +273,20 @@ function App() {
 
   const pokemonDirty = pokemonDraftIsDirty(pokemonDraft, pokemonEditDocument);
   const pokemonValid = pokemonDraftIsValid(pokemonDraft, pokemonEditDocument);
+  const tmDirty = Boolean(
+    selectedItem?.kind === "tm"
+    && tmEditDocument
+    && tmMoveDraft
+    && tmMoveDraft !== tmEditDocument.moveConstant,
+  );
+  const tmValid = Boolean(
+    !tmDirty
+    || (
+      tmEditDocument
+      && tmMoveDraft
+      && tmEditDocument.replacementMoveConstants.includes(tmMoveDraft)
+    ),
+  );
   const encounterDirty = encounterDraftIsDirty(encounterDraft, encounterDocument);
   const encounterValid = encounterDraftIsValid(encounterDraft);
   const fishingDirty = fishingDraftIsDirty(fishingDraft, fishingDocument);
@@ -217,7 +317,7 @@ function App() {
     knownTrainerAiRoutines,
   );
   const hasUnsavedChanges =
-    pokemonDirty || encounterDirty || fishingDirty || trainerDirty || trainerClassDirty;
+    pokemonDirty || tmDirty || encounterDirty || fishingDirty || trainerDirty || trainerClassDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -528,9 +628,10 @@ function App() {
 
       const result = await invoke<ProjectInfo>("open_project", { path: selected });
 
-      const [index, moveData, encounterData, fishingResult, history, trainerBaseResult] = await Promise.all([
+      const [index, moveData, itemData, encounterData, fishingResult, history, trainerBaseResult] = await Promise.all([
         invoke<PokemonIndexEntry[]>("get_pokemon_index", { projectPath: result.path }),
         invoke<MoveData[]>("get_moves", { projectPath: result.path }),
+        invoke<ItemData[]>("get_items", { projectPath: result.path }),
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         invoke<FishingEditDocument>("get_fishing")
           .then((document) => ({ document, error: null }))
@@ -544,6 +645,7 @@ function App() {
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
+      setItems(itemData);
       clearTrainerEditor();
       if (trainerBaseResult.catalog) {
         installTrainerCatalog(trainerBaseResult.catalog);
@@ -560,6 +662,9 @@ function App() {
       setFishingError(fishingResult.error);
       setSelectedMoveId(moveData[0]?.id ?? null);
       setMoveSearch("");
+      setSelectedItemId(itemData[0]?.id ?? null);
+      setItemSearch("");
+      setItemCompatibilitySelections({});
       setTrainerSearch("");
       setTrainerClassSearch("");
       setTrainerSection("parties");
@@ -598,11 +703,14 @@ function App() {
       setProject(null);
       setPokemonIndex([]);
       setMoves([]);
+      setItems([]);
       clearTrainerEditor();
       setEncounters([]);
       clearPokemonEditor();
       clearEncounterEditor();
       setSelectedMoveId(null);
+      setSelectedItemId(null);
+      setItemCompatibilitySelections({});
       setHistorySummary(null);
       setProjectLoadProgress(null);
       setStatus(String(error));
@@ -632,12 +740,132 @@ function App() {
     await loadPokemon(entry);
   }
 
+  function selectItem(itemId: number) {
+    if (itemId === selectedItemId) return;
+    if (
+      tmDirty
+      && !window.confirm("Discard the unsaved TM assignment and switch items?")
+    ) {
+      return;
+    }
+    if (tmEditDocument) {
+      setTmMoveDraft(tmEditDocument.moveConstant);
+    }
+    setSelectedItemId(itemId);
+  }
+
+  async function openPokemonFromItem(internalId: number) {
+    const entry = pokemonIndex.find((pokemon) => pokemon.internalId === internalId);
+    if (!entry?.sourceSlug) {
+      setStatus("That Pokémon could not be opened from the TM/HM cross-reference.");
+      return;
+    }
+    if (
+      tmDirty
+      && !window.confirm(
+        "Discard the unsaved TM move assignment before opening this Pokémon? Your retain checkboxes will be preserved.",
+      )
+    ) {
+      return;
+    }
+    if (tmEditDocument) {
+      setTmMoveDraft(tmEditDocument.moveConstant);
+    }
+    setActiveTab("pokemon");
+    await loadPokemon(entry, `${entry.displayName} loaded from the TM/HM compatibility list.`);
+  }
+
+  function setItemCompatibilityRetained(internalId: number, retained: boolean) {
+    if (selectedItemId === null) return;
+    setItemCompatibilitySelections((current) => {
+      const existing = new Set(
+        current[selectedItemId] ?? itemAffectedPokemon.map((pokemon) => pokemon.internalId),
+      );
+      if (retained) existing.add(internalId);
+      else existing.delete(internalId);
+      return { ...current, [selectedItemId]: [...existing] };
+    });
+  }
+
+  function selectAllItemCompatibility() {
+    if (selectedItemId === null) return;
+    setItemCompatibilitySelections((current) => ({
+      ...current,
+      [selectedItemId]: itemAffectedPokemon.map((pokemon) => pokemon.internalId),
+    }));
+  }
+
+  function deselectAllItemCompatibility() {
+    if (selectedItemId === null) return;
+    setItemCompatibilitySelections((current) => ({
+      ...current,
+      [selectedItemId]: [],
+    }));
+  }
+
   function changePokemonPaletteConstant(value: string) {
     setPokemonDraft((current) =>
       current && pokemonEditDocument
         ? updatePokemonPaletteConstant(current, pokemonEditDocument, value)
         : current,
     );
+  }
+
+  async function saveTm() {
+    if (
+      !selectedItem
+      || selectedItem.kind !== "tm"
+      || !tmEditDocument
+      || !tmMoveDraft
+      || !tmDirty
+      || !tmValid
+    ) {
+      return;
+    }
+
+    const retainedPokemonIds =
+      itemCompatibilitySelections[selectedItem.id]
+      ?? itemAffectedPokemon.map((pokemon) => pokemon.internalId);
+
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("save_tm_edit", {
+        document: tmEditDocument,
+        values: {
+          moveConstant: tmMoveDraft,
+          retainedPokemonIds,
+        },
+      });
+      setHistorySummary(history);
+
+      const refreshedItems = await invoke<ItemData[]>("get_items");
+      setItems(refreshedItems);
+
+      const previouslySelectedPokemon = selectedPokemonEntry;
+      if (previouslySelectedPokemon?.sourceSlug) {
+        await loadPokemon(previouslySelectedPokemon, "TM assignment saved successfully.");
+      } else {
+        setStatus(
+          `TM${String(tmEditDocument.tmNumber).padStart(2, "0")} now teaches ${tmMoveDraft}.`,
+        );
+      }
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function revertTmChanges() {
+    if (!tmEditDocument || !tmDirty || editBusy) return;
+    setTmMoveDraft(tmEditDocument.moveConstant);
+    setItemCompatibilitySelections((current) => ({
+      ...current,
+      [tmEditDocument.itemId]: tmEditDocument.affectedPokemon.map(
+        (pokemon) => pokemon.internalId,
+      ),
+    }));
+    setStatus(`Unsaved TM${String(tmEditDocument.tmNumber).padStart(2, "0")} changes reverted.`);
   }
 
   async function savePokemon() {
@@ -986,12 +1214,14 @@ function App() {
         || historySummary.latestLabel?.startsWith("Edit trainer portrait "),
       );
       const refreshTrainerRewards = historySummary.latestLabel?.startsWith("Edit trainer reward ") ?? false;
-      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
+      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog, refreshedItems] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         refreshTrainerBase ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
         refreshTrainerRewards ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
+        invoke<ItemData[]>("get_items"),
       ]);
       setEncounters(refreshedEncounters);
+      setItems(refreshedItems);
       if (refreshedTrainerCatalog) {
         installTrainerCatalog(refreshedTrainerCatalog, selectedTrainerId, selectedTrainerClass);
       } else if (refreshedTrainerBase) {
@@ -1038,12 +1268,14 @@ function App() {
         || history.latestLabel?.startsWith("Edit trainer portrait "),
       );
       const refreshTrainerRewards = history.latestLabel?.startsWith("Edit trainer reward ") ?? false;
-      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog] = await Promise.all([
+      const [refreshedEncounters, refreshedTrainerBase, refreshedTrainerCatalog, refreshedItems] = await Promise.all([
         invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
         refreshTrainerBase ? invoke<TrainerCatalog>("get_trainer_base_catalog") : Promise.resolve(null),
         refreshTrainerRewards ? invoke<TrainerCatalog>("get_trainers") : Promise.resolve(null),
+        invoke<ItemData[]>("get_items"),
       ]);
       setEncounters(refreshedEncounters);
+      setItems(refreshedItems);
       if (refreshedTrainerCatalog) {
         installTrainerCatalog(refreshedTrainerCatalog, selectedTrainerId, selectedTrainerClass);
       } else if (refreshedTrainerBase) {
@@ -1215,6 +1447,13 @@ function App() {
     save: savePokemon,
     revert: revertUnsavedChanges,
   };
+  const tmEditorController: EditorController = {
+    dirty: tmDirty,
+    valid: tmValid,
+    busy: editBusy || itemCompatibilityLoading,
+    save: saveTm,
+    revert: revertTmChanges,
+  };
   const encounterEditorController: EditorController = {
     dirty: encounterSection === "walking" ? encounterDirty : fishingDirty,
     valid: encounterSection === "walking" ? encounterValid : fishingValid,
@@ -1245,13 +1484,15 @@ function App() {
   };
   const editorController = activeTab === "pokemon"
     ? pokemonEditorController
-    : activeTab === "encounters"
-      ? encounterEditorController
-      : activeTab === "trainers"
-        ? trainerSection === "parties"
-          ? trainerPartyEditorController
-          : trainerClassEditorController
-        : readOnlyEditorController;
+    : activeTab === "items" && selectedItem?.kind === "tm"
+      ? tmEditorController
+      : activeTab === "encounters"
+        ? encounterEditorController
+        : activeTab === "trainers"
+          ? trainerSection === "parties"
+            ? trainerPartyEditorController
+            : trainerClassEditorController
+          : readOnlyEditorController;
 
   async function selectTab(nextTab: Tab) {
     if (nextTab === activeTab) {
@@ -1265,6 +1506,9 @@ function App() {
     }
     if (pokemonDirty) {
       await revertUnsavedChanges();
+    }
+    if (tmDirty) {
+      await revertTmChanges();
     }
     if (encounterDirty) {
       await revertEncounterChanges();
@@ -1336,6 +1580,12 @@ function App() {
           Moves
         </button>
         <button
+          className={activeTab === "items" ? "active" : ""}
+          onClick={() => void selectTab("items")}
+        >
+          Items
+        </button>
+        <button
           className={activeTab === "trainers" ? "active" : ""}
           onClick={() => void selectTab("trainers")}
         >
@@ -1380,6 +1630,35 @@ function App() {
           moveSearch={moveSearch}
           onSelectMove={setSelectedMoveId}
           onSearchChange={setMoveSearch}
+        />
+      )}
+
+      {activeTab === "items" && (
+        <ItemsTab
+          project={project}
+          items={items}
+          moves={moves}
+          selectedItemId={selectedItemId}
+          itemSearch={itemSearch}
+          affectedPokemon={itemAffectedPokemon}
+          retainedPokemonIds={
+            selectedItemId === null
+              ? []
+              : itemCompatibilitySelections[selectedItemId]
+                ?? itemAffectedPokemon.map((pokemon) => pokemon.internalId)
+          }
+          tmEditDocument={tmEditDocument}
+          tmMoveDraft={tmMoveDraft}
+          editBusy={editBusy}
+          compatibilityLoading={itemCompatibilityLoading}
+          compatibilityError={itemCompatibilityError}
+          onSelectItem={selectItem}
+          onSearchChange={setItemSearch}
+          onTmMoveChange={setTmMoveDraft}
+          onCompatibilityRetainedChange={setItemCompatibilityRetained}
+          onSelectAllCompatibility={selectAllItemCompatibility}
+          onDeselectAllCompatibility={deselectAllItemCompatibility}
+          onOpenPokemon={(internalId) => void openPokemonFromItem(internalId)}
         />
       )}
 
