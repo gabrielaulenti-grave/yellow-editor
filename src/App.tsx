@@ -10,6 +10,7 @@ import type {
   ItemEditDocument,
   ItemEditValues,
   MoveData,
+  PokemonCatchProfile,
   PokemonEditDocument,
   PokemonDetails,
   PokemonIndexEntry,
@@ -110,6 +111,9 @@ function App() {
   const [itemEditDraft, setItemEditDraft] = useState<ItemEditValues | null>(null);
   const [itemEditLoading, setItemEditLoading] = useState(false);
   const [itemEditError, setItemEditError] = useState<string | null>(null);
+  const [pokemonCatchProfiles, setPokemonCatchProfiles] = useState<PokemonCatchProfile[]>([]);
+  const [catchProfilesLoading, setCatchProfilesLoading] = useState(false);
+  const [catchProfilesError, setCatchProfilesError] = useState<string | null>(null);
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -249,6 +253,39 @@ function App() {
     project,
     selectedItem?.id,
     selectedItem?.kind,
+    historySummary?.appliedCount,
+  ]);
+
+  useEffect(() => {
+    if (!project || itemEditDraft?.routineParameters.kind !== "ball") {
+      setCatchProfilesLoading(false);
+      setCatchProfilesError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setCatchProfilesLoading(true);
+    setCatchProfilesError(null);
+
+    void invoke<PokemonCatchProfile[]>("get_pokemon_catch_profiles")
+      .then((profiles) => {
+        if (cancelled) return;
+        setPokemonCatchProfiles(profiles);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setCatchProfilesError(String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setCatchProfilesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    project,
+    itemEditDraft?.routineParameters.kind,
     historySummary?.appliedCount,
   ]);
 
@@ -772,6 +809,9 @@ function App() {
       setSelectedItemId(itemData[0]?.id ?? null);
       setItemSearch("");
       setItemCompatibilitySelections({});
+      setPokemonCatchProfiles([]);
+      setCatchProfilesLoading(false);
+      setCatchProfilesError(null);
       setTrainerSearch("");
       setTrainerClassSearch("");
       setTrainerSection("parties");
@@ -818,6 +858,9 @@ function App() {
       setSelectedMoveId(null);
       setSelectedItemId(null);
       setItemCompatibilitySelections({});
+      setPokemonCatchProfiles([]);
+      setCatchProfilesLoading(false);
+      setCatchProfilesError(null);
       setHistorySummary(null);
       setProjectLoadProgress(null);
       setStatus(String(error));
@@ -1813,6 +1856,9 @@ function App() {
           itemEditDraft={itemEditDraft}
           itemEditLoading={itemEditLoading}
           itemEditError={itemEditError}
+          pokemonCatchProfiles={pokemonCatchProfiles}
+          catchProfilesLoading={catchProfilesLoading}
+          catchProfilesError={catchProfilesError}
           editBusy={editBusy}
           compatibilityLoading={itemCompatibilityLoading}
           compatibilityError={itemCompatibilityError}
