@@ -173,7 +173,6 @@ function parseBicycle(overworldContents: string | null): BicycleRoutineParameter
 
 export function parseDeepItemRoutine(
   constant: string,
-  useRoutine: string | null,
   effectsContents: string,
   overworldContents: string | null,
 ): ItemRoutineParameters | null {
