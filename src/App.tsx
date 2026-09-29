@@ -1141,6 +1141,7 @@ function App() {
       price: itemEditDocument.price,
       keyItem: itemEditDocument.keyItem,
       routineParameters: itemEditDocument.routineParameters,
+      itemEvolution: itemEditDocument.itemEvolution,
     });
     setStatus(`Unsaved ${itemEditDocument.name} changes reverted.`);
   }
