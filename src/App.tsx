@@ -427,6 +427,45 @@ function App() {
         && routine.shakeOneThreshold < routine.shakeTwoThreshold
         && routine.shakeTwoThreshold < routine.shakeThreeThreshold;
     }
+    if (routine.kind === "repel") {
+      return Number.isInteger(routine.steps)
+        && routine.steps >= 1
+        && routine.steps <= 255;
+    }
+    if (routine.kind === "vitamin") {
+      return Number.isInteger(routine.statExpAdded)
+        && routine.statExpAdded >= 256
+        && routine.statExpAdded <= 65280
+        && routine.statExpAdded % 256 === 0
+        && Number.isInteger(routine.useThreshold)
+        && routine.useThreshold >= 256
+        && routine.useThreshold <= 65280
+        && routine.useThreshold % 256 === 0;
+    }
+    if (routine.kind === "revive") {
+      return routine.restoreMode === "half" || routine.restoreMode === "full";
+    }
+    if (routine.kind === "pp-restore") {
+      return routine.fullRestore
+        ? routine.restoreAmount === null
+        : Number.isInteger(routine.restoreAmount)
+          && (routine.restoreAmount ?? 0) >= 1
+          && (routine.restoreAmount ?? 0) <= 63;
+    }
+    if (routine.kind === "pp-up") {
+      return Number.isInteger(routine.bonusDivisor)
+        && routine.bonusDivisor >= 1
+        && routine.bonusDivisor <= 255
+        && Number.isInteger(routine.perUseCap)
+        && routine.perUseCap >= 1
+        && routine.perUseCap <= 7
+        && routine.maxUses === 3;
+    }
+    if (routine.kind === "bicycle") {
+      return routine.speedMultiplier === 1
+        || routine.speedMultiplier === 2
+        || routine.speedMultiplier === 4;
+    }
     return true;
   })();
   const itemValid = Boolean(
