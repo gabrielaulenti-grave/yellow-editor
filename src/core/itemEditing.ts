@@ -1,6 +1,12 @@
+import {
+  EVOS_MOVES_PATH,
+  parseEvolutionStoneRoutine,
+  rewriteEvolutionStoneRoutine,
+} from "./evolutionStoneEditing";
 import { hashText } from "./history";
 import { parseDeepItemRoutine, rewriteDeepItemRoutine } from "./deepItemRoutines";
 import { parseItemConstantDefinitions } from "./itemConstants";
+import { parsePokemonIndex } from "./parsers";
 import type {
   BallRoutineParameters,
   ItemEditDocument,
@@ -106,6 +112,17 @@ function readUseRoutine(contents: string, index: number): string | null {
     current += 1;
   }
   return null;
+}
+
+function evolutionStoneConstants(constants: string, effects: string): string[] {
+  const rows = parseItemConstantDefinitions(constants).filter(
+    (row) => row.machineKind === null,
+  );
+  return rows.flatMap((row, index) =>
+    readUseRoutine(effects, index) === "ItemUseEvoStone"
+      ? [row.constant]
+      : [],
+  );
 }
 
 function maxItemNameLength(contents: string): number {
@@ -606,6 +623,20 @@ export async function loadItemEditDocument(
   const overworld = constant === "BICYCLE"
     ? await source.readText(OVERWORLD_PATH)
     : null;
+  const isEvolutionStone = useRoutine === "ItemUseEvoStone";
+  const evosContents = isEvolutionStone
+    ? await source.readText(EVOS_MOVES_PATH)
+    : null;
+  const pokemonIndex = isEvolutionStone
+    ? await parsePokemonIndex(source)
+    : null;
+  const stones = isEvolutionStone
+    ? evolutionStoneConstants(constants, effects)
+    : [];
+  const routineParameters = isEvolutionStone && evosContents && pokemonIndex
+    ? parseEvolutionStoneRoutine(evosContents, pokemonIndex, constant, stones)
+    : parseRoutine(constant, useRoutine, effects, overworld);
+
   const sources = new Map<string, string>([
     [ITEM_CONSTANTS_PATH, constants],
     [ITEM_NAMES_PATH, names],
@@ -615,6 +646,7 @@ export async function loadItemEditDocument(
     [TEXT_CONSTANTS_PATH, textConstants],
   ]);
   if (overworld !== null) sources.set(OVERWORLD_PATH, overworld);
+  if (evosContents !== null) sources.set(EVOS_MOVES_PATH, evosContents);
 
   return {
     itemId,
@@ -624,7 +656,7 @@ export async function loadItemEditDocument(
     keyItem: readKeyItem(keyItems, index),
     useRoutine,
     maxNameLength: maxItemNameLength(textConstants),
-    routineParameters: parseRoutine(constant, useRoutine, effects, overworld),
+    routineParameters,
     sources: await Promise.all([...sources].map(async ([path, contents]) => ({
       path,
       sourceHash: await hashText(contents),
@@ -745,6 +777,23 @@ export async function prepareItemEditWrites(
         expectedHash: guardHash(document, ITEM_EFFECTS_PATH),
         contents: next,
       });
+    } else if (
+      document.routineParameters.kind === "evolution-stone"
+      && values.routineParameters.kind === "evolution-stone"
+    ) {
+      const evosContents = await source.readText(EVOS_MOVES_PATH);
+      const next = rewriteEvolutionStoneRoutine(
+        evosContents,
+        document.routineParameters,
+        values.routineParameters,
+      );
+      if (next !== evosContents) {
+        writes.push({
+          path: EVOS_MOVES_PATH,
+          expectedHash: guardHash(document, EVOS_MOVES_PATH),
+          contents: next,
+        });
+      }
     } else {
       const deep = rewriteDeepItemRoutine(
         document.constant,

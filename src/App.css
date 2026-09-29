@@ -530,6 +530,40 @@ input[readonly] {
   gap: 7px;
 }
 
+.item-evolution-reference-list {
+  display: grid;
+  gap: 8px;
+}
+
+.item-evolution-reference {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr);
+  gap: 12px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-soft);
+}
+
+.item-evolution-route {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.item-evolution-route a {
+  color: var(--link);
+  font-weight: 700;
+}
+
+.item-evolution-route small {
+  width: 100%;
+  color: var(--muted);
+}
+
 .catch-formula > h5,
 .catch-formula > details {
   margin-left: 14px;
@@ -1161,6 +1195,10 @@ pre {
 }
 
 @media (max-width: 760px) {
+  .item-evolution-reference {
+    grid-template-columns: 1fr;
+  }
+
   .app-shell {
     width: min(100% - 20px, 1180px);
     padding-top: 14px;

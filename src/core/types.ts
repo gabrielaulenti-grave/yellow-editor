@@ -304,6 +304,50 @@ export interface BicycleRoutineParameters {
   sourceVariant: "pokered" | "pokeyellow";
 }
 
+export type StatusCureEffect =
+  | "poison"
+  | "burn"
+  | "freeze"
+  | "sleep"
+  | "paralysis"
+  | "all";
+
+export interface StatusCureRoutineParameters {
+  kind: "status-cure";
+  effect: StatusCureEffect;
+}
+
+export interface XStatRoutineParameters {
+  kind: "x-stat";
+  stat: "Attack" | "Defense" | "Speed" | "Special";
+  stageBoost: 1 | 2;
+  sharedConstants: string[];
+}
+
+export type BattleFlagEffect = "x-accuracy" | "mist" | "focus-energy";
+
+export interface BattleFlagRoutineParameters {
+  kind: "battle-flag";
+  effect: BattleFlagEffect;
+}
+
+export interface EvolutionStoneReference {
+  internalId: number;
+  sourceConstant: string;
+  sourceDisplayName: string;
+  targetConstant: string;
+  targetDisplayName: string;
+  minimumLevel: number;
+  evolutionIndex: number;
+  itemConstant: string;
+}
+
+export interface EvolutionStoneRoutineParameters {
+  kind: "evolution-stone";
+  stoneConstants: string[];
+  references: EvolutionStoneReference[];
+}
+
 export interface GenericItemRoutineParameters {
   kind: "routine";
   description: string;
@@ -319,6 +363,10 @@ export type ItemRoutineParameters =
   | PpRestoreRoutineParameters
   | PpUpRoutineParameters
   | BicycleRoutineParameters
+  | StatusCureRoutineParameters
+  | XStatRoutineParameters
+  | BattleFlagRoutineParameters
+  | EvolutionStoneRoutineParameters
   | GenericItemRoutineParameters;
 
 export interface ItemEditDocument {
