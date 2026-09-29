@@ -191,7 +191,7 @@ export function ItemsTab({
           <section className="editor-card">
             {selectedItem ? (
               <>
-                <h3>{selectedItem.name}</h3>
+                <h3>{ordinaryItem && itemEditDraft ? itemEditDraft.name : selectedItem.name}</h3>
                 <p className="muted-code">
                   {formatHex(selectedItem.id)} — {selectedItem.constant}
                 </p>
