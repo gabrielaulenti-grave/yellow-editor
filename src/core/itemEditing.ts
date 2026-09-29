@@ -5,10 +5,17 @@ import {
 } from "./evolutionStoneEditing";
 import {
   configuredMedicineEvolutionItems,
+  itemEvolutionReferences,
+  medicineEvolutionItemConstants,
   nativeEvolutionItemConstants,
   supportedItemEvolutionConstants,
   syncMedicineEvolutionHooks,
 } from "./itemEvolutionHooks";
+import {
+  EVOLUTION_ENGINE_PATH,
+  POKEMON_DATA_CONSTANTS_PATH,
+  installMoveEvolutionSupport,
+} from "./evolutionExtensions";
 import { hashText } from "./history";
 import { parseDeepItemRoutine, rewriteDeepItemRoutine } from "./deepItemRoutines";
 import { parseItemConstantDefinitions } from "./itemConstants";
@@ -628,6 +635,12 @@ export async function loadItemEditDocument(
   const pokemonIndex = isEvolutionCapable
     ? await parsePokemonIndex(source)
     : null;
+  const evolutionConstants = isEvolutionCapable
+    ? await source.readText(POKEMON_DATA_CONSTANTS_PATH)
+    : null;
+  const evolutionEngine = isEvolutionCapable
+    ? await source.readText(EVOLUTION_ENGINE_PATH)
+    : null;
   const stones = isEvolutionStone
     ? nativeEvolutionItemConstants(constants, effects)
     : [];
@@ -659,6 +672,12 @@ export async function loadItemEditDocument(
   ]);
   if (overworld !== null) sources.set(OVERWORLD_PATH, overworld);
   if (evosContents !== null) sources.set(EVOS_MOVES_PATH, evosContents);
+  if (evolutionConstants !== null) {
+    sources.set(POKEMON_DATA_CONSTANTS_PATH, evolutionConstants);
+  }
+  if (evolutionEngine !== null) {
+    sources.set(EVOLUTION_ENGINE_PATH, evolutionEngine);
+  }
 
   return {
     itemId,
@@ -881,7 +900,54 @@ export async function prepareItemEditWrites(
     const originalEffects = await source.readText(ITEM_EFFECTS_PATH);
     const currentEffectsWrite = writes.find((write) => write.path === ITEM_EFFECTS_PATH);
     const effectsBase = currentEffectsWrite?.contents ?? originalEffects;
-    const syncedEffects = syncMedicineEvolutionHooks(nextEvos, constants, effectsBase);
+    let syncedEffects = syncMedicineEvolutionHooks(
+      nextEvos,
+      constants,
+      effectsBase,
+    );
+
+    const medicineItems = new Set(
+      medicineEvolutionItemConstants(constants, syncedEffects),
+    );
+    const needsMedicineEvolutionRuntime = itemEvolutionReferences(nextEvos)
+      .some((constant) => medicineItems.has(constant));
+
+    if (needsMedicineEvolutionRuntime) {
+      const constantsContents = await source.readText(POKEMON_DATA_CONSTANTS_PATH);
+      const evolutionEngineContents = await source.readText(EVOLUTION_ENGINE_PATH);
+      const installed = installMoveEvolutionSupport(
+        constantsContents,
+        evolutionEngineContents,
+        syncedEffects,
+      );
+      syncedEffects = installed.itemEffects;
+
+      const currentConstantsWrite = writes.find(
+        (write) => write.path === POKEMON_DATA_CONSTANTS_PATH,
+      );
+      if (currentConstantsWrite) {
+        currentConstantsWrite.contents = installed.constants;
+      } else if (installed.constants !== constantsContents) {
+        writes.push({
+          path: POKEMON_DATA_CONSTANTS_PATH,
+          expectedHash: guardHash(document, POKEMON_DATA_CONSTANTS_PATH),
+          contents: installed.constants,
+        });
+      }
+
+      const currentEngineWrite = writes.find(
+        (write) => write.path === EVOLUTION_ENGINE_PATH,
+      );
+      if (currentEngineWrite) {
+        currentEngineWrite.contents = installed.evolutionEngine;
+      } else if (installed.evolutionEngine !== evolutionEngineContents) {
+        writes.push({
+          path: EVOLUTION_ENGINE_PATH,
+          expectedHash: guardHash(document, EVOLUTION_ENGINE_PATH),
+          contents: installed.evolutionEngine,
+        });
+      }
+    }
 
     if (currentEvosWrite) {
       currentEvosWrite.contents = nextEvos;
