@@ -280,7 +280,7 @@ export interface VitaminRoutineParameters {
 
 export interface ReviveRoutineParameters {
   kind: "revive";
-  restoreMode: "half" | "full";
+  restoreMode: "quarter" | "half" | "full";
   editable: boolean;
 }
 
