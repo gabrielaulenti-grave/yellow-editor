@@ -438,10 +438,12 @@ export async function loadItemCreateDocument(
   return {
     slots: unusedSlots(constants, names, effects, partyUse, overworldUse),
     maxNameLength: maxItemNameLength(byPath.get(TEXT_CONSTANTS_PATH)!),
-    sources: SOURCE_PATHS.map((path) => ({
-      path,
-      sourceHash: hashText(byPath.get(path)!),
-    })),
+    sources: await Promise.all(
+      SOURCE_PATHS.map(async (path) => ({
+        path,
+        sourceHash: await hashText(byPath.get(path)!),
+      })),
+    ),
   };
 }
 
