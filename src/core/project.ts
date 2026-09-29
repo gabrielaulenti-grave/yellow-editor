@@ -382,13 +382,16 @@ export async function createProjectSession(
     savePokemonBaseStats: async (sourceSlug, expectedHash, values) => {
       validatePokemonBaseStats(values);
       const change = await preparePokemonBaseStatsWrite(source, sourceSlug, values);
-      return history.save(`Edit ${sourceSlug} base stats`, [
+      const result = await history.save(`Edit ${sourceSlug} base stats`, [
         {
           path: change.path,
           contents: change.contents,
           expectedHash,
         },
       ]);
+      pokemonCatchProfilesPromise = null;
+      tmhmCompatibilityIndexPromise = null;
+      return result;
     },
     getPokemonEditDocument: (internalId, sourceSlug) =>
       loadPokemonEditDocument(source, internalId, sourceSlug),
