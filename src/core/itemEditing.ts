@@ -351,7 +351,7 @@ function parseRoutine(
   effects: string,
   overworld: string | null,
 ): ItemRoutineParameters {
-  const deep = parseDeepItemRoutine(constant, useRoutine, effects, overworld);
+  const deep = parseDeepItemRoutine(constant, effects, overworld);
   if (deep) return deep;
 
   if (useRoutine === "ItemUseBall") {
