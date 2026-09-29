@@ -192,8 +192,9 @@ function replaceTmAssignment(
       const legacyItemConstant = `TM_${expectedMoveConstant}`;
       const alias =
         `${indent}DEF ${legacyItemConstant} EQU ${nextItemConstant} ; Yellow Editor compatibility alias`;
+      const lineBreak = newline || (contents.includes("\r\n") ? "\r\n" : "\n");
 
-      return prefix + nextMoveConstant + suffix + newline + alias + newline;
+      return prefix + nextMoveConstant + suffix + lineBreak + alias + newline;
     },
   );
 
