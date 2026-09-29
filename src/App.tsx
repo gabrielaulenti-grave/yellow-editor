@@ -1602,6 +1602,13 @@ function App() {
     save: saveTm,
     revert: revertTmChanges,
   };
+  const itemEditorController: EditorController = {
+    dirty: itemDirty,
+    valid: itemValid,
+    busy: editBusy || itemEditLoading,
+    save: saveItem,
+    revert: revertItemChanges,
+  };
   const encounterEditorController: EditorController = {
     dirty: encounterSection === "walking" ? encounterDirty : fishingDirty,
     valid: encounterSection === "walking" ? encounterValid : fishingValid,
@@ -1634,7 +1641,9 @@ function App() {
     ? pokemonEditorController
     : activeTab === "items" && selectedItem?.kind === "tm"
       ? tmEditorController
-      : activeTab === "encounters"
+      : activeTab === "items" && selectedItem?.kind !== "hm"
+        ? itemEditorController
+        : activeTab === "encounters"
         ? encounterEditorController
         : activeTab === "trainers"
           ? trainerSection === "parties"
@@ -1800,12 +1809,17 @@ function App() {
           }
           tmEditDocument={tmEditDocument}
           tmMoveDraft={tmMoveDraft}
+          itemEditDocument={itemEditDocument}
+          itemEditDraft={itemEditDraft}
+          itemEditLoading={itemEditLoading}
+          itemEditError={itemEditError}
           editBusy={editBusy}
           compatibilityLoading={itemCompatibilityLoading}
           compatibilityError={itemCompatibilityError}
           onSelectItem={selectItem}
           onSearchChange={setItemSearch}
           onTmMoveChange={setTmMoveDraft}
+          onItemEditDraftChange={setItemEditDraft}
           onCompatibilityRetainedChange={setItemCompatibilityRetained}
           onSelectAllCompatibility={selectAllItemCompatibility}
           onDeselectAllCompatibility={deselectAllItemCompatibility}
