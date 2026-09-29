@@ -914,6 +914,15 @@ export async function preparePokemonWrites(
 
   let evosContents = before.get(EVOS_PATH)!;
   if (
+    values.evolutions.some((item) => item.method === "move")
+    && !evosContents.includes("* db EVOLVE_MOVE,")
+  ) {
+    evosContents = evosContents.replace(
+      /(;\s*- db EVOLVE_TRADE, min level \(1\), species\s*)/,
+      "$1\n;    * db EVOLVE_MOVE, required move, min level (1), species",
+    );
+  }
+  if (
     JSON.stringify(values.evolutions) !== JSON.stringify(original.evolutions)
     || JSON.stringify(values.learnset) !== JSON.stringify(original.learnset)
   ) {
