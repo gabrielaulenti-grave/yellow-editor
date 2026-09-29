@@ -118,10 +118,40 @@ function nextCodeLine(lines: string[], start: number, pattern: RegExp, label: st
   throw new Error(`Could not locate ${label} in ItemUseBall.`);
 }
 
-function operand(line: string, register: "a" | "b"): number {
+function operand(line: string, register: "a" | "b" | "c"): number {
   const match = codeOnly(line).match(new RegExp(`^ld ${register},\\s*(\\d+)\\b`, "i"));
   if (!match) throw new Error(`Expected numeric ld ${register} operand.`);
   return Number.parseInt(match[1], 10);
+}
+
+function compareOperand(line: string): number {
+  const match = codeOnly(line).match(/^cp\s+(\d+)\b/i);
+  if (!match) throw new Error("Expected numeric cp operand.");
+  return Number.parseInt(match[1], 10);
+}
+
+function currentHpDivisor(lines: string[]): number {
+  const start = lines.findIndex((line) =>
+    line.includes("Divide the enemy's current HP by"));
+  if (start < 0) throw new Error("Could not locate the current-HP scaling block.");
+
+  let shiftPairs = 0;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const clean = codeOnly(lines[index]);
+    if (clean === ".skip2") break;
+    if (clean === "srl b") {
+      const next = codeOnly(lines[index + 1] ?? "");
+      if (next === "rr a") {
+        shiftPairs += 1;
+        index += 1;
+      }
+    }
+  }
+
+  if (shiftPairs < 1 || shiftPairs > 7) {
+    throw new Error("Unsupported current-HP divisor structure.");
+  }
+  return 2 ** shiftPairs;
 }
 
 function ballLocations(contents: string) {
@@ -130,25 +160,154 @@ function ballLocations(contents: string) {
     line.includes("Great/Ultra/Safari Ball and Rand1 is greater than"));
   const ultraComment = lines.findIndex((line) =>
     line.includes("If it's an Ultra/Safari Ball and Rand1 is greater than"));
+  const catchStatusComment = lines.findIndex((line) =>
+    line.includes("no status ailment:") && line.includes("Status = 0"));
   const factorComment = lines.findIndex((line) => line.includes("Determine BallFactor."));
   const factor2Comment = lines.findIndex((line) => line.includes("Determine BallFactor2."));
-  if ([greatComment, ultraComment, factorComment, factor2Comment].some((value) => value < 0)) {
+  const shakeStatusComment = lines.findIndex((line) =>
+    line.includes("no status ailment:") && line.includes("Status2 = 0"));
+  const shakeThresholdComment = lines.findIndex((line) =>
+    line.includes("Finally determine the number of shakes."));
+
+  if (
+    [
+      greatComment,
+      ultraComment,
+      catchStatusComment,
+      factorComment,
+      factor2Comment,
+      shakeStatusComment,
+      shakeThresholdComment,
+    ].some((value) => value < 0)
+  ) {
     throw new Error("Unsupported ItemUseBall routine structure.");
   }
 
-  const greatRandom = nextCodeLine(lines, greatComment + 1, /^ld a,\s*\d+\b/i, "Great Ball random ceiling");
-  const ultraRandom = nextCodeLine(lines, ultraComment + 1, /^ld a,\s*\d+\b/i, "Ultra/Safari random ceiling");
-  const cpGreat = nextCodeLine(lines, factorComment + 1, /^cp GREAT_BALL\b/i, "Great Ball factor check");
-  const otherHp = nextCodeLine(lines, cpGreat + 1, /^ld a,\s*\d+\b/i, "other-ball HP divisor");
-  const greatHp = nextCodeLine(lines, otherHp + 1, /^ld a,\s*\d+\b/i, "Great Ball HP divisor");
+  const greatRandom = nextCodeLine(
+    lines,
+    greatComment + 1,
+    /^ld a,\s*\d+\b/i,
+    "Great/Ultra/Safari first-roll ceiling",
+  );
+  const ultraRandom = nextCodeLine(
+    lines,
+    ultraComment + 1,
+    /^ld a,\s*\d+\b/i,
+    "Ultra/Safari second first-roll ceiling",
+  );
 
-  const pokeShake = nextCodeLine(lines, factor2Comment + 1, /^ld b,\s*\d+\b/i, "Poké Ball shake divisor");
-  const cpPoke = nextCodeLine(lines, pokeShake + 1, /^cp POKE_BALL\b/i, "Poké Ball shake check");
-  const greatShake = nextCodeLine(lines, cpPoke + 1, /^ld b,\s*\d+\b/i, "Great Ball shake divisor");
-  const cpGreatShake = nextCodeLine(lines, greatShake + 1, /^cp GREAT_BALL\b/i, "Great Ball shake check");
-  const ultraShake = nextCodeLine(lines, cpGreatShake + 1, /^ld b,\s*\d+\b/i, "Ultra/Safari shake divisor");
+  const minorStatusCatch = nextCodeLine(
+    lines,
+    catchStatusComment + 1,
+    /^ld c,\s*\d+\b/i,
+    "minor-status catch bonus",
+  );
+  const majorStatusCatch = nextCodeLine(
+    lines,
+    minorStatusCatch + 1,
+    /^ld c,\s*\d+\b/i,
+    "sleep/freeze catch bonus",
+  );
 
-  return { lines, greatRandom, ultraRandom, otherHp, greatHp, pokeShake, greatShake, ultraShake };
+  const cpGreat = nextCodeLine(
+    lines,
+    factorComment + 1,
+    /^cp GREAT_BALL\b/i,
+    "Great Ball factor check",
+  );
+  const otherHp = nextCodeLine(
+    lines,
+    cpGreat + 1,
+    /^ld a,\s*\d+\b/i,
+    "Poké/Ultra/Safari HP divisor",
+  );
+  const greatHp = nextCodeLine(
+    lines,
+    otherHp + 1,
+    /^ld a,\s*\d+\b/i,
+    "Great Ball HP divisor",
+  );
+
+  const pokeShake = nextCodeLine(
+    lines,
+    factor2Comment + 1,
+    /^ld b,\s*\d+\b/i,
+    "Poké Ball shake divisor",
+  );
+  const cpPoke = nextCodeLine(
+    lines,
+    pokeShake + 1,
+    /^cp POKE_BALL\b/i,
+    "Poké Ball shake check",
+  );
+  const greatShake = nextCodeLine(
+    lines,
+    cpPoke + 1,
+    /^ld b,\s*\d+\b/i,
+    "Great Ball shake divisor",
+  );
+  const cpGreatShake = nextCodeLine(
+    lines,
+    greatShake + 1,
+    /^cp GREAT_BALL\b/i,
+    "Great Ball shake check",
+  );
+  const ultraShake = nextCodeLine(
+    lines,
+    cpGreatShake + 1,
+    /^ld b,\s*\d+\b/i,
+    "Ultra/Safari shake divisor",
+  );
+
+  const minorStatusShake = nextCodeLine(
+    lines,
+    shakeStatusComment + 1,
+    /^ld b,\s*\d+\b/i,
+    "minor-status shake bonus",
+  );
+  const majorStatusShake = nextCodeLine(
+    lines,
+    minorStatusShake + 1,
+    /^ld b,\s*\d+\b/i,
+    "sleep/freeze shake bonus",
+  );
+
+  const shakeOne = nextCodeLine(
+    lines,
+    shakeThresholdComment + 1,
+    /^cp\s+\d+\b/i,
+    "one-shake threshold",
+  );
+  const shakeTwo = nextCodeLine(
+    lines,
+    shakeOne + 1,
+    /^cp\s+\d+\b/i,
+    "two-shake threshold",
+  );
+  const shakeThree = nextCodeLine(
+    lines,
+    shakeTwo + 1,
+    /^cp\s+\d+\b/i,
+    "three-shake threshold",
+  );
+
+  return {
+    lines,
+    greatRandom,
+    ultraRandom,
+    minorStatusCatch,
+    majorStatusCatch,
+    otherHp,
+    greatHp,
+    pokeShake,
+    greatShake,
+    ultraShake,
+    minorStatusShake,
+    majorStatusShake,
+    shakeOne,
+    shakeTwo,
+    shakeThree,
+  };
 }
 
 function readBall(contents: string): BallRoutineParameters {
@@ -158,11 +317,19 @@ function readBall(contents: string): BallRoutineParameters {
     masterBallGuaranteed: true,
     greatRandomCeiling: operand(at.lines[at.greatRandom], "a"),
     ultraSafariRandomCeiling: operand(at.lines[at.ultraRandom], "a"),
+    minorStatusCatchBonus: operand(at.lines[at.minorStatusCatch], "c"),
+    majorStatusCatchBonus: operand(at.lines[at.majorStatusCatch], "c"),
     greatHpDivisor: operand(at.lines[at.greatHp], "a"),
     otherHpDivisor: operand(at.lines[at.otherHp], "a"),
+    currentHpDivisor: currentHpDivisor(at.lines),
     pokeShakeDivisor: operand(at.lines[at.pokeShake], "b"),
     greatShakeDivisor: operand(at.lines[at.greatShake], "b"),
     ultraSafariShakeDivisor: operand(at.lines[at.ultraShake], "b"),
+    minorStatusShakeBonus: operand(at.lines[at.minorStatusShake], "b"),
+    majorStatusShakeBonus: operand(at.lines[at.majorStatusShake], "b"),
+    shakeOneThreshold: compareOperand(at.lines[at.shakeOne]),
+    shakeTwoThreshold: compareOperand(at.lines[at.shakeTwo]),
+    shakeThreeThreshold: compareOperand(at.lines[at.shakeThree]),
   };
 }
 
@@ -242,53 +409,161 @@ function validateByte(value: number, label: string, allowZero = true): void {
   }
 }
 
-function replaceOperand(line: string, register: "a" | "b", value: number): string {
-  return line.replace(new RegExp(`^(\\s*ld ${register},\\s*)\\d+\\b`, "i"), `$1${value}`);
+function replaceOperand(
+  line: string,
+  register: "a" | "b" | "c",
+  value: number,
+): string {
+  return line.replace(
+    new RegExp(`^(\\s*ld ${register},\\s*)\\d+\\b`, "i"),
+    `$1${value}`,
+  );
+}
+
+function replaceCompareOperand(line: string, value: number): string {
+  return line.replace(/^(\s*cp\s+)\d+\b/i, `$1${value}`);
+}
+
+function validateShakeThresholds(values: BallRoutineParameters): void {
+  const thresholds = [
+    values.shakeOneThreshold,
+    values.shakeTwoThreshold,
+    values.shakeThreeThreshold,
+  ];
+  thresholds.forEach((value, index) =>
+    validateByte(value, ["One-shake threshold", "Two-shake threshold", "Three-shake threshold"][index]),
+  );
+  if (!(thresholds[0] < thresholds[1] && thresholds[1] < thresholds[2])) {
+    throw new Error("Shake thresholds must increase from one shake to two shakes to three shakes.");
+  }
 }
 
 function rewriteBall(contents: string, values: BallRoutineParameters): string {
-  validateByte(values.greatRandomCeiling, "Great Ball random ceiling");
-  validateByte(values.ultraSafariRandomCeiling, "Ultra/Safari random ceiling");
+  validateByte(values.greatRandomCeiling, "Great/Ultra/Safari first-roll ceiling");
+  validateByte(values.ultraSafariRandomCeiling, "Ultra/Safari second first-roll ceiling");
+  validateByte(values.minorStatusCatchBonus, "Burn/poison/paralysis catch bonus");
+  validateByte(values.majorStatusCatchBonus, "Sleep/freeze catch bonus");
   validateByte(values.greatHpDivisor, "Great Ball HP divisor", false);
-  validateByte(values.otherHpDivisor, "Other-ball HP divisor", false);
+  validateByte(values.otherHpDivisor, "Poké/Ultra/Safari HP divisor", false);
   validateByte(values.pokeShakeDivisor, "Poké Ball shake divisor", false);
   validateByte(values.greatShakeDivisor, "Great Ball shake divisor", false);
   validateByte(values.ultraSafariShakeDivisor, "Ultra/Safari shake divisor", false);
+  validateByte(values.minorStatusShakeBonus, "Burn/poison/paralysis shake bonus");
+  validateByte(values.majorStatusShakeBonus, "Sleep/freeze shake bonus");
+  validateShakeThresholds(values);
+
+  if (!values.masterBallGuaranteed) {
+    throw new Error("Master Ball guaranteed capture is structural and cannot be disabled here.");
+  }
+
+  const at = ballLocations(contents);
+  const parsedHpDivisor = currentHpDivisor(at.lines);
+  if (values.currentHpDivisor !== parsedHpDivisor) {
+    throw new Error(
+      "The current-HP divisor is encoded as CPU shift instructions and is read-only in this editor.",
+    );
+  }
 
   const newline = contents.includes("\r\n") ? "\r\n" : "\n";
-  const at = ballLocations(contents);
-  at.lines[at.greatRandom] = replaceOperand(at.lines[at.greatRandom], "a", values.greatRandomCeiling);
-  at.lines[at.ultraRandom] = replaceOperand(at.lines[at.ultraRandom], "a", values.ultraSafariRandomCeiling);
-  at.lines[at.otherHp] = replaceOperand(at.lines[at.otherHp], "a", values.otherHpDivisor);
-  at.lines[at.greatHp] = replaceOperand(at.lines[at.greatHp], "a", values.greatHpDivisor);
-  at.lines[at.pokeShake] = replaceOperand(at.lines[at.pokeShake], "b", values.pokeShakeDivisor);
-  at.lines[at.greatShake] = replaceOperand(at.lines[at.greatShake], "b", values.greatShakeDivisor);
-  at.lines[at.ultraShake] = replaceOperand(at.lines[at.ultraShake], "b", values.ultraSafariShakeDivisor);
+  at.lines[at.greatRandom] = replaceOperand(
+    at.lines[at.greatRandom], "a", values.greatRandomCeiling,
+  );
+  at.lines[at.ultraRandom] = replaceOperand(
+    at.lines[at.ultraRandom], "a", values.ultraSafariRandomCeiling,
+  );
+  at.lines[at.minorStatusCatch] = replaceOperand(
+    at.lines[at.minorStatusCatch], "c", values.minorStatusCatchBonus,
+  );
+  at.lines[at.majorStatusCatch] = replaceOperand(
+    at.lines[at.majorStatusCatch], "c", values.majorStatusCatchBonus,
+  );
+  at.lines[at.otherHp] = replaceOperand(
+    at.lines[at.otherHp], "a", values.otherHpDivisor,
+  );
+  at.lines[at.greatHp] = replaceOperand(
+    at.lines[at.greatHp], "a", values.greatHpDivisor,
+  );
+  at.lines[at.pokeShake] = replaceOperand(
+    at.lines[at.pokeShake], "b", values.pokeShakeDivisor,
+  );
+  at.lines[at.greatShake] = replaceOperand(
+    at.lines[at.greatShake], "b", values.greatShakeDivisor,
+  );
+  at.lines[at.ultraShake] = replaceOperand(
+    at.lines[at.ultraShake], "b", values.ultraSafariShakeDivisor,
+  );
+  at.lines[at.minorStatusShake] = replaceOperand(
+    at.lines[at.minorStatusShake], "b", values.minorStatusShakeBonus,
+  );
+  at.lines[at.majorStatusShake] = replaceOperand(
+    at.lines[at.majorStatusShake], "b", values.majorStatusShakeBonus,
+  );
+  at.lines[at.shakeOne] = replaceCompareOperand(
+    at.lines[at.shakeOne], values.shakeOneThreshold,
+  );
+  at.lines[at.shakeTwo] = replaceCompareOperand(
+    at.lines[at.shakeTwo], values.shakeTwoThreshold,
+  );
+  at.lines[at.shakeThree] = replaceCompareOperand(
+    at.lines[at.shakeThree], values.shakeThreeThreshold,
+  );
+
+  const effectiveUltraCeiling = Math.min(
+    values.greatRandomCeiling,
+    values.ultraSafariRandomCeiling,
+  );
 
   for (let i = 0; i < at.lines.length; i += 1) {
     const line = at.lines[i];
     if (line.includes("; Great Ball:        [0,")) {
       at.lines[i] = `; Great Ball:        [0, ${values.greatRandomCeiling}]`;
     } else if (line.includes("; Ultra/Safari Ball: [0,")) {
-      at.lines[i] = `; Ultra/Safari Ball: [0, ${values.ultraSafariRandomCeiling}]`;
+      at.lines[i] = `; Ultra/Safari Ball: [0, ${effectiveUltraCeiling}]`;
     } else if (line.includes("Great/Ultra/Safari Ball and Rand1 is greater than")) {
-      at.lines[i] = `; If it's a Great/Ultra/Safari Ball and Rand1 is greater than ${values.greatRandomCeiling}, try again.`;
+      at.lines[i] =
+        `; If it's a Great/Ultra/Safari Ball and Rand1 is greater than ${values.greatRandomCeiling}, try again.`;
     } else if (line.includes("good enough for a Great Ball")) {
-      at.lines[i] = `; Less than or equal to ${values.greatRandomCeiling} is good enough for a Great Ball.`;
-    } else if (line.includes("Ultra/Safari Ball and Rand1 is greater than")) {
-      at.lines[i] = `; If it's an Ultra/Safari Ball and Rand1 is greater than ${values.ultraSafariRandomCeiling}, try again.`;
+      at.lines[i] =
+        `; Less than or equal to ${values.greatRandomCeiling} is good enough for a Great Ball.`;
+    } else if (line.includes("If it's an Ultra/Safari Ball and Rand1 is greater than")) {
+      at.lines[i] =
+        `; If it's an Ultra/Safari Ball and Rand1 is greater than ${values.ultraSafariRandomCeiling}, try again.`;
+    } else if (line.includes("; Burn/Paralysis/Poison: Status =")) {
+      at.lines[i] =
+        `; Burn/Paralysis/Poison: Status = ${values.minorStatusCatchBonus}`;
+    } else if (line.includes("; Freeze/Sleep:") && line.includes("Status =")) {
+      at.lines[i] = `; Freeze/Sleep:          Status = ${values.majorStatusCatchBonus}`;
     } else if (line.includes("; Determine BallFactor. It's")) {
-      at.lines[i] = `; Determine BallFactor. It's ${values.greatHpDivisor} for Great Balls and ${values.otherHpDivisor} for the others.`;
+      at.lines[i] =
+        `; Determine BallFactor. It's ${values.greatHpDivisor} for Great Balls and ${values.otherHpDivisor} for the others.`;
     } else if (line.includes("; Poké Ball:") && line.includes("BallFactor2")) {
       at.lines[i] = `; Poké Ball:         BallFactor2 = ${values.pokeShakeDivisor}`;
     } else if (line.includes("; Great Ball:") && line.includes("BallFactor2")) {
       at.lines[i] = `; Great Ball:        BallFactor2 = ${values.greatShakeDivisor}`;
     } else if (line.includes("; Ultra/Safari Ball:") && line.includes("BallFactor2")) {
-      at.lines[i] = `; Ultra/Safari Ball: BallFactor2 = ${values.ultraSafariShakeDivisor}`;
+      at.lines[i] =
+        `; Ultra/Safari Ball: BallFactor2 = ${values.ultraSafariShakeDivisor}`;
+    } else if (line.includes("; Burn/Paralysis/Poison: Status2 =")) {
+      at.lines[i] =
+        `; Burn/Paralysis/Poison: Status2 = ${values.minorStatusShakeBonus}`;
+    } else if (line.includes("; Freeze/Sleep:") && line.includes("Status2 =")) {
+      at.lines[i] = `; Freeze/Sleep:          Status2 = ${values.majorStatusShakeBonus}`;
+    } else if (/^; 0\s+≤ Z </.test(line)) {
+      at.lines[i] =
+        `; 0  ≤ Z < ${values.shakeOneThreshold}: 0 shakes (the ball misses)`;
+    } else if (/^; \d+ ≤ Z </.test(line) && line.includes("1 shake")) {
+      at.lines[i] =
+        `; ${values.shakeOneThreshold} ≤ Z < ${values.shakeTwoThreshold}: 1 shake`;
+    } else if (/^; \d+ ≤ Z </.test(line) && line.includes("2 shakes")) {
+      at.lines[i] =
+        `; ${values.shakeTwoThreshold} ≤ Z < ${values.shakeThreeThreshold}: 2 shakes`;
+    } else if (line.includes("≤ Z:") && line.includes("3 shakes")) {
+      at.lines[i] = `; ${values.shakeThreeThreshold} ≤ Z:      3 shakes`;
     } else if (line.includes("; The maximum value of Y is")) {
       at.lines[i] = "; The maximum value of Y depends on the configured BallFactor2.";
     }
   }
+
   return at.lines.join(newline);
 }
 

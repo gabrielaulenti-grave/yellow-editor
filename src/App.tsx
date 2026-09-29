@@ -10,6 +10,7 @@ import type {
   ItemEditDocument,
   ItemEditValues,
   MoveData,
+  PokemonCatchProfile,
   PokemonEditDocument,
   PokemonDetails,
   PokemonIndexEntry,
@@ -110,6 +111,9 @@ function App() {
   const [itemEditDraft, setItemEditDraft] = useState<ItemEditValues | null>(null);
   const [itemEditLoading, setItemEditLoading] = useState(false);
   const [itemEditError, setItemEditError] = useState<string | null>(null);
+  const [pokemonCatchProfiles, setPokemonCatchProfiles] = useState<PokemonCatchProfile[]>([]);
+  const [catchProfilesLoading, setCatchProfilesLoading] = useState(false);
+  const [catchProfilesError, setCatchProfilesError] = useState<string | null>(null);
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -253,6 +257,39 @@ function App() {
   ]);
 
   useEffect(() => {
+    if (!project || itemEditDraft?.routineParameters.kind !== "ball") {
+      setCatchProfilesLoading(false);
+      setCatchProfilesError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setCatchProfilesLoading(true);
+    setCatchProfilesError(null);
+
+    void invoke<PokemonCatchProfile[]>("get_pokemon_catch_profiles")
+      .then((profiles) => {
+        if (cancelled) return;
+        setPokemonCatchProfiles(profiles);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setCatchProfilesError(String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setCatchProfilesLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    project,
+    itemEditDraft?.routineParameters.kind,
+    historySummary?.appliedCount,
+  ]);
+
+  useEffect(() => {
     if (
       !project
       || !selectedItem?.moveConstant
@@ -361,19 +398,34 @@ function App() {
         && routine.healAmount <= 255;
     }
     if (routine.kind === "ball") {
-      return [
+      const byteValues = [
         routine.greatRandomCeiling,
         routine.ultraSafariRandomCeiling,
+        routine.minorStatusCatchBonus,
+        routine.majorStatusCatchBonus,
+        routine.minorStatusShakeBonus,
+        routine.majorStatusShakeBonus,
+        routine.shakeOneThreshold,
+        routine.shakeTwoThreshold,
+        routine.shakeThreeThreshold,
+      ];
+      const positiveByteValues = [
         routine.greatHpDivisor,
         routine.otherHpDivisor,
+        routine.currentHpDivisor,
         routine.pokeShakeDivisor,
         routine.greatShakeDivisor,
         routine.ultraSafariShakeDivisor,
-      ].every((value, index) =>
-        Number.isInteger(value)
-        && value >= (index < 2 ? 0 : 1)
-        && value <= 255
-      );
+      ];
+      return routine.masterBallGuaranteed
+        && byteValues.every((value) =>
+          Number.isInteger(value) && value >= 0 && value <= 255
+        )
+        && positiveByteValues.every((value) =>
+          Number.isInteger(value) && value >= 1 && value <= 255
+        )
+        && routine.shakeOneThreshold < routine.shakeTwoThreshold
+        && routine.shakeTwoThreshold < routine.shakeThreeThreshold;
     }
     return true;
   })();
@@ -772,6 +824,9 @@ function App() {
       setSelectedItemId(itemData[0]?.id ?? null);
       setItemSearch("");
       setItemCompatibilitySelections({});
+      setPokemonCatchProfiles([]);
+      setCatchProfilesLoading(false);
+      setCatchProfilesError(null);
       setTrainerSearch("");
       setTrainerClassSearch("");
       setTrainerSection("parties");
@@ -818,6 +873,9 @@ function App() {
       setSelectedMoveId(null);
       setSelectedItemId(null);
       setItemCompatibilitySelections({});
+      setPokemonCatchProfiles([]);
+      setCatchProfilesLoading(false);
+      setCatchProfilesError(null);
       setHistorySummary(null);
       setProjectLoadProgress(null);
       setStatus(String(error));
@@ -1813,6 +1871,9 @@ function App() {
           itemEditDraft={itemEditDraft}
           itemEditLoading={itemEditLoading}
           itemEditError={itemEditError}
+          pokemonCatchProfiles={pokemonCatchProfiles}
+          catchProfilesLoading={catchProfilesLoading}
+          catchProfilesError={catchProfilesError}
           editBusy={editBusy}
           compatibilityLoading={itemCompatibilityLoading}
           compatibilityError={itemCompatibilityError}
