@@ -164,7 +164,12 @@ function replaceTmAssignment(
 ): string {
   let currentTm = 0;
   let replaced = false;
-  const next = contents.replace(
+  const restoredAliasPattern = new RegExp(
+    `^[ \\t]*DEF[ \\t]+TM_${nextMoveConstant}[ \\t]+EQU[ \\t]+TM_[A-Z0-9_]+[^\\r\\n]*(?:\\r?\\n|$)`,
+    "gmi",
+  );
+  const withoutRestoredAlias = contents.replace(restoredAliasPattern, "");
+  const next = withoutRestoredAlias.replace(
     /^([ \t]*add_tm[ \t]+)([A-Za-z0-9_]+)([^\r\n]*)(\r?\n|$)/gm,
     (
       line,
