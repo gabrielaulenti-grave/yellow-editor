@@ -918,7 +918,7 @@ export async function preparePokemonWrites(
     && !evosContents.includes("* db EVOLVE_MOVE,")
   ) {
     evosContents = evosContents.replace(
-      /(;\s*- db EVOLVE_TRADE, min level \(1\), species\s*)/,
+      /(;\s+\*\s+db EVOLVE_TRADE, min level \(1\), species\s*)/,
       "$1\n;    * db EVOLVE_MOVE, required move, min level (1), species",
     );
   }
