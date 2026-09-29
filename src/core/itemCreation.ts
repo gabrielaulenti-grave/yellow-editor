@@ -390,6 +390,20 @@ function validateValues(
   }
 
   const constant = validateConstant(values.constant);
+  if (
+    constant === slot.constant
+    || /^ITEM_[0-9A-F]{2}$/i.test(constant)
+  ) {
+    throw new Error(
+      "Choose a new descriptive constant instead of the placeholder ITEM_XX name.",
+    );
+  }
+  if (/^(?:HM_|TM_|FLOOR_)/.test(constant) || constant === "NO_ITEM") {
+    throw new Error(
+      "That constant prefix is reserved by the Gen I item/machine/floor tables.",
+    );
+  }
+
   const name = values.name.trim();
   if (!name || name.length > document.maxNameLength || /["@\r\n]/.test(name)) {
     throw new Error(
@@ -410,10 +424,6 @@ function validateValues(
   if (constant !== slot.constant && symbolPattern.test(constants)) {
     throw new Error(`The assembly symbol ${constant} already exists.`);
   }
-  if (/^(?:NO_ITEM|HM\d\d|TM\d\d)$/i.test(constant)) {
-    throw new Error("That constant name is reserved for the item system.");
-  }
-
   return { slot, constant, name, template };
 }
 
