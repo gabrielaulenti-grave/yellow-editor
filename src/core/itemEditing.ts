@@ -725,6 +725,7 @@ export async function prepareItemEditWrites(
     && document.itemEvolution
     && (
       values.itemEvolution.triggerMode !== document.itemEvolution.triggerMode
+      || values.itemEvolution.runtimeEnabled !== document.itemEvolution.runtimeEnabled
       || values.itemEvolution.eligibleItemConstants.join("|")
         !== document.itemEvolution.eligibleItemConstants.join("|")
     )
