@@ -131,7 +131,7 @@ export function AddItemWizard({
     selectedSlot
     && /^[A-Z][A-Z0-9_]*$/.test(normalizedConstant)
     && normalizedConstant !== selectedSlot.constant
-    && !/^ITEM_[0-9A-F]{2}$/i.test(normalizedConstant)
+    && !/^ITEM_/i.test(normalizedConstant)
     && !/^(?:HM_|TM_|FLOOR_)/.test(normalizedConstant)
     && normalizedConstant !== "NO_ITEM"
     && name.trim().length >= 1
@@ -248,8 +248,8 @@ export function AddItemWizard({
                   placeholder="MY_CUSTOM_ITEM"
                 />
                 <small>
-                  A-Z, 0-9, and underscores only; ITEM_XX, HM_, TM_, FLOOR_,
-                  and NO_ITEM are reserved.
+                  A-Z, 0-9, and underscores only; ITEM_, HM_, TM_, FLOOR_, and
+                  NO_ITEM are reserved.
                 </small>
               </label>
 
