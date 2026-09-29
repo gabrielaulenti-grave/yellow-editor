@@ -443,7 +443,9 @@ function App() {
         && routine.useThreshold % 256 === 0;
     }
     if (routine.kind === "revive") {
-      return routine.restoreMode === "half" || routine.restoreMode === "full";
+      return routine.restoreMode === "quarter"
+        || routine.restoreMode === "half"
+        || routine.restoreMode === "full";
     }
     if (routine.kind === "pp-restore") {
       return routine.fullRestore
