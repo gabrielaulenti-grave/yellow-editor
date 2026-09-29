@@ -850,8 +850,8 @@ function App() {
   function selectItem(itemId: number) {
     if (itemId === selectedItemId) return;
     if (
-      tmDirty
-      && !window.confirm("Discard the unsaved TM assignment and switch items?")
+      (tmDirty || itemDirty)
+      && !window.confirm("Discard the unsaved item changes and switch items?")
     ) {
       return;
     }
@@ -916,6 +916,47 @@ function App() {
         ? updatePokemonPaletteConstant(current, pokemonEditDocument, value)
         : current,
     );
+  }
+
+  async function saveItem() {
+    if (
+      !selectedItem
+      || selectedItem.kind === "tm"
+      || selectedItem.kind === "hm"
+      || !itemEditDocument
+      || !itemEditDraft
+      || !itemDirty
+      || !itemValid
+    ) {
+      return;
+    }
+
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("save_item_edit", {
+        document: itemEditDocument,
+        values: itemEditDraft,
+      });
+      setHistorySummary(history);
+      const refreshedItems = await invoke<ItemData[]>("get_items");
+      setItems(refreshedItems);
+      setStatus(`${itemEditDraft.name} saved successfully.`);
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function revertItemChanges() {
+    if (!itemEditDocument || !itemEditDraft || !itemDirty || editBusy) return;
+    setItemEditDraft({
+      name: itemEditDocument.name,
+      price: itemEditDocument.price,
+      keyItem: itemEditDocument.keyItem,
+      routineParameters: itemEditDocument.routineParameters,
+    });
+    setStatus(`Unsaved ${itemEditDocument.name} changes reverted.`);
   }
 
   async function saveTm() {
@@ -1616,6 +1657,9 @@ function App() {
     }
     if (tmDirty) {
       await revertTmChanges();
+    }
+    if (itemDirty) {
+      await revertItemChanges();
     }
     if (encounterDirty) {
       await revertEncounterChanges();
