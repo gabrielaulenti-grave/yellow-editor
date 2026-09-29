@@ -400,6 +400,45 @@ export interface ItemEditValues {
   itemEvolution: ItemEvolutionEditData | null;
 }
 
+export type ItemCreateTemplate =
+  | "unusable"
+  | "evolution"
+  | "repel"
+  | "super-repel"
+  | "max-repel"
+  | "x-accuracy"
+  | "guard-spec"
+  | "dire-hit"
+  | "escape-rope"
+  | "bicycle"
+  | "poke-doll";
+
+export interface ItemCreateSlot {
+  id: number;
+  constant: string;
+  displayName: string;
+}
+
+export interface ItemCreateSourceDocument {
+  path: string;
+  sourceHash: string;
+}
+
+export interface ItemCreateDocument {
+  slots: ItemCreateSlot[];
+  maxNameLength: number;
+  sources: ItemCreateSourceDocument[];
+}
+
+export interface ItemCreateValues {
+  slotId: number;
+  constant: string;
+  name: string;
+  price: number;
+  keyItem: boolean;
+  template: ItemCreateTemplate;
+}
+
 export type TrainerPartyFormat = "shared-level" | "individual-levels";
 export type TrainerTriggerKind = "sight" | "talk" | "scripted";
 export type TrainerPartyResolution =
@@ -912,6 +951,11 @@ export interface ProjectSession {
   saveTmEdit(document: TmEditDocument, values: TmEditValues): Promise<HistorySummary>;
   getItemEditDocument(itemId: number): Promise<ItemEditDocument>;
   saveItemEdit(document: ItemEditDocument, values: ItemEditValues): Promise<HistorySummary>;
+  getItemCreateDocument(): Promise<ItemCreateDocument>;
+  createItem(
+    document: ItemCreateDocument,
+    values: ItemCreateValues,
+  ): Promise<HistorySummary>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,
