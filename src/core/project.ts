@@ -31,6 +31,7 @@ import {
 import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
+import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -53,6 +54,8 @@ import { parseTrainerPresentation } from "./trainerPresentation";
 import { prepareTrainerPicOverrideWrites } from "./trainerPicOverrideEditing";
 import type {
   BuildService,
+  ItemCreateDocument,
+  ItemCreateValues,
   ItemEditDocument,
   ItemEditValues,
   PokemonCatchProfile,
@@ -418,6 +421,15 @@ export async function createProjectSession(
       const changes = await prepareItemEditWrites(source, document, values);
       if (changes.length === 0) return history.getSummary();
       return history.save(`Edit item ${document.constant}`, changes);
+    },
+    getItemCreateDocument: () => loadItemCreateDocument(source),
+    createItem: async (
+      document: ItemCreateDocument,
+      values: ItemCreateValues,
+    ) => {
+      const changes = await prepareItemCreateWrites(source, document, values);
+      if (changes.length === 0) return history.getSummary();
+      return history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
     },
     getTmhmCompatibility: async (moveConstant) => {
       const index = await getTmhmCompatibilityIndex();
