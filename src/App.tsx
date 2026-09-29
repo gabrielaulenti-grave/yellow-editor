@@ -1000,8 +1000,24 @@ function App() {
     ) {
       return;
     }
+    if (
+      itemDirty
+      && !window.confirm(
+        "Discard the unsaved item changes before opening this Pokémon?",
+      )
+    ) {
+      return;
+    }
     if (tmEditDocument) {
       setTmMoveDraft(tmEditDocument.moveConstant);
+    }
+    if (itemDirty && itemEditDocument) {
+      setItemEditDraft({
+        name: itemEditDocument.name,
+        price: itemEditDocument.price,
+        keyItem: itemEditDocument.keyItem,
+        routineParameters: itemEditDocument.routineParameters,
+      });
     }
     setActiveTab("pokemon");
     await loadPokemon(entry, `${entry.displayName} loaded from the item cross-reference.`);
@@ -1065,7 +1081,17 @@ function App() {
       setHistorySummary(history);
       const refreshedItems = await invoke<ItemData[]>("get_items");
       setItems(refreshedItems);
-      setStatus(`${itemEditDraft.name} saved successfully.`);
+      if (
+        itemEditDraft.routineParameters.kind === "evolution-stone"
+        && selectedPokemonEntry?.sourceSlug
+      ) {
+        await loadPokemon(
+          selectedPokemonEntry,
+          `${itemEditDraft.name} saved successfully.`,
+        );
+      } else {
+        setStatus(`${itemEditDraft.name} saved successfully.`);
+      }
     } catch (error) {
       setStatus(String(error));
     } finally {
