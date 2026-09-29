@@ -191,10 +191,9 @@ export async function loadTmEditDocument(
     moveConstant: string,
   ) => Promise<PokemonTmhmCompatibilityReference[]>,
 ): Promise<TmEditDocument> {
-  const [itemConstantsContents, moveConstantsContents, pokemonIndex] = await Promise.all([
+  const [itemConstantsContents, moveConstantsContents] = await Promise.all([
     source.readText(ITEM_CONSTANTS_PATH),
     source.readText(MOVE_CONSTANTS_PATH),
-    parsePokemonIndex(source),
   ]);
 
   const definitions = parseItemConstantDefinitions(itemConstantsContents);
@@ -233,6 +232,7 @@ export async function loadTmEditDocument(
       return { path, contents };
     }));
   } else {
+    const pokemonIndex = await parsePokemonIndex(source);
     const pokemon = pokemonIndex.filter(
       (entry) => entry.kind === "pokemon" && entry.constant && entry.sourceSlug,
     );
