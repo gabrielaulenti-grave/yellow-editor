@@ -120,17 +120,6 @@ function readUseRoutine(contents: string, index: number): string | null {
   return null;
 }
 
-function evolutionStoneConstants(constants: string, effects: string): string[] {
-  const rows = parseItemConstantDefinitions(constants).filter(
-    (row) => row.machineKind === null,
-  );
-  return rows.flatMap((row, index) =>
-    readUseRoutine(effects, index) === "ItemUseEvoStone"
-      ? [row.constant]
-      : [],
-  );
-}
-
 function maxItemNameLength(contents: string): number {
   const match = contents.match(/^\s*DEF\s+ITEM_NAME_LENGTH\s+EQU\s+(\d+)\b/m);
   return Math.max(1, (match ? Number.parseInt(match[1], 10) : 13) - 1);
