@@ -152,9 +152,10 @@ export function DeepItemRoutinePanel({
               onChange={(event) =>
                 onChange({
                   ...routine,
-                  restoreMode: event.target.value as "half" | "full",
+                  restoreMode: event.target.value as "quarter" | "half" | "full",
                 })}
             >
+              <option value="quarter">25% of maximum HP</option>
               <option value="half">50% of maximum HP — vanilla Revive</option>
               <option value="full">100% of maximum HP</option>
             </select>
@@ -163,9 +164,10 @@ export function DeepItemRoutinePanel({
           <ReadonlyField label="HP Restored" value="100% of maximum HP" />
         )}
         <p className="help-text">
-          Revive's 50% effect is encoded as a 16-bit right shift rather than a percentage
-          constant. The editor can safely switch that branch between half HP and full HP without
-          rewriting the surrounding Red/Blue or Yellow-specific logic.
+          Revive's vanilla 50% effect is encoded as a 16-bit right shift rather than a percentage
+          constant. Yellow Editor safely rewrites only that small arithmetic block for 25% or 50%,
+          or routes Revive to the existing full-HP path for 100%, while leaving the surrounding
+          Red/Blue or Yellow-specific logic untouched.
         </p>
         {!routine.editable && (
           <p className="help-text">
