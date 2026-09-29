@@ -281,6 +281,10 @@ export function ItemsTab({
                       || itemEditDraft.routineParameters.kind === "pp-restore"
                       || itemEditDraft.routineParameters.kind === "pp-up"
                       || itemEditDraft.routineParameters.kind === "bicycle"
+                      || itemEditDraft.routineParameters.kind === "status-cure"
+                      || itemEditDraft.routineParameters.kind === "x-stat"
+                      || itemEditDraft.routineParameters.kind === "battle-flag"
+                      || itemEditDraft.routineParameters.kind === "evolution-stone"
                     ) ? (
                       <DeepItemRoutinePanel
                         routine={itemEditDraft.routineParameters}
@@ -289,6 +293,7 @@ export function ItemsTab({
                         onChange={(routineParameters) =>
                           changeItemDraft({ routineParameters })}
                         onSelectItem={onSelectItem}
+                        onOpenPokemon={onOpenPokemon}
                       />
                     ) : itemEditDraft?.routineParameters.kind === "special-heal" ? (
                       <div className="item-routine-panel">
