@@ -1,8 +1,10 @@
+import { CatchFormulaPanel } from "./CatchFormulaPanel";
 import type {
   ItemData,
   ItemEditDocument,
   ItemEditValues,
   MoveData,
+  PokemonCatchProfile,
   PokemonTmhmCompatibilityReference,
   ProjectInfo,
   TmEditDocument,
@@ -24,6 +26,9 @@ interface ItemsTabProps {
   itemEditDraft: ItemEditValues | null;
   itemEditLoading: boolean;
   itemEditError: string | null;
+  pokemonCatchProfiles: PokemonCatchProfile[];
+  catchProfilesLoading: boolean;
+  catchProfilesError: string | null;
   editBusy: boolean;
   compatibilityLoading: boolean;
   compatibilityError: string | null;
@@ -75,6 +80,9 @@ export function ItemsTab({
   itemEditDraft,
   itemEditLoading,
   itemEditError,
+  pokemonCatchProfiles,
+  catchProfilesLoading,
+  catchProfilesError,
   editBusy,
   compatibilityLoading,
   compatibilityError,
@@ -123,26 +131,6 @@ export function ItemsTab({
   function changeItemDraft(patch: Partial<ItemEditValues>) {
     if (!itemEditDraft) return;
     onItemEditDraftChange({ ...itemEditDraft, ...patch });
-  }
-
-  function changeBallParameter(
-    key:
-      | "greatRandomCeiling"
-      | "ultraSafariRandomCeiling"
-      | "greatHpDivisor"
-      | "otherHpDivisor"
-      | "pokeShakeDivisor"
-      | "greatShakeDivisor"
-      | "ultraSafariShakeDivisor",
-    value: number,
-  ) {
-    if (!itemEditDraft || itemEditDraft.routineParameters.kind !== "ball") return;
-    changeItemDraft({
-      routineParameters: {
-        ...itemEditDraft.routineParameters,
-        [key]: value,
-      },
-    });
   }
 
   return (
@@ -294,119 +282,18 @@ export function ItemsTab({
                         </p>
                       </div>
                     ) : itemEditDraft?.routineParameters.kind === "ball" ? (
-                      <div className="item-routine-panel">
-                        <strong>Catch Formula</strong>
-                        <p className="help-text">
-                          Gen I shares several constants between ball types. These fields expose the
-                          exact routine values, including the Ultra/Safari shared values, rather than
-                          presenting them as independent modifiers.
-                        </p>
-                        <div className="field-grid two-column-fields">
-                          <ReadonlyField label="Master Ball" value="Guaranteed catch" />
-                          <label className="editor-field">
-                            <span>Great Ball RNG Ceiling</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="255"
-                              value={itemEditDraft.routineParameters.greatRandomCeiling}
-                              disabled={editBusy}
-                              onChange={(event) => changeBallParameter(
-                                "greatRandomCeiling",
-                                Number.parseInt(event.target.value || "0", 10),
-                              )}
-                            />
-                          </label>
-                          <label className="editor-field">
-                            <span>Ultra / Safari RNG Ceiling</span>
-                            <input
-                              type="number"
-                              min="0"
-                              max="255"
-                              value={itemEditDraft.routineParameters.ultraSafariRandomCeiling}
-                              disabled={editBusy}
-                              onChange={(event) => changeBallParameter(
-                                "ultraSafariRandomCeiling",
-                                Number.parseInt(event.target.value || "0", 10),
-                              )}
-                            />
-                          </label>
-                          <label className="editor-field">
-                            <span>Great Ball HP Divisor</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="255"
-                              value={itemEditDraft.routineParameters.greatHpDivisor}
-                              disabled={editBusy}
-                              onChange={(event) => changeBallParameter(
-                                "greatHpDivisor",
-                                Number.parseInt(event.target.value || "1", 10),
-                              )}
-                            />
-                          </label>
-                          <label className="editor-field">
-                            <span>Poké / Ultra / Safari HP Divisor</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="255"
-                              value={itemEditDraft.routineParameters.otherHpDivisor}
-                              disabled={editBusy}
-                              onChange={(event) => changeBallParameter(
-                                "otherHpDivisor",
-                                Number.parseInt(event.target.value || "1", 10),
-                              )}
-                            />
-                          </label>
-                          <label className="editor-field">
-                            <span>Poké Ball Shake Divisor</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="255"
-                              value={itemEditDraft.routineParameters.pokeShakeDivisor}
-                              disabled={editBusy}
-                              onChange={(event) => changeBallParameter(
-                                "pokeShakeDivisor",
-                                Number.parseInt(event.target.value || "1", 10),
-                              )}
-                            />
-                          </label>
-                          <label className="editor-field">
-                            <span>Great Ball Shake Divisor</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="255"
-                              value={itemEditDraft.routineParameters.greatShakeDivisor}
-                              disabled={editBusy}
-                              onChange={(event) => changeBallParameter(
-                                "greatShakeDivisor",
-                                Number.parseInt(event.target.value || "1", 10),
-                              )}
-                            />
-                          </label>
-                          <label className="editor-field">
-                            <span>Ultra / Safari Shake Divisor</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="255"
-                              value={itemEditDraft.routineParameters.ultraSafariShakeDivisor}
-                              disabled={editBusy}
-                              onChange={(event) => changeBallParameter(
-                                "ultraSafariShakeDivisor",
-                                Number.parseInt(event.target.value || "1", 10),
-                              )}
-                            />
-                          </label>
-                        </div>
-                        <p className="help-text">
-                          Lower HP and shake divisors generally make capture easier. The RNG ceilings
-                          limit the first random roll; lower ceilings favor capture. The Great Ball
-                          ceiling is also the first gate passed by Ultra and Safari Balls in the vanilla routine.
-                        </p>
+                      <div className="item-routine-panel item-routine-panel-catch">
+                        <CatchFormulaPanel
+                          parameters={itemEditDraft.routineParameters}
+                          items={items}
+                          pokemonCatchProfiles={pokemonCatchProfiles}
+                          catchProfilesLoading={catchProfilesLoading}
+                          catchProfilesError={catchProfilesError}
+                          busy={editBusy}
+                          onChange={(routineParameters) =>
+                            changeItemDraft({ routineParameters })}
+                          onSelectItem={onSelectItem}
+                        />
                       </div>
                     ) : itemEditDraft?.routineParameters.kind === "routine" ? (
                       <div className="item-routine-panel">
