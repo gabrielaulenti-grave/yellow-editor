@@ -7,6 +7,8 @@ import {
 import { hashText } from "./history";
 import { tmhmMoveOptions } from "./itemConstants";
 import {
+  itemEvolutionReferences,
+  medicineEvolutionItemConstants,
   supportedItemEvolutionConstants,
   syncMedicineEvolutionHooks,
 } from "./itemEvolutionHooks";
@@ -266,6 +268,20 @@ function moveConstants(contents: string): string[] {
 
 function items(contents: string): string[] {
   return consts(contents.split("DEF NUM_ITEMS", 1)[0] || contents).filter((constant) => constant !== "NO_ITEM");
+}
+
+function maxEvolutionEntries(contents: string): number {
+  const match = contents.match(
+    /^\s*DEF\s+NUM_EVOS_IN_BUFFER\s+EQU\s+(\d+)\b/m,
+  );
+  if (!match) {
+    throw new Error("Could not resolve NUM_EVOS_IN_BUFFER.");
+  }
+  const value = Number.parseInt(match[1], 10);
+  if (!Number.isInteger(value) || value < 1 || value > 255) {
+    throw new Error("NUM_EVOS_IN_BUFFER must be between 1 and 255.");
+  }
+  return value;
 }
 
 function nameRows(contents: string): string[] {
@@ -686,6 +702,9 @@ export async function loadPokemonEditDocument(
     ),
     items: allItems,
     evolutionItems,
+    maxEvolutions: maxEvolutionEntries(
+      byPath.get(POKEMON_DATA_CONSTANTS_PATH)!,
+    ),
     tmhmMoves: tmhmMoveOptions(byPath.get("constants/item_constants.asm")!),
     spriteChoices: sprites,
     paletteChoices: palettes,
@@ -777,6 +796,13 @@ export function validatePokemonEditValues(values: PokemonEditValues, options: Po
 
   const species = new Set(options.species);
   const itemSet = new Set(options.items);
+  if (values.evolutions.length > options.maxEvolutions) {
+    throw new Error(
+      "This project supports at most "
+        + options.maxEvolutions
+        + " evolution entries per Pokémon.",
+    );
+  }
   for (const item of values.evolutions) {
     if (!species.has(item.target)) throw new Error("Unknown evolution target " + item.target + ".");
     if (!Number.isInteger(item.level) || (item.level || 0) < 1 || (item.level || 0) > 255) throw new Error("Evolution levels must be 1–255.");
@@ -1017,7 +1043,16 @@ export async function preparePokemonWrites(
   let itemEffectsContents = before.get(EXTENDED_ITEM_EFFECTS_PATH)!;
   const itemConstantsContents = before.get("constants/item_constants.asm")!;
 
-  if (values.evolutions.some((item) => item.method === "move")) {
+  const medicineItems = new Set(
+    medicineEvolutionItemConstants(itemConstantsContents, itemEffectsContents),
+  );
+  const needsMedicineEvolutionRuntime = itemEvolutionReferences(evosContents)
+    .some((constant) => medicineItems.has(constant));
+
+  if (
+    values.evolutions.some((item) => item.method === "move")
+    || needsMedicineEvolutionRuntime
+  ) {
     const installed = installMoveEvolutionSupport(
       pokemonDataConstantsContents,
       evolutionEngineContents,
