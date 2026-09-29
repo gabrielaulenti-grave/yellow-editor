@@ -55,6 +55,7 @@ import type {
   BuildService,
   ItemEditDocument,
   ItemEditValues,
+  PokemonCatchProfile,
   PokemonTmhmCompatibilityReference,
   ProjectSession,
   ProjectSource,
@@ -170,6 +171,7 @@ export async function createProjectSession(
   const trainerBaseSource = createTrainerScanSource(source);
   const trainerCatalogCache = (source as CacheCapableProjectSource).trainerCatalogCache;
   let trainerBaseCatalogPromise: Promise<TrainerCatalog> | null = null;
+  let pokemonCatchProfilesPromise: Promise<PokemonCatchProfile[]> | null = null;
   let tmhmCompatibilityIndexPromise: Promise<Map<string, PokemonTmhmCompatibilityReference[]>> | null = null;
   let encounterIndexPromise: ReturnType<typeof parseEncounterIndex> | null = null;
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
@@ -188,7 +190,30 @@ export async function createProjectSession(
     return trainerBaseCatalogPromise;
   }
 
-  function getTmhmCompatibilityIndex(): Promise<Map<string, PokemonTmhmCompatibilityReference[]>> {
+  function getPokemonCatchProfiles(): Promise<PokemonCatchProfile[]> {
+    if (!pokemonCatchProfilesPromise) {
+      pokemonCatchProfilesPromise = (async () => {
+        const pokemon = (await parsePokemonIndex(source)).filter(
+          (entry) => entry.kind === "pokemon" && entry.constant && entry.sourceSlug,
+        );
+        return Promise.all(pokemon.map(async (entry): Promise<PokemonCatchProfile> => {
+          const stats = await parseBaseStats(source, entry.sourceSlug as string);
+          return {
+            internalId: entry.internalId,
+            constant: entry.constant as string,
+            displayName: entry.displayName,
+            catchRate: stats.catchRate,
+          };
+        }));
+      })().catch((error) => {
+        pokemonCatchProfilesPromise = null;
+        throw error;
+      });
+    }
+    return pokemonCatchProfilesPromise;
+  }
+
+    function getTmhmCompatibilityIndex(): Promise<Map<string, PokemonTmhmCompatibilityReference[]>> {
     if (!tmhmCompatibilityIndexPromise) {
       tmhmCompatibilityIndexPromise = (async () => {
         const pokemon = (await parsePokemonIndex(source)).filter(
@@ -263,6 +288,7 @@ export async function createProjectSession(
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
     if (paths.some((path) => path.startsWith("data/pokemon/base_stats/"))) {
+      pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
     }
     if (onlyTrainerBaseFiles(paths)) {
@@ -376,12 +402,14 @@ export async function createProjectSession(
       );
       const result = await history.save(`Edit Pokémon ${values.displayName}`, changes);
       if (changes.some((change) => change.path.startsWith("data/pokemon/base_stats/"))) {
+        pokemonCatchProfilesPromise = null;
         tmhmCompatibilityIndexPromise = null;
       }
       return result;
     },
     getMoves: () => parseMoves(source),
     getItems: () => parseItems(source),
+    getPokemonCatchProfiles,
     getItemEditDocument: (itemId) => loadItemEditDocument(source, itemId),
     saveItemEdit: async (document: ItemEditDocument, values: ItemEditValues) => {
       const changes = await prepareItemEditWrites(source, document, values);
