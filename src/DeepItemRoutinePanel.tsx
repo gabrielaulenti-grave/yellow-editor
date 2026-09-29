@@ -1,4 +1,9 @@
-import type { ItemData, ItemRoutineParameters } from "./core/types";
+import type {
+  BattleFlagEffect,
+  ItemData,
+  ItemRoutineParameters,
+  StatusCureEffect,
+} from "./core/types";
 import { ReadonlyField } from "./editor/EditorFields";
 
 interface DeepItemRoutinePanelProps {
@@ -7,6 +12,7 @@ interface DeepItemRoutinePanelProps {
   busy: boolean;
   onChange(routine: ItemRoutineParameters): void;
   onSelectItem(itemId: number): void;
+  onOpenPokemon(internalId: number): void;
 }
 
 function numeric(value: string, fallback: number): number {
@@ -45,12 +51,18 @@ function SharedItemLinks({
   );
 }
 
+function itemLabel(items: ItemData[], constant: string): string {
+  const item = items.find((entry) => entry.constant === constant);
+  return item ? `${item.name} — ${constant}` : constant;
+}
+
 export function DeepItemRoutinePanel({
   routine,
   items,
   busy,
   onChange,
   onSelectItem,
+  onOpenPokemon,
 }: DeepItemRoutinePanelProps) {
   if (routine.kind === "repel") {
     return (
@@ -295,6 +307,171 @@ export function DeepItemRoutinePanel({
         <p className="help-text">
           The safe presets divide the eight-step movement counter evenly: 1×, 2×, or 4×.
         </p>
+      </div>
+    );
+  }
+
+  if (routine.kind === "status-cure") {
+    return (
+      <div className="item-routine-panel">
+        <strong>Status medicine effect</strong>
+        <label className="editor-field">
+          <span>Status Cured</span>
+          <select
+            value={routine.effect}
+            disabled={busy}
+            onChange={(event) =>
+              onChange({
+                ...routine,
+                effect: event.target.value as StatusCureEffect,
+              })}
+          >
+            <option value="poison">Poison</option>
+            <option value="burn">Burn</option>
+            <option value="freeze">Freeze</option>
+            <option value="sleep">Sleep</option>
+            <option value="paralysis">Paralysis</option>
+            <option value="all">All status conditions</option>
+          </select>
+        </label>
+        <p className="help-text">
+          Yellow Editor changes both the status mask and the matching party-menu message, so a
+          repurposed medicine does not keep the wrong vanilla cure text. Toxic's badly-poisoned
+          battle flag is also cleared by the shared medicine routine when poison is cured.
+        </p>
+      </div>
+    );
+  }
+
+  if (routine.kind === "x-stat") {
+    return (
+      <div className="item-routine-panel">
+        <strong>X-stat battle boost</strong>
+        <div className="field-grid two-column-fields">
+          <ReadonlyField label="Raised Stat" value={routine.stat} />
+          <label className="editor-field">
+            <span>Stages Raised</span>
+            <select
+              value={routine.stageBoost}
+              disabled={busy}
+              onChange={(event) =>
+                onChange({
+                  ...routine,
+                  stageBoost: Number.parseInt(event.target.value, 10) as 1 | 2,
+                })}
+            >
+              <option value={1}>+1 stage — vanilla</option>
+              <option value={2}>+2 stages</option>
+            </select>
+          </label>
+        </div>
+        <p className="help-text">
+          Gen I derives X Attack, X Defend, X Speed, and X Special from one contiguous move-effect
+          range. Changing the stage amount therefore affects all four X-stat items together.
+        </p>
+        <SharedItemLinks
+          constants={routine.sharedConstants}
+          items={items}
+          onSelectItem={onSelectItem}
+        />
+      </div>
+    );
+  }
+
+  if (routine.kind === "battle-flag") {
+    return (
+      <div className="item-routine-panel">
+        <strong>Battle item effect</strong>
+        <label className="editor-field">
+          <span>Effect Applied</span>
+          <select
+            value={routine.effect}
+            disabled={busy}
+            onChange={(event) =>
+              onChange({
+                ...routine,
+                effect: event.target.value as BattleFlagEffect,
+              })}
+          >
+            <option value="x-accuracy">X Accuracy — ignore normal accuracy/evasion checks</option>
+            <option value="mist">Guard Spec. — protect against stat reductions</option>
+            <option value="focus-energy">Dire Hit — apply Focus Energy state</option>
+          </select>
+        </label>
+        <p className="help-text">
+          X Accuracy, Guard Spec., and Dire Hit each set a persistent bit in the player's battle
+          status. This editor lets the item choose which of those three existing Gen I effects it
+          applies; it does not rewrite the separate battle-engine implementation of the effect.
+        </p>
+      </div>
+    );
+  }
+
+  if (routine.kind === "evolution-stone") {
+    return (
+      <div className="item-routine-panel">
+        <strong>Evolution stone assignments</strong>
+        <p className="help-text">
+          The stone routine itself only asks each Pokémon's evolution data whether this item is a
+          valid trigger. These rows are the actual <code>EVOLVE_ITEM</code> references using this
+          stone. You can reassign an existing evolution to another project-defined evolution stone
+          here; use the Pokémon editor to add/remove evolutions or change their target/minimum level.
+        </p>
+        {routine.references.length === 0 ? (
+          <p className="help-text">No Pokémon evolution currently references this stone.</p>
+        ) : (
+          <div className="item-evolution-reference-list">
+            {routine.references.map((reference, index) => (
+              <div
+                className="item-evolution-reference"
+                key={`${reference.internalId}:${reference.evolutionIndex}:${reference.targetConstant}`}
+              >
+                <div className="item-evolution-route">
+                  <a
+                    href="#pokemon"
+                    onClick={(event) => {
+                      event.preventDefault();
+                      onOpenPokemon(reference.internalId);
+                    }}
+                  >
+                    {reference.sourceDisplayName}
+                  </a>
+                  <span>→</span>
+                  <strong>{reference.targetDisplayName}</strong>
+                  {reference.minimumLevel > 1 && (
+                    <small>minimum level {reference.minimumLevel}</small>
+                  )}
+                </div>
+                <label className="editor-field">
+                  <span>Evolution Item</span>
+                  <select
+                    value={reference.itemConstant}
+                    disabled={busy}
+                    onChange={(event) => {
+                      const references = routine.references.map((candidate, candidateIndex) =>
+                        candidateIndex === index
+                          ? { ...candidate, itemConstant: event.target.value }
+                          : candidate
+                      );
+                      onChange({ ...routine, references });
+                    }}
+                  >
+                    {routine.stoneConstants.map((constant) => (
+                      <option key={constant} value={constant}>
+                        {itemLabel(items, constant)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            ))}
+          </div>
+        )}
+        <SharedItemLinks
+          constants={routine.stoneConstants}
+          items={items}
+          onSelectItem={onSelectItem}
+        />
       </div>
     );
   }
