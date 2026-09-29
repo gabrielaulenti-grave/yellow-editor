@@ -448,9 +448,10 @@ function App() {
     if (routine.kind === "pp-restore") {
       return routine.fullRestore
         ? routine.restoreAmount === null
-        : Number.isInteger(routine.restoreAmount)
-          && (routine.restoreAmount ?? 0) >= 1
-          && (routine.restoreAmount ?? 0) <= 63;
+        : routine.restoreAmount !== null
+          && Number.isInteger(routine.restoreAmount)
+          && routine.restoreAmount >= 1
+          && routine.restoreAmount <= 63;
     }
     if (routine.kind === "pp-up") {
       return Number.isInteger(routine.bonusDivisor)
