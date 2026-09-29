@@ -98,7 +98,7 @@ function installMedicineHookSupport(contents: string): string {
     "\tld a, [wIsInBattle]",
     "\tand a",
     "\tret nz ; custom item evolutions only occur outside battle",
-    "\tld a, [wCurItem]",
+    "\tld a, [wEvoStoneItemID]",
     "\tld b, a",
     "\tld hl, YellowEditorMedicineEvolutionItems",
     ".itemLoop",
@@ -111,6 +111,9 @@ function installMedicineHookSupport(contents: string): string {
     "\txor a ; PLAYER_PARTY_DATA",
     "\tld [wMonDataLocation], a",
     "\tcall LoadMonData",
+    "; wCurPartySpecies and wCurItem are the same WRAM byte in Gen I.",
+    "\tld a, [wEvoStoneItemID]",
+    "\tld [wCurItem], a",
     "\tld hl, EvosMovesPointerTable",
     "\tld a, [wLoadedMonSpecies]",
     "\tdec a",
@@ -152,7 +155,7 @@ function installMedicineHookSupport(contents: string): string {
     ".checkItemEvolution",
     "\tld a, [hli] ; required item",
     "\tld b, a",
-    "\tld a, [wCurItem]",
+    "\tld a, [wEvoStoneItemID]",
     "\tcp b",
     "\tjr nz, .skipItemEvolution",
     "\tld a, [hli] ; minimum level",
@@ -171,6 +174,8 @@ function installMedicineHookSupport(contents: string): string {
     "\tjr .evolutionLoop",
     "",
     "YellowEditorMedicineForceEvolution:",
+    "\tld a, [wEvoStoneItemID]",
+    "\tld [wCurItem], a",
     "\tld a, TRUE",
     "\tld [wForceEvolution], a",
     "\tcallfar TryEvolvingMon",
@@ -192,6 +197,20 @@ function installMedicineHookSupport(contents: string): string {
   ].join("\n");
 
   let next = contents.slice(0, insertionPoint) + helper + contents.slice(insertionPoint);
+
+  const medicineEntryPattern =
+    /(ItemUseMedicine:\r?\n)(\tld a, \[wPartyCount\])/;
+  if (!medicineEntryPattern.test(next)) {
+    throw new Error(
+      "Could not snapshot the original medicine item because ItemUseMedicine has an unsupported entry.",
+    );
+  }
+  next = next.replace(
+    medicineEntryPattern,
+    "$1\tld a, [wCurItem]\n"
+      + "\tld [wEvoStoneItemID], a ; Yellow Editor: preserve original medicine item\n"
+      + "$2",
+  );
 
   const noEffectPattern =
     /\.healingItemNoEffect\r?\n\tcall ItemUseNoEffect\r?\n\tjp \.done/;
