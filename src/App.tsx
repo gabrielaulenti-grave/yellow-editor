@@ -7,6 +7,8 @@ import type {
   FishingEditDocument,
   HistorySummary,
   ItemData,
+  ItemEditDocument,
+  ItemEditValues,
   MoveData,
   PokemonEditDocument,
   PokemonDetails,
@@ -104,6 +106,10 @@ function App() {
     useState<Record<number, number[]>>({});
   const [tmEditDocument, setTmEditDocument] = useState<TmEditDocument | null>(null);
   const [tmMoveDraft, setTmMoveDraft] = useState<string | null>(null);
+  const [itemEditDocument, setItemEditDocument] = useState<ItemEditDocument | null>(null);
+  const [itemEditDraft, setItemEditDraft] = useState<ItemEditValues | null>(null);
+  const [itemEditLoading, setItemEditLoading] = useState(false);
+  const [itemEditError, setItemEditError] = useState<string | null>(null);
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -201,6 +207,54 @@ function App() {
   useEffect(() => {
     if (
       !project
+      || !selectedItem
+      || selectedItem.kind === "tm"
+      || selectedItem.kind === "hm"
+    ) {
+      setItemEditDocument(null);
+      setItemEditDraft(null);
+      setItemEditLoading(false);
+      setItemEditError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setItemEditDocument(null);
+    setItemEditDraft(null);
+    setItemEditLoading(true);
+    setItemEditError(null);
+
+    void invoke<ItemEditDocument>("get_item_edit_document", {
+      itemId: selectedItem.id,
+    }).then((document) => {
+      if (cancelled) return;
+      setItemEditDocument(document);
+      setItemEditDraft({
+        name: document.name,
+        price: document.price,
+        keyItem: document.keyItem,
+        routineParameters: document.routineParameters,
+      });
+    }).catch((error) => {
+      if (cancelled) return;
+      setItemEditError(String(error));
+    }).finally(() => {
+      if (!cancelled) setItemEditLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    project,
+    selectedItem?.id,
+    selectedItem?.kind,
+    historySummary?.appliedCount,
+  ]);
+
+  useEffect(() => {
+    if (
+      !project
       || !selectedItem?.moveConstant
       || (selectedItem.kind !== "tm" && selectedItem.kind !== "hm")
     ) {
@@ -287,6 +341,53 @@ function App() {
       && tmEditDocument.replacementMoveConstants.includes(tmMoveDraft)
     ),
   );
+  const itemDirty = Boolean(
+    itemEditDocument
+    && itemEditDraft
+    && (
+      itemEditDraft.name !== itemEditDocument.name
+      || itemEditDraft.price !== itemEditDocument.price
+      || itemEditDraft.keyItem !== itemEditDocument.keyItem
+      || JSON.stringify(itemEditDraft.routineParameters)
+        !== JSON.stringify(itemEditDocument.routineParameters)
+    )
+  );
+  const itemRoutineValid = (() => {
+    if (!itemEditDraft) return false;
+    const routine = itemEditDraft.routineParameters;
+    if (routine.kind === "fixed-heal") {
+      return Number.isInteger(routine.healAmount)
+        && routine.healAmount >= 0
+        && routine.healAmount <= 255;
+    }
+    if (routine.kind === "ball") {
+      return [
+        routine.greatRandomCeiling,
+        routine.ultraSafariRandomCeiling,
+        routine.greatHpDivisor,
+        routine.otherHpDivisor,
+        routine.pokeShakeDivisor,
+        routine.greatShakeDivisor,
+        routine.ultraSafariShakeDivisor,
+      ].every((value, index) =>
+        Number.isInteger(value)
+        && value >= (index < 2 ? 0 : 1)
+        && value <= 255
+      );
+    }
+    return true;
+  })();
+  const itemValid = Boolean(
+    itemEditDocument
+    && itemEditDraft
+    && itemEditDraft.name.trim().length >= 1
+    && itemEditDraft.name.trim().length <= itemEditDocument.maxNameLength
+    && !/["@\r\n]/.test(itemEditDraft.name)
+    && Number.isInteger(itemEditDraft.price)
+    && itemEditDraft.price >= 0
+    && itemEditDraft.price <= 999999
+    && itemRoutineValid
+  );
   const encounterDirty = encounterDraftIsDirty(encounterDraft, encounterDocument);
   const encounterValid = encounterDraftIsValid(encounterDraft);
   const fishingDirty = fishingDraftIsDirty(fishingDraft, fishingDocument);
@@ -317,7 +418,13 @@ function App() {
     knownTrainerAiRoutines,
   );
   const hasUnsavedChanges =
-    pokemonDirty || tmDirty || encounterDirty || fishingDirty || trainerDirty || trainerClassDirty;
+    pokemonDirty
+    || tmDirty
+    || itemDirty
+    || encounterDirty
+    || fishingDirty
+    || trainerDirty
+    || trainerClassDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -743,8 +850,8 @@ function App() {
   function selectItem(itemId: number) {
     if (itemId === selectedItemId) return;
     if (
-      tmDirty
-      && !window.confirm("Discard the unsaved TM assignment and switch items?")
+      (tmDirty || itemDirty)
+      && !window.confirm("Discard the unsaved item changes and switch items?")
     ) {
       return;
     }
@@ -809,6 +916,47 @@ function App() {
         ? updatePokemonPaletteConstant(current, pokemonEditDocument, value)
         : current,
     );
+  }
+
+  async function saveItem() {
+    if (
+      !selectedItem
+      || selectedItem.kind === "tm"
+      || selectedItem.kind === "hm"
+      || !itemEditDocument
+      || !itemEditDraft
+      || !itemDirty
+      || !itemValid
+    ) {
+      return;
+    }
+
+    setEditBusy(true);
+    try {
+      const history = await invoke<HistorySummary>("save_item_edit", {
+        document: itemEditDocument,
+        values: itemEditDraft,
+      });
+      setHistorySummary(history);
+      const refreshedItems = await invoke<ItemData[]>("get_items");
+      setItems(refreshedItems);
+      setStatus(`${itemEditDraft.name} saved successfully.`);
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
+  async function revertItemChanges() {
+    if (!itemEditDocument || !itemEditDraft || !itemDirty || editBusy) return;
+    setItemEditDraft({
+      name: itemEditDocument.name,
+      price: itemEditDocument.price,
+      keyItem: itemEditDocument.keyItem,
+      routineParameters: itemEditDocument.routineParameters,
+    });
+    setStatus(`Unsaved ${itemEditDocument.name} changes reverted.`);
   }
 
   async function saveTm() {
@@ -1454,6 +1602,13 @@ function App() {
     save: saveTm,
     revert: revertTmChanges,
   };
+  const itemEditorController: EditorController = {
+    dirty: itemDirty,
+    valid: itemValid,
+    busy: editBusy || itemEditLoading,
+    save: saveItem,
+    revert: revertItemChanges,
+  };
   const encounterEditorController: EditorController = {
     dirty: encounterSection === "walking" ? encounterDirty : fishingDirty,
     valid: encounterSection === "walking" ? encounterValid : fishingValid,
@@ -1486,7 +1641,9 @@ function App() {
     ? pokemonEditorController
     : activeTab === "items" && selectedItem?.kind === "tm"
       ? tmEditorController
-      : activeTab === "encounters"
+      : activeTab === "items" && selectedItem?.kind !== "hm"
+        ? itemEditorController
+        : activeTab === "encounters"
         ? encounterEditorController
         : activeTab === "trainers"
           ? trainerSection === "parties"
@@ -1509,6 +1666,9 @@ function App() {
     }
     if (tmDirty) {
       await revertTmChanges();
+    }
+    if (itemDirty) {
+      await revertItemChanges();
     }
     if (encounterDirty) {
       await revertEncounterChanges();
@@ -1649,12 +1809,17 @@ function App() {
           }
           tmEditDocument={tmEditDocument}
           tmMoveDraft={tmMoveDraft}
+          itemEditDocument={itemEditDocument}
+          itemEditDraft={itemEditDraft}
+          itemEditLoading={itemEditLoading}
+          itemEditError={itemEditError}
           editBusy={editBusy}
           compatibilityLoading={itemCompatibilityLoading}
           compatibilityError={itemCompatibilityError}
           onSelectItem={selectItem}
           onSearchChange={setItemSearch}
           onTmMoveChange={setTmMoveDraft}
+          onItemEditDraftChange={setItemEditDraft}
           onCompatibilityRetainedChange={setItemCompatibilityRetained}
           onSelectAllCompatibility={selectAllItemCompatibility}
           onDeselectAllCompatibility={deselectAllItemCompatibility}
