@@ -483,6 +483,31 @@ input[readonly] {
   font-size: 0.78rem;
 }
 
+.item-routine-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.item-routine-panel > p {
+  margin: 0;
+}
+
+.item-boolean-field input[type="checkbox"] {
+  width: auto;
+  justify-self: start;
+  margin-top: 6px;
+}
+
+.editor-field small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .item-compatibility-warning {
   display: grid;
   gap: 8px;
