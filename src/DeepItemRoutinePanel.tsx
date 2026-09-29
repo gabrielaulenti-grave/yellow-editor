@@ -2,7 +2,6 @@ import type { ItemData, ItemRoutineParameters } from "./core/types";
 import { ReadonlyField } from "./editor/EditorFields";
 
 interface DeepItemRoutinePanelProps {
-  constant: string;
   routine: ItemRoutineParameters;
   items: ItemData[];
   busy: boolean;
@@ -47,7 +46,6 @@ function SharedItemLinks({
 }
 
 export function DeepItemRoutinePanel({
-  constant,
   routine,
   items,
   busy,
