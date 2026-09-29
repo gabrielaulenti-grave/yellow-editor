@@ -34,9 +34,16 @@ export function ItemEvolutionPanel({
 
       {data.triggerMode === "medicine" && (
         <p className="help-text">
-          Runtime hook: <strong>{data.runtimeEnabled ? "installed" : "not currently needed"}</strong>.
+          Runtime hook:{" "}
+          <strong>
+            {data.runtimeEnabled
+              ? "installed"
+              : data.references.length > 0
+                ? "missing — save the evolution to install it"
+                : "not currently needed"}
+          </strong>.
           The hook is installed automatically when an evolution is assigned to this item and is
-          disabled from the managed list when no evolution references it.
+          removed from the managed list when no evolution references it.
         </p>
       )}
 
