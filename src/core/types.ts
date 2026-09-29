@@ -99,6 +99,7 @@ export interface PokemonEditOptions {
   species: string[];
   items: string[];
   evolutionItems: string[];
+  maxEvolutions: number;
   tmhmMoves: string[];
   spriteChoices: PokemonSpriteChoice[];
   paletteChoices: PokemonPaletteChoice[];
