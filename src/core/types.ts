@@ -203,6 +203,13 @@ export interface PokemonTmhmCompatibilityReference {
   sourceSlug: string;
 }
 
+export interface PokemonCatchProfile {
+  internalId: number;
+  constant: string;
+  displayName: string;
+  catchRate: number;
+}
+
 export interface TmEditSourceDocument {
   path: string;
   sourceHash: string;
@@ -232,11 +239,19 @@ export interface BallRoutineParameters {
   masterBallGuaranteed: boolean;
   greatRandomCeiling: number;
   ultraSafariRandomCeiling: number;
+  minorStatusCatchBonus: number;
+  majorStatusCatchBonus: number;
   greatHpDivisor: number;
   otherHpDivisor: number;
+  currentHpDivisor: number;
   pokeShakeDivisor: number;
   greatShakeDivisor: number;
   ultraSafariShakeDivisor: number;
+  minorStatusShakeBonus: number;
+  majorStatusShakeBonus: number;
+  shakeOneThreshold: number;
+  shakeTwoThreshold: number;
+  shakeThreeThreshold: number;
 }
 
 export interface FixedHealingRoutineParameters {
@@ -786,6 +801,7 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
   getItems(): Promise<ItemData[]>;
+  getPokemonCatchProfiles(): Promise<PokemonCatchProfile[]>;
   getTmhmCompatibility(moveConstant: string): Promise<PokemonTmhmCompatibilityReference[]>;
   getTmEditDocument(itemId: number): Promise<TmEditDocument>;
   saveTmEdit(document: TmEditDocument, values: TmEditValues): Promise<HistorySummary>;
