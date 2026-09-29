@@ -346,7 +346,7 @@ export function ItemsTab({
                             />
                           </label>
                           <label className="editor-field">
-                            <span>Other Balls HP Divisor</span>
+                            <span>Poké / Ultra / Safari HP Divisor</span>
                             <input
                               type="number"
                               min="1"
