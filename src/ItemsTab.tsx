@@ -1,5 +1,7 @@
 import type {
   ItemData,
+  ItemEditDocument,
+  ItemEditValues,
   MoveData,
   PokemonTmhmCompatibilityReference,
   ProjectInfo,
@@ -18,12 +20,17 @@ interface ItemsTabProps {
   retainedPokemonIds: number[];
   tmEditDocument: TmEditDocument | null;
   tmMoveDraft: string | null;
+  itemEditDocument: ItemEditDocument | null;
+  itemEditDraft: ItemEditValues | null;
+  itemEditLoading: boolean;
+  itemEditError: string | null;
   editBusy: boolean;
   compatibilityLoading: boolean;
   compatibilityError: string | null;
   onSelectItem(id: number): void;
   onSearchChange(value: string): void;
   onTmMoveChange(moveConstant: string): void;
+  onItemEditDraftChange(value: ItemEditValues | null): void;
   onCompatibilityRetainedChange(internalId: number, retained: boolean): void;
   onSelectAllCompatibility(): void;
   onDeselectAllCompatibility(): void;
@@ -64,12 +71,17 @@ export function ItemsTab({
   retainedPokemonIds,
   tmEditDocument,
   tmMoveDraft,
+  itemEditDocument,
+  itemEditDraft,
+  itemEditLoading,
+  itemEditError,
   editBusy,
   compatibilityLoading,
   compatibilityError,
   onSelectItem,
   onSearchChange,
   onTmMoveChange,
+  onItemEditDraftChange,
   onCompatibilityRetainedChange,
   onSelectAllCompatibility,
   onDeselectAllCompatibility,
@@ -103,6 +115,35 @@ export function ItemsTab({
   const retainedCount = affectedPokemon.filter((pokemon) =>
     retainedPokemon.has(pokemon.internalId),
   ).length;
+
+  const ordinaryItem = selectedItem
+    && selectedItem.kind !== "tm"
+    && selectedItem.kind !== "hm";
+
+  function changeItemDraft(patch: Partial<ItemEditValues>) {
+    if (!itemEditDraft) return;
+    onItemEditDraftChange({ ...itemEditDraft, ...patch });
+  }
+
+  function changeBallParameter(
+    key:
+      | "greatRandomCeiling"
+      | "ultraSafariRandomCeiling"
+      | "greatHpDivisor"
+      | "otherHpDivisor"
+      | "pokeShakeDivisor"
+      | "greatShakeDivisor"
+      | "ultraSafariShakeDivisor",
+    value: number,
+  ) {
+    if (!itemEditDraft || itemEditDraft.routineParameters.kind !== "ball") return;
+    changeItemDraft({
+      routineParameters: {
+        ...itemEditDraft.routineParameters,
+        [key]: value,
+      },
+    });
+  }
 
   return (
     <section className="tab-content">
@@ -158,17 +199,222 @@ export function ItemsTab({
                 <h4>Item Data</h4>
                 <div className="field-grid two-column-fields">
                   <ReadonlyField label="Index Number" value={formatHex(selectedItem.id)} />
-                  <ReadonlyField label="Name" value={selectedItem.name} />
+                  {ordinaryItem && itemEditDraft && itemEditDocument ? (
+                    <>
+                      <label className="editor-field">
+                        <span>Name</span>
+                        <input
+                          value={itemEditDraft.name}
+                          maxLength={itemEditDocument.maxNameLength}
+                          disabled={editBusy}
+                          onChange={(event) => changeItemDraft({ name: event.target.value })}
+                        />
+                        <small>{itemEditDraft.name.length}/{itemEditDocument.maxNameLength}</small>
+                      </label>
+                      <label className="editor-field">
+                        <span>Price</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="999999"
+                          step="1"
+                          value={itemEditDraft.price}
+                          disabled={editBusy}
+                          onChange={(event) => changeItemDraft({
+                            price: Number.parseInt(event.target.value || "0", 10),
+                          })}
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <>
+                      <ReadonlyField label="Name" value={selectedItem.name} />
+                      <ReadonlyField label="Price" value={priceLabel(selectedItem)} />
+                    </>
+                  )}
                   <ReadonlyField label="Constant" value={selectedItem.constant} />
                   <ReadonlyField label="Category" value={kindLabel(selectedItem)} />
-                  <ReadonlyField label="Price" value={priceLabel(selectedItem)} />
-                  <ReadonlyField label="Key Item" value={selectedItem.keyItem ? "Yes" : "No"} />
+                  {ordinaryItem && itemEditDraft ? (
+                    <label className="editor-field item-boolean-field">
+                      <span>Key Item</span>
+                      <input
+                        type="checkbox"
+                        checked={itemEditDraft.keyItem}
+                        disabled={editBusy}
+                        onChange={(event) => changeItemDraft({ keyItem: event.target.checked })}
+                      />
+                    </label>
+                  ) : (
+                    <ReadonlyField label="Key Item" value={selectedItem.keyItem ? "Yes" : "No"} />
+                  )}
                   <ReadonlyField label="Menu Behavior" value={behaviorLabel(selectedItem)} />
                   <ReadonlyField
                     label="Use Routine"
                     value={selectedItem.useRoutine ?? "No routine resolved"}
                   />
                 </div>
+
+                {ordinaryItem && (
+                  <>
+                    <h4>Routine Details</h4>
+                    {itemEditLoading ? (
+                      <p className="help-text">Reading item routine parameters…</p>
+                    ) : itemEditError ? (
+                      <p className="item-compatibility-error">{itemEditError}</p>
+                    ) : itemEditDraft?.routineParameters.kind === "fixed-heal" ? (
+                      <div className="item-routine-panel">
+                        <strong>Fixed HP restoration</strong>
+                        <label className="editor-field">
+                          <span>HP Restored</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="255"
+                            step="1"
+                            value={itemEditDraft.routineParameters.healAmount}
+                            disabled={editBusy}
+                            onChange={(event) => changeItemDraft({
+                              routineParameters: {
+                                kind: "fixed-heal",
+                                healAmount: Number.parseInt(event.target.value || "0", 10),
+                              },
+                            })}
+                          />
+                        </label>
+                        <p className="help-text">
+                          This edits the byte loaded by <code>ItemUseMedicine</code> for this item.
+                        </p>
+                      </div>
+                    ) : itemEditDraft?.routineParameters.kind === "special-heal" ? (
+                      <div className="item-routine-panel">
+                        <strong>Healing behavior</strong>
+                        <p>{itemEditDraft.routineParameters.description}</p>
+                        <p className="help-text">
+                          This effect is formula-driven rather than a fixed HP byte, so it is read-only for now.
+                        </p>
+                      </div>
+                    ) : itemEditDraft?.routineParameters.kind === "ball" ? (
+                      <div className="item-routine-panel">
+                        <strong>Catch Formula</strong>
+                        <p className="help-text">
+                          Gen I shares several constants between ball types. These fields expose the
+                          exact routine values, including the Ultra/Safari shared values, rather than
+                          presenting them as independent modifiers.
+                        </p>
+                        <div className="field-grid two-column-fields">
+                          <ReadonlyField label="Master Ball" value="Guaranteed catch" />
+                          <label className="editor-field">
+                            <span>Great Ball RNG Ceiling</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="255"
+                              value={itemEditDraft.routineParameters.greatRandomCeiling}
+                              disabled={editBusy}
+                              onChange={(event) => changeBallParameter(
+                                "greatRandomCeiling",
+                                Number.parseInt(event.target.value || "0", 10),
+                              )}
+                            />
+                          </label>
+                          <label className="editor-field">
+                            <span>Ultra / Safari RNG Ceiling</span>
+                            <input
+                              type="number"
+                              min="0"
+                              max="255"
+                              value={itemEditDraft.routineParameters.ultraSafariRandomCeiling}
+                              disabled={editBusy}
+                              onChange={(event) => changeBallParameter(
+                                "ultraSafariRandomCeiling",
+                                Number.parseInt(event.target.value || "0", 10),
+                              )}
+                            />
+                          </label>
+                          <label className="editor-field">
+                            <span>Great Ball HP Divisor</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="255"
+                              value={itemEditDraft.routineParameters.greatHpDivisor}
+                              disabled={editBusy}
+                              onChange={(event) => changeBallParameter(
+                                "greatHpDivisor",
+                                Number.parseInt(event.target.value || "1", 10),
+                              )}
+                            />
+                          </label>
+                          <label className="editor-field">
+                            <span>Other Balls HP Divisor</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="255"
+                              value={itemEditDraft.routineParameters.otherHpDivisor}
+                              disabled={editBusy}
+                              onChange={(event) => changeBallParameter(
+                                "otherHpDivisor",
+                                Number.parseInt(event.target.value || "1", 10),
+                              )}
+                            />
+                          </label>
+                          <label className="editor-field">
+                            <span>Poké Ball Shake Divisor</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="255"
+                              value={itemEditDraft.routineParameters.pokeShakeDivisor}
+                              disabled={editBusy}
+                              onChange={(event) => changeBallParameter(
+                                "pokeShakeDivisor",
+                                Number.parseInt(event.target.value || "1", 10),
+                              )}
+                            />
+                          </label>
+                          <label className="editor-field">
+                            <span>Great Ball Shake Divisor</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="255"
+                              value={itemEditDraft.routineParameters.greatShakeDivisor}
+                              disabled={editBusy}
+                              onChange={(event) => changeBallParameter(
+                                "greatShakeDivisor",
+                                Number.parseInt(event.target.value || "1", 10),
+                              )}
+                            />
+                          </label>
+                          <label className="editor-field">
+                            <span>Ultra / Safari Shake Divisor</span>
+                            <input
+                              type="number"
+                              min="1"
+                              max="255"
+                              value={itemEditDraft.routineParameters.ultraSafariShakeDivisor}
+                              disabled={editBusy}
+                              onChange={(event) => changeBallParameter(
+                                "ultraSafariShakeDivisor",
+                                Number.parseInt(event.target.value || "1", 10),
+                              )}
+                            />
+                          </label>
+                        </div>
+                        <p className="help-text">
+                          Lower HP and shake divisors generally make capture easier. The RNG ceilings
+                          limit the first random roll; lower ceilings favor capture. The Great Ball
+                          ceiling is also the first gate passed by Ultra and Safari Balls in the vanilla routine.
+                        </p>
+                      </div>
+                    ) : itemEditDraft?.routineParameters.kind === "routine" ? (
+                      <div className="item-routine-panel">
+                        <p>{itemEditDraft.routineParameters.description}</p>
+                      </div>
+                    ) : null}
+                  </>
+                )}
 
                 {(selectedItem.kind === "tm" || selectedItem.kind === "hm") && (
                   <>
