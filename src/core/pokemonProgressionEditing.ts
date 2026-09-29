@@ -1,5 +1,15 @@
+import {
+  EVOLUTION_ENGINE_PATH,
+  ITEM_EFFECTS_PATH as EXTENDED_ITEM_EFFECTS_PATH,
+  POKEMON_DATA_CONSTANTS_PATH,
+  installMoveEvolutionSupport,
+} from "./evolutionExtensions";
 import { hashText } from "./history";
 import { tmhmMoveOptions } from "./itemConstants";
+import {
+  supportedItemEvolutionConstants,
+  syncMedicineEvolutionHooks,
+} from "./itemEvolutionHooks";
 import type {
   Evolution,
   LearnsetMove,
@@ -320,13 +330,40 @@ function replaceBlock(contents: string, label: string, body: string): string {
 
 function evolution(values: string[]): Evolution {
   if (values[0] === "EVOLVE_LEVEL" && values.length === 3) {
-    return { method: "level", level: parseByte(values[1], "evolution level"), item: null, target: values[2] };
+    return {
+      method: "level",
+      level: parseByte(values[1], "evolution level"),
+      item: null,
+      move: null,
+      target: values[2],
+    };
   }
   if (values[0] === "EVOLVE_ITEM" && values.length === 4) {
-    return { method: "item", level: parseByte(values[2], "evolution minimum level"), item: values[1], target: values[3] };
+    return {
+      method: "item",
+      level: parseByte(values[2], "evolution minimum level"),
+      item: values[1],
+      move: null,
+      target: values[3],
+    };
   }
   if (values[0] === "EVOLVE_TRADE" && values.length === 3) {
-    return { method: "trade", level: parseByte(values[1], "trade minimum level"), item: null, target: values[2] };
+    return {
+      method: "trade",
+      level: parseByte(values[1], "trade minimum level"),
+      item: null,
+      move: null,
+      target: values[2],
+    };
+  }
+  if (values[0] === "EVOLVE_MOVE" && values.length === 4) {
+    return {
+      method: "move",
+      level: parseByte(values[2], "move evolution minimum level"),
+      item: null,
+      move: values[1],
+      target: values[3],
+    };
   }
   throw new Error("Unknown evolution format: " + values.join(", "));
 }
@@ -354,9 +391,19 @@ function evosMoves(contents: string, label: string): { evolutions: Evolution[]; 
 function formatEvosMoves(evolutions: Evolution[], learnset: LearnsetMove[]): string {
   const lines = ["", "; Evolutions"];
   for (const item of evolutions) {
-    if (item.method === "level") lines.push("\tdb EVOLVE_LEVEL, " + item.level + ", " + item.target);
-    else if (item.method === "item") lines.push("\tdb EVOLVE_ITEM, " + item.item + ", " + (item.level || 1) + ", " + item.target);
-    else lines.push("\tdb EVOLVE_TRADE, " + (item.level || 1) + ", " + item.target);
+    if (item.method === "level") {
+      lines.push("\tdb EVOLVE_LEVEL, " + item.level + ", " + item.target);
+    } else if (item.method === "item") {
+      lines.push(
+        "\tdb EVOLVE_ITEM, " + item.item + ", " + (item.level || 1) + ", " + item.target,
+      );
+    } else if (item.method === "move") {
+      lines.push(
+        "\tdb EVOLVE_MOVE, " + item.move + ", " + (item.level || 1) + ", " + item.target,
+      );
+    } else {
+      lines.push("\tdb EVOLVE_TRADE, " + (item.level || 1) + ", " + item.target);
+    }
   }
   lines.push("\tdb 0", "; Learnset");
   for (const move of learnset) lines.push("\tdb " + move.level + ", " + move.moveConstant);
@@ -564,7 +611,9 @@ export async function loadPokemonEditDocument(
     PALETTE_DEFS_PATH,
     PICS_PATH,
     "constants/type_constants.asm",
-    "constants/pokemon_data_constants.asm",
+    POKEMON_DATA_CONSTANTS_PATH,
+    EVOLUTION_ENGINE_PATH,
+    EXTENDED_ITEM_EFFECTS_PATH,
     "constants/move_constants.asm",
     "constants/pokemon_constants.asm",
     "constants/item_constants.asm",
@@ -611,14 +660,32 @@ export async function loadPokemonEditDocument(
   const currentSprite = currentSpriteChoice(base, sprites, picsContents);
   if (!sprites.some((choice) => choice.id === currentSprite.id)) sprites.unshift(currentSprite);
 
+  const allItems = items(byPath.get("constants/item_constants.asm")!);
+  const supportedEvolutionItems = supportedItemEvolutionConstants(
+    byPath.get("constants/item_constants.asm")!,
+    byPath.get(EXTENDED_ITEM_EFFECTS_PATH)!,
+  );
+  const existingEvolutionItems = evolutionData.evolutions.flatMap((item) =>
+    item.method === "item" && item.item ? [item.item] : [],
+  );
+  const evolutionItems = [
+    ...supportedEvolutionItems,
+    ...existingEvolutionItems.filter(
+      (constant) => !supportedEvolutionItems.includes(constant),
+    ),
+  ];
+
   const options: PokemonEditOptions = {
     types: consts(byPath.get("constants/type_constants.asm")!),
-    growthRates: consts(byPath.get("constants/pokemon_data_constants.asm")!, (constant) => constant.startsWith("GROWTH_")),
+    growthRates: consts(byPath.get(POKEMON_DATA_CONSTANTS_PATH)!, (constant) =>
+      constant.startsWith("GROWTH_")
+    ),
     moves: moveConstants(byPath.get("constants/move_constants.asm")!),
     species: consts(byPath.get("constants/pokemon_constants.asm")!).filter(
       (constant) => constant !== "NO_MON" && !SPECIAL_POKEMON_CONSTANTS.has(constant),
     ),
-    items: items(byPath.get("constants/item_constants.asm")!),
+    items: allItems,
+    evolutionItems,
     tmhmMoves: tmhmMoveOptions(byPath.get("constants/item_constants.asm")!),
     spriteChoices: sprites,
     paletteChoices: palettes,
@@ -636,6 +703,10 @@ export async function loadPokemonEditDocument(
       [DEX_TEXT_PATH, dexTextContents],
       [MON_PALETTES_PATH, monPaletteContents],
       [PALETTE_DEFS_PATH, paletteDefsContents],
+      [POKEMON_DATA_CONSTANTS_PATH, byPath.get(POKEMON_DATA_CONSTANTS_PATH)!],
+      [EVOLUTION_ENGINE_PATH, byPath.get(EVOLUTION_ENGINE_PATH)!],
+      [EXTENDED_ITEM_EFFECTS_PATH, byPath.get(EXTENDED_ITEM_EFFECTS_PATH)!],
+      ["constants/item_constants.asm", byPath.get("constants/item_constants.asm")!],
     ]),
     values: {
       displayName,
@@ -710,9 +781,31 @@ export function validatePokemonEditValues(values: PokemonEditValues, options: Po
     if (!species.has(item.target)) throw new Error("Unknown evolution target " + item.target + ".");
     if (!Number.isInteger(item.level) || (item.level || 0) < 1 || (item.level || 0) > 255) throw new Error("Evolution levels must be 1–255.");
     if (item.method === "item") {
-      if (!item.item || !itemSet.has(item.item)) throw new Error("Item evolutions require a valid item.");
-    } else if (item.item !== null) {
-      throw new Error("Only item evolutions can specify an item.");
+      if (!item.item || !itemSet.has(item.item)) {
+        throw new Error("Item evolutions require a valid item.");
+      }
+      if (!options.evolutionItems.includes(item.item)) {
+        throw new Error(
+          item.item + " does not currently have a supported item-evolution trigger.",
+        );
+      }
+      if (item.move !== null) {
+        throw new Error("Item evolutions cannot specify a required move.");
+      }
+    } else if (item.method === "move") {
+      if (!item.move || !moves.has(item.move)) {
+        throw new Error("Move evolutions require a valid move.");
+      }
+      if (item.item !== null) {
+        throw new Error("Move evolutions cannot specify an item.");
+      }
+    } else {
+      if (item.item !== null) {
+        throw new Error("Only item evolutions can specify an item.");
+      }
+      if (item.move !== null) {
+        throw new Error("Only move evolutions can specify a required move.");
+      }
     }
   }
 
@@ -762,7 +855,19 @@ export async function preparePokemonWrites(
   if (!sprite) throw new Error("Selected sprite pair is no longer available.");
 
   const baseStatsPath = basePath(sourceSlug);
-  const writePaths = [baseStatsPath, NAMES_PATH, EVOS_PATH, DEX_ENTRIES_PATH, DEX_TEXT_PATH, MON_PALETTES_PATH, PALETTE_DEFS_PATH];
+  const writePaths = [
+    baseStatsPath,
+    NAMES_PATH,
+    EVOS_PATH,
+    DEX_ENTRIES_PATH,
+    DEX_TEXT_PATH,
+    MON_PALETTES_PATH,
+    PALETTE_DEFS_PATH,
+    POKEMON_DATA_CONSTANTS_PATH,
+    EVOLUTION_ENGINE_PATH,
+    EXTENDED_ITEM_EFFECTS_PATH,
+    "constants/item_constants.asm",
+  ];
   const read = await Promise.all(writePaths.map((path) => source.readText(path)));
   const before = new Map(writePaths.map((path, index) => [path, read[index]]));
 
@@ -898,6 +1003,28 @@ export async function preparePokemonWrites(
     );
   }
 
+  let pokemonDataConstantsContents = before.get(POKEMON_DATA_CONSTANTS_PATH)!;
+  let evolutionEngineContents = before.get(EVOLUTION_ENGINE_PATH)!;
+  let itemEffectsContents = before.get(EXTENDED_ITEM_EFFECTS_PATH)!;
+  const itemConstantsContents = before.get("constants/item_constants.asm")!;
+
+  if (values.evolutions.some((item) => item.method === "move")) {
+    const installed = installMoveEvolutionSupport(
+      pokemonDataConstantsContents,
+      evolutionEngineContents,
+      itemEffectsContents,
+    );
+    pokemonDataConstantsContents = installed.constants;
+    evolutionEngineContents = installed.evolutionEngine;
+    itemEffectsContents = installed.itemEffects;
+  }
+
+  itemEffectsContents = syncMedicineEvolutionHooks(
+    evosContents,
+    itemConstantsContents,
+    itemEffectsContents,
+  );
+
   const after = new Map<string, string>([
     [baseStatsPath, baseContents],
     [NAMES_PATH, namesContents],
@@ -906,12 +1033,19 @@ export async function preparePokemonWrites(
     [DEX_TEXT_PATH, dexTextContents],
     [MON_PALETTES_PATH, monPaletteContents],
     [PALETTE_DEFS_PATH, paletteDefsContents],
+    [POKEMON_DATA_CONSTANTS_PATH, pokemonDataConstantsContents],
+    [EVOLUTION_ENGINE_PATH, evolutionEngineContents],
+    [EXTENDED_ITEM_EFFECTS_PATH, itemEffectsContents],
+    ["constants/item_constants.asm", itemConstantsContents],
   ]);
 
   return writePaths.flatMap((path) => {
     const contents = after.get(path)!;
     if (contents === before.get(path)) {
       return [];
+    }
+    if (path === "constants/item_constants.asm") {
+      throw new Error("Unexpected attempt to rewrite item constants while saving a Pokémon.");
     }
     return [{
       path,
