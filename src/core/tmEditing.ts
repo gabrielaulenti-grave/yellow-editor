@@ -135,8 +135,14 @@ function replaceTmAssignment(
   let currentTm = 0;
   let replaced = false;
   const next = contents.replace(
-    /^([ \t]*add_tm[ \t]+)([A-Za-z0-9_]+)(.*)$/gm,
-    (line, prefix: string, moveConstant: string, suffix: string) => {
+    /^([ \t]*add_tm[ \t]+)([A-Za-z0-9_]+)([^\r\n]*)(\r?\n|$)/gm,
+    (
+      line,
+      prefix: string,
+      moveConstant: string,
+      suffix: string,
+      newline: string,
+    ) => {
       currentTm += 1;
       if (currentTm !== tmNumber) return line;
       if (moveConstant !== expectedMoveConstant) {
@@ -144,8 +150,15 @@ function replaceTmAssignment(
           `TM${String(tmNumber).padStart(2, "0")} changed outside Yellow Editor. Reload Items before saving.`,
         );
       }
+
       replaced = true;
-      return prefix + nextMoveConstant + suffix;
+      const indent = prefix.match(/^([ \t]*)/)?.[1] ?? "";
+      const nextItemConstant = `TM_${nextMoveConstant}`;
+      const legacyItemConstant = `TM_${expectedMoveConstant}`;
+      const alias =
+        `${indent}DEF ${legacyItemConstant} EQU ${nextItemConstant} ; Yellow Editor compatibility alias`;
+
+      return prefix + nextMoveConstant + suffix + newline + alias + newline;
     },
   );
 
