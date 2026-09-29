@@ -9,6 +9,7 @@ export interface PokemonEvolutionDraft {
   method: Evolution["method"];
   level: string;
   item: string;
+  move: string;
   target: string;
 }
 
@@ -77,6 +78,7 @@ export function pokemonDraftFromDocument(document: PokemonEditDocument): Pokemon
       method: item.method,
       level: String(item.level ?? 1),
       item: item.item ?? "",
+      move: item.move ?? "",
       target: item.target,
     })),
     learnset: values.learnset.map((item) => ({
@@ -154,7 +156,8 @@ export function parsePokemonDraft(
     if (
       level === null
       || !document.options.species.includes(item.target)
-      || (item.method === "item" && !document.options.items.includes(item.item))
+      || (item.method === "item" && !document.options.evolutionItems.includes(item.item))
+      || (item.method === "move" && !moves.has(item.move))
     ) {
       return null;
     }
@@ -162,6 +165,7 @@ export function parsePokemonDraft(
       method: item.method,
       level,
       item: item.method === "item" ? item.item : null,
+      move: item.method === "move" ? item.move : null,
       target: item.target,
     });
   }

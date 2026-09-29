@@ -399,6 +399,7 @@ function parseEvolution(values: string[]): Evolution {
       method: "level",
       level: parseU8(values[1], "evolution level"),
       item: null,
+      move: null,
       target: values[2],
     };
   }
@@ -408,6 +409,7 @@ function parseEvolution(values: string[]): Evolution {
       method: "item",
       level: parseU8(values[2], "evolution minimum level"),
       item: values[1],
+      move: null,
       target: values[3],
     };
   }
@@ -417,7 +419,18 @@ function parseEvolution(values: string[]): Evolution {
       method: "trade",
       level: parseU8(values[1], "trade evolution minimum level"),
       item: null,
+      move: null,
       target: values[2],
+    };
+  }
+
+  if (method === "EVOLVE_MOVE" && values.length === 4) {
+    return {
+      method: "move",
+      level: parseU8(values[2], "move evolution minimum level"),
+      item: null,
+      move: values[1],
+      target: values[3],
     };
   }
 

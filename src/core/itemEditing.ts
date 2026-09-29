@@ -3,6 +3,19 @@ import {
   parseEvolutionStoneRoutine,
   rewriteEvolutionStoneRoutine,
 } from "./evolutionStoneEditing";
+import {
+  configuredMedicineEvolutionItems,
+  itemEvolutionReferences,
+  medicineEvolutionItemConstants,
+  nativeEvolutionItemConstants,
+  supportedItemEvolutionConstants,
+  syncMedicineEvolutionHooks,
+} from "./itemEvolutionHooks";
+import {
+  EVOLUTION_ENGINE_PATH,
+  POKEMON_DATA_CONSTANTS_PATH,
+  installMoveEvolutionSupport,
+} from "./evolutionExtensions";
 import { hashText } from "./history";
 import { parseDeepItemRoutine, rewriteDeepItemRoutine } from "./deepItemRoutines";
 import { parseItemConstantDefinitions } from "./itemConstants";
@@ -112,17 +125,6 @@ function readUseRoutine(contents: string, index: number): string | null {
     current += 1;
   }
   return null;
-}
-
-function evolutionStoneConstants(constants: string, effects: string): string[] {
-  const rows = parseItemConstantDefinitions(constants).filter(
-    (row) => row.machineKind === null,
-  );
-  return rows.flatMap((row, index) =>
-    readUseRoutine(effects, index) === "ItemUseEvoStone"
-      ? [row.constant]
-      : [],
-  );
 }
 
 function maxItemNameLength(contents: string): number {
@@ -623,19 +625,42 @@ export async function loadItemEditDocument(
   const overworld = constant === "BICYCLE"
     ? await source.readText(OVERWORLD_PATH)
     : null;
+
+  const eligibleEvolutionItems = supportedItemEvolutionConstants(constants, effects);
+  const isEvolutionCapable = eligibleEvolutionItems.includes(constant);
   const isEvolutionStone = useRoutine === "ItemUseEvoStone";
-  const evosContents = isEvolutionStone
+  const evosContents = isEvolutionCapable
     ? await source.readText(EVOS_MOVES_PATH)
     : null;
-  const pokemonIndex = isEvolutionStone
+  const pokemonIndex = isEvolutionCapable
     ? await parsePokemonIndex(source)
     : null;
+  const evolutionConstants = isEvolutionCapable
+    ? await source.readText(POKEMON_DATA_CONSTANTS_PATH)
+    : null;
+  const evolutionEngine = isEvolutionCapable
+    ? await source.readText(EVOLUTION_ENGINE_PATH)
+    : null;
   const stones = isEvolutionStone
-    ? evolutionStoneConstants(constants, effects)
+    ? nativeEvolutionItemConstants(constants, effects)
     : [];
   const routineParameters = isEvolutionStone && evosContents && pokemonIndex
     ? parseEvolutionStoneRoutine(evosContents, pokemonIndex, constant, stones)
     : parseRoutine(constant, useRoutine, effects, overworld);
+  const itemEvolution = isEvolutionCapable && evosContents && pokemonIndex
+    ? {
+        triggerMode: isEvolutionStone ? "native" as const : "medicine" as const,
+        runtimeEnabled: isEvolutionStone
+          || configuredMedicineEvolutionItems(effects).includes(constant),
+        eligibleItemConstants: eligibleEvolutionItems,
+        references: parseEvolutionStoneRoutine(
+          evosContents,
+          pokemonIndex,
+          constant,
+          eligibleEvolutionItems,
+        ).references,
+      }
+    : null;
 
   const sources = new Map<string, string>([
     [ITEM_CONSTANTS_PATH, constants],
@@ -647,6 +672,12 @@ export async function loadItemEditDocument(
   ]);
   if (overworld !== null) sources.set(OVERWORLD_PATH, overworld);
   if (evosContents !== null) sources.set(EVOS_MOVES_PATH, evosContents);
+  if (evolutionConstants !== null) {
+    sources.set(POKEMON_DATA_CONSTANTS_PATH, evolutionConstants);
+  }
+  if (evolutionEngine !== null) {
+    sources.set(EVOLUTION_ENGINE_PATH, evolutionEngine);
+  }
 
   return {
     itemId,
@@ -657,6 +688,7 @@ export async function loadItemEditDocument(
     useRoutine,
     maxNameLength: maxItemNameLength(textConstants),
     routineParameters,
+    itemEvolution,
     sources: await Promise.all([...sources].map(async ([path, contents]) => ({
       path,
       sourceHash: await hashText(contents),
@@ -681,6 +713,7 @@ export async function prepareItemEditWrites(
     || fresh.keyItem !== document.keyItem
     || fresh.useRoutine !== document.useRoutine
     || !sameRoutine(fresh.routineParameters, document.routineParameters)
+    || JSON.stringify(fresh.itemEvolution) !== JSON.stringify(document.itemEvolution)
   ) {
     throw new Error("This item changed outside Yellow Editor. Reload it before saving.");
   }
@@ -702,6 +735,21 @@ export async function prepareItemEditWrites(
   }
   if (values.routineParameters.kind !== document.routineParameters.kind) {
     throw new Error("The item routine structure changed. Reload the item before saving.");
+  }
+  if ((values.itemEvolution === null) !== (document.itemEvolution === null)) {
+    throw new Error("The item evolution capability changed. Reload the item before saving.");
+  }
+  if (
+    values.itemEvolution
+    && document.itemEvolution
+    && (
+      values.itemEvolution.triggerMode !== document.itemEvolution.triggerMode
+      || values.itemEvolution.runtimeEnabled !== document.itemEvolution.runtimeEnabled
+      || values.itemEvolution.eligibleItemConstants.join("|")
+        !== document.itemEvolution.eligibleItemConstants.join("|")
+    )
+  ) {
+    throw new Error("The item evolution trigger configuration changed. Reload the item.");
   }
 
   const constants = await source.readText(ITEM_CONSTANTS_PATH);
@@ -823,6 +871,102 @@ export async function prepareItemEditWrites(
           contents: deep.overworldContents,
         });
       }
+    }
+  }
+
+  if (
+    values.itemEvolution
+    && document.itemEvolution
+    && JSON.stringify(values.itemEvolution.references)
+      !== JSON.stringify(document.itemEvolution.references)
+  ) {
+    const originalEvos = await source.readText(EVOS_MOVES_PATH);
+    const currentEvosWrite = writes.find((write) => write.path === EVOS_MOVES_PATH);
+    const evosBase = currentEvosWrite?.contents ?? originalEvos;
+    const nextEvos = rewriteEvolutionStoneRoutine(
+      evosBase,
+      {
+        kind: "evolution-stone",
+        stoneConstants: document.itemEvolution.eligibleItemConstants,
+        references: document.itemEvolution.references,
+      },
+      {
+        kind: "evolution-stone",
+        stoneConstants: values.itemEvolution.eligibleItemConstants,
+        references: values.itemEvolution.references,
+      },
+    );
+
+    const originalEffects = await source.readText(ITEM_EFFECTS_PATH);
+    const currentEffectsWrite = writes.find((write) => write.path === ITEM_EFFECTS_PATH);
+    const effectsBase = currentEffectsWrite?.contents ?? originalEffects;
+    let syncedEffects = syncMedicineEvolutionHooks(
+      nextEvos,
+      constants,
+      effectsBase,
+    );
+
+    const medicineItems = new Set(
+      medicineEvolutionItemConstants(constants, syncedEffects),
+    );
+    const needsMedicineEvolutionRuntime = itemEvolutionReferences(nextEvos)
+      .some((constant) => medicineItems.has(constant));
+
+    if (needsMedicineEvolutionRuntime) {
+      const constantsContents = await source.readText(POKEMON_DATA_CONSTANTS_PATH);
+      const evolutionEngineContents = await source.readText(EVOLUTION_ENGINE_PATH);
+      const installed = installMoveEvolutionSupport(
+        constantsContents,
+        evolutionEngineContents,
+        syncedEffects,
+      );
+      syncedEffects = installed.itemEffects;
+
+      const currentConstantsWrite = writes.find(
+        (write) => write.path === POKEMON_DATA_CONSTANTS_PATH,
+      );
+      if (currentConstantsWrite) {
+        currentConstantsWrite.contents = installed.constants;
+      } else if (installed.constants !== constantsContents) {
+        writes.push({
+          path: POKEMON_DATA_CONSTANTS_PATH,
+          expectedHash: guardHash(document, POKEMON_DATA_CONSTANTS_PATH),
+          contents: installed.constants,
+        });
+      }
+
+      const currentEngineWrite = writes.find(
+        (write) => write.path === EVOLUTION_ENGINE_PATH,
+      );
+      if (currentEngineWrite) {
+        currentEngineWrite.contents = installed.evolutionEngine;
+      } else if (installed.evolutionEngine !== evolutionEngineContents) {
+        writes.push({
+          path: EVOLUTION_ENGINE_PATH,
+          expectedHash: guardHash(document, EVOLUTION_ENGINE_PATH),
+          contents: installed.evolutionEngine,
+        });
+      }
+    }
+
+    if (currentEvosWrite) {
+      currentEvosWrite.contents = nextEvos;
+    } else if (nextEvos !== originalEvos) {
+      writes.push({
+        path: EVOS_MOVES_PATH,
+        expectedHash: guardHash(document, EVOS_MOVES_PATH),
+        contents: nextEvos,
+      });
+    }
+
+    if (currentEffectsWrite) {
+      currentEffectsWrite.contents = syncedEffects;
+    } else if (syncedEffects !== originalEffects) {
+      writes.push({
+        path: ITEM_EFFECTS_PATH,
+        expectedHash: guardHash(document, ITEM_EFFECTS_PATH),
+        contents: syncedEffects,
+      });
     }
   }
 

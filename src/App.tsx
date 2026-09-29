@@ -238,6 +238,7 @@ function App() {
         price: document.price,
         keyItem: document.keyItem,
         routineParameters: document.routineParameters,
+        itemEvolution: document.itemEvolution,
       });
     }).catch((error) => {
       if (cancelled) return;
@@ -387,6 +388,8 @@ function App() {
       || itemEditDraft.keyItem !== itemEditDocument.keyItem
       || JSON.stringify(itemEditDraft.routineParameters)
         !== JSON.stringify(itemEditDocument.routineParameters)
+      || JSON.stringify(itemEditDraft.itemEvolution)
+        !== JSON.stringify(itemEditDocument.itemEvolution)
     )
   );
   const itemRoutineValid = (() => {
@@ -496,6 +499,35 @@ function App() {
     }
     return true;
   })();
+  const itemEvolutionValid = (() => {
+    if (!itemEditDraft || !itemEditDocument) return false;
+    const draftEvolution = itemEditDraft.itemEvolution;
+    const documentEvolution = itemEditDocument.itemEvolution;
+    if ((draftEvolution === null) !== (documentEvolution === null)) return false;
+    if (!draftEvolution || !documentEvolution) return true;
+    if (
+      draftEvolution.triggerMode !== documentEvolution.triggerMode
+      || draftEvolution.eligibleItemConstants.join("|")
+        !== documentEvolution.eligibleItemConstants.join("|")
+    ) {
+      return false;
+    }
+    const allowed = new Set(draftEvolution.eligibleItemConstants);
+    return draftEvolution.references.length === documentEvolution.references.length
+      && draftEvolution.references.every((reference, index) => {
+        const original = documentEvolution.references[index];
+        return Boolean(
+          original
+          && reference.internalId === original.internalId
+          && reference.evolutionIndex === original.evolutionIndex
+          && reference.sourceConstant === original.sourceConstant
+          && reference.targetConstant === original.targetConstant
+          && reference.minimumLevel === original.minimumLevel
+          && allowed.has(reference.itemConstant)
+        );
+      });
+  })();
+
   const itemValid = Boolean(
     itemEditDocument
     && itemEditDraft
@@ -506,6 +538,7 @@ function App() {
     && itemEditDraft.price >= 0
     && itemEditDraft.price <= 999999
     && itemRoutineValid
+    && itemEvolutionValid
   );
   const encounterDirty = encounterDraftIsDirty(encounterDraft, encounterDocument);
   const encounterValid = encounterDraftIsValid(encounterDraft);
@@ -1017,6 +1050,7 @@ function App() {
         price: itemEditDocument.price,
         keyItem: itemEditDocument.keyItem,
         routineParameters: itemEditDocument.routineParameters,
+        itemEvolution: itemEditDocument.itemEvolution,
       });
     }
     setActiveTab("pokemon");
@@ -1082,7 +1116,8 @@ function App() {
       const refreshedItems = await invoke<ItemData[]>("get_items");
       setItems(refreshedItems);
       if (
-        itemEditDraft.routineParameters.kind === "evolution-stone"
+        JSON.stringify(itemEditDraft.itemEvolution)
+          !== JSON.stringify(itemEditDocument.itemEvolution)
         && selectedPokemonEntry?.sourceSlug
       ) {
         await loadPokemon(
@@ -1106,6 +1141,7 @@ function App() {
       price: itemEditDocument.price,
       keyItem: itemEditDocument.keyItem,
       routineParameters: itemEditDocument.routineParameters,
+      itemEvolution: itemEditDocument.itemEvolution,
     });
     setStatus(`Unsaved ${itemEditDocument.name} changes reverted.`);
   }

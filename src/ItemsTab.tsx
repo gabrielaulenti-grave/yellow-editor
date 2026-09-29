@@ -1,3 +1,4 @@
+import { ItemEvolutionPanel } from "./ItemEvolutionPanel";
 import { DeepItemRoutinePanel } from "./DeepItemRoutinePanel";
 import { CatchFormulaPanel } from "./CatchFormulaPanel";
 import type {
@@ -284,7 +285,6 @@ export function ItemsTab({
                       || itemEditDraft.routineParameters.kind === "status-cure"
                       || itemEditDraft.routineParameters.kind === "x-stat"
                       || itemEditDraft.routineParameters.kind === "battle-flag"
-                      || itemEditDraft.routineParameters.kind === "evolution-stone"
                     ) ? (
                       <DeepItemRoutinePanel
                         routine={itemEditDraft.routineParameters}
@@ -317,11 +317,32 @@ export function ItemsTab({
                           onSelectItem={onSelectItem}
                         />
                       </div>
+                    ) : itemEditDraft?.routineParameters.kind === "evolution-stone" ? (
+                      <div className="item-routine-panel">
+                        <p className="help-text">
+                          This item uses Gen I's native evolution-item routine. Its Pokémon
+                          assignments are edited below.
+                        </p>
+                      </div>
                     ) : itemEditDraft?.routineParameters.kind === "routine" ? (
                       <div className="item-routine-panel">
                         <p>{itemEditDraft.routineParameters.description}</p>
                       </div>
                     ) : null}
+
+                    {itemEditDraft?.itemEvolution && (
+                      <>
+                        <h4>Evolution Trigger</h4>
+                        <ItemEvolutionPanel
+                          data={itemEditDraft.itemEvolution}
+                          items={items}
+                          busy={editBusy}
+                          onChange={(itemEvolution) =>
+                            changeItemDraft({ itemEvolution })}
+                          onOpenPokemon={onOpenPokemon}
+                        />
+                      </>
+                    )}
                   </>
                 )}
 
