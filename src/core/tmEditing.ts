@@ -32,6 +32,16 @@ function parseMoveConstants(contents: string): string[] {
   return result;
 }
 
+function legacyTmAliasMoves(contents: string): Set<string> {
+  const result = new Set<string>();
+  for (const rawLine of contents.split(/\r?\n/)) {
+    const line = codeOnly(rawLine);
+    const match = line.match(/^DEF[ \t]+TM_([A-Z0-9_]+)[ \t]+EQU[ \t]+TM_[A-Z0-9_]+\b/i);
+    if (match) result.add(match[1].toUpperCase());
+  }
+  return result;
+}
+
 function tmhmBlock(contents: string): {
   start: number;
   end: number;
@@ -272,9 +282,14 @@ export async function loadTmEditDocument(
       .map((definition) => definition.moveConstant as string),
   );
 
+  const legacyAliasMoves = legacyTmAliasMoves(itemConstantsContents);
   const replacementMoveConstants = parseMoveConstants(moveConstantsContents).filter(
     (moveConstant) =>
-      moveConstant === tm.moveConstant || !assignedElsewhere.has(moveConstant),
+      moveConstant === tm.moveConstant
+      || (
+        !assignedElsewhere.has(moveConstant)
+        && !legacyAliasMoves.has(moveConstant)
+      ),
   );
 
   return {
