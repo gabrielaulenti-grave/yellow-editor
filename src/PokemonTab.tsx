@@ -108,7 +108,12 @@ export function PokemonTab({
       if (itemIndex !== index) return item;
       const next = { ...item, ...values };
       if (values.method) {
-        next.item = values.method === "item" ? (item.item || document.options.items[0] || "") : "";
+        next.item = values.method === "item"
+          ? (item.item || document.options.evolutionItems[0] || "")
+          : "";
+        next.move = values.method === "move"
+          ? (item.move || document.options.moves[0] || "")
+          : "";
       }
       return next;
     });
@@ -260,7 +265,10 @@ export function PokemonTab({
             <div className="section-heading">
               <div>
                 <h4>Evolution</h4>
-                <p>Level, item, and trade evolutions are supported by the Gen I data format.</p>
+                <p>
+                  Vanilla level, item, and trade evolutions are supported, plus Yellow Editor's
+                  extended "level up knowing a move" method.
+                </p>
               </div>
               <button
                 type="button"
@@ -273,6 +281,7 @@ export function PokemonTab({
                       method: "level",
                       level: "16",
                       item: "",
+                      move: "",
                       target: document.options.species[0] || "",
                     },
                   ],
@@ -287,7 +296,13 @@ export function PokemonTab({
               <div className="table-wrap">
                 <table className="editor-table pokemon-edit-table">
                   <thead>
-                    <tr><th>Method</th><th>Level / minimum</th><th>Item</th><th>Target</th><th /></tr>
+                    <tr>
+                      <th>Method</th>
+                      <th>Level / minimum</th>
+                      <th>Requirement</th>
+                      <th>Target</th>
+                      <th />
+                    </tr>
                   </thead>
                   <tbody>
                     {draft.evolutions.map((item, index) => (
@@ -297,13 +312,32 @@ export function PokemonTab({
                             <option value="level">Level</option>
                             <option value="item">Item</option>
                             <option value="trade">Trade</option>
+                            <option value="move">Level up knowing move</option>
                           </select>
                         </td>
                         <td><input type="number" min={1} max={255} value={item.level} disabled={editBusy} onChange={(event) => updateEvolution(index, { level: event.target.value })} /></td>
                         <td>
                           {item.method === "item" ? (
-                            <select value={item.item} disabled={editBusy} onChange={(event) => updateEvolution(index, { item: event.target.value })}>
-                              {document.options.items.map((option) => <option key={option} value={option}>{option}</option>)}
+                            <select
+                              value={item.item}
+                              disabled={editBusy}
+                              onChange={(event) =>
+                                updateEvolution(index, { item: event.target.value })}
+                            >
+                              {document.options.evolutionItems.map((option) => (
+                                <option key={option} value={option}>{option}</option>
+                              ))}
+                            </select>
+                          ) : item.method === "move" ? (
+                            <select
+                              value={item.move}
+                              disabled={editBusy}
+                              onChange={(event) =>
+                                updateEvolution(index, { move: event.target.value })}
+                            >
+                              {document.options.moves.map((option) => (
+                                <option key={option} value={option}>{option}</option>
+                              ))}
                             </select>
                           ) : (
                             <span className="help-text">—</span>
@@ -325,6 +359,11 @@ export function PokemonTab({
                 </table>
               </div>
             )}
+            <p className="help-text">
+              Move-based evolutions are checked after level-up move learning. A Pokémon can
+              therefore learn its required move on that same level-up and evolve immediately
+              afterward. Rare Candy follows the same order.
+            </p>
           </section>
 
           <section className="editor-card">
