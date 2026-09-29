@@ -283,7 +283,6 @@ export function ItemsTab({
                       || itemEditDraft.routineParameters.kind === "bicycle"
                     ) ? (
                       <DeepItemRoutinePanel
-                        constant={selectedItem.constant}
                         routine={itemEditDraft.routineParameters}
                         items={items}
                         busy={editBusy}
