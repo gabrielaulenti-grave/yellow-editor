@@ -32,14 +32,34 @@ function parseMoveConstants(contents: string): string[] {
   return result;
 }
 
-function legacyTmAliasMoves(contents: string): Set<string> {
-  const result = new Set<string>();
+function legacyTmAliases(contents: string): Map<string, string> {
+  const result = new Map<string, string>();
   for (const rawLine of contents.split(/\r?\n/)) {
     const line = codeOnly(rawLine);
-    const match = line.match(/^DEF[ \t]+TM_([A-Z0-9_]+)[ \t]+EQU[ \t]+TM_[A-Z0-9_]+\b/i);
-    if (match) result.add(match[1].toUpperCase());
+    const match = line.match(
+      /^DEF[ \t]+(TM_[A-Z0-9_]+)[ \t]+EQU[ \t]+(TM_[A-Z0-9_]+)\b/i,
+    );
+    if (match) result.set(match[1].toUpperCase(), match[2].toUpperCase());
   }
   return result;
+}
+
+function aliasResolvesTo(
+  aliasConstant: string,
+  targetConstant: string,
+  aliases: Map<string, string>,
+): boolean {
+  let current = aliasConstant.toUpperCase();
+  const target = targetConstant.toUpperCase();
+  const visited = new Set<string>();
+
+  while (aliases.has(current)) {
+    if (visited.has(current)) return false;
+    visited.add(current);
+    current = aliases.get(current) as string;
+  }
+
+  return current === target;
 }
 
 function tmhmBlock(contents: string): {
@@ -282,14 +302,17 @@ export async function loadTmEditDocument(
       .map((definition) => definition.moveConstant as string),
   );
 
-  const legacyAliasMoves = legacyTmAliasMoves(itemConstantsContents);
+  const legacyAliases = legacyTmAliases(itemConstantsContents);
+  const currentItemConstant = `TM_${tm.moveConstant}`;
   const replacementMoveConstants = parseMoveConstants(moveConstantsContents).filter(
-    (moveConstant) =>
-      moveConstant === tm.moveConstant
-      || (
-        !assignedElsewhere.has(moveConstant)
-        && !legacyAliasMoves.has(moveConstant)
-      ),
+    (moveConstant) => {
+      if (moveConstant === tm.moveConstant) return true;
+      if (assignedElsewhere.has(moveConstant)) return false;
+
+      const candidateItemConstant = `TM_${moveConstant}`;
+      return !legacyAliases.has(candidateItemConstant)
+        || aliasResolvesTo(candidateItemConstant, currentItemConstant, legacyAliases);
+    },
   );
 
   return {
