@@ -76,20 +76,15 @@ function installStoneScanner(contents: string): string {
   if (contents.includes(marker)) return contents;
 
   const funcStart = contents.indexOf("Func_d85d:");
-  const cannot = contents.indexOf(".cannotEvolveWithUsedStone", funcStart);
-  if (funcStart < 0 || cannot < 0) {
-    throw new Error(
-      "Could not install move-known evolution support because the evolution-stone precheck could not be located.",
-    );
+  if (funcStart < 0) {
+    // pret/pokered does not have Yellow's pre-flight stone scanner.
+    return contents;
   }
 
-  const before = contents.slice(0, funcStart);
-  const func = contents.slice(funcStart, cannot);
-  const after = contents.slice(cannot);
   const loopPattern =
     /\.loop\r?\n\tld a, \[hli\]\r?\n\tand a\r?\n\tjr z, \.cannotEvolveWithUsedStone\r?\n\tinc hl\r?\n\tinc hl\r?\n\tcp EVOLVE_ITEM\r?\n\tjr nz, \.loop\r?\n\tdec hl\r?\n\tdec hl\r?\n\tld b, \[hl\]\r?\n\tld a, \[wCurItem\]\r?\n\tinc hl\r?\n\tinc hl\r?\n\tinc hl\r?\n\tcp b\r?\n\tjr nz, \.loop\r?\n\tscf\r?\n\tret\r?\n\r?\n/;
 
-  if (!loopPattern.test(func)) {
+  if (!loopPattern.test(contents.slice(funcStart))) {
     throw new Error(
       "Could not install move-known evolution support because Func_d85d is not the supported vanilla scanner.",
     );
@@ -127,7 +122,8 @@ function installStoneScanner(contents: string): string {
     "",
   ].join("\n");
 
-  return before + func.replace(loopPattern, replacement) + after;
+  return contents.slice(0, funcStart)
+    + contents.slice(funcStart).replace(loopPattern, replacement);
 }
 
 export function installMoveEvolutionSupport(
