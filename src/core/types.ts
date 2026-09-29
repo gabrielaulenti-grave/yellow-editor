@@ -222,6 +222,63 @@ export interface TmEditValues {
   retainedPokemonIds: number[];
 }
 
+export interface ItemEditSourceDocument {
+  path: string;
+  sourceHash: string;
+}
+
+export interface BallRoutineParameters {
+  kind: "ball";
+  masterBallGuaranteed: boolean;
+  greatRandomCeiling: number;
+  ultraSafariRandomCeiling: number;
+  greatHpDivisor: number;
+  otherHpDivisor: number;
+  pokeShakeDivisor: number;
+  greatShakeDivisor: number;
+  ultraSafariShakeDivisor: number;
+}
+
+export interface FixedHealingRoutineParameters {
+  kind: "fixed-heal";
+  healAmount: number;
+}
+
+export interface SpecialHealingRoutineParameters {
+  kind: "special-heal";
+  behavior: "full-hp" | "half-max-hp" | "full-hp-and-status" | "status-only";
+  description: string;
+}
+
+export interface GenericItemRoutineParameters {
+  kind: "routine";
+  description: string;
+}
+
+export type ItemRoutineParameters =
+  | BallRoutineParameters
+  | FixedHealingRoutineParameters
+  | SpecialHealingRoutineParameters
+  | GenericItemRoutineParameters;
+
+export interface ItemEditDocument {
+  itemId: number;
+  constant: string;
+  name: string;
+  price: number;
+  keyItem: boolean;
+  useRoutine: string | null;
+  routineParameters: ItemRoutineParameters;
+  sources: ItemEditSourceDocument[];
+}
+
+export interface ItemEditValues {
+  name: string;
+  price: number;
+  keyItem: boolean;
+  routineParameters: ItemRoutineParameters;
+}
+
 export type TrainerPartyFormat = "shared-level" | "individual-levels";
 export type TrainerTriggerKind = "sight" | "talk" | "scripted";
 export type TrainerPartyResolution =
@@ -731,6 +788,8 @@ export interface ProjectSession {
   getTmhmCompatibility(moveConstant: string): Promise<PokemonTmhmCompatibilityReference[]>;
   getTmEditDocument(itemId: number): Promise<TmEditDocument>;
   saveTmEdit(document: TmEditDocument, values: TmEditValues): Promise<HistorySummary>;
+  getItemEditDocument(itemId: number): Promise<ItemEditDocument>;
+  saveItemEdit(document: ItemEditDocument, values: ItemEditValues): Promise<HistorySummary>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,
