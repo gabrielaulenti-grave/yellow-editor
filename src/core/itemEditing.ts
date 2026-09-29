@@ -129,7 +129,7 @@ function ballLocations(contents: string) {
   const greatComment = lines.findIndex((line) =>
     line.includes("Great/Ultra/Safari Ball and Rand1 is greater than"));
   const ultraComment = lines.findIndex((line) =>
-    line.includes("Ultra/Safari Ball and Rand1 is greater than"));
+    line.includes("If it's an Ultra/Safari Ball and Rand1 is greater than"));
   const factorComment = lines.findIndex((line) => line.includes("Determine BallFactor."));
   const factor2Comment = lines.findIndex((line) => line.includes("Determine BallFactor2."));
   if ([greatComment, ultraComment, factorComment, factor2Comment].some((value) => value < 0)) {
