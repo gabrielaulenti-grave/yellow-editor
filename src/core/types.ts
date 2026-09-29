@@ -350,6 +350,13 @@ export interface EvolutionStoneRoutineParameters {
   references: EvolutionStoneReference[];
 }
 
+export interface ItemEvolutionEditData {
+  triggerMode: "native" | "medicine";
+  runtimeEnabled: boolean;
+  eligibleItemConstants: string[];
+  references: EvolutionStoneReference[];
+}
+
 export interface GenericItemRoutineParameters {
   kind: "routine";
   description: string;
@@ -380,6 +387,7 @@ export interface ItemEditDocument {
   useRoutine: string | null;
   maxNameLength: number;
   routineParameters: ItemRoutineParameters;
+  itemEvolution: ItemEvolutionEditData | null;
   sources: ItemEditSourceDocument[];
 }
 
@@ -388,6 +396,7 @@ export interface ItemEditValues {
   price: number;
   keyItem: boolean;
   routineParameters: ItemRoutineParameters;
+  itemEvolution: ItemEvolutionEditData | null;
 }
 
 export type TrainerPartyFormat = "shared-level" | "individual-levels";
