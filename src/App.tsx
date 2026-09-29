@@ -6,6 +6,8 @@ import type {
   EncounterVersion,
   FishingEditDocument,
   HistorySummary,
+  ItemCreateDocument,
+  ItemCreateValues,
   ItemData,
   ItemEditDocument,
   ItemEditValues,
@@ -111,6 +113,10 @@ function App() {
   const [itemEditDraft, setItemEditDraft] = useState<ItemEditValues | null>(null);
   const [itemEditLoading, setItemEditLoading] = useState(false);
   const [itemEditError, setItemEditError] = useState<string | null>(null);
+  const [itemCreateDocument, setItemCreateDocument] =
+    useState<ItemCreateDocument | null>(null);
+  const [itemCreateLoading, setItemCreateLoading] = useState(false);
+  const [itemCreateError, setItemCreateError] = useState<string | null>(null);
   const [pokemonCatchProfiles, setPokemonCatchProfiles] = useState<PokemonCatchProfile[]>([]);
   const [catchProfilesLoading, setCatchProfilesLoading] = useState(false);
   const [catchProfilesError, setCatchProfilesError] = useState<string | null>(null);
@@ -924,6 +930,9 @@ function App() {
       setSelectedItemId(itemData[0]?.id ?? null);
       setItemSearch("");
       setItemCompatibilitySelections({});
+      setItemCreateDocument(null);
+      setItemCreateLoading(false);
+      setItemCreateError(null);
       setPokemonCatchProfiles([]);
       setCatchProfilesLoading(false);
       setCatchProfilesError(null);
@@ -973,6 +982,9 @@ function App() {
       setSelectedMoveId(null);
       setSelectedItemId(null);
       setItemCompatibilitySelections({});
+      setItemCreateDocument(null);
+      setItemCreateLoading(false);
+      setItemCreateError(null);
       setPokemonCatchProfiles([]);
       setCatchProfilesLoading(false);
       setCatchProfilesError(null);
@@ -1017,6 +1029,76 @@ function App() {
       setTmMoveDraft(tmEditDocument.moveConstant);
     }
     setSelectedItemId(itemId);
+  }
+
+  async function openItemWizard() {
+    if (!project || editBusy || itemCreateLoading) return;
+    if (tmDirty || itemDirty) {
+      setStatus("Save or revert the current item changes before adding a new item.");
+      return;
+    }
+
+    setItemCreateLoading(true);
+    setItemCreateError(null);
+    try {
+      const document = await invoke<ItemCreateDocument>("get_item_create_document");
+      setItemCreateDocument(document);
+      setStatus(
+        document.slots.length > 0
+          ? `Add Item wizard ready with ${document.slots.length} unused slot${document.slots.length === 1 ? "" : "s"}.`
+          : "No unused vanilla item slots remain in this project.",
+      );
+    } catch (error) {
+      const message = String(error);
+      setItemCreateError(message);
+      setStatus(message);
+    } finally {
+      setItemCreateLoading(false);
+    }
+  }
+
+  function closeItemWizard() {
+    if (editBusy) return;
+    setItemCreateDocument(null);
+    setItemCreateError(null);
+  }
+
+  async function createItem(values: ItemCreateValues) {
+    if (!itemCreateDocument || editBusy) return;
+
+    setEditBusy(true);
+    setItemCreateError(null);
+    try {
+      const history = await invoke<HistorySummary>("create_item", {
+        document: itemCreateDocument,
+        values,
+      });
+      setHistorySummary(history);
+
+      const refreshedItems = await invoke<ItemData[]>("get_items");
+      setItems(refreshedItems);
+      setItemCompatibilitySelections({});
+      setSelectedItemId(values.slotId);
+      setItemSearch("");
+      setItemCreateDocument(null);
+
+      const created = refreshedItems.find((item) => item.id === values.slotId);
+      const label = created?.name ?? values.name.trim();
+      if (selectedPokemonEntry?.sourceSlug) {
+        await loadPokemon(
+          selectedPokemonEntry,
+          `${label} added successfully. Pokémon evolution options refreshed.`,
+        );
+      } else {
+        setStatus(`${label} added successfully.`);
+      }
+    } catch (error) {
+      const message = String(error);
+      setItemCreateError(message);
+      setStatus(message);
+    } finally {
+      setEditBusy(false);
+    }
   }
 
   async function openPokemonFromItem(internalId: number) {
@@ -2000,6 +2082,9 @@ function App() {
           itemEditDraft={itemEditDraft}
           itemEditLoading={itemEditLoading}
           itemEditError={itemEditError}
+          itemCreateDocument={itemCreateDocument}
+          itemCreateLoading={itemCreateLoading}
+          itemCreateError={itemCreateError}
           pokemonCatchProfiles={pokemonCatchProfiles}
           catchProfilesLoading={catchProfilesLoading}
           catchProfilesError={catchProfilesError}
@@ -2014,6 +2099,9 @@ function App() {
           onSelectAllCompatibility={selectAllItemCompatibility}
           onDeselectAllCompatibility={deselectAllItemCompatibility}
           onOpenPokemon={(internalId) => void openPokemonFromItem(internalId)}
+          onOpenItemWizard={() => void openItemWizard()}
+          onCloseItemWizard={closeItemWizard}
+          onCreateItem={(values) => void createItem(values)}
         />
       )}
 

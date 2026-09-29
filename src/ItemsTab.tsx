@@ -1,7 +1,10 @@
+import { AddItemWizard } from "./AddItemWizard";
 import { ItemEvolutionPanel } from "./ItemEvolutionPanel";
 import { DeepItemRoutinePanel } from "./DeepItemRoutinePanel";
 import { CatchFormulaPanel } from "./CatchFormulaPanel";
 import type {
+  ItemCreateDocument,
+  ItemCreateValues,
   ItemData,
   ItemEditDocument,
   ItemEditValues,
@@ -28,6 +31,9 @@ interface ItemsTabProps {
   itemEditDraft: ItemEditValues | null;
   itemEditLoading: boolean;
   itemEditError: string | null;
+  itemCreateDocument: ItemCreateDocument | null;
+  itemCreateLoading: boolean;
+  itemCreateError: string | null;
   pokemonCatchProfiles: PokemonCatchProfile[];
   catchProfilesLoading: boolean;
   catchProfilesError: string | null;
@@ -42,6 +48,9 @@ interface ItemsTabProps {
   onSelectAllCompatibility(): void;
   onDeselectAllCompatibility(): void;
   onOpenPokemon(internalId: number): void;
+  onOpenItemWizard(): void;
+  onCloseItemWizard(): void;
+  onCreateItem(values: ItemCreateValues): void;
 }
 
 function kindLabel(item: ItemData): string {
@@ -82,6 +91,9 @@ export function ItemsTab({
   itemEditDraft,
   itemEditLoading,
   itemEditError,
+  itemCreateDocument,
+  itemCreateLoading,
+  itemCreateError,
   pokemonCatchProfiles,
   catchProfilesLoading,
   catchProfilesError,
@@ -96,6 +108,9 @@ export function ItemsTab({
   onSelectAllCompatibility,
   onDeselectAllCompatibility,
   onOpenPokemon,
+  onOpenItemWizard,
+  onCloseItemWizard,
+  onCreateItem,
 }: ItemsTabProps) {
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
   const moveByConstant = new Map(moves.map((move) => [move.constant, move]));
@@ -142,7 +157,27 @@ export function ItemsTab({
           <h2>Items</h2>
           <p>Browse item IDs, names, prices, use routines, key-item flags, and TM/HM move assignments.</p>
         </div>
+        {project && (
+          <button
+            type="button"
+            className="primary-button"
+            onClick={onOpenItemWizard}
+            disabled={editBusy || itemCreateLoading}
+          >
+            {itemCreateLoading ? "Reading Item Slots…" : "Add Item"}
+          </button>
+        )}
       </div>
+
+      {itemCreateDocument && (
+        <AddItemWizard
+          document={itemCreateDocument}
+          busy={editBusy}
+          error={itemCreateError}
+          onCancel={onCloseItemWizard}
+          onCreate={onCreateItem}
+        />
+      )}
 
       {!project ? (
         <p>Open a project to browse items.</p>
