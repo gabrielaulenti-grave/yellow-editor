@@ -1,11 +1,16 @@
 import type {
+  BattleFlagEffect,
+  BattleFlagRoutineParameters,
   BicycleRoutineParameters,
   ItemRoutineParameters,
   PpRestoreRoutineParameters,
   PpUpRoutineParameters,
   RepelRoutineParameters,
   ReviveRoutineParameters,
+  StatusCureEffect,
+  StatusCureRoutineParameters,
   VitaminRoutineParameters,
+  XStatRoutineParameters,
 } from "./types";
 
 const VITAMIN_STATS: Record<string, VitaminRoutineParameters["stat"]> = {
@@ -18,6 +23,56 @@ const VITAMIN_STATS: Record<string, VitaminRoutineParameters["stat"]> = {
 
 const VITAMIN_CONSTANTS = ["HP_UP", "PROTEIN", "IRON", "CARBOS", "CALCIUM"];
 const PP_RESTORE_SHARED = ["ETHER", "ELIXER"];
+
+const STATUS_CURE_ITEMS = new Set([
+  "ANTIDOTE",
+  "BURN_HEAL",
+  "ICE_HEAL",
+  "AWAKENING",
+  "PARLYZ_HEAL",
+  "FULL_HEAL",
+]);
+
+const STATUS_EFFECTS: Record<
+  StatusCureEffect,
+  { message: string; mask: string }
+> = {
+  poison: { message: "ANTIDOTE_MSG", mask: "1 << PSN" },
+  burn: { message: "BURN_HEAL_MSG", mask: "1 << BRN" },
+  freeze: { message: "ICE_HEAL_MSG", mask: "1 << FRZ" },
+  sleep: { message: "AWAKENING_MSG", mask: "SLP_MASK" },
+  paralysis: { message: "PARALYZ_HEAL_MSG", mask: "1 << PAR" },
+  all: { message: "FULL_HEAL_MSG", mask: "$ff" },
+};
+
+const X_STAT_ITEMS: Record<string, XStatRoutineParameters["stat"]> = {
+  X_ATTACK: "Attack",
+  X_DEFEND: "Defense",
+  X_SPEED: "Speed",
+  X_SPECIAL: "Special",
+};
+const X_STAT_CONSTANTS = Object.keys(X_STAT_ITEMS);
+
+const BATTLE_FLAG_ITEMS: Record<
+  string,
+  { label: string }
+> = {
+  X_ACCURACY: { label: "ItemUseXAccuracy:" },
+  GUARD_SPEC: { label: "ItemUseGuardSpec:" },
+  DIRE_HIT: { label: "ItemUseDireHit:" },
+};
+
+const BATTLE_FLAG_TO_EFFECT: Record<string, BattleFlagEffect> = {
+  USING_X_ACCURACY: "x-accuracy",
+  PROTECTED_BY_MIST: "mist",
+  GETTING_PUMPED: "focus-energy",
+};
+
+const BATTLE_EFFECT_TO_FLAG: Record<BattleFlagEffect, string> = {
+  "x-accuracy": "USING_X_ACCURACY",
+  mist: "PROTECTED_BY_MIST",
+  "focus-energy": "GETTING_PUMPED",
+};
 
 function codeOnly(line: string): string {
   return (line.split(";", 1)[0] || "").trim();
@@ -153,6 +208,68 @@ function parsePpUp(contents: string, constant: string): PpUpRoutineParameters | 
   };
 }
 
+function parseStatusCure(
+  contents: string,
+  constant: string,
+): StatusCureRoutineParameters | null {
+  if (!STATUS_CURE_ITEMS.has(constant)) return null;
+
+  const pattern = constant === "FULL_HEAL"
+    ? /^\s*lb bc,\s*([A-Z0-9_]+),\s*([^;\r\n]+)\s*;\s*Full Heal\b/im
+    : new RegExp(
+      `^\\s*lb bc,\\s*([A-Z0-9_]+),\\s*([^;\\r\\n]+)[^\\r\\n]*\\r?\\n\\s*cp ${constant}\\b`,
+      "im",
+    );
+  const match = contents.match(pattern);
+  if (!match) throw new Error(`Could not locate ${constant}'s status-cure mapping.`);
+
+  const message = match[1].trim();
+  const mask = match[2].trim();
+  const effect = (Object.entries(STATUS_EFFECTS) as Array<
+    [StatusCureEffect, { message: string; mask: string }]
+  >).find(([, value]) => value.message === message && value.mask === mask)?.[0];
+
+  if (!effect) {
+    throw new Error(
+      `${constant} uses an unsupported status message/mask combination: ${message}, ${mask}.`,
+    );
+  }
+  return { kind: "status-cure", effect };
+}
+
+function parseXStat(
+  contents: string,
+  constant: string,
+): XStatRoutineParameters | null {
+  const stat = X_STAT_ITEMS[constant];
+  if (!stat) return null;
+  const block = routineBlock(contents, "ItemUseXStat:");
+  const match = block.match(/sub\s+X_ATTACK\s*-\s*ATTACK_UP([12])_EFFECT\b/i);
+  if (!match) throw new Error("Could not locate the shared X-stat stage mapping.");
+  return {
+    kind: "x-stat",
+    stat,
+    stageBoost: Number.parseInt(match[1], 10) as 1 | 2,
+    sharedConstants: X_STAT_CONSTANTS,
+  };
+}
+
+function parseBattleFlag(
+  contents: string,
+  constant: string,
+): BattleFlagRoutineParameters | null {
+  const item = BATTLE_FLAG_ITEMS[constant];
+  if (!item) return null;
+  const block = routineBlock(contents, item.label);
+  const match = block.match(
+    /set\s+(USING_X_ACCURACY|PROTECTED_BY_MIST|GETTING_PUMPED),\s*\[hl\]/i,
+  );
+  if (!match) throw new Error(`Could not locate ${constant}'s battle flag.`);
+  const effect = BATTLE_FLAG_TO_EFFECT[match[1].toUpperCase()];
+  if (!effect) throw new Error(`Unsupported battle flag ${match[1]}.`);
+  return { kind: "battle-flag", effect };
+}
+
 function parseBicycle(overworldContents: string | null): BicycleRoutineParameters {
   if (!overworldContents) throw new Error("Bicycle speed source is unavailable.");
   const block = routineBlock(overworldContents, "DoBikeSpeedup::");
@@ -182,6 +299,9 @@ export function parseDeepItemRoutine(
     ?? parseRevive(effectsContents, constant)
     ?? parsePpRestore(effectsContents, constant)
     ?? parsePpUp(effectsContents, constant)
+    ?? parseStatusCure(effectsContents, constant)
+    ?? parseXStat(effectsContents, constant)
+    ?? parseBattleFlag(effectsContents, constant)
     ?? null;
 }
 
@@ -385,6 +505,72 @@ function rewritePpUp(contents: string, values: PpUpRoutineParameters): string {
   return before + block + after;
 }
 
+function rewriteStatusCure(
+  contents: string,
+  constant: string,
+  values: StatusCureRoutineParameters,
+): string {
+  if (!STATUS_CURE_ITEMS.has(constant)) {
+    throw new Error(`${constant} is not a supported status medicine.`);
+  }
+  const mapping = STATUS_EFFECTS[values.effect];
+  if (!mapping) throw new Error("Choose a supported status-cure effect.");
+
+  if (constant === "FULL_HEAL") {
+    const pattern =
+      /^(\s*)lb bc,\s*[A-Z0-9_]+,\s*[^;\r\n]+(\s*;\s*Full Heal\b[^\r\n]*)/im;
+    if (!pattern.test(contents)) throw new Error("Could not update Full Heal's status mapping.");
+    return contents.replace(
+      pattern,
+      `$1lb bc, ${mapping.message}, ${mapping.mask}$2`,
+    );
+  }
+
+  const pattern = new RegExp(
+    `^(\\s*)lb bc,\\s*[A-Z0-9_]+,\\s*[^;\\r\\n]+([^\\r\\n]*\\r?\\n\\s*cp ${constant}\\b)`,
+    "im",
+  );
+  if (!pattern.test(contents)) {
+    throw new Error(`Could not update ${constant}'s status mapping.`);
+  }
+  return contents.replace(
+    pattern,
+    `$1lb bc, ${mapping.message}, ${mapping.mask}$2`,
+  );
+}
+
+function rewriteXStat(
+  contents: string,
+  values: XStatRoutineParameters,
+): string {
+  if (values.stageBoost !== 1 && values.stageBoost !== 2) {
+    throw new Error("X-stat stage boost must be +1 or +2.");
+  }
+  const pattern = /(sub\s+X_ATTACK\s*-\s*)ATTACK_UP[12]_EFFECT\b/i;
+  if (!pattern.test(contents)) throw new Error("Could not update the shared X-stat stage mapping.");
+  return contents.replace(
+    pattern,
+    `$1ATTACK_UP${values.stageBoost}_EFFECT`,
+  );
+}
+
+function rewriteBattleFlag(
+  contents: string,
+  constant: string,
+  values: BattleFlagRoutineParameters,
+): string {
+  const item = BATTLE_FLAG_ITEMS[constant];
+  if (!item) throw new Error(`${constant} is not a supported battle-flag item.`);
+  const flag = BATTLE_EFFECT_TO_FLAG[values.effect];
+  if (!flag) throw new Error("Choose a supported battle effect.");
+  return replaceFirstInRoutine(
+    contents,
+    item.label,
+    /(set\s+)(USING_X_ACCURACY|PROTECTED_BY_MIST|GETTING_PUMPED)(,\s*\[hl\])/i,
+    `$1${flag}$3`,
+  );
+}
+
 function rewriteBicycle(
   overworldContents: string,
   values: BicycleRoutineParameters,
@@ -466,6 +652,21 @@ export function rewriteDeepItemRoutine(
       return {
         effectsContents,
         overworldContents: rewriteBicycle(overworldContents, values),
+      };
+    case "status-cure":
+      return {
+        effectsContents: rewriteStatusCure(effectsContents, constant, values),
+        overworldContents,
+      };
+    case "x-stat":
+      return {
+        effectsContents: rewriteXStat(effectsContents, values),
+        overworldContents,
+      };
+    case "battle-flag":
+      return {
+        effectsContents: rewriteBattleFlag(effectsContents, constant, values),
+        overworldContents,
       };
     default:
       return null;
