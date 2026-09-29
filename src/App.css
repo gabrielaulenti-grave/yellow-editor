@@ -15,6 +15,7 @@
   --muted: #66665f;
   --accent: #b38b00;
   --accent-soft: #fff4c2;
+  --link: #735900;
 }
 
 * {
@@ -740,6 +741,7 @@ input[readonly] {
 
 .item-affected-pokemon a {
   min-width: 0;
+  color: var(--link);
   overflow-wrap: anywhere;
   font-size: 0.86rem;
   font-weight: 700;
@@ -757,6 +759,7 @@ input[readonly] {
 
 .item-affected-pokemon-links-only a {
   display: inline-block;
+  color: var(--link);
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -1217,6 +1220,7 @@ pre {
     --muted: #b5b5aa;
     --accent: #d5ad28;
     --accent-soft: #4a401c;
+    --link: #f2c94c;
   }
 
   input[readonly] {
