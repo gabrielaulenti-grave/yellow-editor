@@ -1,4 +1,5 @@
 import { hashText } from "./history";
+import { parseDeepItemRoutine, rewriteDeepItemRoutine } from "./deepItemRoutines";
 import { parseItemConstantDefinitions } from "./itemConstants";
 import type {
   BallRoutineParameters,
@@ -15,6 +16,7 @@ const ITEM_PRICES_PATH = "data/items/prices.asm";
 const KEY_ITEMS_PATH = "data/items/key_items.asm";
 const ITEM_EFFECTS_PATH = "engine/items/item_effects.asm";
 const TEXT_CONSTANTS_PATH = "constants/text_constants.asm";
+const OVERWORLD_PATH = "home/overworld.asm";
 
 const FIXED_HEALS: Record<string, string> = {
   POTION: "Potion",
@@ -347,7 +349,11 @@ function parseRoutine(
   constant: string,
   useRoutine: string | null,
   effects: string,
+  overworld: string | null,
 ): ItemRoutineParameters {
+  const deep = parseDeepItemRoutine(constant, useRoutine, effects, overworld);
+  if (deep) return deep;
+
   if (useRoutine === "ItemUseBall") {
     try {
       return readBall(effects);
@@ -597,6 +603,9 @@ export async function loadItemEditDocument(
 
   const { index, constant } = regularItem(constants, itemId);
   const useRoutine = readUseRoutine(effects, index);
+  const overworld = constant === "BICYCLE"
+    ? await source.readText(OVERWORLD_PATH)
+    : null;
   const sources = new Map<string, string>([
     [ITEM_CONSTANTS_PATH, constants],
     [ITEM_NAMES_PATH, names],
@@ -605,6 +614,7 @@ export async function loadItemEditDocument(
     [ITEM_EFFECTS_PATH, effects],
     [TEXT_CONSTANTS_PATH, textConstants],
   ]);
+  if (overworld !== null) sources.set(OVERWORLD_PATH, overworld);
 
   return {
     itemId,
@@ -614,7 +624,7 @@ export async function loadItemEditDocument(
     keyItem: readKeyItem(keyItems, index),
     useRoutine,
     maxNameLength: maxItemNameLength(textConstants),
-    routineParameters: parseRoutine(constant, useRoutine, effects),
+    routineParameters: parseRoutine(constant, useRoutine, effects, overworld),
     sources: await Promise.all([...sources].map(async ([path, contents]) => ({
       path,
       sourceHash: await hashText(contents),
@@ -706,26 +716,65 @@ export async function prepareItemEditWrites(
   }
 
   if (!sameRoutine(values.routineParameters, document.routineParameters)) {
-    const contents = await source.readText(ITEM_EFFECTS_PATH);
-    let next = contents;
+    const effectsContents = await source.readText(ITEM_EFFECTS_PATH);
+    const overworldContents = document.constant === "BICYCLE"
+      ? await source.readText(OVERWORLD_PATH)
+      : null;
+
     if (
       document.routineParameters.kind === "fixed-heal"
       && values.routineParameters.kind === "fixed-heal"
     ) {
-      next = rewriteFixedHeal(contents, document.constant, values.routineParameters.healAmount);
+      const next = rewriteFixedHeal(
+        effectsContents,
+        document.constant,
+        values.routineParameters.healAmount,
+      );
+      writes.push({
+        path: ITEM_EFFECTS_PATH,
+        expectedHash: guardHash(document, ITEM_EFFECTS_PATH),
+        contents: next,
+      });
     } else if (
       document.routineParameters.kind === "ball"
       && values.routineParameters.kind === "ball"
     ) {
-      next = rewriteBall(contents, values.routineParameters);
+      const next = rewriteBall(effectsContents, values.routineParameters);
+      writes.push({
+        path: ITEM_EFFECTS_PATH,
+        expectedHash: guardHash(document, ITEM_EFFECTS_PATH),
+        contents: next,
+      });
     } else {
-      throw new Error("This routine is informational and cannot be edited yet.");
+      const deep = rewriteDeepItemRoutine(
+        document.constant,
+        document.routineParameters,
+        values.routineParameters,
+        effectsContents,
+        overworldContents,
+      );
+      if (!deep) {
+        throw new Error("This routine is informational and cannot be edited yet.");
+      }
+      if (deep.effectsContents !== effectsContents) {
+        writes.push({
+          path: ITEM_EFFECTS_PATH,
+          expectedHash: guardHash(document, ITEM_EFFECTS_PATH),
+          contents: deep.effectsContents,
+        });
+      }
+      if (
+        overworldContents !== null
+        && deep.overworldContents !== null
+        && deep.overworldContents !== overworldContents
+      ) {
+        writes.push({
+          path: OVERWORLD_PATH,
+          expectedHash: guardHash(document, OVERWORLD_PATH),
+          contents: deep.overworldContents,
+        });
+      }
     }
-    writes.push({
-      path: ITEM_EFFECTS_PATH,
-      expectedHash: guardHash(document, ITEM_EFFECTS_PATH),
-      contents: next,
-    });
   }
 
   return writes;
