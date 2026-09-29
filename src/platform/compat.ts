@@ -501,6 +501,9 @@ export async function invoke<T>(
     case "get_items":
       return (await session.getItems()) as T;
 
+    case "get_pokemon_catch_profiles":
+      return (await session.getPokemonCatchProfiles()) as T;
+
     case "get_item_edit_document":
       return (await session.getItemEditDocument(
         numberArg(args, "itemId"),
