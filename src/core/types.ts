@@ -265,6 +265,45 @@ export interface SpecialHealingRoutineParameters {
   description: string;
 }
 
+export interface RepelRoutineParameters {
+  kind: "repel";
+  steps: number;
+}
+
+export interface VitaminRoutineParameters {
+  kind: "vitamin";
+  stat: "HP" | "Attack" | "Defense" | "Speed" | "Special";
+  statExpAdded: number;
+  useThreshold: number;
+  sharedConstants: string[];
+}
+
+export interface ReviveRoutineParameters {
+  kind: "revive";
+  restoreMode: "half" | "full";
+  editable: boolean;
+}
+
+export interface PpRestoreRoutineParameters {
+  kind: "pp-restore";
+  fullRestore: boolean;
+  restoreAmount: number | null;
+  sharedConstants: string[];
+}
+
+export interface PpUpRoutineParameters {
+  kind: "pp-up";
+  bonusDivisor: number;
+  perUseCap: number;
+  maxUses: number;
+}
+
+export interface BicycleRoutineParameters {
+  kind: "bicycle";
+  speedMultiplier: 1 | 2 | 4;
+  sourceVariant: "pokered" | "pokeyellow";
+}
+
 export interface GenericItemRoutineParameters {
   kind: "routine";
   description: string;
@@ -274,6 +313,12 @@ export type ItemRoutineParameters =
   | BallRoutineParameters
   | FixedHealingRoutineParameters
   | SpecialHealingRoutineParameters
+  | RepelRoutineParameters
+  | VitaminRoutineParameters
+  | ReviveRoutineParameters
+  | PpRestoreRoutineParameters
+  | PpUpRoutineParameters
+  | BicycleRoutineParameters
   | GenericItemRoutineParameters;
 
 export interface ItemEditDocument {
