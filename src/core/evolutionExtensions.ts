@@ -28,7 +28,7 @@ function installEvolutionEngine(contents: string): string {
   if (contents.includes(MOVE_SUPPORT_MARKER)) return contents;
 
   const dispatchPattern =
-    /(\tld a, b\r?\n\tcp EVOLVE_LEVEL\r?\n\tjr z, \.checkLevel\r?\n)(\.checkTradeEvo)/;
+    /\tld a, b\r?\n\tcp EVOLVE_ITEM\r?\n\tjr z, \.checkItemEvo\r?\n\tld a, \[wForceEvolution\]\r?\n\tand a\r?\n\tjr nz, Evolution_PartyMonLoop\r?\n\tld a, b\r?\n\tcp EVOLVE_LEVEL\r?\n\tjr z, \.checkLevel\r?\n(?=\.checkTradeEvo)/;
   if (!dispatchPattern.test(contents)) {
     throw new Error(
       "Could not install move-known evolution support because EvolutionAfterBattle has an unsupported layout.",
@@ -37,7 +37,21 @@ function installEvolutionEngine(contents: string): string {
 
   let next = contents.replace(
     dispatchPattern,
-    "\tld a, b\n\tcp EVOLVE_MOVE\n\tjr z, .checkMoveEvo\n\tcp EVOLVE_LEVEL\n\tjr z, .checkLevel\n$2",
+    [
+      "\tld a, b",
+      "\tcp EVOLVE_ITEM",
+      "\tjr z, .checkItemEvo",
+      "\tld a, b",
+      "\tcp EVOLVE_MOVE",
+      "\tjr z, .checkMoveEvo",
+      "\tld a, [wForceEvolution]",
+      "\tand a",
+      "\tjp nz, .nextEvoEntry1 ; forced item use skips level evolutions",
+      "\tld a, b",
+      "\tcp EVOLVE_LEVEL",
+      "\tjr z, .checkLevel",
+      "",
+    ].join("\n"),
   );
 
   const itemLabel = /^\.checkItemEvo\s*$/m;
@@ -48,6 +62,14 @@ function installEvolutionEngine(contents: string): string {
   const moveBlock = [
     MOVE_SUPPORT_MARKER,
     ".checkMoveEvo",
+    "\tld a, [wForceEvolution]",
+    "\tand a",
+    "\tjr z, .checkMoveRequirement",
+    "\tinc hl ; move",
+    "\tinc hl ; minimum level",
+    "\tinc hl ; target",
+    "\tjp .evoEntryLoop",
+    ".checkMoveRequirement",
     "\tld a, [hli] ; required move",
     "\tld c, a",
     "\tpush hl ; save pointer to minimum level",
