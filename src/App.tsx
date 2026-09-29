@@ -341,6 +341,53 @@ function App() {
       && tmEditDocument.replacementMoveConstants.includes(tmMoveDraft)
     ),
   );
+  const itemDirty = Boolean(
+    itemEditDocument
+    && itemEditDraft
+    && (
+      itemEditDraft.name !== itemEditDocument.name
+      || itemEditDraft.price !== itemEditDocument.price
+      || itemEditDraft.keyItem !== itemEditDocument.keyItem
+      || JSON.stringify(itemEditDraft.routineParameters)
+        !== JSON.stringify(itemEditDocument.routineParameters)
+    )
+  );
+  const itemRoutineValid = (() => {
+    if (!itemEditDraft) return false;
+    const routine = itemEditDraft.routineParameters;
+    if (routine.kind === "fixed-heal") {
+      return Number.isInteger(routine.healAmount)
+        && routine.healAmount >= 0
+        && routine.healAmount <= 255;
+    }
+    if (routine.kind === "ball") {
+      return [
+        routine.greatRandomCeiling,
+        routine.ultraSafariRandomCeiling,
+        routine.greatHpDivisor,
+        routine.otherHpDivisor,
+        routine.pokeShakeDivisor,
+        routine.greatShakeDivisor,
+        routine.ultraSafariShakeDivisor,
+      ].every((value, index) =>
+        Number.isInteger(value)
+        && value >= (index < 2 ? 0 : 1)
+        && value <= 255
+      );
+    }
+    return true;
+  })();
+  const itemValid = Boolean(
+    itemEditDocument
+    && itemEditDraft
+    && itemEditDraft.name.trim().length >= 1
+    && itemEditDraft.name.trim().length <= itemEditDocument.maxNameLength
+    && !/["@\r\n]/.test(itemEditDraft.name)
+    && Number.isInteger(itemEditDraft.price)
+    && itemEditDraft.price >= 0
+    && itemEditDraft.price <= 999999
+    && itemRoutineValid
+  );
   const encounterDirty = encounterDraftIsDirty(encounterDraft, encounterDocument);
   const encounterValid = encounterDraftIsValid(encounterDraft);
   const fishingDirty = fishingDraftIsDirty(fishingDraft, fishingDocument);
@@ -371,7 +418,13 @@ function App() {
     knownTrainerAiRoutines,
   );
   const hasUnsavedChanges =
-    pokemonDirty || tmDirty || encounterDirty || fishingDirty || trainerDirty || trainerClassDirty;
+    pokemonDirty
+    || tmDirty
+    || itemDirty
+    || encounterDirty
+    || fishingDirty
+    || trainerDirty
+    || trainerClassDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
