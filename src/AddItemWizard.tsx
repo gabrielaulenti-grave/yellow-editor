@@ -130,6 +130,10 @@ export function AddItemWizard({
   const identityValid = Boolean(
     selectedSlot
     && /^[A-Z][A-Z0-9_]*$/.test(normalizedConstant)
+    && normalizedConstant !== selectedSlot.constant
+    && !/^ITEM_[0-9A-F]{2}$/i.test(normalizedConstant)
+    && !/^(?:HM_|TM_|FLOOR_)/.test(normalizedConstant)
+    && normalizedConstant !== "NO_ITEM"
     && name.trim().length >= 1
     && name.trim().length <= document.maxNameLength
     && !/["@\r\n]/.test(name)
@@ -243,7 +247,10 @@ export function AddItemWizard({
                   onChange={(event) => setConstant(event.target.value.toUpperCase())}
                   placeholder="MY_CUSTOM_ITEM"
                 />
-                <small>A-Z, 0-9, and underscores only.</small>
+                <small>
+                  A-Z, 0-9, and underscores only; ITEM_XX, HM_, TM_, FLOOR_,
+                  and NO_ITEM are reserved.
+                </small>
               </label>
 
               <label className="editor-field">
