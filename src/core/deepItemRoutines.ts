@@ -100,9 +100,10 @@ function parsePpRestore(contents: string, constant: string): PpRestoreRoutinePar
   }
   if (constant !== "ETHER" && constant !== "ELIXER") return null;
 
-  const blockStart = contents.indexOf(".restorePP");
+  const blockStart = contents.search(/^\s*\.restorePP\s*$/m);
   if (blockStart < 0) throw new Error("Could not locate the PP restoration routine.");
-  const blockEnd = contents.indexOf(".fullyRestorePP", blockStart);
+  const blockEndMatch = contents.slice(blockStart).search(/^\s*\.fullyRestorePP\s*$/m);
+  const blockEnd = blockEndMatch < 0 ? -1 : blockStart + blockEndMatch;
   const block = contents.slice(blockStart, blockEnd > blockStart ? blockEnd : undefined);
   const match = block.match(/^\s*add\s+(\d+)\s*;\s*increase current PP by\s+\d+/im)
     ?? block.match(/^\s*add\s+(\d+)\b/im);
@@ -238,7 +239,16 @@ function rewriteVitamin(
   if (!pattern.test(contents)) {
     throw new Error("Could not locate the shared vitamin Stat EXP constants.");
   }
-  return contents.replace(pattern, `$1${amountByte}$2${thresholdByte}`);
+  let next = contents.replace(pattern, `$1${amountByte}$2${thresholdByte}`);
+  next = next.replace(
+    /^(\s*cp\s+\d+\s*;\s*is there already at least\s+)\d+(\s*\(256 \* \d+\) stat experience\?)/m,
+    `$1${values.useThreshold} (256 * ${thresholdByte}) stat experience?`,
+  );
+  next = next.replace(
+    /^(\s*add b\s*;\s*add\s+)\d+(\s*\(256 \* \d+\) stat experience)/m,
+    `$1${values.statExpAdded} (256 * ${amountByte}) stat experience`,
+  );
+  return next;
 }
 
 function rewriteRevive(
@@ -267,8 +277,11 @@ function rewritePpRestore(
   if (!Number.isInteger(values.restoreAmount) || values.restoreAmount < 1 || values.restoreAmount > 63) {
     throw new Error("Ether/Elixer PP restored must be a whole number from 1 to 63.");
   }
-  const start = contents.indexOf(".restorePP");
-  const end = contents.indexOf(".fullyRestorePP", start);
+  const start = contents.search(/^\s*\.restorePP\s*$/m);
+  const relativeEnd = start < 0
+    ? -1
+    : contents.slice(start).search(/^\s*\.fullyRestorePP\s*$/m);
+  const end = relativeEnd < 0 ? -1 : start + relativeEnd;
   if (start < 0 || end < start) throw new Error("Could not locate the PP restoration routine.");
   const before = contents.slice(0, start);
   const block = contents.slice(start, end);
@@ -309,6 +322,10 @@ function rewritePpUp(contents: string, values: PpUpRoutineParameters): string {
   block = block.replace(
     capPattern,
     `$1${values.perUseCap + 1}$2${values.perUseCap}$3${values.perUseCap}`,
+  );
+  block = block.replace(
+    /; adds bonus PP from PP Ups to current PP\r?\n; 1\/\d+ of normal max PP \(capped at \d+\) is added for each PP Up/,
+    `; adds bonus PP from PP Ups to current PP\n; 1/${values.bonusDivisor} of normal max PP (capped at ${values.perUseCap}) is added for each PP Up`,
   );
   return before + block + after;
 }
