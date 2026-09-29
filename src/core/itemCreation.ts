@@ -392,10 +392,10 @@ function validateValues(
   const constant = validateConstant(values.constant);
   if (
     constant === slot.constant
-    || /^ITEM_[0-9A-F]{2}$/i.test(constant)
+    || /^ITEM_/i.test(constant)
   ) {
     throw new Error(
-      "Choose a new descriptive constant instead of the placeholder ITEM_XX name.",
+      "Choose a new descriptive constant that does not use the reserved ITEM_ prefix.",
     );
   }
   if (/^(?:HM_|TM_|FLOOR_)/.test(constant) || constant === "NO_ITEM") {
