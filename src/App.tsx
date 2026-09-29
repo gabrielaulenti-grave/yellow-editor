@@ -469,6 +469,31 @@ function App() {
         || routine.speedMultiplier === 2
         || routine.speedMultiplier === 4;
     }
+    if (routine.kind === "status-cure") {
+      return ["poison", "burn", "freeze", "sleep", "paralysis", "all"]
+        .includes(routine.effect);
+    }
+    if (routine.kind === "x-stat") {
+      return (routine.stageBoost === 1 || routine.stageBoost === 2)
+        && ["Attack", "Defense", "Speed", "Special"].includes(routine.stat);
+    }
+    if (routine.kind === "battle-flag") {
+      return ["x-accuracy", "mist", "focus-energy"].includes(routine.effect);
+    }
+    if (routine.kind === "evolution-stone") {
+      const allowed = new Set(routine.stoneConstants);
+      return routine.stoneConstants.length > 0
+        && routine.references.every((reference) =>
+          allowed.has(reference.itemConstant)
+          && Number.isInteger(reference.internalId)
+          && reference.internalId > 0
+          && Number.isInteger(reference.minimumLevel)
+          && reference.minimumLevel >= 1
+          && reference.minimumLevel <= 255
+          && Number.isInteger(reference.evolutionIndex)
+          && reference.evolutionIndex >= 0
+        );
+    }
     return true;
   })();
   const itemValid = Boolean(
@@ -964,7 +989,7 @@ function App() {
   async function openPokemonFromItem(internalId: number) {
     const entry = pokemonIndex.find((pokemon) => pokemon.internalId === internalId);
     if (!entry?.sourceSlug) {
-      setStatus("That Pokémon could not be opened from the TM/HM cross-reference.");
+      setStatus("That Pokémon could not be opened from the item cross-reference.");
       return;
     }
     if (
@@ -979,7 +1004,7 @@ function App() {
       setTmMoveDraft(tmEditDocument.moveConstant);
     }
     setActiveTab("pokemon");
-    await loadPokemon(entry, `${entry.displayName} loaded from the TM/HM compatibility list.`);
+    await loadPokemon(entry, `${entry.displayName} loaded from the item cross-reference.`);
   }
 
   function setItemCompatibilityRetained(internalId: number, retained: boolean) {
