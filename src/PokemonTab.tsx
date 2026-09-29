@@ -273,7 +273,11 @@ export function PokemonTab({
               <button
                 type="button"
                 className="small-button"
-                disabled={editBusy || document.options.species.length === 0}
+                disabled={
+                  editBusy
+                  || document.options.species.length === 0
+                  || draft.evolutions.length >= document.options.maxEvolutions
+                }
                 onClick={() => patch({
                   evolutions: [
                     ...draft.evolutions,
@@ -362,7 +366,8 @@ export function PokemonTab({
             <p className="help-text">
               Move-based evolutions are checked after level-up move learning. A Pokémon can
               therefore learn its required move on that same level-up and evolve immediately
-              afterward. Rare Candy follows the same order.
+              afterward. Rare Candy follows the same order. This project's evolution buffer
+              supports up to {document.options.maxEvolutions} evolution entries per Pokémon.
             </p>
           </section>
 
