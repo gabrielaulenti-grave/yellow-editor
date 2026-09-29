@@ -4,6 +4,8 @@ import type {
   EncounterVersionData,
   FishingData,
   FishingSourceDocument,
+  ItemCreateDocument,
+  ItemCreateValues,
   ItemEditDocument,
   ItemEditValues,
   PokemonBaseStatValues,
@@ -316,6 +318,22 @@ function itemEditValuesArg(args: InvokeArgs | undefined): ItemEditValues {
   return value as ItemEditValues;
 }
 
+function itemCreateDocumentArg(args: InvokeArgs | undefined): ItemCreateDocument {
+  const value = args?.document;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing item creation document.");
+  }
+  return value as ItemCreateDocument;
+}
+
+function itemCreateValuesArg(args: InvokeArgs | undefined): ItemCreateValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing item creation values.");
+  }
+  return value as ItemCreateValues;
+}
+
 function textChangesArg(args: InvokeArgs | undefined): TextWriteRequest[] {
   const value = args?.changes;
   if (!Array.isArray(value)) {
@@ -513,6 +531,15 @@ export async function invoke<T>(
       return (await session.saveItemEdit(
         itemEditDocumentArg(args),
         itemEditValuesArg(args),
+      )) as T;
+
+    case "get_item_create_document":
+      return (await session.getItemCreateDocument()) as T;
+
+    case "create_item":
+      return (await session.createItem(
+        itemCreateDocumentArg(args),
+        itemCreateValuesArg(args),
       )) as T;
 
     case "get_tmhm_compatibility":
