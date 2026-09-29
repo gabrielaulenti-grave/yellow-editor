@@ -98,6 +98,7 @@ export interface PokemonEditOptions {
   moves: string[];
   species: string[];
   items: string[];
+  evolutionItems: string[];
   tmhmMoves: string[];
   spriteChoices: PokemonSpriteChoice[];
   paletteChoices: PokemonPaletteChoice[];
@@ -137,9 +138,10 @@ export interface LearnsetMove {
 }
 
 export interface Evolution {
-  method: "level" | "item" | "trade";
+  method: "level" | "item" | "trade" | "move";
   level: number | null;
   item: string | null;
+  move: string | null;
   target: string;
 }
 
