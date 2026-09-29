@@ -7,6 +7,8 @@ import type {
   FishingEditDocument,
   HistorySummary,
   ItemData,
+  ItemEditDocument,
+  ItemEditValues,
   MoveData,
   PokemonEditDocument,
   PokemonDetails,
@@ -104,6 +106,10 @@ function App() {
     useState<Record<number, number[]>>({});
   const [tmEditDocument, setTmEditDocument] = useState<TmEditDocument | null>(null);
   const [tmMoveDraft, setTmMoveDraft] = useState<string | null>(null);
+  const [itemEditDocument, setItemEditDocument] = useState<ItemEditDocument | null>(null);
+  const [itemEditDraft, setItemEditDraft] = useState<ItemEditValues | null>(null);
+  const [itemEditLoading, setItemEditLoading] = useState(false);
+  const [itemEditError, setItemEditError] = useState<string | null>(null);
   const [trainers, setTrainers] = useState<TrainerPartyEntry[]>([]);
   const [trainerClasses, setTrainerClasses] = useState<TrainerClassEntry[]>([]);
   const [trainerEditSources, setTrainerEditSources] = useState<TrainerEditSourceDocument[]>([]);
@@ -197,6 +203,54 @@ function App() {
     pokemonIndex.find((entry) => entry.internalId === selectedPokemonId) ?? null;
   const selectedItem =
     items.find((entry) => entry.id === selectedItemId) ?? null;
+
+  useEffect(() => {
+    if (
+      !project
+      || !selectedItem
+      || selectedItem.kind === "tm"
+      || selectedItem.kind === "hm"
+    ) {
+      setItemEditDocument(null);
+      setItemEditDraft(null);
+      setItemEditLoading(false);
+      setItemEditError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setItemEditDocument(null);
+    setItemEditDraft(null);
+    setItemEditLoading(true);
+    setItemEditError(null);
+
+    void invoke<ItemEditDocument>("get_item_edit_document", {
+      itemId: selectedItem.id,
+    }).then((document) => {
+      if (cancelled) return;
+      setItemEditDocument(document);
+      setItemEditDraft({
+        name: document.name,
+        price: document.price,
+        keyItem: document.keyItem,
+        routineParameters: document.routineParameters,
+      });
+    }).catch((error) => {
+      if (cancelled) return;
+      setItemEditError(String(error));
+    }).finally(() => {
+      if (!cancelled) setItemEditLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    project,
+    selectedItem?.id,
+    selectedItem?.kind,
+    historySummary?.appliedCount,
+  ]);
 
   useEffect(() => {
     if (
