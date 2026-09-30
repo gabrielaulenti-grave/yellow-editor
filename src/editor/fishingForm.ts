@@ -17,6 +17,7 @@ export interface SuperRodTableDraft {
   id: string;
   displayName: string;
   affectedLocations: string[];
+  affectedMaps: SuperRodTable["affectedMaps"];
   slots: FishingSlotDraft[];
 }
 
@@ -106,6 +107,7 @@ export function parseFishingDraft(draft: FishingDraft | null): FishingData | nul
       id: table.id,
       displayName: table.displayName,
       affectedLocations: table.affectedLocations,
+      affectedMaps: table.affectedMaps,
       slots: slots as FishingSlot[],
     });
   }
