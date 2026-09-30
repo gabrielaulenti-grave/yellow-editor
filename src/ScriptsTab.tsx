@@ -139,7 +139,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
         setSelectedRoutineLabel((current) =>
           current && nextDocument.routines.some((routine) => routine.label === current)
             ? current
-            : nextDocument.routines[0]?.label ?? null,
+            : preferredRoutine(nextDocument.routines)?.label ?? null,
         );
       })
       .catch((error) => {
