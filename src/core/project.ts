@@ -6,6 +6,7 @@ import {
   parsePokemonTmhmMoves,
 } from "./parsers";
 import { createProjectHistoryManager, hashText } from "./history";
+import { createProjectSnapshot } from "./projectSnapshot";
 import { parsePokemonPalette } from "./palettes";
 import {
   loadPokemonBaseStatsEditDocument,
@@ -699,6 +700,16 @@ export async function createProjectSession(
       return result;
     },
     getHistorySummary: () => history.getSummary(),
+    getHistoryTimeline: () => history.getTimeline(),
+    exportProjectSnapshot: async (historyCursor) => {
+      const state = await history.getState();
+      return createProjectSnapshot(
+        source,
+        projectName,
+        state,
+        historyCursor ?? state.cursor,
+      );
+    },
     saveTextChanges: async (label, changes) => {
       const result = await history.save(label, changes);
       const changedPaths = changes.map((change) => change.path);
