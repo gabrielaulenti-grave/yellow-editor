@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FishingEditDocument, PokemonIndexEntry } from "./core/types";
 import { encounterLevelError } from "./editor/encounterForm";
 import type {
@@ -118,12 +118,20 @@ export function FishingEditor({
   const [rod, setRod] = useState<FishingRod>("old");
   const [search, setSearch] = useState("");
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const handledFocusMap = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!focusMapConstant || !draft) return;
+    if (
+      !focusMapConstant
+      || !draft
+      || handledFocusMap.current === focusMapConstant
+    ) {
+      return;
+    }
     const table = draft.superRodTables.find((entry) =>
       entry.affectedMaps.some((map) => map.constant === focusMapConstant),
     );
+    handledFocusMap.current = focusMapConstant;
     if (!table) return;
     setRod("super");
     setSelectedTableId(table.id);
