@@ -1072,6 +1072,7 @@ export function MapsTab({
                         <code>{selectedSign.textConstant}</code>
                       </div>
                       <TextEditor
+                        key={`${selectedSign.scriptPath}:${selectedSign.textLabel ?? selectedSign.textConstant}`}
                         title={`Sign #${selectedSign.id} text`}
                         target={selectedSign.textLabel
                           ? { path: selectedSign.scriptPath, label: selectedSign.textLabel }
