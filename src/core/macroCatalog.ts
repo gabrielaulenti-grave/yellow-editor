@@ -250,7 +250,7 @@ function collectProjectSymbols(files: SourceFile[]): {
   for (const file of files) {
     for (const sourceLine of file.contents.split(/\r?\n/)) {
       const line = withoutComment(sourceLine);
-      const label = line.match(/^([A-Za-z_][A-Za-z0-9_.]*):{1,2}(?:\s|$)/);
+      const label = line.match(/^((?:\.[A-Za-z_]|[A-Za-z_])[A-Za-z0-9_.]*):{1,2}(?:\s|$)/);
       if (label) labels.add(label[1]);
 
       const def = line.match(/^DEF\s+([A-Za-z_][A-Za-z0-9_.]*)\s+(?:EQU|EQUS|RB|RW|RL)\b/i);
@@ -277,7 +277,7 @@ function classifyArgument(
   if (/^(?:-?\d+|\$[0-9a-f]+|%[01]+)$/i.test(value)) {
     return { kind: "number", confidence: "high" };
   }
-  if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(value)) {
+  if (/^(?:\.[A-Za-z_]|[A-Za-z_])[A-Za-z0-9_.]*$/.test(value)) {
     if (labels.has(value)) return { kind: "label", confidence: "high" };
     if (constants.has(value)) return { kind: "constant", confidence: "high" };
     return { kind: "symbol", confidence: "medium" };
@@ -442,7 +442,7 @@ function collectMacroProducedSymbols(
       const values = match[2] ? splitArguments(match[2]) : [];
       for (const [parameter, kind] of definition.producedSymbols) {
         const value = values[parameter - 1]?.trim();
-        if (!value || !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(value)) continue;
+        if (!value || !/^(?:\.[A-Za-z_]|[A-Za-z_])[A-Za-z0-9_.]*$/.test(value)) continue;
         if (kind === "label") labels.add(value);
         else constants.add(value);
       }
