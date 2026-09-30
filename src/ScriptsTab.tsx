@@ -359,6 +359,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   const [macroCalls, setMacroCalls] = useState<ScriptMacroCallDocument | null>(null);
   const [macroCallsLoading, setMacroCallsLoading] = useState(false);
   const [macroCallsError, setMacroCallsError] = useState<string | null>(null);
+  const [refreshVersion, setRefreshVersion] = useState(0);
 
   useEffect(() => {
     if (!project) {
@@ -435,7 +436,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [project?.storageKey]);
+  }, [project?.storageKey, refreshVersion]);
 
   useEffect(() => {
     if (!catalog || !focus) return;
@@ -479,7 +480,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [project?.storageKey, selectedPath]);
+  }, [project?.storageKey, selectedPath, refreshVersion]);
 
   useEffect(() => {
     if (!project || !selectedPath) {
@@ -508,7 +509,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
     return () => {
       cancelled = true;
     };
-  }, [project?.storageKey, selectedPath]);
+  }, [project?.storageKey, selectedPath, refreshVersion]);
 
   const filteredEntries = useMemo(() => {
     if (!catalog) return [];
@@ -553,6 +554,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
       focused
       && focused.scriptPath === document.path
       && focused.routineLabel === selectedRoutineLabel
+      && focused.mapScriptSource === document.source
     ) {
       return focused;
     }
@@ -598,7 +600,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
             movement, battles, event flags, and the source that connects them.
           </p>
         </div>
-        <span className="read-only-badge">Project-derived script model</span>
+        <span className="read-only-badge">Guarded structured editing</span>
       </div>
 
       <div className="script-browser">
@@ -809,7 +811,8 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                             <h5>Project-derived macro forms</h5>
                             <p className="help-text">
                               These fields are generated from RGBDS macros found in the loaded
-                              project. Yellow Editor does not rely on a built-in Pokémon macro list.
+                              project. Proven semantic parameters can now be rewritten safely
+                              without a built-in Pokémon macro list.
                             </p>
                           </div>
                           {selectedRoutineMacroCalls.length > 0 && (
@@ -846,6 +849,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                             call={call}
                             definition={macroDefinitions.get(call.name.toLowerCase()) ?? null}
                             domains={macroCatalog?.domains ?? []}
+                            onSaved={() => setRefreshVersion((value) => value + 1)}
                           />
                         ))}
                       </section>
