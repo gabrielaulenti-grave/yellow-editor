@@ -874,6 +874,12 @@ export interface HistorySummary {
   persistent: boolean;
 }
 
+export interface HistorySelectiveUndoBlock {
+  entryId: string;
+  label: string;
+  files: string[];
+}
+
 export interface HistoryTimelineEntry {
   id: string;
   timestamp: string;
@@ -881,6 +887,9 @@ export interface HistoryTimelineEntry {
   files: string[];
   applied: boolean;
   cursorAfter: number;
+  canSelectiveUndo: boolean;
+  selectiveUndoReason: string | null;
+  selectiveUndoBlockedBy: HistorySelectiveUndoBlock[];
 }
 
 export interface HistoryTimeline {
@@ -1119,6 +1128,7 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getHistorySummary(): Promise<HistorySummary>;
   getHistoryTimeline(): Promise<HistoryTimeline>;
+  selectivelyUndoHistoryEntry(entryId: string): Promise<HistorySummary>;
   exportProjectSnapshot(historyCursor?: number): Promise<ProjectSnapshot>;
   saveTextChanges(label: string, changes: TextWriteRequest[]): Promise<HistorySummary>;
   undoLastSave(): Promise<HistorySummary>;
