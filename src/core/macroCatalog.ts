@@ -282,15 +282,23 @@ function buildSemanticIndex(
   return result;
 }
 
-function sourceDomainLabel(path: string): string {
+function sourceFileTitle(path: string): string {
   const fileName = path.split("/").pop()?.replace(/\.(?:asm|inc)$/i, "") ?? path;
-  const title = fileName
+  return fileName
     .replace(/[_-]+/g, " ")
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+}
+
+function sourceDomainLabel(path: string): string {
+  const title = sourceFileTitle(path);
   return /\bconstants?\b/i.test(title) ? title : title + " constants";
+}
+
+function sourceLabelDomainLabel(path: string): string {
+  return sourceFileTitle(path) + " labels";
 }
 
 function simpleSymbol(value: string): string | null {
@@ -350,6 +358,60 @@ function collectSourceConstantDomains(
       id: "source-constants:" + path,
       label: sourceDomainLabel(path),
       kind: "constant-family",
+      sourcePath: path,
+      options: [...values]
+        .sort((left, right) => left.localeCompare(right))
+        .map((value) => ({ value, label: value })),
+    }))
+    .filter((domain) => domain.options.length > 1)
+    .sort((left, right) =>
+      left.label.localeCompare(right.label)
+      || (left.sourcePath ?? "").localeCompare(right.sourcePath ?? ""));
+}
+
+function collectSourceLabelDomains(
+  files: SourceFile[],
+  ranges: Map<string, Array<{ startLine: number; endLine: number }>>,
+  definitions: Map<string, MacroDefinitionInternal>,
+): ProjectSemanticDomain[] {
+  const byPath = new Map<string, Set<string>>();
+
+  function add(path: string, value: string | null): void {
+    if (!value || value.startsWith(".")) return;
+    const group = byPath.get(path) ?? new Set<string>();
+    group.add(value);
+    byPath.set(path, group);
+  }
+
+  for (const file of files) {
+    const lines = file.contents.split(/\r?\n/);
+    lines.forEach((sourceLine, index) => {
+      const lineNumber = index + 1;
+      if (lineIsInsideDefinition(ranges.get(file.path), lineNumber)) return;
+      const line = withoutComment(sourceLine);
+      if (!line) return;
+
+      const direct = line.match(/^([A-Za-z_][A-Za-z0-9_.]*):{1,2}(?:\s|$)/);
+      if (direct) add(file.path, direct[1]);
+
+      const call = line.match(/^([A-Za-z_][A-Za-z0-9_#@.]*)\b(?:\s+(.*))?$/);
+      if (!call) return;
+      const definition = definitions.get(call[1].toLowerCase());
+      if (!definition || definition.producedSymbols.size === 0) return;
+
+      const values = call[2] ? splitArguments(call[2]) : [];
+      for (const [parameter, kind] of definition.producedSymbols) {
+        if (kind !== "label") continue;
+        add(file.path, simpleSymbol(values[parameter - 1] ?? ""));
+      }
+    });
+  }
+
+  return [...byPath.entries()]
+    .map(([path, values]): ProjectSemanticDomain => ({
+      id: "source-labels:" + path,
+      label: sourceLabelDomainLabel(path),
+      kind: "label-family",
       sourcePath: path,
       options: [...values]
         .sort((left, right) => left.localeCompare(right))
@@ -815,6 +877,11 @@ export async function loadMacroAnalysis(
         ranges,
         byName,
         baseSemanticCatalog,
+      ),
+      ...collectSourceLabelDomains(
+        readableFiles,
+        ranges,
+        byName,
       ),
     ],
     warnings: baseSemanticCatalog.warnings,
