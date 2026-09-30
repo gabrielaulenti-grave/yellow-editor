@@ -9,6 +9,7 @@ import type {
   ProjectInfo,
 } from "./core/types";
 import { invoke } from "./platform/compat";
+import { TextEditor } from "./TextEditor";
 
 type MapView = "map" | "blocks" | "tiles";
 
@@ -193,18 +194,24 @@ function MapCanvas({
   zoom,
   showGrid,
   showWarps,
+  showSigns,
   selectedWarpId,
+  selectedSignId,
   arrivalWarpId,
   onSelectWarp,
+  onSelectSign,
 }: {
   visualization: MapVisualization;
   view: MapView;
   zoom: number;
   showGrid: boolean;
   showWarps: boolean;
+  showSigns: boolean;
   selectedWarpId: number | null;
+  selectedSignId: number | null;
   arrivalWarpId: number | null;
   onSelectWarp: (warpId: number) => void;
+  onSelectSign: (signId: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -262,7 +269,7 @@ function MapCanvas({
 
       {view === "map" && showWarps && visualization.warps.map((warp) => (
         <button
-          key={warp.id}
+          key={`warp:${warp.id}`}
           type="button"
           className={[
             "world-map-warp-marker",
@@ -278,6 +285,25 @@ function MapCanvas({
           title={`Warp #${warp.id} · (${warp.x}, ${warp.y})`}
         >
           {warp.id}
+        </button>
+      ))}
+      {view === "map" && showSigns && visualization.signs.map((sign) => (
+        <button
+          key={`sign:${sign.id}`}
+          type="button"
+          className={[
+            "world-map-sign-marker",
+            sign.id === selectedSignId ? "selected" : "",
+          ].filter(Boolean).join(" ")}
+          style={{
+            left: (sign.x * 16 + 8) * scale,
+            top: (sign.y * 16 + 8) * scale,
+          }}
+          onClick={() => onSelectSign(sign.id)}
+          aria-label={`Sign ${sign.id} at ${sign.x}, ${sign.y}`}
+          title={`Sign #${sign.id} · (${sign.x}, ${sign.y}) · ${sign.textConstant}`}
+        >
+          S
         </button>
       ))}
     </div>
@@ -315,7 +341,9 @@ export function MapsTab({
   const [zoom, setZoom] = useState(1);
   const [showGrid, setShowGrid] = useState(false);
   const [showWarps, setShowWarps] = useState(true);
+  const [showSigns, setShowSigns] = useState(true);
   const [selectedWarpId, setSelectedWarpId] = useState<number | null>(null);
+  const [selectedSignId, setSelectedSignId] = useState<number | null>(null);
   const [arrivalWarpId, setArrivalWarpId] = useState<number | null>(null);
   const [navigationStack, setNavigationStack] = useState<string[]>([]);
   const [lastOutdoorMap, setLastOutdoorMap] = useState<string | null>(null);
@@ -333,6 +361,7 @@ export function MapsTab({
       setSelectedConstant(null);
       setVisualization(null);
       setSelectedWarpId(null);
+      setSelectedSignId(null);
       setArrivalWarpId(null);
       setNavigationStack([]);
       setLastOutdoorMap(null);
@@ -384,6 +413,7 @@ export function MapsTab({
   function selectMapFromBrowser(mapConstant: string) {
     setSelectedConstant(mapConstant);
     setSelectedWarpId(null);
+    setSelectedSignId(null);
     setArrivalWarpId(null);
     setNavigationStack([]);
     setLastOutdoorMap(null);
@@ -410,6 +440,7 @@ export function MapsTab({
 
     setSelectedConstant(mapConstant);
     setSelectedWarpId(null);
+    setSelectedSignId(null);
     setArrivalWarpId(destinationWarpId);
     setError(null);
   }
@@ -420,6 +451,7 @@ export function MapsTab({
     setNavigationStack((stack) => stack.slice(0, -1));
     setSelectedConstant(destination);
     setSelectedWarpId(null);
+    setSelectedSignId(null);
     setArrivalWarpId(null);
     setError(null);
   }
@@ -452,6 +484,7 @@ export function MapsTab({
         const arrived = arrivalWarpId !== null
           && result.warps.some((warp) => warp.id === arrivalWarpId);
         setSelectedWarpId(arrived ? arrivalWarpId : null);
+        setSelectedSignId(null);
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -526,6 +559,9 @@ export function MapsTab({
 
   const selectedWarp = visualization?.warps.find(
     (warp) => warp.id === selectedWarpId,
+  ) ?? null;
+  const selectedSign = visualization?.signs.find(
+    (sign) => sign.id === selectedSignId,
   ) ?? null;
   const resolvedWarpDestination = selectedWarp?.isLastMap
     ? lastOutdoorMap
@@ -663,6 +699,11 @@ export function MapsTab({
                   <span>Warps</span>
                   <strong>{visualization.warps.length}</strong>
                   <small>Doors, stairs, ladders, exits</small>
+                </div>
+                <div>
+                  <span>Signs</span>
+                  <strong>{visualization.signs.length}</strong>
+                  <small>Background text events</small>
                 </div>
                 <div>
                   <span>Connections</span>
@@ -851,6 +892,14 @@ export function MapsTab({
                       />
                       <span>Warp markers</span>
                     </label>
+                    <label className="world-map-grid-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showSigns}
+                        onChange={(event) => setShowSigns(event.target.checked)}
+                      />
+                      <span>Sign markers</span>
+                    </label>
                   </>
                 )}
               </div>
@@ -911,9 +960,18 @@ export function MapsTab({
                   zoom={zoom}
                   showGrid={showGrid}
                   showWarps={showWarps}
+                  showSigns={showSigns}
                   selectedWarpId={selectedWarpId}
+                  selectedSignId={selectedSignId}
                   arrivalWarpId={arrivalWarpId}
-                  onSelectWarp={setSelectedWarpId}
+                  onSelectWarp={(warpId) => {
+                    setSelectedWarpId(warpId);
+                    setSelectedSignId(null);
+                  }}
+                  onSelectSign={(signId) => {
+                    setSelectedSignId(signId);
+                    setSelectedWarpId(null);
+                  }}
                 />
               </div>
 
@@ -986,12 +1044,55 @@ export function MapsTab({
                 </div>
               )}
 
+              {view === "map" && visualization.signs.length > 0 && (
+                <div className="world-map-sign-panel">
+                  <div className="world-map-sign-list" aria-label="Map signs">
+                    {visualization.signs.map((sign) => (
+                      <button
+                        key={sign.id}
+                        type="button"
+                        className={sign.id === selectedSignId ? "active" : ""}
+                        onClick={() => {
+                          setSelectedSignId(sign.id);
+                          setSelectedWarpId(null);
+                        }}
+                      >
+                        <strong>Sign #{sign.id}</strong>
+                        <span>({sign.x}, {sign.y})</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedSign ? (
+                    <div className="world-map-sign-inspector">
+                      <div className="world-map-sign-details">
+                        <span>Selected sign</span>
+                        <strong>Sign #{selectedSign.id}</strong>
+                        <code>x {selectedSign.x}, y {selectedSign.y}</code>
+                        <code>{selectedSign.textConstant}</code>
+                      </div>
+                      <TextEditor
+                        title={`Sign #${selectedSign.id} text`}
+                        target={selectedSign.textLabel
+                          ? { path: selectedSign.scriptPath, label: selectedSign.textLabel }
+                          : null}
+                        initialText={null}
+                      />
+                    </div>
+                  ) : (
+                    <p className="world-map-warp-empty">
+                      Select an S marker to inspect and edit that sign's text.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <p className="help-text">
                 {view === "tiles"
                   ? "Tile IDs run left-to-right, top-to-bottom. Each tile is decoded directly from the selected .2bpp source."
                   : view === "blocks"
                     ? "Block IDs run left-to-right, top-to-bottom. Every block is assembled from 16 tile IDs in the .bst blockset."
-                    : "Numbered markers use the game's 16×16 movement coordinates. Select a warp to inspect it, then follow its destination to navigate between maps."}
+                    : "Map markers use the game's 16×16 movement coordinates. Numbered markers are warps; S markers are signs whose dialogue opens in the same modular text editor used elsewhere in Yellow Editor."}
               </p>
 
               {visualization.warnings.length > 0 && (
