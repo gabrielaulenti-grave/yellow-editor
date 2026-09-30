@@ -4,8 +4,6 @@ import type {
   EncounterVersionData,
   FishingData,
   FishingSourceDocument,
-  HistoryTimeline,
-  ProjectSnapshot,
   ItemCreateDocument,
   ItemCreateValues,
   ItemEditDocument,
