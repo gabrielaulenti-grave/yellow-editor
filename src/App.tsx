@@ -6,6 +6,7 @@ import type {
   EncounterVersion,
   FishingEditDocument,
   HistorySummary,
+  HistoryTimeline,
   ItemCreateDocument,
   ItemCreateValues,
   ItemData,
@@ -29,6 +30,7 @@ import type {
 import { BuildTestTab } from "./BuildTestTab";
 import { EncountersTab, type EncounterSection } from "./EncountersTab";
 import { EditorToolbar } from "./EditorToolbar";
+import { HistoryPanel } from "./HistoryPanel";
 import { ItemsTab } from "./ItemsTab";
 import { MapsTab } from "./MapsTab";
 import { MovesTab } from "./MovesTab";
@@ -84,7 +86,7 @@ import {
   type FishingDraft,
   type FishingRod,
 } from "./editor/fishingForm";
-import { invoke, open } from "./platform/compat";
+import { invoke, open, saveProjectCopy } from "./platform/compat";
 import "./App.css";
 
 type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "build";
@@ -154,6 +156,8 @@ function App() {
     useState<PokemonEditDocument | null>(null);
   const [pokemonDraft, setPokemonDraft] = useState<PokemonDraft | null>(null);
   const [historySummary, setHistorySummary] = useState<HistorySummary | null>(null);
+  const [historyTimeline, setHistoryTimeline] = useState<HistoryTimeline | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [editBusy, setEditBusy] = useState(false);
   const projectLoadGeneration = useRef(0);
 
@@ -212,6 +216,31 @@ function App() {
       window.removeEventListener("yellow-editor:trainer-reward-changed", handleTrainerRewardChanged);
     };
   }, []);
+
+  useEffect(() => {
+    if (!project || !historyOpen) {
+      if (!historyOpen) setHistoryTimeline(null);
+      return;
+    }
+
+    let cancelled = false;
+    void invoke<HistoryTimeline>("get_history_timeline")
+      .then((timeline) => {
+        if (!cancelled) setHistoryTimeline(timeline);
+      })
+      .catch((error) => {
+        if (!cancelled) setStatus(String(error));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    project,
+    historyOpen,
+    historySummary?.entryCount,
+    historySummary?.appliedCount,
+  ]);
 
   const selectedPokemonEntry =
     pokemonIndex.find((entry) => entry.internalId === selectedPokemonId) ?? null;
@@ -948,6 +977,8 @@ function App() {
       setMapFocusConstant(null);
       setFishingFocusMapConstant(null);
       setHistorySummary(history);
+      setHistoryTimeline(null);
+      setHistoryOpen(false);
       if (encounterData[0]) {
         await loadEncounter(encounterData[0], "Project loaded successfully.");
       } else {
@@ -997,6 +1028,8 @@ function App() {
       setCatchProfilesLoading(false);
       setCatchProfilesError(null);
       setHistorySummary(null);
+      setHistoryTimeline(null);
+      setHistoryOpen(false);
       setProjectLoadProgress(null);
       setStatus(String(error));
     }
@@ -1622,6 +1655,39 @@ function App() {
     setStatus("Unsaved trainer changes reverted.");
   }
 
+  async function saveSafeProjectCopy(historyCursor?: number) {
+    if (!project || editBusy) {
+      return;
+    }
+    if (historyCursor === undefined && hasUnsavedChanges) {
+      setStatus("Save or revert unsaved editor changes before creating a current project copy.");
+      return;
+    }
+
+    setEditBusy(true);
+    setStatus(
+      historyCursor === undefined
+        ? "Creating a complete project copy…"
+        : "Reconstructing the selected history point…",
+    );
+    try {
+      const destination = await saveProjectCopy(historyCursor);
+      if (!destination) {
+        setStatus("Project copy cancelled.");
+        return;
+      }
+      setStatus(
+        historyCursor === undefined
+          ? `Project copy saved as ${destination}.`
+          : `Historical project copy saved as ${destination}.`,
+      );
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function undoLastSave() {
     if (!historySummary?.canUndo || hasUnsavedChanges || editBusy) {
       return;
@@ -2018,7 +2084,25 @@ function App() {
             history={historySummary}
             onUndo={undoLastSave}
             onRedo={redoLastUndo}
+            onHistory={() => setHistoryOpen((open) => !open)}
+            onSaveAs={() => saveSafeProjectCopy()}
+            copyDisabled={hasUnsavedChanges}
           />
+
+          {historyOpen && historyTimeline && (
+            <HistoryPanel
+              timeline={historyTimeline}
+              busy={editBusy}
+              onClose={() => setHistoryOpen(false)}
+              onSaveCopy={saveSafeProjectCopy}
+            />
+          )}
+
+          {historyOpen && !historyTimeline && (
+            <section className="history-panel editor-card" aria-live="polite">
+              <p>Loading project history…</p>
+            </section>
+          )}
         </>
       )}
 
