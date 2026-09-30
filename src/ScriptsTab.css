@@ -112,6 +112,27 @@
   overflow-wrap: anywhere;
 }
 
+.script-other-labels {
+  margin-top: 0.45rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+}
+
+.script-other-labels summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.script-other-labels .help-text {
+  margin: 0.45rem 0;
+  font-size: 0.8rem;
+}
+
+.script-other-labels > div {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .script-routine-details {
   min-width: 0;
 }
