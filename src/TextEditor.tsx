@@ -41,6 +41,23 @@ function controlLabel(control: TextSegmentControl): string {
   }
 }
 
+function controlDescription(control: TextSegmentControl): string {
+  switch (control) {
+    case "text":
+      return "Starts writing text at the current cursor position. This is normally the first line of a text block.";
+    case "next":
+      return "Moves down one text row without scrolling the box, then writes this line.";
+    case "line":
+      return "Starts writing on the bottom row of the current dialogue box.";
+    case "cont":
+      return "Scrolls the dialogue box upward and continues writing on the newly opened bottom row.";
+    case "para":
+      return "Starts a new paragraph. The player advances before the next paragraph is shown.";
+    case "page":
+      return "Starts a new Pokédex page. This control is only used for Pokédex entry text.";
+  }
+}
+
 function sameSegments(left: TextSegment[], right: TextSegment[]): boolean {
   return left.length === right.length && left.every((segment, index) =>
     segment.control === right[index]?.control && segment.text === right[index]?.text,
@@ -451,19 +468,32 @@ export function TextEditor({
                     return (
                       <label className={`text-editor-segment${lineError ? " invalid" : ""}`} key={`${index}:${segment.control}`}>
                         <span className="text-editor-segment-heading">
-                          {dexMode ? (
-                            <select
-                              value={segment.control}
-                              disabled={busy || !document.editable}
-                              onChange={(event) => updateSegmentControl(index, event.target.value as TextSegmentControl)}
+                          <span className="text-editor-control-with-help">
+                            {dexMode ? (
+                              <select
+                                value={segment.control}
+                                disabled={busy || !document.editable}
+                                aria-label="Text flow control"
+                                onChange={(event) => updateSegmentControl(index, event.target.value as TextSegmentControl)}
+                              >
+                                <option value="text">Start text</option>
+                                <option value="next">Next line</option>
+                                <option value="page">New Pokédex page</option>
+                              </select>
+                            ) : (
+                              <span>{controlLabel(segment.control)}</span>
+                            )}
+                            <span
+                              className="text-editor-control-help"
+                              role="button"
+                              tabIndex={0}
+                              title={controlDescription(segment.control)}
+                              aria-label={`${controlLabel(segment.control)}: ${controlDescription(segment.control)}`}
+                              data-tooltip={controlDescription(segment.control)}
                             >
-                              <option value="text">Start text</option>
-                              <option value="next">Next line</option>
-                              <option value="page">New Pokédex page</option>
-                            </select>
-                          ) : (
-                            <span>{controlLabel(segment.control)}</span>
-                          )}
+                              ?
+                            </span>
+                          </span>
                           <span className="text-editor-segment-meta">
                             <small>{width} / {maxWidth}</small>
                             {dexMode && (
