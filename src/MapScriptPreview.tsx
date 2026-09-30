@@ -22,12 +22,20 @@ import {
   type MapScriptSemanticNode,
   type MapScriptState,
 } from "./core/mapScriptProgram";
-import type { TrainerScriptReference } from "./core/types";
+import type { TrainerInteraction, TrainerInteractionDialogue } from "./core/types";
 import { TextEditor, type TextEditorTarget } from "./TextEditor";
 import "./MapScriptPreview.css";
 
+export interface MapScriptPreviewReference {
+  scriptPath: string;
+  routineLabel: string;
+  mapScriptSource: string;
+  routineSource?: string | null;
+  interaction?: TrainerInteraction | null;
+}
+
 interface MapScriptPreviewProps {
-  reference: TrainerScriptReference;
+  reference: MapScriptPreviewReference;
 }
 
 interface NodeDialoguePreview {
@@ -79,7 +87,7 @@ function textPointerLabels(contents: string): Map<string, string> {
 }
 
 function textEditorTarget(
-  reference: TrainerScriptReference,
+  reference: MapScriptPreviewReference,
   sourceLabel: string | undefined,
 ): TextEditorTarget | null {
   if (!sourceLabel) return null;
@@ -192,7 +200,7 @@ function flattenFlowNodes(items: MapScriptFlowItem[]): MapScriptSemanticNode[] {
 }
 
 function interactionTarget(
-  dialogue: TrainerScriptReference["interaction"]["dialogues"][number] | undefined,
+  dialogue: TrainerInteractionDialogue | undefined,
 ): TextEditorTarget | undefined {
   return dialogue?.sourcePath && dialogue.textLabel
     ? { path: dialogue.sourcePath, label: dialogue.textLabel }
@@ -202,7 +210,7 @@ function interactionTarget(
 function dialoguePreviewsForFlow(
   flow: MapScriptFlowItem[],
   phaseDialogue: ResolvedScriptPhaseDialogue | undefined,
-  reference: TrainerScriptReference,
+  reference: MapScriptPreviewReference,
   state: MapScriptState,
   resumeLabels: Set<string>,
 ): Map<string, NodeDialoguePreview> {
@@ -212,11 +220,12 @@ function dialoguePreviewsForFlow(
     : resumeLabels.has(state.label)
       ? "post-battle"
       : null;
+  const dialogues = reference.interaction?.dialogues ?? [];
   const interactionDialogues = role
-    ? reference.interaction.dialogues.filter((dialogue) => dialogue.role === role)
+    ? dialogues.filter((dialogue) => dialogue.role === role)
     : [];
-  const playerWins = reference.interaction.dialogues.find((dialogue) => dialogue.role === "player-wins");
-  const playerLoses = reference.interaction.dialogues.find((dialogue) => dialogue.role === "player-loses");
+  const playerWins = dialogues.find((dialogue) => dialogue.role === "player-wins");
+  const playerLoses = dialogues.find((dialogue) => dialogue.role === "player-loses");
 
   let dialogueIndex = 0;
   let battleDialogueIndex = 0;
@@ -252,7 +261,7 @@ function DialoguePreview({
 }: {
   preview: NodeDialoguePreview | undefined;
   node: Extract<MapScriptSemanticNode, { type: "dialogue" }>;
-  reference: TrainerScriptReference;
+  reference: MapScriptPreviewReference;
   state: MapScriptState;
 }) {
   const displayedLabel = resolvedDisplayedDialogueLabel(
@@ -295,10 +304,11 @@ function BattleHandoffCard({
 }: {
   handoff: MapScriptBattleHandoff;
   preview: ResolvedScriptBattleDialogue | undefined;
-  reference: TrainerScriptReference;
+  reference: MapScriptPreviewReference;
 }) {
-  const playerWins = reference.interaction.dialogues.find((dialogue) => dialogue.role === "player-wins");
-  const playerLoses = reference.interaction.dialogues.find((dialogue) => dialogue.role === "player-loses");
+  const dialogues = reference.interaction?.dialogues ?? [];
+  const playerWins = dialogues.find((dialogue) => dialogue.role === "player-wins");
+  const playerLoses = dialogues.find((dialogue) => dialogue.role === "player-loses");
   return (
     <section className="map-script-battle-handoff">
       <div className="map-script-battle-handoff-heading">
@@ -366,7 +376,7 @@ function ScriptNodeCard({
   node: MapScriptSemanticNode;
   index: number;
   dialoguePreview?: NodeDialoguePreview;
-  reference: TrainerScriptReference;
+  reference: MapScriptPreviewReference;
   state: MapScriptState;
   nested?: boolean;
 }) {
@@ -414,7 +424,7 @@ function ScriptNodeCard({
 interface FlowListProps {
   items: MapScriptFlowItem[];
   previews: Map<string, NodeDialoguePreview>;
-  reference: TrainerScriptReference;
+  reference: MapScriptPreviewReference;
   state: MapScriptState;
   nested?: boolean;
 }
@@ -427,7 +437,7 @@ function BranchBody({
 }: {
   branch: MapScriptFlowBranch;
   previews: Map<string, NodeDialoguePreview>;
-  reference: TrainerScriptReference;
+  reference: MapScriptPreviewReference;
   state: MapScriptState;
 }) {
   const showOutcome = branch.outcome.type !== "continue" || branch.items.length === 0;
@@ -469,7 +479,7 @@ function IfBlockCard({
   block: MapScriptIfBlock;
   index: number;
   previews: Map<string, NodeDialoguePreview>;
-  reference: TrainerScriptReference;
+  reference: MapScriptPreviewReference;
   state: MapScriptState;
   nested?: boolean;
 }) {
@@ -548,7 +558,7 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
   const model = useMemo(() => {
     const program = parseMapScriptProgram(reference.mapScriptSource, reference.routineLabel);
     const states = focusedMapScriptStates(program, reference.routineLabel, 1, 1);
-    const dialoguePhases = parseResolvedScriptDialogueSummary(reference.routineSource);
+    const dialoguePhases = parseResolvedScriptDialogueSummary(reference.routineSource ?? "");
     const battleHandoffs = mapScriptBattleHandoffs(program, reference.mapScriptSource);
     const resumeLabels = new Set(battleHandoffs.map((handoff) => handoff.resumeStateLabel));
     return { states, dialoguePhases, battleHandoffs, resumeLabels };
@@ -633,10 +643,12 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
         })}
       </div>
 
-      <details className="trainer-full-script map-script-resolved-summary">
-        <summary>View resolved plain-language summary</summary>
-        <pre className="trainer-script-source"><code>{reference.routineSource}</code></pre>
-      </details>
+      {reference.routineSource && (
+        <details className="trainer-full-script map-script-resolved-summary">
+          <summary>View resolved plain-language summary</summary>
+          <pre className="trainer-script-source"><code>{reference.routineSource}</code></pre>
+        </details>
+      )}
     </div>
   );
 }
