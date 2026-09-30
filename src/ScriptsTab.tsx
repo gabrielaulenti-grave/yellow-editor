@@ -866,7 +866,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                         <details
                           className="script-routine-category script-routine-category-collapsible"
                           key={`${category}:${selectedInCategory ? "selected" : "idle"}`}
-                          defaultOpen={selectedInCategory}
+                          open={selectedInCategory || undefined}
                         >
                           <summary>
                             <span>{categoryLabel(category)}</span>
