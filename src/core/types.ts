@@ -80,10 +80,13 @@ export interface MapVisualization {
   warnings: string[];
 }
 
+export type ScriptRoutineKind = "state" | "routine" | "source-label";
+
 export interface ScriptRoutineSummary {
   path: string;
   label: string;
   startLine: number;
+  kind: ScriptRoutineKind;
   recognizedOperationCount: number;
   operationKinds: string[];
 }
