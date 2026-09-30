@@ -398,6 +398,57 @@ function addNestedBindings(
   }
 }
 
+function propagateProducedSymbols(
+  definitions: MacroDefinitionInternal[],
+  byName: Map<string, MacroDefinitionInternal>,
+): void {
+  for (let pass = 0; pass < 4; pass += 1) {
+    for (const definition of definitions) {
+      for (const binding of definition.nestedBindings) {
+        const child = byName.get(binding.macroName.toLowerCase());
+        const produced = child?.producedSymbols.get(binding.childParameter);
+        if (produced && !definition.producedSymbols.has(binding.parentParameter)) {
+          definition.producedSymbols.set(binding.parentParameter, produced);
+        }
+      }
+    }
+  }
+}
+
+function collectMacroProducedSymbols(
+  files: SourceFile[],
+  ranges: Map<string, Array<{ startLine: number; endLine: number }>>,
+  definitions: Map<string, MacroDefinitionInternal>,
+  labels: Set<string>,
+  constants: Set<string>,
+): void {
+  for (const file of files) {
+    const lines = file.contents.split(/\r?\n/);
+    lines.forEach((sourceLine, index) => {
+      const lineNumber = index + 1;
+      if (lineIsInsideDefinition(ranges.get(file.path), lineNumber)) return;
+
+      const clean = withoutComment(sourceLine);
+      if (!clean || /^[.@A-Za-z_][A-Za-z0-9_.@#]*:{1,2}(?:\s|$)/.test(clean)) {
+        return;
+      }
+
+      const match = clean.match(/^([A-Za-z_][A-Za-z0-9_#@.]*)\b(?:\s+(.*))?$/);
+      if (!match) return;
+      const definition = definitions.get(match[1].toLowerCase());
+      if (!definition || definition.producedSymbols.size === 0) return;
+
+      const values = match[2] ? splitArguments(match[2]) : [];
+      for (const [parameter, kind] of definition.producedSymbols) {
+        const value = values[parameter - 1]?.trim();
+        if (!value || !/^[A-Za-z_][A-Za-z0-9_.]*$/.test(value)) continue;
+        if (kind === "label") labels.add(value);
+        else constants.add(value);
+      }
+    });
+  }
+}
+
 function summarizeParameters(
   definition: MacroDefinitionInternal,
   observations: Map<string, ParameterObservations[]>,
@@ -532,8 +583,16 @@ export async function loadMacroAnalysis(source: ProjectSource): Promise<MacroAna
   }
 
   addNestedBindings(definitions, byName);
+  propagateProducedSymbols(definitions, byName);
   const ranges = definitionRanges(definitions);
   const symbols = collectProjectSymbols(readableFiles);
+  collectMacroProducedSymbols(
+    readableFiles,
+    ranges,
+    byName,
+    symbols.labels,
+    symbols.constants,
+  );
   const observations = new Map<string, ParameterObservations[]>();
   const callCounts = new Map<string, number>();
   const argumentCounts = new Map<string, number[]>();
