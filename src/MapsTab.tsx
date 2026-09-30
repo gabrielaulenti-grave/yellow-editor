@@ -1265,9 +1265,9 @@ export function MapsTab({
                           initialText={null}
                         />
                         <small className="help-text">
-                          Scripted NPCs can choose different dialogue based on game state.
-                          Yellow Editor only enables editing when the modular text editor can
-                          resolve a safe text leaf.
+                          Scripted NPCs can choose different dialogue based on game state
+                          or Yes/No choices. Yellow Editor exposes safely resolved text leaves
+                          as separate dialogue paths while preserving the surrounding script logic.
                         </small>
                       </div>
                     </div>

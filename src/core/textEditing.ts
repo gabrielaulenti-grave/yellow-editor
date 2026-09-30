@@ -57,6 +57,7 @@ export interface TextDocumentSaveRequest {
 
 export interface TextEditingSession {
   getTextDocument(path: string, label: string, previewText?: string): Promise<TextDocument>;
+  getTextLeafDocuments(path: string, label: string): Promise<TextDocument[]>;
   saveTextDocument(request: TextDocumentSaveRequest): Promise<HistorySummary>;
 }
 
@@ -405,7 +406,9 @@ function textPointerCandidates(contents: string, label: string): string[] {
 }
 
 function includedTextPaths(contents: string): string[] {
-  return [...contents.matchAll(/^\s*INCLUDE\s+"(text\/[^"]+\.asm)"/gm)].map((match) => match[1]);
+  return [...contents.matchAll(
+    /^\s*INCLUDE\s+"((?:text|data\/text)\/[^"]+\.asm)"/gm,
+  )].map((match) => match[1]);
 }
 
 function pathStem(path: string): string {
@@ -476,6 +479,114 @@ async function resolveFarTextDocument(
 ): Promise<TextDocument | null> {
   const textLabel = farTextLabel(wrapperContents, wrapperLabel);
   return textLabel ? findExternalTextDocument(source, wrapperPath, textLabel) : null;
+}
+
+function farTextLabels(contents: string, label: string): string[] {
+  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
+  const lines = contents.split(newline);
+  const range = findGlobalLabelRange(lines, label);
+  const labels: string[] = [];
+  for (let index = range.start + 1; index < range.end; index += 1) {
+    const farLabel = lines[index].match(FAR_TEXT_PATTERN)?.[1];
+    if (farLabel && !labels.includes(farLabel)) labels.push(farLabel);
+  }
+  return labels;
+}
+
+function farcallTargets(contents: string, label: string): string[] {
+  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
+  const lines = contents.split(newline);
+  const range = findGlobalLabelRange(lines, label);
+  const labels: string[] = [];
+  for (let index = range.start + 1; index < range.end; index += 1) {
+    const target = lines[index].match(
+      /^\s*farcall\s+([A-Za-z_][A-Za-z0-9_]*)\b/i,
+    )?.[1];
+    if (target && !labels.includes(target)) labels.push(target);
+  }
+  return labels;
+}
+
+function siblingScriptPaths(path: string): string[] {
+  const match = path.match(/^scripts\/(.+)\.asm$/i);
+  if (!match) return [];
+  const stem = match[1];
+  return stem.endsWith("_2")
+    ? [`scripts/${stem.slice(0, -2)}.asm`]
+    : [`scripts/${stem}_2.asm`];
+}
+
+function uniqueDocuments(documents: TextDocument[]): TextDocument[] {
+  return documents.filter((document, index) =>
+    documents.findIndex((candidate) =>
+      candidate.path === document.path && candidate.label === document.label
+    ) === index
+  );
+}
+
+async function resolveTextLeafDocuments(
+  source: ProjectSource,
+  path: string,
+  label: string,
+  visited: Set<string>,
+): Promise<TextDocument[]> {
+  const visitKey = `${path}:${label}`;
+  if (visited.has(visitKey)) return [];
+  visited.add(visitKey);
+
+  const contents = await source.readText(path);
+  const direct = await parseTextDocument(path, label, contents);
+  if (direct.editable) return [direct];
+
+  const resolved: TextDocument[] = [];
+
+  for (const farLabel of farTextLabels(contents, label)) {
+    const external = await findExternalTextDocument(source, path, farLabel);
+    if (external) resolved.push(external);
+  }
+
+  for (const target of farcallTargets(contents, label)) {
+    if (containsLabel(contents, target)) {
+      resolved.push(...await resolveTextLeafDocuments(
+        source,
+        path,
+        target,
+        new Set(visited),
+      ));
+      continue;
+    }
+    for (const candidatePath of siblingScriptPaths(path)) {
+      if (!(await source.exists(candidatePath))) continue;
+      const candidateContents = await source.readText(candidatePath);
+      if (!containsLabel(candidateContents, target)) continue;
+      resolved.push(...await resolveTextLeafDocuments(
+        source,
+        candidatePath,
+        target,
+        new Set(visited),
+      ));
+      break;
+    }
+  }
+
+  if (resolved.length === 0) {
+    for (const candidate of textPointerCandidates(contents, label)) {
+      if (candidate.startsWith(".")) continue;
+      if (!containsLabel(contents, candidate)) continue;
+      try {
+        resolved.push(...await resolveTextLeafDocuments(
+          source,
+          path,
+          candidate,
+          new Set(visited),
+        ));
+      } catch {
+        // Some register loads point at non-text data. Ignore unproven targets.
+      }
+    }
+  }
+
+  return uniqueDocuments(resolved);
 }
 
 async function resolveTextLeafDocument(
@@ -655,22 +766,48 @@ export function attachTextEditing(
 ): ProjectSession & TextEditingSession {
   const extended = session as ProjectSession & TextEditingSession;
 
-  extended.getTextDocument = async (path, label, previewText) => {
-    let resolvedPath = path;
-    let contents = await source.readText(resolvedPath);
+  async function resolveStartingPath(path: string, label: string): Promise<string> {
+    const contents = await source.readText(path);
+    if (containsLabel(contents, label)) return path;
 
-    if (!containsLabel(contents, label)) {
-      for (const candidatePath of SHARED_TEXT_WRAPPER_PATHS) {
-        if (!(await source.exists(candidatePath))) continue;
-        const candidateContents = await source.readText(candidatePath);
-        if (!containsLabel(candidateContents, label)) continue;
-        resolvedPath = candidatePath;
-        contents = candidateContents;
-        break;
-      }
+    for (const candidatePath of SHARED_TEXT_WRAPPER_PATHS) {
+      if (!(await source.exists(candidatePath))) continue;
+      const candidateContents = await source.readText(candidatePath);
+      if (containsLabel(candidateContents, label)) return candidatePath;
     }
+    return path;
+  }
+
+  extended.getTextLeafDocuments = async (path, label) => {
+    const resolvedPath = await resolveStartingPath(path, label);
+    try {
+      const leaves = await resolveTextLeafDocuments(
+        source,
+        resolvedPath,
+        label,
+        new Set(),
+      );
+      if (leaves.length > 0) return leaves;
+    } catch {
+      // Return the conservative wrapper document below.
+    }
+    const contents = await source.readText(resolvedPath);
+    return [await parseTextDocument(resolvedPath, label, contents)];
+  };
+
+  extended.getTextDocument = async (path, label, previewText) => {
+    const resolvedPath = await resolveStartingPath(path, label);
+    const contents = await source.readText(resolvedPath);
+    const leaves = await extended.getTextLeafDocuments(resolvedPath, label);
 
     if (previewText) {
+      const expected = comparableText(previewText);
+      const matches = leaves.filter((document) =>
+        document.editable
+        && comparableText(textDocumentDisplayPreview(document)) === expected
+      );
+      if (matches.length === 1) return matches[0];
+
       try {
         const leafDocument = await resolveTextLeafDocument(
           source,
@@ -681,10 +818,13 @@ export function attachTextEditing(
         );
         if (leafDocument) return leafDocument;
       } catch {
-        // Fall through to the conservative wrapper behavior below. This keeps
-        // unusual text_asm programs read-only instead of guessing a target.
+        // Fall through to conservative behavior.
       }
     }
+
+    const editableLeaves = leaves.filter((document) => document.editable);
+    if (editableLeaves.length === 1) return editableLeaves[0];
+
     const farDocument = await resolveFarTextDocument(
       source,
       resolvedPath,
