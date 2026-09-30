@@ -39,10 +39,10 @@ public/wasm-tools/pret-gen1/
 
 ## RGBDS bundle
 
-`scripts/prepare-rgbds-wasm.mjs` pins RGBDS 1.0.3 and builds:
+`scripts/prepare-rgbds-wasm.mjs` pins RGBDS 1.0.4 and builds:
 
 ```text
-public/wasm-tools/rgbds/1.0.3/
+public/wasm-tools/rgbds/1.0.4/
   manifest.json
   rgbasm.mjs
   rgbasm.wasm
@@ -52,9 +52,9 @@ public/wasm-tools/rgbds/1.0.3/
   rgbfix.wasm
 ```
 
-The manifest records the exact RGBDS commit and Emscripten version. Yellow Editor validates the checkout's `.rgbds-version` before enabling the build.
+The manifest records the exact RGBDS commit and Emscripten version. Yellow Editor reads the checkout's `.rgbds-version` and accepts the bundled compiler when it is the same RGBDS major version and is at least as new as the requested version. This lets the RGBDS 1.0.4 bundle build current `pret/pokered` while remaining compatible with current `pret/pokeyellow`, which declares 1.0.3.
 
-`rgbgfx` is intentionally not executed as RGBDS WASM. The Gen I build graph uses `src/core/gen1Graphics.ts`, which reproduces the RGBDS 1.0.3 DMG graphics behavior needed by current Yellow and Red/Blue sources while avoiding the libpng/Emscripten failure encountered during the original port.
+`rgbgfx` is intentionally not executed as RGBDS WASM. The Gen I build graph uses `src/core/gen1Graphics.ts`, which reproduces the RGBDS 1.0.4 DMG graphics behavior needed by current Yellow and Red/Blue sources while avoiding the libpng/Emscripten failure encountered during the original port.
 
 PNG decoding is deliberately separated from that RGBDS-compatible tile logic. On the web, `gen1Graphics.ts` decodes PNGs with `createImageBitmap` plus canvas pixel access. On desktop, `src/platform/desktop.ts` registers a Tauri decoder that sends the encoded PNG to the Rust backend; `src-tauri/src/lib.rs` decodes it to RGBA8 with the pinned Rust `png` crate. Both paths then feed the same RGBA buffer into the same TypeScript grayscale validation, DMG shade reduction, 1bpp/2bpp encoding, and `--columns` tile ordering. This keeps the already-verified build semantics shared while making desktop builds independent of WebView image-decoding behavior.
 
