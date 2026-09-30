@@ -30,6 +30,7 @@ import { BuildTestTab } from "./BuildTestTab";
 import { EncountersTab, type EncounterSection } from "./EncountersTab";
 import { EditorToolbar } from "./EditorToolbar";
 import { ItemsTab } from "./ItemsTab";
+import { MapsTab } from "./MapsTab";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
 import { TrainersTab, type TrainerSection } from "./TrainersTab";
@@ -86,7 +87,7 @@ import {
 import { invoke, open } from "./platform/compat";
 import "./App.css";
 
-type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "build";
+type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -2027,6 +2028,12 @@ function App() {
           Wild Encounters
         </button>
         <button
+          className={activeTab === "maps" ? "active" : ""}
+          onClick={() => void selectTab("maps")}
+        >
+          Maps
+        </button>
+        <button
           className={activeTab === "build" ? "active" : ""}
           onClick={() => void selectTab("build")}
         >
@@ -2166,6 +2173,10 @@ function App() {
           onEnable={enableEncounters}
           onDisable={disableEncounters}
         />
+      )}
+
+      {activeTab === "maps" && (
+        <MapsTab project={project} />
       )}
 
       <BuildTestTab
