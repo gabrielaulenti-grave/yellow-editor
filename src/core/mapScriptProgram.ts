@@ -183,8 +183,33 @@ function sourceSpan(
   };
 }
 
-function movementSource(sections: Map<string, LabelSection>, label: string): string | null {
-  return sections.get(label)?.source ?? null;
+function localLabelSource(section: LabelSection, label: string): string | null {
+  if (!label.startsWith(".")) return null;
+  const lines = section.source.split(/\r?\n/);
+  const start = lines.findIndex((line) => {
+    const match = line.match(/^\s*(\.[A-Za-z_][A-Za-z0-9_.]*):{0,2}\s*(?:;.*)?$/);
+    return match?.[1] === label;
+  });
+  if (start < 0) return null;
+
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^\s*[A-Za-z_.][A-Za-z0-9_.]*:{1,2}\s*(?:;.*)?$/.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start, end).join("\n");
+}
+
+function movementSource(
+  sections: Map<string, LabelSection>,
+  owner: LabelSection,
+  label: string,
+): string | null {
+  return label.startsWith(".")
+    ? localLabelSource(owner, label)
+    : sections.get(label)?.source ?? null;
 }
 
 function transitionsForSection(
@@ -313,7 +338,7 @@ function nodesForSection(
           break;
         }
       }
-      const movement = movementLabel ? movementSource(sections, movementLabel) : null;
+      const movement = movementLabel ? movementSource(sections, section, movementLabel) : null;
       const path = movementLabel && movement ? parseMovementPath(movementLabel, movement).steps : [];
       nodes.push({
         id: `${section.label}:${absoluteLine}:move-player`,
@@ -333,7 +358,7 @@ function nodesForSection(
     if (/^call\s+MoveSprite\b/i.test(clean)) {
       const actor = loadedValueBeforeStore(lines, index, /^ldh?\s+\[hSpriteIndex\]\s*,\s*a\b/i);
       const movementLabel = recentRegisterValue(lines, index, "de", 10);
-      const movement = movementLabel ? movementSource(sections, movementLabel) : null;
+      const movement = movementLabel ? movementSource(sections, section, movementLabel) : null;
       const path = movementLabel && movement ? parseMovementPath(movementLabel, movement).steps : [];
       nodes.push({
         id: `${section.label}:${absoluteLine}:move-character`,
