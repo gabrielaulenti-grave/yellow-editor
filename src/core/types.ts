@@ -17,6 +17,23 @@ export interface MapIndexEntry {
   isUnused: boolean;
 }
 
+export interface MapWarpEvent {
+  id: number;
+  x: number;
+  y: number;
+  destinationMapConstant: string | null;
+  destinationMapDisplayName: string | null;
+  destinationWarpId: number;
+  isLastMap: boolean;
+}
+
+export interface MapConnection {
+  direction: "north" | "south" | "east" | "west";
+  destinationMapConstant: string;
+  destinationMapDisplayName: string | null;
+  offset: number | null;
+}
+
 export interface MapVisualization {
   map: MapIndexEntry;
   headerMapConstant: string;
@@ -26,11 +43,14 @@ export interface MapVisualization {
   mapBlockPath: string;
   blocksetPath: string;
   tilesetGfxPath: string;
+  objectPath: string;
   mapBlocks: number[];
   blockset: number[];
   tilesetGfx: number[];
   tileCount: number;
   blockCount: number;
+  warps: MapWarpEvent[];
+  connections: MapConnection[];
   warnings: string[];
 }
 
