@@ -121,6 +121,38 @@ export type MacroParameterKind =
 
 export type MacroInferenceConfidence = "low" | "medium" | "high";
 
+export type ProjectSemanticDomainKind =
+  | "pokemon"
+  | "move"
+  | "item"
+  | "map"
+  | "trainer-class";
+
+export interface ProjectSemanticDomainOption {
+  value: string;
+  label: string;
+}
+
+export interface ProjectSemanticDomain {
+  id: string;
+  label: string;
+  kind: ProjectSemanticDomainKind;
+  options: ProjectSemanticDomainOption[];
+}
+
+export interface SemanticDomainMatch {
+  domainId: string;
+  domainLabel: string;
+  domainKind: ProjectSemanticDomainKind;
+  confidence: MacroInferenceConfidence;
+  evidence: string[];
+}
+
+export interface ProjectSemanticDomainCatalog {
+  domains: ProjectSemanticDomain[];
+  warnings: string[];
+}
+
 export interface MacroParameterSummary {
   index: number;
   displayName: string;
@@ -129,6 +161,7 @@ export interface MacroParameterSummary {
   confidence: MacroInferenceConfidence;
   examples: string[];
   evidence: string[];
+  semanticDomains: SemanticDomainMatch[];
 }
 
 export interface MacroDefinitionSummary {
@@ -148,6 +181,8 @@ export interface MacroCatalog {
   definitionCount: number;
   callCount: number;
   warnings: string[];
+  domains: ProjectSemanticDomain[];
+  domainWarnings: string[];
 }
 
 export interface ScriptMacroArgument {
@@ -155,6 +190,7 @@ export interface ScriptMacroArgument {
   raw: string;
   inferredKind: MacroParameterKind;
   confidence: MacroInferenceConfidence;
+  semanticDomains: SemanticDomainMatch[];
 }
 
 export interface ScriptMacroCall {
