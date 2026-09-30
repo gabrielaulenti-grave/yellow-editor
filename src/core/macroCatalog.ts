@@ -282,6 +282,85 @@ function buildSemanticIndex(
   return result;
 }
 
+function sourceDomainLabel(path: string): string {
+  const fileName = path.split("/").pop()?.replace(/\.(?:asm|inc)$/i, "") ?? path;
+  const title = fileName
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+  return /\bconstants?\b/i.test(title) ? title : title + " constants";
+}
+
+function simpleSymbol(value: string): string | null {
+  const trimmed = value.trim();
+  return /^(?:\.[A-Za-z_]|[A-Za-z_])[A-Za-z0-9_.]*$/.test(trimmed)
+    ? trimmed
+    : null;
+}
+
+function collectSourceConstantDomains(
+  files: SourceFile[],
+  ranges: Map<string, Array<{ startLine: number; endLine: number }>>,
+  definitions: Map<string, MacroDefinitionInternal>,
+  baseCatalog: ProjectSemanticDomainCatalog,
+): ProjectSemanticDomain[] {
+  const coveredValues = new Set(
+    baseCatalog.domains.flatMap((domain) => domain.options.map((option) => option.value)),
+  );
+  const byPath = new Map<string, Set<string>>();
+
+  function add(path: string, value: string | null): void {
+    if (!value || coveredValues.has(value)) return;
+    const group = byPath.get(path) ?? new Set<string>();
+    group.add(value);
+    byPath.set(path, group);
+  }
+
+  for (const file of files) {
+    const lines = file.contents.split(/\r?\n/);
+    lines.forEach((sourceLine, index) => {
+      const lineNumber = index + 1;
+      if (lineIsInsideDefinition(ranges.get(file.path), lineNumber)) return;
+      const line = withoutComment(sourceLine);
+      if (!line) return;
+
+      const def = line.match(/^DEF\s+((?:\.[A-Za-z_]|[A-Za-z_])[A-Za-z0-9_.]*)\s+(?:EQU|EQUS|RB|RW|RL)\b/i);
+      if (def) add(file.path, def[1]);
+
+      const equ = line.match(/^((?:\.[A-Za-z_]|[A-Za-z_])[A-Za-z0-9_.]*)\s+(?:EQU|EQUS)\b/i);
+      if (equ) add(file.path, equ[1]);
+
+      const call = line.match(/^([A-Za-z_][A-Za-z0-9_#@.]*)\b(?:\s+(.*))?$/);
+      if (!call) return;
+      const definition = definitions.get(call[1].toLowerCase());
+      if (!definition || definition.producedSymbols.size === 0) return;
+
+      const values = call[2] ? splitArguments(call[2]) : [];
+      for (const [parameter, kind] of definition.producedSymbols) {
+        if (kind !== "constant") continue;
+        add(file.path, simpleSymbol(values[parameter - 1] ?? ""));
+      }
+    });
+  }
+
+  return [...byPath.entries()]
+    .map(([path, values]): ProjectSemanticDomain => ({
+      id: "source-constants:" + path,
+      label: sourceDomainLabel(path),
+      kind: "constant-family",
+      sourcePath: path,
+      options: [...values]
+        .sort((left, right) => left.localeCompare(right))
+        .map((value) => ({ value, label: value })),
+    }))
+    .filter((domain) => domain.options.length > 0)
+    .sort((left, right) =>
+      left.label.localeCompare(right.label)
+      || (left.sourcePath ?? "").localeCompare(right.sourcePath ?? ""));
+}
+
 function semanticMatchesFor(
   raw: string,
   index: Map<string, ProjectSemanticDomain[]>,
@@ -708,8 +787,7 @@ export async function loadMacroAnalysis(
   }));
 
   const readableFiles = files.filter((file): file is SourceFile => file !== null);
-  const semanticCatalog = await semanticCatalogPromise;
-  const semanticIndex = buildSemanticIndex(semanticCatalog);
+  const baseSemanticCatalog = await semanticCatalogPromise;
   const definitions = readableFiles.flatMap(parseDefinitions);
   const byName = new Map<string, MacroDefinitionInternal>();
   for (const definition of definitions) {
@@ -729,6 +807,19 @@ export async function loadMacroAnalysis(
     symbols.labels,
     symbols.constants,
   );
+  const semanticCatalog: ProjectSemanticDomainCatalog = {
+    domains: [
+      ...baseSemanticCatalog.domains,
+      ...collectSourceConstantDomains(
+        readableFiles,
+        ranges,
+        byName,
+        baseSemanticCatalog,
+      ),
+    ],
+    warnings: baseSemanticCatalog.warnings,
+  };
+  const semanticIndex = buildSemanticIndex(semanticCatalog);
   const observations = new Map<string, ParameterObservations[]>();
   const callCounts = new Map<string, number>();
   const argumentCounts = new Map<string, number[]>();
