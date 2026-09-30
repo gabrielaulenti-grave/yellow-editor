@@ -3,6 +3,7 @@ import type {
   MapVisualization,
   ProjectSource,
 } from "./types";
+import { convertGen1PngToTiles } from "./gen1Graphics";
 
 const MAP_CONSTANTS_PATH = "constants/map_constants.asm";
 const MAP_POINTERS_PATH = "data/maps/map_header_pointers.asm";
@@ -118,15 +119,54 @@ function parseTilesetLabels(constantsText: string, headersText: string): Map<str
   return result;
 }
 
+function withTrailingPadding(
+  bytes: Uint8Array,
+  paddingAfter: number,
+): Uint8Array {
+  if (paddingAfter <= 0) return bytes;
+  const padded = new Uint8Array(bytes.length + paddingAfter);
+  padded.set(bytes);
+  return padded;
+}
+
 async function readBinaryAsset(
   source: ProjectSource,
   spec: BinaryAssetSpec,
 ): Promise<Uint8Array> {
-  const bytes = await source.readBytes(spec.path);
-  if (spec.paddingAfter <= 0) return bytes;
-  const padded = new Uint8Array(bytes.length + spec.paddingAfter);
-  padded.set(bytes);
-  return padded;
+  return withTrailingPadding(
+    await source.readBytes(spec.path),
+    spec.paddingAfter,
+  );
+}
+
+async function readTilesetGraphics(
+  source: ProjectSource,
+  spec: BinaryAssetSpec,
+): Promise<{ bytes: Uint8Array; sourcePath: string }> {
+  if (await source.exists(spec.path)) {
+    return {
+      bytes: await readBinaryAsset(source, spec),
+      sourcePath: spec.path,
+    };
+  }
+
+  if (!spec.path.toLowerCase().endsWith(".2bpp")) {
+    throw new Error(`Tileset graphics file ${spec.path} does not exist.`);
+  }
+
+  const pngPath = spec.path.replace(/\.2bpp$/i, ".png");
+  if (!(await source.exists(pngPath))) {
+    throw new Error(
+      `Neither generated tileset graphics ${spec.path} nor source PNG ${pngPath} exists.`,
+    );
+  }
+
+  const pngBytes = await source.readBytes(pngPath);
+  const generated = await convertGen1PngToTiles(pngBytes, { depth: 2 });
+  return {
+    bytes: withTrailingPadding(generated, spec.paddingAfter),
+    sourcePath: pngPath,
+  };
 }
 
 export async function parseMapIndex(source: ProjectSource): Promise<MapIndexEntry[]> {
@@ -253,11 +293,12 @@ export async function loadMapVisualization(
     );
   }
 
-  const [mapBlocks, tilesetGfx, blockset] = await Promise.all([
+  const [mapBlocks, tilesetGraphics, blockset] = await Promise.all([
     readBinaryAsset(source, mapBlockSpec),
-    readBinaryAsset(source, gfxSpec),
+    readTilesetGraphics(source, gfxSpec),
     readBinaryAsset(source, blocksetSpec),
   ]);
+  const tilesetGfx = tilesetGraphics.bytes;
 
   const expectedBlocks = map.width * map.height;
   if (mapBlocks.length !== expectedBlocks) {
@@ -272,7 +313,7 @@ export async function loadMapVisualization(
   }
   if (tilesetGfx.length % 16 !== 0) {
     warnings.push(
-      `${gfxSpec.path} is ${tilesetGfx.length} bytes long, so its final 8×8 tile is incomplete.`,
+      `${tilesetGraphics.sourcePath} converts to ${tilesetGfx.length} bytes, so its final 8×8 tile is incomplete.`,
     );
   }
 
@@ -300,7 +341,7 @@ export async function loadMapVisualization(
     tilesetName,
     mapBlockPath: mapBlockSpec.path,
     blocksetPath: blocksetSpec.path,
-    tilesetGfxPath: gfxSpec.path,
+    tilesetGfxPath: tilesetGraphics.sourcePath,
     mapBlocks: Array.from(mapBlocks),
     blockset: Array.from(blockset),
     tilesetGfx: Array.from(tilesetGfx),
