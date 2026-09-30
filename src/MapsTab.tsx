@@ -188,11 +188,19 @@ function MapCanvas({
   view,
   zoom,
   showGrid,
+  showWarps,
+  selectedWarpId,
+  arrivalWarpId,
+  onSelectWarp,
 }: {
   visualization: MapVisualization;
   view: MapView;
   zoom: number;
   showGrid: boolean;
+  showWarps: boolean;
+  selectedWarpId: number | null;
+  arrivalWarpId: number | null;
+  onSelectWarp: (warpId: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -224,22 +232,51 @@ function MapCanvas({
           height: Math.max(1, Math.ceil(visualization.tileCount / 16)) * 8,
         };
 
+  const displayWidth = intrinsicSize.width * scale;
+  const displayHeight = intrinsicSize.height * scale;
+
   return (
-    <canvas
-      ref={canvasRef}
-      className="world-map-canvas"
-      style={{
-        width: intrinsicSize.width * scale,
-        height: intrinsicSize.height * scale,
-      }}
-      aria-label={
-        view === "map"
-          ? `${visualization.map.displayName} map preview`
-          : view === "blocks"
-            ? `${visualization.tilesetName} blockset preview`
-            : `${visualization.tilesetName} tile preview`
-      }
-    />
+    <div
+      className="world-map-stage"
+      style={{ width: displayWidth, height: displayHeight }}
+    >
+      <canvas
+        ref={canvasRef}
+        className="world-map-canvas"
+        style={{
+          width: displayWidth,
+          height: displayHeight,
+        }}
+        aria-label={
+          view === "map"
+            ? `${visualization.map.displayName} map preview`
+            : view === "blocks"
+              ? `${visualization.tilesetName} blockset preview`
+              : `${visualization.tilesetName} tile preview`
+        }
+      />
+
+      {view === "map" && showWarps && visualization.warps.map((warp) => (
+        <button
+          key={warp.id}
+          type="button"
+          className={[
+            "world-map-warp-marker",
+            warp.id === selectedWarpId ? "selected" : "",
+            warp.id === arrivalWarpId ? "arrival" : "",
+          ].filter(Boolean).join(" ")}
+          style={{
+            left: (warp.x * 16 + 8) * scale,
+            top: (warp.y * 16 + 8) * scale,
+          }}
+          onClick={() => onSelectWarp(warp.id)}
+          aria-label={`Warp ${warp.id} at ${warp.x}, ${warp.y}`}
+          title={`Warp #${warp.id} · (${warp.x}, ${warp.y})`}
+        >
+          {warp.id}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -255,6 +292,11 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
   const [view, setView] = useState<MapView>("map");
   const [zoom, setZoom] = useState(1);
   const [showGrid, setShowGrid] = useState(false);
+  const [showWarps, setShowWarps] = useState(true);
+  const [selectedWarpId, setSelectedWarpId] = useState<number | null>(null);
+  const [arrivalWarpId, setArrivalWarpId] = useState<number | null>(null);
+  const [navigationStack, setNavigationStack] = useState<string[]>([]);
+  const [lastOutdoorMap, setLastOutdoorMap] = useState<string | null>(null);
   const [indexLoading, setIndexLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -264,6 +306,10 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
       setMaps([]);
       setSelectedConstant(null);
       setVisualization(null);
+      setSelectedWarpId(null);
+      setArrivalWarpId(null);
+      setNavigationStack([]);
+      setLastOutdoorMap(null);
       setError(null);
       return;
     }
@@ -297,6 +343,49 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
     (entry) => entry.constant === selectedConstant,
   ) ?? null;
 
+  function selectMapFromBrowser(mapConstant: string) {
+    setSelectedConstant(mapConstant);
+    setSelectedWarpId(null);
+    setArrivalWarpId(null);
+    setNavigationStack([]);
+    setLastOutdoorMap(null);
+  }
+
+  function navigateToMap(mapConstant: string, destinationWarpId: number | null) {
+    if (!maps.some((entry) => entry.constant === mapConstant)) {
+      setError(`Destination map ${mapConstant} is not present in this project.`);
+      return;
+    }
+
+    if (selectedConstant) {
+      setNavigationStack((stack) => [...stack, selectedConstant]);
+    }
+    if (
+      visualization
+      && (
+        visualization.tilesetConstant === "OVERWORLD"
+        || visualization.connections.length > 0
+      )
+    ) {
+      setLastOutdoorMap(visualization.map.constant);
+    }
+
+    setSelectedConstant(mapConstant);
+    setSelectedWarpId(null);
+    setArrivalWarpId(destinationWarpId);
+    setError(null);
+  }
+
+  function goBack() {
+    const destination = navigationStack[navigationStack.length - 1];
+    if (!destination) return;
+    setNavigationStack((stack) => stack.slice(0, -1));
+    setSelectedConstant(destination);
+    setSelectedWarpId(null);
+    setArrivalWarpId(null);
+    setError(null);
+  }
+
   useEffect(() => {
     if (!project || !selectedMap) {
       setVisualization(null);
@@ -320,7 +409,11 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
       mapConstant: selectedMap.constant,
     })
       .then((result) => {
-        if (!cancelled) setVisualization(result);
+        if (cancelled) return;
+        setVisualization(result);
+        const arrived = arrivalWarpId !== null
+          && result.warps.some((warp) => warp.id === arrivalWarpId);
+        setSelectedWarpId(arrived ? arrivalWarpId : null);
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -332,7 +425,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
     return () => {
       cancelled = true;
     };
-  }, [project?.storageKey, selectedMap?.constant]);
+  }, [project?.storageKey, selectedMap?.constant, arrivalWarpId]);
 
   const filteredMaps = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -343,6 +436,21 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
       || entry.headerLabel?.toLowerCase().includes(needle),
     );
   }, [maps, search]);
+
+  const selectedWarp = visualization?.warps.find(
+    (warp) => warp.id === selectedWarpId,
+  ) ?? null;
+  const resolvedWarpDestination = selectedWarp?.isLastMap
+    ? lastOutdoorMap
+    : selectedWarp?.destinationMapConstant ?? null;
+  const resolvedWarpDestinationMap = resolvedWarpDestination
+    ? maps.find((entry) => entry.constant === resolvedWarpDestination) ?? null
+    : null;
+
+  function navigateSelectedWarp() {
+    if (!selectedWarp || !resolvedWarpDestination) return;
+    navigateToMap(resolvedWarpDestination, selectedWarp.destinationWarpId);
+  }
 
   if (!project) {
     return (
@@ -386,7 +494,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                 key={`${entry.id}:${entry.constant}`}
                 type="button"
                 className={entry.constant === selectedConstant ? "active" : ""}
-                onClick={() => setSelectedConstant(entry.constant)}
+                onClick={() => selectMapFromBrowser(entry.constant)}
               >
                 <strong>{entry.displayName}</strong>
                 <small>
