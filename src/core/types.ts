@@ -110,6 +110,67 @@ export interface ScriptDocument {
   routines: ScriptRoutineSummary[];
 }
 
+export type MacroParameterKind =
+  | "unknown"
+  | "number"
+  | "string"
+  | "label"
+  | "constant"
+  | "symbol"
+  | "expression";
+
+export type MacroInferenceConfidence = "low" | "medium" | "high";
+
+export interface MacroParameterSummary {
+  index: number;
+  displayName: string;
+  required: boolean;
+  inferredKind: MacroParameterKind;
+  confidence: MacroInferenceConfidence;
+  examples: string[];
+  evidence: string[];
+}
+
+export interface MacroDefinitionSummary {
+  name: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+  parameters: MacroParameterSummary[];
+  callCount: number;
+  nestedMacros: string[];
+}
+
+export interface MacroCatalog {
+  macros: MacroDefinitionSummary[];
+  sourceFileCount: number;
+  scriptFileCount: number;
+  definitionCount: number;
+  callCount: number;
+  warnings: string[];
+}
+
+export interface ScriptMacroArgument {
+  index: number;
+  raw: string;
+  inferredKind: MacroParameterKind;
+  confidence: MacroInferenceConfidence;
+}
+
+export interface ScriptMacroCall {
+  name: string;
+  path: string;
+  line: number;
+  definitionPath: string;
+  definitionLine: number;
+  arguments: ScriptMacroArgument[];
+}
+
+export interface ScriptMacroCallDocument {
+  path: string;
+  calls: ScriptMacroCall[];
+}
+
 export interface PokemonIndexEntry {
   internalId: number;
   constant: string | null;
@@ -1105,6 +1166,8 @@ export interface ProjectSession {
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
   getScriptCatalog(): Promise<ScriptCatalog>;
   getScriptDocument(path: string): Promise<ScriptDocument>;
+  getMacroCatalog(): Promise<MacroCatalog>;
+  getScriptMacroCalls(path: string): Promise<ScriptMacroCallDocument>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,
