@@ -81,8 +81,23 @@ export function itemEvolutionReferences(contents: string): string[] {
   return result;
 }
 
+function useLongMedicineRetryJump(contents: string): string {
+  if (!contents.includes(SUPPORT_MARKER)) return contents;
+
+  // Red's Softboiled retry is already close to JR's -128-byte limit. The
+  // medicine hook adds bytes near ItemUseMedicine, so use an absolute jump
+  // for the retry in both Red/Blue and Yellow. This also upgrades projects
+  // that already contain the managed medicine hook.
+  return contents.replace(
+    "\tjr z, ItemUseMedicine ; if so, force another choice",
+    "\tjp z, ItemUseMedicine ; if so, force another choice",
+  );
+}
+
 function installMedicineHookSupport(contents: string): string {
-  if (contents.includes(SUPPORT_MARKER)) return contents;
+  if (contents.includes(SUPPORT_MARKER)) {
+    return useLongMedicineRetryJump(contents);
+  }
 
   const insertionPoint = contents.indexOf("ItemUseVitamin:");
   if (insertionPoint < 0) {
@@ -254,7 +269,7 @@ function installMedicineHookSupport(contents: string): string {
     "$1\tcall YellowEditorMedicineTryEvolution\n$2",
   );
 
-  return next;
+  return useLongMedicineRetryJump(next);
 }
 
 function rewriteManagedTable(contents: string, constants: string[]): string {

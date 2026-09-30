@@ -515,10 +515,15 @@ export function createRgbdsWasmRuntime(version: string): BuildToolRuntime {
         exitCode = status;
       }
 
-      const outputs = (invocation.outputPaths ?? []).map((relativePath) => ({
-        path: normalizeRelativePath(relativePath),
-        data: module.FS.readFile(workspacePath(workingDirectory, relativePath)),
-      }));
+      // A failed compiler invocation normally does not create its requested output
+      // file. Preserve the captured stdout/stderr and return the non-zero exit code
+      // instead of masking the compiler diagnostic with a follow-up FS.readFile error.
+      const outputs = exitCode === 0
+        ? (invocation.outputPaths ?? []).map((relativePath) => ({
+            path: normalizeRelativePath(relativePath),
+            data: module.FS.readFile(workspacePath(workingDirectory, relativePath)),
+          }))
+        : [];
 
       return {
         exitCode,
