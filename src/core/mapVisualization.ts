@@ -225,10 +225,7 @@ function splitAsmArguments(value: string): string[] {
 
 function globalLabelSource(contents: string, label: string): string | null {
   const lines = contents.split(/\r?\n/);
-  const escaped = label.replace(/[.*+?^$()|[\]\\{}]/g, "\\function withTrailingPadding(
-  bytes: Uint8Array,
-  paddingAfter: number,
-): Uint8Array {");
+  const escaped = label.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
   const pattern = new RegExp("^\\s*" + escaped + ":{1,2}\\s*(?:;.*)?$");
   const start = lines.findIndex((line) => pattern.test(line));
   if (start < 0) return null;
