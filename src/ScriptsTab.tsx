@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   MacroCatalog,
   MacroDefinitionSummary,
+  HistorySummary,
   ProjectInfo,
   ProjectSemanticDomain,
   ScriptCatalog,
@@ -133,13 +134,16 @@ function MacroCallForm({
     setEditError(null);
     setNotice(null);
     try {
-      await invoke("save_script_macro_call", {
+      const history = await invoke<HistorySummary>("save_script_macro_call", {
         path: editDocument.path,
         line: editDocument.line,
         macroName: editDocument.macroName,
         expectedHash: editDocument.sourceHash,
         arguments: draftArguments,
       });
+      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", {
+        detail: history,
+      }));
       setEditDocument(null);
       setDraftArguments([]);
       setNotice("Saved to project history.");
