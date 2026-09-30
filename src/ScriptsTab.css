@@ -266,6 +266,17 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.script-macro-parameter select {
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+}
+
+.script-macro-parameter select:disabled {
+  opacity: 1;
+  color: inherit;
+}
+
 .script-macro-evidence {
   line-height: 1.35;
 }
