@@ -562,6 +562,14 @@ export async function invoke<T>(
         stringArg(args, "path"),
       )) as T;
 
+    case "get_macro_catalog":
+      return (await session.getMacroCatalog()) as T;
+
+    case "get_script_macro_calls":
+      return (await session.getScriptMacroCalls(
+        stringArg(args, "path"),
+      )) as T;
+
     case "get_tmhm_compatibility":
       return (await session.getTmhmCompatibility(
         stringArg(args, "moveConstant"),
