@@ -209,14 +209,28 @@ function MapCanvas({
   }, [visualization, view, showGrid]);
 
   const scale = view === "tiles" ? Math.max(zoom, 2) : zoom;
+  const intrinsicSize = view === "map"
+    ? {
+        width: visualization.map.width * 32,
+        height: visualization.map.height * 32,
+      }
+    : view === "blocks"
+      ? {
+          width: 8 * 32,
+          height: Math.max(1, Math.ceil(visualization.blockCount / 8)) * 32,
+        }
+      : {
+          width: 16 * 8,
+          height: Math.max(1, Math.ceil(visualization.tileCount / 16)) * 8,
+        };
 
   return (
     <canvas
       ref={canvasRef}
       className="world-map-canvas"
       style={{
-        width: canvasRef.current ? canvasRef.current.width * scale : undefined,
-        height: canvasRef.current ? canvasRef.current.height * scale : undefined,
+        width: intrinsicSize.width * scale,
+        height: intrinsicSize.height * scale,
       }}
       aria-label={
         view === "map"
