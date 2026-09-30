@@ -4,6 +4,7 @@ import type {
   HistoryPendingOperation,
   HistoryState,
   HistorySummary,
+  HistoryTimeline,
   ProjectSource,
   TextWriteRequest,
 } from "./types";
@@ -85,6 +86,22 @@ function summarize(state: HistoryState, persistent: boolean): HistorySummary {
     latestLabel: latest?.label ?? null,
     latestTimestamp: latest?.timestamp ?? null,
     persistent,
+  };
+}
+
+function timeline(state: HistoryState, persistent: boolean): HistoryTimeline {
+  return {
+    cursor: state.cursor,
+    entryCount: state.entries.length,
+    persistent,
+    entries: state.entries.map((entry, index) => ({
+      id: entry.id,
+      timestamp: entry.timestamp,
+      label: entry.label,
+      files: entry.files.map((file) => file.path),
+      applied: index < state.cursor,
+      cursorAfter: index + 1,
+    })),
   };
 }
 
@@ -228,6 +245,7 @@ async function recoverPendingOperation(
 export interface ProjectHistoryManager {
   getState(): Promise<HistoryState>;
   getSummary(): Promise<HistorySummary>;
+  getTimeline(): Promise<HistoryTimeline>;
   save(label: string, requests: TextWriteRequest[]): Promise<HistorySummary>;
   undo(): Promise<HistorySummary>;
   redo(): Promise<HistorySummary>;
@@ -453,6 +471,7 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
   return {
     getState,
     getSummary: async () => summarize(await getState(), source.historyStore.persistent),
+    getTimeline: async () => timeline(await getState(), source.historyStore.persistent),
     save,
     undo,
     redo,
