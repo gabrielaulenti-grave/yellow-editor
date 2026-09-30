@@ -80,6 +80,33 @@ export interface MapVisualization {
   warnings: string[];
 }
 
+export interface ScriptRoutineSummary {
+  path: string;
+  label: string;
+  startLine: number;
+  recognizedOperationCount: number;
+  operationKinds: string[];
+}
+
+export interface ScriptCatalogEntry {
+  id: string;
+  displayName: string;
+  paths: string[];
+  routines: ScriptRoutineSummary[];
+}
+
+export interface ScriptCatalog {
+  entries: ScriptCatalogEntry[];
+  fileCount: number;
+  routineCount: number;
+}
+
+export interface ScriptDocument {
+  path: string;
+  source: string;
+  routines: ScriptRoutineSummary[];
+}
+
 export interface PokemonIndexEntry {
   internalId: number;
   constant: string | null;
@@ -1073,6 +1100,8 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
+  getScriptCatalog(): Promise<ScriptCatalog>;
+  getScriptDocument(path: string): Promise<ScriptDocument>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,
