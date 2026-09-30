@@ -119,6 +119,62 @@ function parseTilesetLabels(constantsText: string, headersText: string): Map<str
   return result;
 }
 
+function parseMapConnections(
+  headerText: string,
+  index: MapIndexEntry[],
+): MapVisualization["connections"] {
+  const connections: MapVisualization["connections"] = [];
+
+  for (const rawLine of headerText.split(/\r?\n/)) {
+    const match = codeOnly(rawLine).match(
+      /^connection\s+(north|south|east|west)\s*,\s*[A-Za-z0-9_]+\s*,\s*([A-Z0-9_]+)\s*,\s*(-?\d+)\b/i,
+    );
+    if (!match) continue;
+
+    const destination = index.find((entry) => entry.constant === match[2]);
+    connections.push({
+      direction: match[1].toLowerCase() as "north" | "south" | "east" | "west",
+      destinationMapConstant: match[2],
+      destinationMapDisplayName: destination?.displayName ?? null,
+      offset: Number.parseInt(match[3], 10),
+    });
+  }
+
+  return connections;
+}
+
+function parseWarpEvents(
+  objectText: string,
+  index: MapIndexEntry[],
+): MapVisualization["warps"] {
+  const warps: MapVisualization["warps"] = [];
+
+  for (const rawLine of objectText.split(/\r?\n/)) {
+    const match = codeOnly(rawLine).match(
+      /^warp_event\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*([A-Z0-9_]+)\s*,\s*(\d+)\b/i,
+    );
+    if (!match) continue;
+
+    const isLastMap = match[3].toUpperCase() === "LAST_MAP";
+    const destinationMapConstant = isLastMap ? null : match[3];
+    const destination = destinationMapConstant
+      ? index.find((entry) => entry.constant === destinationMapConstant)
+      : null;
+
+    warps.push({
+      id: warps.length + 1,
+      x: Number.parseInt(match[1], 10),
+      y: Number.parseInt(match[2], 10),
+      destinationMapConstant,
+      destinationMapDisplayName: destination?.displayName ?? null,
+      destinationWarpId: Number.parseInt(match[4], 10),
+      isLastMap,
+    });
+  }
+
+  return warps;
+}
+
 function withTrailingPadding(
   bytes: Uint8Array,
   paddingAfter: number,
@@ -267,6 +323,17 @@ export async function loadMapVisualization(
   const headerMapConstant = headerMatch[2];
   const tilesetConstant = headerMatch[3];
   const warnings: string[] = [];
+  const objectPath = `data/maps/objects/${mapSourceLabel}.asm`;
+  const connections = parseMapConnections(headerText, entries);
+  let warps: MapVisualization["warps"] = [];
+
+  if (await source.exists(objectPath)) {
+    warps = parseWarpEvents(await source.readText(objectPath), entries);
+  } else {
+    warnings.push(
+      `Map object source ${objectPath} does not exist, so warp markers are unavailable.`,
+    );
+  }
 
   const mapAssets = parseBinaryAssets(mapsAsm);
   const mapBlockSpec = mapAssets.get(`${mapSourceLabel}_Blocks`);
@@ -342,11 +409,14 @@ export async function loadMapVisualization(
     mapBlockPath: mapBlockSpec.path,
     blocksetPath: blocksetSpec.path,
     tilesetGfxPath: tilesetGraphics.sourcePath,
+    objectPath,
     mapBlocks: Array.from(mapBlocks),
     blockset: Array.from(blockset),
     tilesetGfx: Array.from(tilesetGfx),
     tileCount,
     blockCount,
+    warps,
+    connections,
     warnings,
   };
 }
