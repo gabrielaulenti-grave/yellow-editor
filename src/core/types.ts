@@ -127,7 +127,8 @@ export type ProjectSemanticDomainKind =
   | "item"
   | "map"
   | "trainer-class"
-  | "constant-family";
+  | "constant-family"
+  | "label-family";
 
 export interface ProjectSemanticDomainOption {
   value: string;
