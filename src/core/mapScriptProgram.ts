@@ -194,7 +194,10 @@ function localLabelSource(section: LabelSection, label: string): string | null {
 
   let end = lines.length;
   for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^\s*[A-Za-z_.][A-Za-z0-9_.]*:{1,2}\s*(?:;.*)?$/.test(lines[index])) {
+    const nextLabel = lines[index].match(
+      /^\s*((?:\.[A-Za-z_][A-Za-z0-9_.]*)(?::{1,2})?|(?:[A-Za-z_][A-Za-z0-9_]*):{1,2})\s*(?:;.*)?$/,
+    );
+    if (nextLabel) {
       end = index;
       break;
     }
