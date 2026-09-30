@@ -13,9 +13,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const EMSCRIPTEN_VERSION = "4.0.15";
-const RGBDS_VERSION = "1.0.3";
+const RGBDS_VERSION = "1.0.4";
 const RGBDS_TAG = `v${RGBDS_VERSION}`;
-const RGBDS_COMMIT = "307846b03ea89ee57bf75f179d5f8051175ac60d";
+const RGBDS_COMMIT = "f7b8207322aa9e3714ef0d98d01989f320103026";
 const RGBDS_WASM_TOOLS = ["rgbasm", "rgblink", "rgbfix"];
 
 const repoRoot = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
@@ -222,7 +222,7 @@ async function main() {
       manifestTools[tool] = {
         module: `${tool}.mjs`,
         wasm: `${tool}.wasm`,
-        implementation: "RGBDS 1.0.3",
+        implementation: `RGBDS ${RGBDS_VERSION}`,
       };
     }
 
@@ -247,7 +247,7 @@ async function main() {
       },
       graphicsCompatibility: {
         implementation: "Yellow Editor browser image decoder + RGBDS-compatible Gen I tile encoder",
-        reason: "Avoid libpng/Emscripten traps in RGBDS 1.0.3 rgbgfx while preserving the pret Gen I command subset",
+        reason: `Avoid libpng/Emscripten traps in RGBDS ${RGBDS_VERSION} rgbgfx while preserving the pret Gen I command subset`,
         supportedRgbgfxSubset: [
           "--colors dmg",
           "--columns",
