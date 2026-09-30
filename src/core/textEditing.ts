@@ -79,6 +79,9 @@ const GLOBAL_LABEL_PATTERN = /^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/;
 const TERMINATOR_PATTERN = /^\s*(done|prompt|dex|text_end)\b/i;
 const FAR_TEXT_PATTERN = /^\s*text_far\s+([A-Za-z_.][A-Za-z0-9_.]*)\b/i;
 const TEXT_POINTER_LOAD_PATTERN = /^\s*ld\s+hl\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i;
+const SHARED_TEXT_WRAPPER_PATHS = [
+  "home/overworld_text.asm",
+] as const;
 
 // These control codes expand to runtime text. Count their maximum displayed width,
 // rather than the number of characters used to spell the token in the ASM source.
@@ -653,12 +656,25 @@ export function attachTextEditing(
   const extended = session as ProjectSession & TextEditingSession;
 
   extended.getTextDocument = async (path, label, previewText) => {
-    const contents = await source.readText(path);
+    let resolvedPath = path;
+    let contents = await source.readText(resolvedPath);
+
+    if (!containsLabel(contents, label)) {
+      for (const candidatePath of SHARED_TEXT_WRAPPER_PATHS) {
+        if (!(await source.exists(candidatePath))) continue;
+        const candidateContents = await source.readText(candidatePath);
+        if (!containsLabel(candidateContents, label)) continue;
+        resolvedPath = candidatePath;
+        contents = candidateContents;
+        break;
+      }
+    }
+
     if (previewText) {
       try {
         const leafDocument = await resolveTextLeafDocument(
           source,
-          path,
+          resolvedPath,
           label,
           previewText,
           new Set(),
@@ -669,8 +685,13 @@ export function attachTextEditing(
         // unusual text_asm programs read-only instead of guessing a target.
       }
     }
-    const farDocument = await resolveFarTextDocument(source, path, label, contents);
-    return farDocument ?? parseTextDocument(path, label, contents);
+    const farDocument = await resolveFarTextDocument(
+      source,
+      resolvedPath,
+      label,
+      contents,
+    );
+    return farDocument ?? parseTextDocument(resolvedPath, label, contents);
   };
 
   extended.saveTextDocument = async (request) => {

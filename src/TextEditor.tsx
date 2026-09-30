@@ -88,6 +88,14 @@ export function TextEditor({
   }, [initialText]);
 
   useEffect(() => {
+    if (controlled) return;
+    setDocument(null);
+    setDraft([]);
+    setPreview(initialText);
+    setError(null);
+  }, [controlled, target?.path, target?.label]);
+
+  useEffect(() => {
     if (!controlled || !controlledSegments) return;
     const segments = controlledSegments.map((segment) => ({ ...segment }));
     const localDocument: TextDocument = {
