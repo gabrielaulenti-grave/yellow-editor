@@ -474,7 +474,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
             game world.
           </p>
         </div>
-        <span className="read-only-badge">Visualization foundation</span>
+        <span className="read-only-badge">World navigation foundation</span>
       </div>
 
       <div className="world-map-browser">
@@ -559,6 +559,16 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   <strong>{visualization.blockCount}</strong>
                   <small>4×4 tiles each</small>
                 </div>
+                <div>
+                  <span>Warps</span>
+                  <strong>{visualization.warps.length}</strong>
+                  <small>Doors, stairs, ladders, exits</small>
+                </div>
+                <div>
+                  <span>Connections</span>
+                  <strong>{visualization.connections.length}</strong>
+                  <small>Outdoor map edges</small>
+                </div>
               </div>
 
               <div className="world-map-controls">
@@ -599,16 +609,75 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                 </label>
 
                 {view === "map" && (
-                  <label className="world-map-grid-toggle">
-                    <input
-                      type="checkbox"
-                      checked={showGrid}
-                      onChange={(event) => setShowGrid(event.target.checked)}
-                    />
-                    <span>Block grid</span>
-                  </label>
+                  <>
+                    <label className="world-map-grid-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showGrid}
+                        onChange={(event) => setShowGrid(event.target.checked)}
+                      />
+                      <span>Block grid</span>
+                    </label>
+                    <label className="world-map-grid-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showWarps}
+                        onChange={(event) => setShowWarps(event.target.checked)}
+                      />
+                      <span>Warp markers</span>
+                    </label>
+                  </>
                 )}
               </div>
+
+              {view === "map" && (
+                <div className="world-map-navigation">
+                  <div className="world-map-navigation-heading">
+                    <div>
+                      <strong>Navigate the world</strong>
+                      <small>
+                        Follow outdoor connections or select a numbered warp on the map.
+                      </small>
+                    </div>
+                    {navigationStack.length > 0 && (
+                      <button type="button" className="small-button" onClick={goBack}>
+                        ← Back
+                      </button>
+                    )}
+                  </div>
+
+                  {visualization.connections.length > 0 && (
+                    <div className="world-map-connection-list">
+                      {visualization.connections.map((connection) => {
+                        const arrow = connection.direction === "north"
+                          ? "↑"
+                          : connection.direction === "south"
+                            ? "↓"
+                            : connection.direction === "east"
+                              ? "→"
+                              : "←";
+                        return (
+                          <button
+                            key={`${connection.direction}:${connection.destinationMapConstant}`}
+                            type="button"
+                            onClick={() => navigateToMap(
+                              connection.destinationMapConstant,
+                              null,
+                            )}
+                          >
+                            <span>{arrow}</span>
+                            <strong>
+                              {connection.destinationMapDisplayName
+                                ?? connection.destinationMapConstant}
+                            </strong>
+                            <small>{connection.direction}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="world-map-canvas-wrap">
                 <MapCanvas
@@ -616,15 +685,88 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   view={view}
                   zoom={zoom}
                   showGrid={showGrid}
+                  showWarps={showWarps}
+                  selectedWarpId={selectedWarpId}
+                  arrivalWarpId={arrivalWarpId}
+                  onSelectWarp={setSelectedWarpId}
                 />
               </div>
+
+              {view === "map" && visualization.warps.length > 0 && (
+                <div className="world-map-warp-panel">
+                  <div className="world-map-warp-list" aria-label="Map warps">
+                    {visualization.warps.map((warp) => (
+                      <button
+                        key={warp.id}
+                        type="button"
+                        className={warp.id === selectedWarpId ? "active" : ""}
+                        onClick={() => setSelectedWarpId(warp.id)}
+                      >
+                        <strong>#{warp.id}</strong>
+                        <span>({warp.x}, {warp.y})</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedWarp ? (
+                    <div className="world-map-warp-inspector">
+                      <div>
+                        <span>Selected warp</span>
+                        <strong>Warp #{selectedWarp.id}</strong>
+                        <code>x {selectedWarp.x}, y {selectedWarp.y}</code>
+                      </div>
+                      <div>
+                        <span>Destination</span>
+                        <strong>
+                          {selectedWarp.isLastMap
+                            ? resolvedWarpDestinationMap?.displayName
+                              ?? "Last outdoor map"
+                            : selectedWarp.destinationMapDisplayName
+                              ?? selectedWarp.destinationMapConstant
+                              ?? "Unknown"}
+                        </strong>
+                        <code>
+                          {selectedWarp.isLastMap
+                            ? "LAST_MAP"
+                            : selectedWarp.destinationMapConstant}
+                          {" · warp #"}{selectedWarp.destinationWarpId}
+                        </code>
+                      </div>
+                      <div className="world-map-warp-action">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          disabled={!resolvedWarpDestination}
+                          onClick={navigateSelectedWarp}
+                        >
+                          {resolvedWarpDestinationMap
+                            ? `Go to ${resolvedWarpDestinationMap.displayName}`
+                            : selectedWarp.isLastMap
+                              ? "Enter from an outdoor map to resolve LAST_MAP"
+                              : "Destination unavailable"}
+                        </button>
+                        {selectedWarp.isLastMap && (
+                          <small>
+                            Gen I stores LAST_MAP as the last outdoor map visited.
+                            Yellow Editor resolves it when you navigate here from the world map.
+                          </small>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="world-map-warp-empty">
+                      Select a numbered marker to inspect its destination.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <p className="help-text">
                 {view === "tiles"
                   ? "Tile IDs run left-to-right, top-to-bottom. Each tile is decoded directly from the selected .2bpp source."
                   : view === "blocks"
                     ? "Block IDs run left-to-right, top-to-bottom. Every block is assembled from 16 tile IDs in the .bst blockset."
-                    : "The map preview expands each .blk block ID through the selected .bst blockset and .2bpp tileset."}
+                    : "Numbered markers use the game's 16×16 movement coordinates. Select a warp to inspect it, then follow its destination to navigate between maps."}
               </p>
 
               {visualization.warnings.length > 0 && (
@@ -647,6 +789,10 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   <div>
                     <dt>Header</dt>
                     <dd><code>{visualization.map.headerPath}</code></dd>
+                  </div>
+                  <div>
+                    <dt>Map objects</dt>
+                    <dd><code>{visualization.objectPath}</code></dd>
                   </div>
                   <div>
                     <dt>Map blocks</dt>
