@@ -16,9 +16,7 @@ interface ParsedInvocationLine {
   arguments: InvocationArgumentSpan[];
 }
 
-export interface PreparedScriptMacroWrite extends TextWriteRequest {
-  beforeContents: string;
-}
+export type PreparedScriptMacroWrite = TextWriteRequest;
 
 function commentStart(line: string): number {
   let quoted = false;
@@ -360,6 +358,5 @@ export async function prepareScriptMacroCallWrite(
     path,
     contents: sourceText.slice(0, bounds.start) + nextLine + sourceText.slice(bounds.end),
     expectedHash,
-    beforeContents: sourceText,
   };
 }
