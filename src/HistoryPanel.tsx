@@ -3,6 +3,7 @@ import type { HistoryTimeline } from "./core/types";
 interface HistoryPanelProps {
   timeline: HistoryTimeline;
   busy: boolean;
+  currentCopyDisabled: boolean;
   onClose(): void;
   onSaveCopy(historyCursor?: number): Promise<void>;
 }
@@ -17,6 +18,7 @@ function formatTimestamp(value: string): string {
 export function HistoryPanel({
   timeline,
   busy,
+  currentCopyDisabled,
   onClose,
   onSaveCopy,
 }: HistoryPanelProps) {
@@ -49,8 +51,11 @@ export function HistoryPanel({
         <button
           type="button"
           className="primary-action"
-          disabled={busy}
+          disabled={busy || currentCopyDisabled}
           onClick={() => void onSaveCopy()}
+          title={currentCopyDisabled
+            ? "Save or revert unsaved editor changes before creating a current project copy."
+            : "Save the complete current project as an independent packed ZIP."}
         >
           Save As…
         </button>
