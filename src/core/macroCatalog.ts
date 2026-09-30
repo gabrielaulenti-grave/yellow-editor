@@ -355,7 +355,7 @@ function collectSourceConstantDomains(
         .sort((left, right) => left.localeCompare(right))
         .map((value) => ({ value, label: value })),
     }))
-    .filter((domain) => domain.options.length > 0)
+    .filter((domain) => domain.options.length > 1)
     .sort((left, right) =>
       left.label.localeCompare(right.label)
       || (left.sourcePath ?? "").localeCompare(right.sourcePath ?? ""));
