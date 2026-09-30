@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  EncounterTableEditDocument,
+  EncounterTableIndexEntry,
+  FishingEditDocument,
   MapIndexEntry,
   MapVisualization,
+  PokemonIndexEntry,
   ProjectInfo,
 } from "./core/types";
 import { invoke } from "./platform/compat";
@@ -284,7 +288,25 @@ function formatMapId(id: number): string {
   return `$${id.toString(16).toUpperCase().padStart(2, "0")}`;
 }
 
-export function MapsTab({ project }: { project: ProjectInfo | null }) {
+interface MapsTabProps {
+  project: ProjectInfo | null;
+  encounters: EncounterTableIndexEntry[];
+  fishingDocument: FishingEditDocument | null;
+  pokemonIndex: PokemonIndexEntry[];
+  focusMapConstant: string | null;
+  onOpenWalkingEncounter(entry: EncounterTableIndexEntry): void;
+  onOpenFishing(mapConstant: string): void;
+}
+
+export function MapsTab({
+  project,
+  encounters,
+  fishingDocument,
+  pokemonIndex,
+  focusMapConstant,
+  onOpenWalkingEncounter,
+  onOpenFishing,
+}: MapsTabProps) {
   const [maps, setMaps] = useState<MapIndexEntry[]>([]);
   const [selectedConstant, setSelectedConstant] = useState<string | null>(null);
   const [visualization, setVisualization] = useState<MapVisualization | null>(null);
@@ -299,6 +321,10 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
   const [lastOutdoorMap, setLastOutdoorMap] = useState<string | null>(null);
   const [indexLoading, setIndexLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [encounterSummary, setEncounterSummary] =
+    useState<EncounterTableEditDocument | null>(null);
+  const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
+  const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -342,6 +368,18 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
   const selectedMap = maps.find(
     (entry) => entry.constant === selectedConstant,
   ) ?? null;
+
+  useEffect(() => {
+    if (
+      !focusMapConstant
+      || maps.length === 0
+      || !maps.some((entry) => entry.constant === focusMapConstant)
+      || selectedConstant === focusMapConstant
+    ) {
+      return;
+    }
+    selectMapFromBrowser(focusMapConstant);
+  }, [focusMapConstant, maps]);
 
   function selectMapFromBrowser(mapConstant: string) {
     setSelectedConstant(mapConstant);
@@ -427,6 +465,55 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
     };
   }, [project?.storageKey, selectedMap?.constant, arrivalWarpId]);
 
+  const selectedEncounterEntry = selectedConstant
+    ? encounters.find((entry) =>
+        entry.affectedMaps.some((map) => map.constant === selectedConstant),
+      ) ?? null
+    : null;
+  const selectedFishingTable = selectedConstant
+    ? fishingDocument?.superRodTables.find((table) =>
+        table.affectedMaps.some((map) => map.constant === selectedConstant),
+      ) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!selectedEncounterEntry) {
+      setEncounterSummary(null);
+      setEncounterSummaryError(null);
+      setEncounterSummaryLoading(false);
+      return;
+    }
+    if (selectedEncounterEntry.error) {
+      setEncounterSummary(null);
+      setEncounterSummaryError(selectedEncounterEntry.error);
+      setEncounterSummaryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setEncounterSummaryLoading(true);
+    setEncounterSummaryError(null);
+    void invoke<EncounterTableEditDocument>("get_encounter_table", {
+      path: selectedEncounterEntry.path,
+    })
+      .then((document) => {
+        if (!cancelled) setEncounterSummary(document);
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          setEncounterSummary(null);
+          setEncounterSummaryError(String(reason));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setEncounterSummaryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEncounterEntry?.path, selectedEncounterEntry?.error]);
+
   const filteredMaps = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return maps;
@@ -450,6 +537,19 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
   function navigateSelectedWarp() {
     if (!selectedWarp || !resolvedWarpDestination) return;
     navigateToMap(resolvedWarpDestination, selectedWarp.destinationWarpId);
+  }
+
+  function speciesName(constant: string): string {
+    return pokemonIndex.find((pokemon) => pokemon.constant === constant)?.displayName
+      ?? constant.replace(/_/g, " ");
+  }
+
+  function speciesSummary(slots: Array<{ speciesConstant: string }>): string {
+    return [...new Set(slots.map((slot) => speciesName(slot.speciesConstant)))].join(", ");
+  }
+
+  function versionLabel(version: string): string {
+    return version[0]?.toUpperCase() + version.slice(1);
   }
 
   if (!project) {
@@ -570,6 +670,131 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   <small>Outdoor map edges</small>
                 </div>
               </div>
+
+              <section className="world-map-encounters">
+                <div className="world-map-encounters-heading">
+                  <div>
+                    <strong>Wild encounters</strong>
+                    <small>
+                      Gameplay data linked to this map. Terrain-specific encounter tiles are not visualized yet.
+                    </small>
+                  </div>
+                </div>
+
+                <div className="world-map-encounter-grid">
+                  <div className="world-map-encounter-card">
+                    <div className="world-map-encounter-card-heading">
+                      <div>
+                        <strong>Grass &amp; Surfing</strong>
+                        {selectedEncounterEntry && (
+                          <small>
+                            {selectedEncounterEntry.affectedMaps.length > 1
+                              ? `Shared by ${selectedEncounterEntry.affectedMaps.length} maps`
+                              : selectedEncounterEntry.displayName}
+                          </small>
+                        )}
+                      </div>
+                      {selectedEncounterEntry && (
+                        <button
+                          type="button"
+                          className="small-button"
+                          onClick={() => onOpenWalkingEncounter(selectedEncounterEntry)}
+                        >
+                          Open in Wild Encounters →
+                        </button>
+                      )}
+                    </div>
+
+                    {encounterSummaryLoading ? (
+                      <p className="help-text">Reading encounter table…</p>
+                    ) : encounterSummaryError ? (
+                      <p className="world-map-encounter-error">{encounterSummaryError}</p>
+                    ) : encounterSummary ? (
+                      <div className="world-map-encounter-versions">
+                        {encounterSummary.versions.map((entry) => (
+                          <div key={entry.version}>
+                            {encounterSummary.versions.length > 1 && (
+                              <strong>{versionLabel(entry.version)}</strong>
+                            )}
+                            {entry.grass.rate > 0 && (
+                              <p>
+                                <b>Grass</b>
+                                <span>Rate {entry.grass.rate} · {speciesSummary(entry.grass.slots)}</span>
+                              </p>
+                            )}
+                            {entry.water.rate > 0 && (
+                              <p>
+                                <b>Surfing</b>
+                                <span>Rate {entry.water.rate} · {speciesSummary(entry.water.slots)}</span>
+                              </p>
+                            )}
+                            {entry.grass.rate === 0 && entry.water.rate === 0 && (
+                              <p className="help-text">No active grass or surfing encounters.</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="help-text">No grass or surfing encounter table is assigned to this map.</p>
+                    )}
+                  </div>
+
+                  <div className="world-map-encounter-card">
+                    <div className="world-map-encounter-card-heading">
+                      <div>
+                        <strong>Fishing</strong>
+                        <small>
+                          {selectedFishingTable
+                            ? selectedFishingTable.affectedMaps.length > 1
+                              ? `Super Rod table shared by ${selectedFishingTable.affectedMaps.length} maps`
+                              : "Map-specific Super Rod table"
+                            : "No map-specific Super Rod table"}
+                        </small>
+                      </div>
+                      {selectedConstant && fishingDocument && (
+                        <button
+                          type="button"
+                          className="small-button"
+                          onClick={() => onOpenFishing(selectedConstant)}
+                        >
+                          Open Fishing →
+                        </button>
+                      )}
+                    </div>
+
+                    {fishingDocument ? (
+                      <div className="world-map-fishing-summary">
+                        <p>
+                          <b>Old Rod</b>
+                          <span>
+                            {speciesName(fishingDocument.oldRod.speciesConstant)}
+                            {" Lv. "}{fishingDocument.oldRod.level}
+                          </span>
+                        </p>
+                        <p>
+                          <b>Good Rod</b>
+                          <span>{fishingDocument.goodRod.map((slot) =>
+                            `${speciesName(slot.speciesConstant)} Lv. ${slot.level}`
+                          ).join(", ")}</span>
+                        </p>
+                        {selectedFishingTable ? (
+                          <p>
+                            <b>Super Rod</b>
+                            <span>{speciesSummary(selectedFishingTable.slots)}</span>
+                          </p>
+                        ) : (
+                          <p className="help-text">No Super Rod table is assigned specifically to this map.</p>
+                        )}
+                        <small>
+                          Old and Good Rod contents are global when fishing is permitted; this does not identify fishable tiles.
+                        </small>
+                      </div>
+                    ) : (
+                      <p className="help-text">Fishing data is unavailable for this project.</p>
+                    )}
+                  </div>
+                </div>
+              </section>
 
               <div className="world-map-controls">
                 <div className="segmented-control world-map-view-control">
