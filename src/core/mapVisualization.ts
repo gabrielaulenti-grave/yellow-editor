@@ -329,10 +329,42 @@ export async function loadMapVisualization(
 
   if (await source.exists(objectPath)) {
     warps = parseWarpEvents(await source.readText(objectPath), entries);
+
+    const movementWidth = map.width * 2;
+    const movementHeight = map.height * 2;
+    for (const warp of warps) {
+      if (
+        warp.x < 0
+        || warp.y < 0
+        || warp.x >= movementWidth
+        || warp.y >= movementHeight
+      ) {
+        warnings.push(
+          `Warp #${warp.id} is at (${warp.x}, ${warp.y}), outside the ${movementWidth}×${movementHeight} movement grid.`,
+        );
+      }
+      if (
+        !warp.isLastMap
+        && warp.destinationMapConstant
+        && !warp.destinationMapDisplayName
+      ) {
+        warnings.push(
+          `Warp #${warp.id} points to unknown map constant ${warp.destinationMapConstant}.`,
+        );
+      }
+    }
   } else {
     warnings.push(
       `Map object source ${objectPath} does not exist, so warp markers are unavailable.`,
     );
+  }
+
+  for (const connection of connections) {
+    if (!connection.destinationMapDisplayName) {
+      warnings.push(
+        `${connection.direction} connection points to unknown map constant ${connection.destinationMapConstant}.`,
+      );
+    }
   }
 
   const mapAssets = parseBinaryAssets(mapsAsm);
