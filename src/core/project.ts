@@ -35,6 +35,7 @@ import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadScriptCatalog, loadScriptDocument } from "./scriptCatalog";
+import { loadMacroAnalysis } from "./macroCatalog";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -183,6 +184,7 @@ export async function createProjectSession(
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
   let mapIndexPromise: ReturnType<typeof parseMapIndex> | null = null;
   let scriptCatalogPromise: ReturnType<typeof loadScriptCatalog> | null = null;
+  let macroAnalysisPromise: ReturnType<typeof loadMacroAnalysis> | null = null;
   const mapVisualizationPromises = new Map<
     string,
     ReturnType<typeof loadMapVisualization>
@@ -338,7 +340,32 @@ export async function createProjectSession(
     return loadScriptDocument(source, path);
   }
 
+  function getMacroAnalysis() {
+    if (!macroAnalysisPromise) {
+      macroAnalysisPromise = loadMacroAnalysis(source).catch((error) => {
+        macroAnalysisPromise = null;
+        throw error;
+      });
+    }
+    return macroAnalysisPromise;
+  }
+
+  async function getMacroCatalog() {
+    return (await getMacroAnalysis()).catalog;
+  }
+
+  async function getScriptMacroCalls(path: string) {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    const analysis = await getMacroAnalysis();
+    return analysis.callsByScriptPath.get(path) ?? { path, calls: [] };
+  }
+
   function invalidateNonTrainerReadModels(paths: string[]): void {
+    if (paths.some((path) => /\.(?:asm|inc)$/i.test(path))) {
+      macroAnalysisPromise = null;
+    }
     if (paths.some((path) => path.startsWith("scripts/"))) {
       scriptCatalogPromise = null;
     }
@@ -487,6 +514,8 @@ export async function createProjectSession(
     getMapVisualization,
     getScriptCatalog,
     getScriptDocument,
+    getMacroCatalog,
+    getScriptMacroCalls,
     getTmhmCompatibility: async (moveConstant) => {
       const index = await getTmhmCompatibilityIndex();
       return index.get(moveConstant) ?? [];
@@ -751,6 +780,7 @@ export async function createProjectSession(
     saveTextChanges: async (label, changes) => {
       const result = await history.save(label, changes);
       const changedPaths = changes.map((change) => change.path);
+      invalidateNonTrainerReadModels(changedPaths);
       if (trainerBaseAffected(changedPaths)) {
         invalidateTrainerBaseCatalog(changedPaths);
       }
