@@ -2647,3 +2647,49 @@ pre {
     width: fit-content;
   }
 }
+
+
+.history-entry-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.history-selective-undo-note {
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.4;
+}
+
+.history-selective-undo-note strong {
+  color: inherit;
+}
+
+.history-selective-undo-note ul {
+  display: grid;
+  gap: 3px;
+  margin: 6px 0 0;
+  padding-left: 20px;
+}
+
+.history-selective-undo-note code {
+  overflow-wrap: anywhere;
+}
+
+.history-baseline-help {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+@media (max-width: 700px) {
+  .history-entry-actions {
+    justify-content: flex-start;
+  }
+}
