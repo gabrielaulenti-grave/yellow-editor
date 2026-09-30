@@ -175,6 +175,43 @@ function parseWarpEvents(
   return warps;
 }
 
+function parseTextPointers(scriptText: string): Map<string, string> {
+  const pointers = new Map<string, string>();
+  for (const rawLine of scriptText.split(/\r?\n/)) {
+    const match = codeOnly(rawLine).match(
+      /^dw_const\s+([A-Za-z_.][A-Za-z0-9_.]*)\s*,\s*(TEXT_[A-Z0-9_]+)\b/i,
+    );
+    if (match) pointers.set(match[2], match[1]);
+  }
+  return pointers;
+}
+
+function parseSignEvents(
+  objectText: string,
+  scriptPath: string,
+  scriptText: string | null,
+): MapVisualization["signs"] {
+  const signs: MapVisualization["signs"] = [];
+  const textPointers = scriptText ? parseTextPointers(scriptText) : new Map<string, string>();
+
+  for (const rawLine of objectText.split(/\r?\n/)) {
+    const match = codeOnly(rawLine).match(
+      /^bg_event\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*(TEXT_[A-Z0-9_]+)\b/i,
+    );
+    if (!match) continue;
+    signs.push({
+      id: signs.length + 1,
+      x: Number.parseInt(match[1], 10),
+      y: Number.parseInt(match[2], 10),
+      textConstant: match[3],
+      textLabel: textPointers.get(match[3]) ?? null,
+      scriptPath,
+    });
+  }
+
+  return signs;
+}
+
 function withTrailingPadding(
   bytes: Uint8Array,
   paddingAfter: number,
@@ -324,11 +361,18 @@ export async function loadMapVisualization(
   const tilesetConstant = headerMatch[3];
   const warnings: string[] = [];
   const objectPath = `data/maps/objects/${mapSourceLabel}.asm`;
+  const scriptPath = `scripts/${mapSourceLabel}.asm`;
   const connections = parseMapConnections(headerText, entries);
   let warps: MapVisualization["warps"] = [];
+  let signs: MapVisualization["signs"] = [];
 
   if (await source.exists(objectPath)) {
-    warps = parseWarpEvents(await source.readText(objectPath), entries);
+    const objectText = await source.readText(objectPath);
+    warps = parseWarpEvents(objectText, entries);
+    const scriptText = await source.exists(scriptPath)
+      ? await source.readText(scriptPath)
+      : null;
+    signs = parseSignEvents(objectText, scriptPath, scriptText);
 
     const movementWidth = map.width * 2;
     const movementHeight = map.height * 2;
@@ -350,6 +394,24 @@ export async function loadMapVisualization(
       ) {
         warnings.push(
           `Warp #${warp.id} points to unknown map constant ${warp.destinationMapConstant}.`,
+        );
+      }
+    }
+
+    for (const sign of signs) {
+      if (
+        sign.x < 0
+        || sign.y < 0
+        || sign.x >= movementWidth
+        || sign.y >= movementHeight
+      ) {
+        warnings.push(
+          `Sign #${sign.id} is at (${sign.x}, ${sign.y}), outside the ${movementWidth}×${movementHeight} movement grid.`,
+        );
+      }
+      if (!sign.textLabel) {
+        warnings.push(
+          `Sign #${sign.id} uses ${sign.textConstant}, but no matching text pointer was resolved in ${scriptPath}.`,
         );
       }
     }
@@ -448,6 +510,7 @@ export async function loadMapVisualization(
     tileCount,
     blockCount,
     warps,
+    signs,
     connections,
     warnings,
   };
