@@ -1,0 +1,121 @@
+import type { HistoryTimeline } from "./core/types";
+
+interface HistoryPanelProps {
+  timeline: HistoryTimeline;
+  busy: boolean;
+  onClose(): void;
+  onSaveCopy(historyCursor?: number): Promise<void>;
+}
+
+function formatTimestamp(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString();
+}
+
+export function HistoryPanel({
+  timeline,
+  busy,
+  onClose,
+  onSaveCopy,
+}: HistoryPanelProps) {
+  const entries = [...timeline.entries].reverse();
+
+  return (
+    <section className="history-panel editor-card" aria-label="Project history">
+      <div className="history-panel-heading">
+        <div>
+          <h2>Project history</h2>
+          <p>
+            {timeline.cursor} of {timeline.entryCount} saved changes are currently applied.
+            {" "}
+            {timeline.persistent
+              ? "This timeline is stored with Yellow Editor for this project."
+              : "This browser session cannot persist history after the project is closed."}
+          </p>
+        </div>
+        <button type="button" onClick={onClose}>Close</button>
+      </div>
+
+      <div className="history-safety-card">
+        <div>
+          <strong>Safe project copy</strong>
+          <p>
+            Save the current disassembly as an independent packed ZIP project.
+            The open project is not changed.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="primary-action"
+          disabled={busy}
+          onClick={() => void onSaveCopy()}
+        >
+          Save As…
+        </button>
+      </div>
+
+      {timeline.cursor === 0 && (
+        <div className="history-current-marker">
+          <strong>Current state:</strong> before the first Yellow Editor save
+        </div>
+      )}
+
+      {entries.length === 0 ? (
+        <p className="history-empty">No Yellow Editor saves have been recorded yet.</p>
+      ) : (
+        <ol className="history-list">
+          {entries.map((entry) => {
+            const isCurrent = entry.cursorAfter === timeline.cursor;
+            return (
+              <li
+                key={entry.id}
+                className={[
+                  "history-entry",
+                  entry.applied ? "applied" : "undone",
+                  isCurrent ? "current" : "",
+                ].filter(Boolean).join(" ")}
+              >
+                <div className="history-entry-main">
+                  <div>
+                    <div className="history-entry-title-row">
+                      <strong>{entry.label}</strong>
+                      <span className="history-entry-state">
+                        {isCurrent
+                          ? "Current state"
+                          : entry.applied
+                            ? "Applied"
+                            : "Undone"}
+                      </span>
+                    </div>
+                    <time dateTime={entry.timestamp}>
+                      {formatTimestamp(entry.timestamp)}
+                    </time>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void onSaveCopy(entry.cursorAfter)}
+                    title="Create an independent project copy at this exact history point."
+                  >
+                    Save copy from here…
+                  </button>
+                </div>
+
+                <details>
+                  <summary>
+                    {entry.files.length} affected file{entry.files.length === 1 ? "" : "s"}
+                  </summary>
+                  <ul className="history-file-list">
+                    {entry.files.map((path) => <li key={path}><code>{path}</code></li>)}
+                  </ul>
+                </details>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+    </section>
+  );
+}
