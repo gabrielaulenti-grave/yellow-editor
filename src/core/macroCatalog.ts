@@ -74,6 +74,8 @@ function withoutComment(line: string): string {
 }
 
 function splitArguments(value: string): string[] {
+  if (!value.trim()) return [];
+
   const result: string[] = [];
   let start = 0;
   let quoted = false;
@@ -110,9 +112,8 @@ function splitArguments(value: string): string[] {
     }
   }
 
-  const tail = value.slice(start).trim();
-  if (tail || result.length > 0) result.push(tail);
-  return result.filter((item) => item.length > 0);
+  result.push(value.slice(start).trim());
+  return result;
 }
 
 function parameterReferences(line: string, shift: number): number[] {
