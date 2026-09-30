@@ -61,12 +61,6 @@ export function HistoryPanel({
         </button>
       </div>
 
-      {timeline.cursor === 0 && (
-        <div className="history-current-marker">
-          <strong>Current state:</strong> before the first Yellow Editor save
-        </div>
-      )}
-
       {entries.length === 0 ? (
         <p className="history-empty">No Yellow Editor saves have been recorded yet.</p>
       ) : (
@@ -119,6 +113,29 @@ export function HistoryPanel({
               </li>
             );
           })}
+          <li className={`history-entry baseline ${timeline.cursor === 0 ? "current" : "applied"}`}>
+            <div className="history-entry-main">
+              <div>
+                <div className="history-entry-title-row">
+                  <strong>Before first Yellow Editor save</strong>
+                  <span className="history-entry-state">
+                    {timeline.cursor === 0 ? "Current state" : "Baseline"}
+                  </span>
+                </div>
+                <span className="history-baseline-help">
+                  The project state immediately before the oldest retained Yellow Editor change.
+                </span>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onSaveCopy(0)}
+                title="Create an independent project copy from before the first retained Yellow Editor save."
+              >
+                Save baseline copy…
+              </button>
+            </div>
+          </li>
         </ol>
       )}
     </section>
