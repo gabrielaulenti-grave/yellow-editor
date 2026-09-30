@@ -175,3 +175,112 @@
     position: static;
   }
 }
+
+
+.script-macro-count {
+  margin-top: -0.3rem;
+}
+
+.script-macro-inspector {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+}
+
+.script-macro-inspector-heading,
+.script-macro-call-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.script-macro-inspector-heading h5,
+.script-macro-inspector-heading p {
+  margin-top: 0;
+}
+
+.script-macro-inspector-heading h5 {
+  margin-bottom: 0.25rem;
+  font-size: 1rem;
+}
+
+.script-macro-call-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 0.65rem;
+  background: var(--panel-bg, rgba(127, 127, 127, 0.04));
+}
+
+.script-macro-call-heading > div {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.script-macro-call-heading code,
+.script-macro-call-heading small {
+  overflow-wrap: anywhere;
+}
+
+.script-macro-call-heading > small {
+  max-width: 45%;
+  text-align: right;
+  opacity: 0.72;
+}
+
+.script-macro-parameter-grid {
+  display: grid;
+  gap: 0.65rem;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+}
+
+.script-macro-parameter {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.script-macro-parameter > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.script-macro-parameter > span small,
+.script-macro-evidence {
+  opacity: 0.68;
+}
+
+.script-macro-parameter > span small {
+  text-align: right;
+}
+
+.script-macro-parameter input[readonly] {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.script-macro-evidence {
+  line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+  .script-macro-inspector-heading,
+  .script-macro-call-heading,
+  .script-macro-parameter > span {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .script-macro-call-heading > small,
+  .script-macro-parameter > span small {
+    max-width: none;
+    text-align: left;
+  }
+}
