@@ -107,10 +107,24 @@ function MacroCallForm({
             const confidence = parameter.inferredKind !== "unknown"
               ? parameter.confidence
               : argument?.confidence ?? "low";
-            const semanticMatches = parameter.semanticDomains.length > 0
-              ? parameter.semanticDomains
-              : argument?.semanticDomains ?? [];
-            const primarySemanticMatch = semanticMatches[0] ?? null;
+            const parameterSemanticMatches = parameter.semanticDomains;
+            const argumentSemanticMatches = argument?.semanticDomains ?? [];
+            const exactParameterMatch = argumentSemanticMatches.find((argumentMatch) =>
+              parameterSemanticMatches.some(
+                (parameterMatch) => parameterMatch.domainId === argumentMatch.domainId,
+              ));
+            const primarySemanticMatch = exactParameterMatch
+              ?? parameterSemanticMatches[0]
+              ?? argumentSemanticMatches[0]
+              ?? null;
+            const semanticMatches = [
+              ...(primarySemanticMatch ? [primarySemanticMatch] : []),
+              ...parameterSemanticMatches,
+              ...argumentSemanticMatches,
+            ].filter(
+              (match, index, matches) =>
+                matches.findIndex((candidate) => candidate.domainId === match.domainId) === index,
+            );
             const semanticDomain = primarySemanticMatch
               ? domains.find((candidate) => candidate.id === primarySemanticMatch.domainId) ?? null
               : null;
