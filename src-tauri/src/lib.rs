@@ -24,6 +24,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_project_text,
             read_project_bytes,
+            list_project_files,
             read_archive_bytes,
             write_archive_bytes,
             decode_png_rgba,
@@ -172,6 +173,62 @@ fn read_project_text(project_path: String, relative_path: String) -> Result<Stri
 fn read_project_bytes(project_path: String, relative_path: String) -> Result<Vec<u8>, String> {
     let path = project_relative_path(&project_path, &relative_path)?;
     fs::read(&path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))
+}
+
+fn collect_project_files(
+    root: &Path,
+    directory: &Path,
+    files: &mut Vec<String>,
+) -> Result<(), String> {
+    let entries = fs::read_dir(directory)
+        .map_err(|e| format!("Failed to enumerate {}: {}", directory.display(), e))?;
+
+    for entry in entries {
+        let entry = entry
+            .map_err(|e| format!("Failed to enumerate {}: {}", directory.display(), e))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|e| format!("Failed to inspect {}: {}", path.display(), e))?;
+
+        if directory == root && entry.file_name() == ".git" {
+            continue;
+        }
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            collect_project_files(root, &path, files)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let relative = path
+            .strip_prefix(root)
+            .map_err(|e| format!("Failed to make {} project-relative: {}", path.display(), e))?;
+        let relative = relative
+            .to_str()
+            .ok_or_else(|| format!("Project contains a non-UTF-8 path: {}", relative.display()))?
+            .replace('\\', "/");
+        files.push(relative);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn list_project_files(project_path: String) -> Result<Vec<String>, String> {
+    let root = PathBuf::from(&project_path);
+    if !root.is_dir() {
+        return Err(format!("Project folder does not exist: {}", root.display()));
+    }
+
+    let mut files = Vec::new();
+    collect_project_files(&root, &root, &mut files)?;
+    files.sort();
+    Ok(files)
 }
 
 #[tauri::command]
