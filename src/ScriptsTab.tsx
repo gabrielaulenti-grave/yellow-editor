@@ -9,6 +9,7 @@ import type {
   ScriptDocument,
   ScriptMacroCall,
   ScriptMacroCallDocument,
+  ScriptMacroEditDocument,
   ScriptRoutineSummary,
 } from "./core/types";
 import {
@@ -65,11 +66,27 @@ function MacroCallForm({
   call,
   definition,
   domains,
+  onSaved,
 }: {
   call: ScriptMacroCall;
   definition: MacroDefinitionSummary | null;
   domains: ProjectSemanticDomain[];
+  onSaved(): void;
 }) {
+  const [editDocument, setEditDocument] = useState<ScriptMacroEditDocument | null>(null);
+  const [draftArguments, setDraftArguments] = useState<string[]>([]);
+  const [editLoading, setEditLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setEditDocument(null);
+    setDraftArguments([]);
+    setEditError(null);
+    setNotice(null);
+  }, [call.path, call.line, call.name]);
+
   const parameters = definition?.parameters.length
     ? definition.parameters
     : call.arguments.map((argument) => ({
@@ -82,6 +99,61 @@ function MacroCallForm({
         evidence: [],
         semanticDomains: argument.semanticDomains,
       }));
+
+  const hasSemanticCandidate = parameters.some(
+    (parameter) => parameter.semanticDomains.length > 0,
+  ) || call.arguments.some((argument) => argument.semanticDomains.length > 0);
+
+  async function beginEdit() {
+    setEditLoading(true);
+    setEditError(null);
+    setNotice(null);
+    try {
+      const nextDocument = await invoke<ScriptMacroEditDocument>(
+        "get_script_macro_edit_document",
+        { path: call.path, line: call.line },
+      );
+      if (nextDocument.editableArgumentDomains.length === 0) {
+        throw new Error(
+          "No parameter in this invocation currently has a semantic domain that Yellow Editor can rewrite safely.",
+        );
+      }
+      setEditDocument(nextDocument);
+      setDraftArguments([...nextDocument.arguments]);
+    } catch (error) {
+      setEditError(String(error));
+    } finally {
+      setEditLoading(false);
+    }
+  }
+
+  async function saveEdit() {
+    if (!editDocument) return;
+    setSaving(true);
+    setEditError(null);
+    setNotice(null);
+    try {
+      await invoke("save_script_macro_call", {
+        path: editDocument.path,
+        line: editDocument.line,
+        macroName: editDocument.macroName,
+        expectedHash: editDocument.sourceHash,
+        arguments: draftArguments,
+      });
+      setEditDocument(null);
+      setDraftArguments([]);
+      setNotice("Saved to project history.");
+      onSaved();
+    } catch (error) {
+      setEditError(String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const dirty = editDocument
+    ? draftArguments.some((value, index) => value !== editDocument.arguments[index])
+    : false;
 
   return (
     <article className="script-macro-call-card">
@@ -113,23 +185,38 @@ function MacroCallForm({
               parameterSemanticMatches.some(
                 (parameterMatch) => parameterMatch.domainId === argumentMatch.domainId,
               ));
-            const primarySemanticMatch = exactParameterMatch
+            const defaultPrimaryMatch = exactParameterMatch
               ?? parameterSemanticMatches[0]
               ?? argumentSemanticMatches[0]
               ?? null;
             const semanticMatches = [
-              ...(primarySemanticMatch ? [primarySemanticMatch] : []),
+              ...(defaultPrimaryMatch ? [defaultPrimaryMatch] : []),
               ...parameterSemanticMatches,
               ...argumentSemanticMatches,
             ].filter(
               (match, index, matches) =>
                 matches.findIndex((candidate) => candidate.domainId === match.domainId) === index,
             );
+            const editableEntry = editDocument?.editableArgumentDomains.find(
+              (entry) => entry.index === parameter.index,
+            ) ?? null;
+            const editableMatch = editableEntry
+              ? semanticMatches.find((match) => editableEntry.domainIds.includes(match.domainId)) ?? null
+              : null;
+            const primarySemanticMatch = editableMatch ?? defaultPrimaryMatch;
             const semanticDomain = primarySemanticMatch
               ? domains.find((candidate) => candidate.id === primarySemanticMatch.domainId) ?? null
               : null;
-            const rawValue = argument?.raw ?? "";
+            const rawValue = editDocument
+              ? draftArguments[parameter.index - 1] ?? ""
+              : argument?.raw ?? "";
             const optionExists = semanticDomain?.options.some((option) => option.value === rawValue) ?? false;
+            const editable = Boolean(
+              editDocument
+              && editableEntry
+              && semanticDomain
+              && editableEntry.domainIds.includes(semanticDomain.id),
+            );
 
             return (
               <label key={parameter.index} className="script-macro-parameter">
@@ -146,7 +233,13 @@ function MacroCallForm({
                 {semanticDomain ? (
                   <select
                     value={rawValue}
-                    disabled
+                    disabled={!editable || saving}
+                    onChange={(event) => {
+                      if (!editable) return;
+                      const next = [...draftArguments];
+                      next[parameter.index - 1] = event.target.value;
+                      setDraftArguments(next);
+                    }}
                     aria-label={`${call.name} ${parameter.displayName}`}
                   >
                     {!optionExists && rawValue && (
@@ -171,6 +264,11 @@ function MacroCallForm({
                     aria-label={`${call.name} ${parameter.displayName}`}
                   />
                 )}
+                {editDocument && !editable && semanticDomain && (
+                  <small className="script-macro-evidence">
+                    Read-only in this phase: the backend did not confirm this parameter as safely rewritable.
+                  </small>
+                )}
                 {semanticMatches.length > 1 && (
                   <small className="script-macro-evidence">
                     Also matches: {semanticMatches.slice(1).map((match) => match.domainLabel).join(", ")}
@@ -190,6 +288,55 @@ function MacroCallForm({
             );
           })}
         </div>
+      )}
+
+      {hasSemanticCandidate && parameters.length > 0 && (
+        <div className="script-macro-edit-actions">
+          {editDocument ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditDocument(null);
+                  setDraftArguments([]);
+                  setEditError(null);
+                }}
+                disabled={saving}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="primary-button"
+                onClick={() => void saveEdit()}
+                disabled={!dirty || saving}
+              >
+                {saving ? "Saving…" : "Save parameters"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => void beginEdit()}
+              disabled={editLoading}
+            >
+              {editLoading ? "Checking source…" : "Edit safe parameters"}
+            </button>
+          )}
+          <small>
+            Only source tokens backed by a proven project domain can be changed.
+          </small>
+        </div>
+      )}
+
+      {editError && (
+        <div className="world-map-warning script-macro-edit-message">
+          <strong>Macro edit stopped</strong>
+          <p>{editError}</p>
+        </div>
+      )}
+      {notice && (
+        <p className="help-text script-macro-edit-message">{notice}</p>
       )}
     </article>
   );
