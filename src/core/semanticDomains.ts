@@ -34,6 +34,7 @@ function domain(
     id,
     label,
     kind,
+    sourcePath: null,
     options: uniqueOptions(options),
   };
 }
