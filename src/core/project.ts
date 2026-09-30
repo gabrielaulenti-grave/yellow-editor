@@ -377,7 +377,7 @@ export async function createProjectSession(
     return analysis.callsByScriptPath.get(path) ?? { path, calls: [] };
   }
 
-  function invalidateNonTrainerReadModels(paths: string[]): void {
+  function invalidateScriptReadModels(paths: string[]): void {
     if (paths.some((path) => /\.(?:asm|inc)$/i.test(path))) {
       semanticDomainCatalogPromise = null;
       macroAnalysisPromise = null;
@@ -385,6 +385,10 @@ export async function createProjectSession(
     if (paths.some((path) => path.startsWith("scripts/"))) {
       scriptCatalogPromise = null;
     }
+  }
+
+  function invalidateNonTrainerReadModels(paths: string[]): void {
+    invalidateScriptReadModels(paths);
     if (paths.some((path) => path.startsWith("data/pokemon/base_stats/"))) {
       pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
@@ -487,6 +491,7 @@ export async function createProjectSession(
           expectedHash,
         },
       ]);
+      invalidateScriptReadModels([change.path]);
       pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
       return result;
@@ -502,6 +507,7 @@ export async function createProjectSession(
         values,
       );
       const result = await history.save(`Edit Pokémon ${values.displayName}`, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
       if (changes.some((change) => change.path.startsWith("data/pokemon/base_stats/"))) {
         pokemonCatchProfilesPromise = null;
         tmhmCompatibilityIndexPromise = null;
@@ -515,7 +521,9 @@ export async function createProjectSession(
     saveItemEdit: async (document: ItemEditDocument, values: ItemEditValues) => {
       const changes = await prepareItemEditWrites(source, document, values);
       if (changes.length === 0) return history.getSummary();
-      return history.save(`Edit item ${document.constant}`, changes);
+      const result = await history.save(`Edit item ${document.constant}`, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
+      return result;
     },
     getItemCreateDocument: () => loadItemCreateDocument(source),
     createItem: async (
@@ -524,7 +532,9 @@ export async function createProjectSession(
     ) => {
       const changes = await prepareItemCreateWrites(source, document, values);
       if (changes.length === 0) return history.getSummary();
-      return history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
+      const result = await history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
+      return result;
     },
     getMapIndex,
     getMapVisualization,
@@ -551,6 +561,7 @@ export async function createProjectSession(
       }
       const label = `Edit TM${String(document.tmNumber).padStart(2, "0")} ${document.moveConstant} → ${values.moveConstant}`;
       const result = await history.save(label, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
       tmhmCompatibilityIndexPromise = null;
       return result;
     },
@@ -572,6 +583,7 @@ export async function createProjectSession(
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
+      invalidateScriptReadModels(changedPaths);
       if (trainerBaseAffected(changedPaths)) {
         invalidateTrainerBaseCatalog(changedPaths);
       }
@@ -629,6 +641,7 @@ export async function createProjectSession(
       const result = await history.save(`Edit trainer reward ${itemConstant}`, [
         { ...change, expectedHash },
       ]);
+      invalidateScriptReadModels([path]);
       if (trainerCacheAffected([path])) {
         await trainerCatalogCache?.clear();
       }
@@ -675,6 +688,7 @@ export async function createProjectSession(
       }
 
       const result = await history.save(`Edit trainer party ${partyId}`, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
       await updateTrainerBaseAfterSave(partyId, values, changes);
       if (trainerCacheAffected(changes.map((change) => change.path))) {
         await trainerCatalogCache?.clear();
@@ -698,6 +712,7 @@ export async function createProjectSession(
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
+      invalidateScriptReadModels(changedPaths);
       invalidateTrainerBaseCatalog(changedPaths);
       if (trainerCacheAffected(changedPaths)) {
         await trainerCatalogCache?.clear();
@@ -724,6 +739,7 @@ export async function createProjectSession(
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
+      invalidateScriptReadModels(changedPaths);
       invalidateTrainerBaseCatalog(changedPaths);
       if (trainerCacheAffected(changedPaths)) {
         await trainerCatalogCache?.clear();
@@ -746,6 +762,7 @@ export async function createProjectSession(
       const result = await history.save(`Edit ${label} wild encounters`, [
         { path: change.path, contents: change.contents, expectedHash },
       ]);
+      invalidateScriptReadModels([change.path]);
       encounterIndexPromise = null;
       encounterTablePromises.delete(path);
       return result;
@@ -762,6 +779,7 @@ export async function createProjectSession(
         species,
       );
       const result = await history.save("Edit fishing encounters", changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
       fishingPromise = null;
       return result;
     },
