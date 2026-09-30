@@ -66,14 +66,27 @@ export async function loadScriptCatalog(source: ProjectSource): Promise<ScriptCa
     .filter(isScriptPath)
     .sort((left, right) => left.localeCompare(right));
 
-  const parsed = await Promise.all(paths.map(async (path) => {
-    const contents = await source.readText(path);
-    return {
-      path,
-      groupId: groupStem(path),
-      routines: routineSummaries(path, contents),
-    };
-  }));
+  const parsed = new Array<{
+    path: string;
+    groupId: string;
+    routines: ScriptRoutineSummary[];
+  }>(paths.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(12, paths.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < paths.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const path = paths[index];
+      const contents = await source.readText(path);
+      parsed[index] = {
+        path,
+        groupId: groupStem(path),
+        routines: routineSummaries(path, contents),
+      };
+    }
+  });
+  await Promise.all(workers);
 
   const groups = new Map<string, ScriptCatalogEntry>();
   for (const file of parsed) {
