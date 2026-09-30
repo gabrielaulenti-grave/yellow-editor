@@ -188,11 +188,19 @@ function MapCanvas({
   view,
   zoom,
   showGrid,
+  showWarps,
+  selectedWarpId,
+  arrivalWarpId,
+  onSelectWarp,
 }: {
   visualization: MapVisualization;
   view: MapView;
   zoom: number;
   showGrid: boolean;
+  showWarps: boolean;
+  selectedWarpId: number | null;
+  arrivalWarpId: number | null;
+  onSelectWarp: (warpId: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -224,22 +232,51 @@ function MapCanvas({
           height: Math.max(1, Math.ceil(visualization.tileCount / 16)) * 8,
         };
 
+  const displayWidth = intrinsicSize.width * scale;
+  const displayHeight = intrinsicSize.height * scale;
+
   return (
-    <canvas
-      ref={canvasRef}
-      className="world-map-canvas"
-      style={{
-        width: intrinsicSize.width * scale,
-        height: intrinsicSize.height * scale,
-      }}
-      aria-label={
-        view === "map"
-          ? `${visualization.map.displayName} map preview`
-          : view === "blocks"
-            ? `${visualization.tilesetName} blockset preview`
-            : `${visualization.tilesetName} tile preview`
-      }
-    />
+    <div
+      className="world-map-stage"
+      style={{ width: displayWidth, height: displayHeight }}
+    >
+      <canvas
+        ref={canvasRef}
+        className="world-map-canvas"
+        style={{
+          width: displayWidth,
+          height: displayHeight,
+        }}
+        aria-label={
+          view === "map"
+            ? `${visualization.map.displayName} map preview`
+            : view === "blocks"
+              ? `${visualization.tilesetName} blockset preview`
+              : `${visualization.tilesetName} tile preview`
+        }
+      />
+
+      {view === "map" && showWarps && visualization.warps.map((warp) => (
+        <button
+          key={warp.id}
+          type="button"
+          className={[
+            "world-map-warp-marker",
+            warp.id === selectedWarpId ? "selected" : "",
+            warp.id === arrivalWarpId ? "arrival" : "",
+          ].filter(Boolean).join(" ")}
+          style={{
+            left: (warp.x * 16 + 8) * scale,
+            top: (warp.y * 16 + 8) * scale,
+          }}
+          onClick={() => onSelectWarp(warp.id)}
+          aria-label={`Warp ${warp.id} at ${warp.x}, ${warp.y}`}
+          title={`Warp #${warp.id} · (${warp.x}, ${warp.y})`}
+        >
+          {warp.id}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -255,6 +292,11 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
   const [view, setView] = useState<MapView>("map");
   const [zoom, setZoom] = useState(1);
   const [showGrid, setShowGrid] = useState(false);
+  const [showWarps, setShowWarps] = useState(true);
+  const [selectedWarpId, setSelectedWarpId] = useState<number | null>(null);
+  const [arrivalWarpId, setArrivalWarpId] = useState<number | null>(null);
+  const [navigationStack, setNavigationStack] = useState<string[]>([]);
+  const [lastOutdoorMap, setLastOutdoorMap] = useState<string | null>(null);
   const [indexLoading, setIndexLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -264,6 +306,10 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
       setMaps([]);
       setSelectedConstant(null);
       setVisualization(null);
+      setSelectedWarpId(null);
+      setArrivalWarpId(null);
+      setNavigationStack([]);
+      setLastOutdoorMap(null);
       setError(null);
       return;
     }
@@ -297,6 +343,49 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
     (entry) => entry.constant === selectedConstant,
   ) ?? null;
 
+  function selectMapFromBrowser(mapConstant: string) {
+    setSelectedConstant(mapConstant);
+    setSelectedWarpId(null);
+    setArrivalWarpId(null);
+    setNavigationStack([]);
+    setLastOutdoorMap(null);
+  }
+
+  function navigateToMap(mapConstant: string, destinationWarpId: number | null) {
+    if (!maps.some((entry) => entry.constant === mapConstant)) {
+      setError(`Destination map ${mapConstant} is not present in this project.`);
+      return;
+    }
+
+    if (selectedConstant) {
+      setNavigationStack((stack) => [...stack, selectedConstant]);
+    }
+    if (
+      visualization
+      && (
+        visualization.tilesetConstant === "OVERWORLD"
+        || visualization.connections.length > 0
+      )
+    ) {
+      setLastOutdoorMap(visualization.map.constant);
+    }
+
+    setSelectedConstant(mapConstant);
+    setSelectedWarpId(null);
+    setArrivalWarpId(destinationWarpId);
+    setError(null);
+  }
+
+  function goBack() {
+    const destination = navigationStack[navigationStack.length - 1];
+    if (!destination) return;
+    setNavigationStack((stack) => stack.slice(0, -1));
+    setSelectedConstant(destination);
+    setSelectedWarpId(null);
+    setArrivalWarpId(null);
+    setError(null);
+  }
+
   useEffect(() => {
     if (!project || !selectedMap) {
       setVisualization(null);
@@ -320,7 +409,11 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
       mapConstant: selectedMap.constant,
     })
       .then((result) => {
-        if (!cancelled) setVisualization(result);
+        if (cancelled) return;
+        setVisualization(result);
+        const arrived = arrivalWarpId !== null
+          && result.warps.some((warp) => warp.id === arrivalWarpId);
+        setSelectedWarpId(arrived ? arrivalWarpId : null);
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -332,7 +425,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
     return () => {
       cancelled = true;
     };
-  }, [project?.storageKey, selectedMap?.constant]);
+  }, [project?.storageKey, selectedMap?.constant, arrivalWarpId]);
 
   const filteredMaps = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -343,6 +436,21 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
       || entry.headerLabel?.toLowerCase().includes(needle),
     );
   }, [maps, search]);
+
+  const selectedWarp = visualization?.warps.find(
+    (warp) => warp.id === selectedWarpId,
+  ) ?? null;
+  const resolvedWarpDestination = selectedWarp?.isLastMap
+    ? lastOutdoorMap
+    : selectedWarp?.destinationMapConstant ?? null;
+  const resolvedWarpDestinationMap = resolvedWarpDestination
+    ? maps.find((entry) => entry.constant === resolvedWarpDestination) ?? null
+    : null;
+
+  function navigateSelectedWarp() {
+    if (!selectedWarp || !resolvedWarpDestination) return;
+    navigateToMap(resolvedWarpDestination, selectedWarp.destinationWarpId);
+  }
 
   if (!project) {
     return (
@@ -366,7 +474,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
             game world.
           </p>
         </div>
-        <span className="read-only-badge">Visualization foundation</span>
+        <span className="read-only-badge">World navigation foundation</span>
       </div>
 
       <div className="world-map-browser">
@@ -386,7 +494,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                 key={`${entry.id}:${entry.constant}`}
                 type="button"
                 className={entry.constant === selectedConstant ? "active" : ""}
-                onClick={() => setSelectedConstant(entry.constant)}
+                onClick={() => selectMapFromBrowser(entry.constant)}
               >
                 <strong>{entry.displayName}</strong>
                 <small>
@@ -451,6 +559,16 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   <strong>{visualization.blockCount}</strong>
                   <small>4×4 tiles each</small>
                 </div>
+                <div>
+                  <span>Warps</span>
+                  <strong>{visualization.warps.length}</strong>
+                  <small>Doors, stairs, ladders, exits</small>
+                </div>
+                <div>
+                  <span>Connections</span>
+                  <strong>{visualization.connections.length}</strong>
+                  <small>Outdoor map edges</small>
+                </div>
               </div>
 
               <div className="world-map-controls">
@@ -491,16 +609,75 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                 </label>
 
                 {view === "map" && (
-                  <label className="world-map-grid-toggle">
-                    <input
-                      type="checkbox"
-                      checked={showGrid}
-                      onChange={(event) => setShowGrid(event.target.checked)}
-                    />
-                    <span>Block grid</span>
-                  </label>
+                  <>
+                    <label className="world-map-grid-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showGrid}
+                        onChange={(event) => setShowGrid(event.target.checked)}
+                      />
+                      <span>Block grid</span>
+                    </label>
+                    <label className="world-map-grid-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showWarps}
+                        onChange={(event) => setShowWarps(event.target.checked)}
+                      />
+                      <span>Warp markers</span>
+                    </label>
+                  </>
                 )}
               </div>
+
+              {view === "map" && (
+                <div className="world-map-navigation">
+                  <div className="world-map-navigation-heading">
+                    <div>
+                      <strong>Navigate the world</strong>
+                      <small>
+                        Follow outdoor connections or select a numbered warp on the map.
+                      </small>
+                    </div>
+                    {navigationStack.length > 0 && (
+                      <button type="button" className="small-button" onClick={goBack}>
+                        ← Back
+                      </button>
+                    )}
+                  </div>
+
+                  {visualization.connections.length > 0 && (
+                    <div className="world-map-connection-list">
+                      {visualization.connections.map((connection) => {
+                        const arrow = connection.direction === "north"
+                          ? "↑"
+                          : connection.direction === "south"
+                            ? "↓"
+                            : connection.direction === "east"
+                              ? "→"
+                              : "←";
+                        return (
+                          <button
+                            key={`${connection.direction}:${connection.destinationMapConstant}`}
+                            type="button"
+                            onClick={() => navigateToMap(
+                              connection.destinationMapConstant,
+                              null,
+                            )}
+                          >
+                            <span>{arrow}</span>
+                            <strong>
+                              {connection.destinationMapDisplayName
+                                ?? connection.destinationMapConstant}
+                            </strong>
+                            <small>{connection.direction}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="world-map-canvas-wrap">
                 <MapCanvas
@@ -508,15 +685,88 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   view={view}
                   zoom={zoom}
                   showGrid={showGrid}
+                  showWarps={showWarps}
+                  selectedWarpId={selectedWarpId}
+                  arrivalWarpId={arrivalWarpId}
+                  onSelectWarp={setSelectedWarpId}
                 />
               </div>
+
+              {view === "map" && visualization.warps.length > 0 && (
+                <div className="world-map-warp-panel">
+                  <div className="world-map-warp-list" aria-label="Map warps">
+                    {visualization.warps.map((warp) => (
+                      <button
+                        key={warp.id}
+                        type="button"
+                        className={warp.id === selectedWarpId ? "active" : ""}
+                        onClick={() => setSelectedWarpId(warp.id)}
+                      >
+                        <strong>#{warp.id}</strong>
+                        <span>({warp.x}, {warp.y})</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedWarp ? (
+                    <div className="world-map-warp-inspector">
+                      <div>
+                        <span>Selected warp</span>
+                        <strong>Warp #{selectedWarp.id}</strong>
+                        <code>x {selectedWarp.x}, y {selectedWarp.y}</code>
+                      </div>
+                      <div>
+                        <span>Destination</span>
+                        <strong>
+                          {selectedWarp.isLastMap
+                            ? resolvedWarpDestinationMap?.displayName
+                              ?? "Last outdoor map"
+                            : selectedWarp.destinationMapDisplayName
+                              ?? selectedWarp.destinationMapConstant
+                              ?? "Unknown"}
+                        </strong>
+                        <code>
+                          {selectedWarp.isLastMap
+                            ? "LAST_MAP"
+                            : selectedWarp.destinationMapConstant}
+                          {" · warp #"}{selectedWarp.destinationWarpId}
+                        </code>
+                      </div>
+                      <div className="world-map-warp-action">
+                        <button
+                          type="button"
+                          className="primary-button"
+                          disabled={!resolvedWarpDestination}
+                          onClick={navigateSelectedWarp}
+                        >
+                          {resolvedWarpDestinationMap
+                            ? `Go to ${resolvedWarpDestinationMap.displayName}`
+                            : selectedWarp.isLastMap
+                              ? "Enter from an outdoor map to resolve LAST_MAP"
+                              : "Destination unavailable"}
+                        </button>
+                        {selectedWarp.isLastMap && (
+                          <small>
+                            Gen I stores LAST_MAP as the last outdoor map visited.
+                            Yellow Editor resolves it when you navigate here from the world map.
+                          </small>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="world-map-warp-empty">
+                      Select a numbered marker to inspect its destination.
+                    </p>
+                  )}
+                </div>
+              )}
 
               <p className="help-text">
                 {view === "tiles"
                   ? "Tile IDs run left-to-right, top-to-bottom. Each tile is decoded directly from the selected .2bpp source."
                   : view === "blocks"
                     ? "Block IDs run left-to-right, top-to-bottom. Every block is assembled from 16 tile IDs in the .bst blockset."
-                    : "The map preview expands each .blk block ID through the selected .bst blockset and .2bpp tileset."}
+                    : "Numbered markers use the game's 16×16 movement coordinates. Select a warp to inspect it, then follow its destination to navigate between maps."}
               </p>
 
               {visualization.warnings.length > 0 && (
@@ -539,6 +789,10 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   <div>
                     <dt>Header</dt>
                     <dd><code>{visualization.map.headerPath}</code></dd>
+                  </div>
+                  <div>
+                    <dt>Map objects</dt>
+                    <dd><code>{visualization.objectPath}</code></dd>
                   </div>
                   <div>
                     <dt>Map blocks</dt>
