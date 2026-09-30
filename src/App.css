@@ -2146,3 +2146,123 @@ pre {
     flex: 1 1 150px;
   }
 }
+
+
+/* Map ↔ wild encounter integration */
+
+.map-crosslinks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 8px 0 12px;
+}
+
+.world-map-encounters {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.world-map-encounters-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.world-map-encounters-heading > div,
+.world-map-encounter-card-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.world-map-encounters-heading small,
+.world-map-encounter-card-heading small,
+.world-map-fishing-summary > small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.world-map-encounter-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.world-map-encounter-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--panel);
+}
+
+.world-map-encounter-card-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: start;
+}
+
+.world-map-encounter-versions {
+  display: grid;
+  gap: 10px;
+}
+
+.world-map-encounter-versions > div {
+  display: grid;
+  gap: 5px;
+}
+
+.world-map-encounter-versions p,
+.world-map-fishing-summary p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.world-map-encounter-versions p > b,
+.world-map-fishing-summary p > b {
+  color: var(--muted);
+  font-size: 0.76rem;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.world-map-encounter-versions p > span,
+.world-map-fishing-summary p > span {
+  overflow-wrap: anywhere;
+}
+
+.world-map-fishing-summary {
+  display: grid;
+  gap: 8px;
+}
+
+.world-map-encounter-error {
+  margin: 0;
+  color: #a1261c;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 840px) {
+  .world-map-encounter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .world-map-encounter-card-heading,
+  .world-map-encounters-heading {
+    display: grid;
+  }
+
+  .world-map-encounter-card-heading .small-button {
+    width: fit-content;
+  }
+}
