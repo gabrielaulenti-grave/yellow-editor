@@ -432,6 +432,25 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
             </div>
           )}
 
+          {macroCatalog && macroCatalog.warnings.length > 0 && (
+            <details className="script-macro-warnings">
+              <summary>
+                {macroCatalog.warnings.length} macro analysis warning
+                {macroCatalog.warnings.length === 1 ? "" : "s"}
+              </summary>
+              <ul>
+                {macroCatalog.warnings.slice(0, 20).map((warning, index) => (
+                  <li key={`${index}:${warning}`}>{warning}</li>
+                ))}
+              </ul>
+              {macroCatalog.warnings.length > 20 && (
+                <p className="help-text">
+                  {macroCatalog.warnings.length - 20} additional warnings are not shown here.
+                </p>
+              )}
+            </details>
+          )}
+
           <div className="script-group-list">
             {filteredEntries.map((entry) => (
               <button
