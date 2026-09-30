@@ -98,11 +98,13 @@ export function HistoryPanel({
                     {entry.applied && (
                       <button
                         type="button"
-                        disabled={busy || !entry.canSelectiveUndo}
+                        disabled={busy || currentCopyDisabled || !entry.canSelectiveUndo}
                         onClick={() => void onSelectiveUndo(entry.id)}
-                        title={entry.canSelectiveUndo
-                          ? "Undo only this saved change while preserving unrelated later changes."
-                          : entry.selectiveUndoReason ?? undefined}
+                        title={currentCopyDisabled
+                          ? "Save or revert unsaved editor changes before undoing an older saved change."
+                          : entry.canSelectiveUndo
+                            ? "Undo only this saved change while preserving unrelated later changes."
+                            : entry.selectiveUndoReason ?? undefined}
                       >
                         Undo this change
                       </button>
