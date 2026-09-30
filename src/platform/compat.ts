@@ -4,6 +4,8 @@ import type {
   EncounterVersionData,
   FishingData,
   FishingSourceDocument,
+  HistoryTimeline,
+  ProjectSnapshot,
   ItemCreateDocument,
   ItemCreateValues,
   ItemEditDocument,
@@ -673,6 +675,14 @@ export async function invoke<T>(
     case "get_history_summary":
       return (await session.getHistorySummary()) as T;
 
+    case "get_history_timeline":
+      return (await session.getHistoryTimeline()) as T;
+
+    case "export_project_snapshot":
+      return (await session.exportProjectSnapshot(
+        typeof args?.historyCursor === "number" ? args.historyCursor : undefined,
+      )) as T;
+
     case "save_text_changes":
       return (await session.saveTextChanges(
         stringArg(args, "label"),
@@ -700,6 +710,98 @@ export async function invoke<T>(
     default:
       throw new Error(`Unsupported project command: ${command}`);
   }
+}
+
+interface BrowserSaveFileStream {
+  write(data: Blob): Promise<void>;
+  close(): Promise<void>;
+  abort?(): Promise<void>;
+}
+
+interface BrowserSaveFileHandle {
+  createWritable(): Promise<BrowserSaveFileStream>;
+}
+
+type SavePickerWindow = Window & {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+    types?: Array<{
+      description?: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<BrowserSaveFileHandle>;
+};
+
+export async function saveProjectCopy(
+  historyCursor?: number,
+): Promise<string | null> {
+  const snapshot = await requireSession().exportProjectSnapshot(historyCursor);
+  const bytes = Uint8Array.from(snapshot.bytes);
+
+  if (isTauri()) {
+    const [{ save }, { invoke: tauriInvoke }] = await Promise.all([
+      import("@tauri-apps/plugin-dialog"),
+      import("@tauri-apps/api/core"),
+    ]);
+    const destination = await save({
+      title: "Save Yellow Editor project copy",
+      defaultPath: snapshot.fileName,
+      filters: [{ name: "ZIP archive", extensions: ["zip"] }],
+    });
+    if (!destination) {
+      return null;
+    }
+    await tauriInvoke<void>("write_archive_bytes", {
+      path: destination,
+      bytes: Array.from(bytes),
+    });
+    return destination;
+  }
+
+  const picker = (window as SavePickerWindow).showSaveFilePicker;
+  if (picker) {
+    try {
+      const handle = await picker.call(window, {
+        suggestedName: snapshot.fileName,
+        types: [{
+          description: "Yellow Editor packed project",
+          accept: { "application/zip": [".zip"] },
+        }],
+      });
+      const writable = await handle.createWritable();
+      try {
+        await writable.write(new Blob([bytes], { type: "application/zip" }));
+        await writable.close();
+      } catch (error) {
+        try {
+          await writable.abort?.();
+        } catch {
+          // Preserve the original save failure.
+        }
+        throw error;
+      }
+      return snapshot.fileName;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/zip" }));
+  try {
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = snapshot.fileName;
+    anchor.style.display = "none";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  return snapshot.fileName;
 }
 
 export function convertFileSrc(path: string): string {
