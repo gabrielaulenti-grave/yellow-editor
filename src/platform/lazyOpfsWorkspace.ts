@@ -45,6 +45,45 @@ function normalizePath(relativePath: string): string {
   return pathParts(relativePath).join("/");
 }
 
+async function listExternalProjectFiles(
+  root: WorkspaceExternalDirectoryHandle,
+): Promise<string[]> {
+  if (typeof root.entries !== "function") {
+    throw new Error(
+      "This browser does not expose directory iteration, so Yellow Editor cannot create a complete project copy.",
+    );
+  }
+
+  const files: string[] = [];
+  const queue: Array<{
+    path: string;
+    handle: WorkspaceExternalDirectoryHandle;
+  }> = [{ path: "", handle: root }];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    const iterator = current.handle.entries?.();
+    if (!iterator) {
+      throw new Error("Directory iteration became unavailable while creating the project copy.");
+    }
+
+    for await (const [name, handle] of iterator) {
+      if (current.path === "" && name === ".git") {
+        continue;
+      }
+      const relativePath = current.path ? `${current.path}/${name}` : name;
+      if (handle.kind === "file") {
+        files.push(relativePath);
+      } else {
+        queue.push({ path: relativePath, handle });
+      }
+    }
+  }
+
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
 function hashIdentity(value: string): string {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
@@ -379,6 +418,10 @@ export async function createLazyOpfsProjectSource(
       } catch {
         return null;
       }
+    },
+
+    async listFiles() {
+      return listExternalProjectFiles(options.externalRoot);
     },
 
     async prepareBuildReads(): Promise<ProjectBuildReadPreparation> {

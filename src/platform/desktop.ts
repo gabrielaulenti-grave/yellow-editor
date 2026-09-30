@@ -153,6 +153,10 @@ function createDesktopSource(projectPath: string): ProjectSource {
       }
     },
 
+    listFiles() {
+      return invoke<string[]>("list_project_files", { projectPath });
+    },
+
     dispose() {
       for (const url of assetUrls.values()) {
         if (url.startsWith("blob:")) {

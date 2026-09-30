@@ -4,6 +4,7 @@ import type {
   HistoryPendingOperation,
   HistoryState,
   HistorySummary,
+  HistoryTimeline,
   ProjectSource,
   TextWriteRequest,
 } from "./types";
@@ -85,6 +86,54 @@ function summarize(state: HistoryState, persistent: boolean): HistorySummary {
     latestLabel: latest?.label ?? null,
     latestTimestamp: latest?.timestamp ?? null,
     persistent,
+  };
+}
+
+function timeline(state: HistoryState, persistent: boolean): HistoryTimeline {
+  const hasRedoBranch = state.cursor < state.entries.length;
+
+  return {
+    cursor: state.cursor,
+    entryCount: state.entries.length,
+    persistent,
+    entries: state.entries.map((entry, index) => {
+      const entryFiles = new Set(entry.files.map((file) => file.path));
+      const blockers = index < state.cursor
+        ? state.entries
+            .slice(index + 1, state.cursor)
+            .flatMap((later) => {
+              const files = later.files
+                .map((file) => file.path)
+                .filter((path) => entryFiles.has(path));
+              return files.length > 0
+                ? [{ entryId: later.id, label: later.label, files }]
+                : [];
+            })
+        : [];
+
+      let selectiveUndoReason: string | null = null;
+      if (index >= state.cursor) {
+        selectiveUndoReason = "This change is currently undone.";
+      } else if (hasRedoBranch) {
+        selectiveUndoReason =
+          "Redo or replace the currently undone changes before selectively undoing an older save.";
+      } else if (blockers.length > 0) {
+        selectiveUndoReason =
+          "A later applied change touched the same file, so undoing this save independently could overwrite newer work.";
+      }
+
+      return {
+        id: entry.id,
+        timestamp: entry.timestamp,
+        label: entry.label,
+        files: [...entryFiles],
+        applied: index < state.cursor,
+        cursorAfter: index + 1,
+        canSelectiveUndo: selectiveUndoReason === null,
+        selectiveUndoReason,
+        selectiveUndoBlockedBy: blockers,
+      };
+    }),
   };
 }
 
@@ -228,7 +277,9 @@ async function recoverPendingOperation(
 export interface ProjectHistoryManager {
   getState(): Promise<HistoryState>;
   getSummary(): Promise<HistorySummary>;
+  getTimeline(): Promise<HistoryTimeline>;
   save(label: string, requests: TextWriteRequest[]): Promise<HistorySummary>;
+  selectivelyUndo(entryId: string): Promise<HistorySummary>;
   undo(): Promise<HistorySummary>;
   redo(): Promise<HistorySummary>;
 }
@@ -396,6 +447,57 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
     return summarize(finalState, source.historyStore.persistent);
   }
 
+  async function selectivelyUndo(entryId: string): Promise<HistorySummary> {
+    const state = await getState();
+    if (state.pending) {
+      throw new Error("Finish the current history operation before selectively undoing another save.");
+    }
+    if (state.cursor < state.entries.length) {
+      throw new Error(
+        "Redo or replace the currently undone changes before selectively undoing an older save.",
+      );
+    }
+
+    const index = state.entries.findIndex((entry) => entry.id === entryId);
+    if (index < 0) {
+      throw new Error("That history entry is no longer available.");
+    }
+    if (index >= state.cursor) {
+      throw new Error("That history entry is already undone.");
+    }
+
+    const entry = state.entries[index];
+    const entryFiles = new Set(entry.files.map((file) => file.path));
+    const blockers = state.entries
+      .slice(index + 1, state.cursor)
+      .flatMap((later) => {
+        const files = later.files
+          .map((file) => file.path)
+          .filter((path) => entryFiles.has(path));
+        return files.length > 0 ? [{ entry: later, files }] : [];
+      });
+
+    if (blockers.length > 0) {
+      const summary = blockers
+        .map(({ entry: later, files }) =>
+          `${later.label} (${files.join(", ")})`
+        )
+        .join("; ");
+      throw new Error(
+        `Cannot selectively undo '${entry.label}' because later applied changes touch the same file(s): ${summary}.`,
+      );
+    }
+
+    return save(
+      `Revert: ${entry.label}`,
+      entry.files.map((file) => ({
+        path: file.path,
+        contents: file.before,
+        expectedHash: file.afterHash,
+      })),
+    );
+  }
+
   async function undo(): Promise<HistorySummary> {
     const state = await getState();
     if (state.cursor === 0) {
@@ -453,7 +555,9 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
   return {
     getState,
     getSummary: async () => summarize(await getState(), source.historyStore.persistent),
+    getTimeline: async () => timeline(await getState(), source.historyStore.persistent),
     save,
+    selectivelyUndo,
     undo,
     redo,
   };

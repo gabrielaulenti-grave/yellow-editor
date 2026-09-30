@@ -99,6 +99,42 @@ function normalizePath(relativePath: string): string {
   return pathParts(relativePath).join("/");
 }
 
+async function listProjectFiles(root: BrowserDirectoryHandle): Promise<string[]> {
+  if (typeof root.entries !== "function") {
+    throw new Error(
+      "This browser does not expose directory iteration, so Yellow Editor cannot create a complete project copy.",
+    );
+  }
+
+  const files: string[] = [];
+  const queue: Array<{ path: string; handle: BrowserDirectoryHandle }> = [
+    { path: "", handle: root },
+  ];
+
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current) break;
+    const iterator = current.handle.entries?.();
+    if (!iterator) {
+      throw new Error("Directory iteration became unavailable while creating the project copy.");
+    }
+
+    for await (const [name, handle] of iterator) {
+      if (current.path === "" && name === ".git") {
+        continue;
+      }
+      const relativePath = current.path ? `${current.path}/${name}` : name;
+      if (handle.kind === "file") {
+        files.push(relativePath);
+      } else {
+        queue.push({ path: relativePath, handle });
+      }
+    }
+  }
+
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
 function createWebSource(
   root: BrowserDirectoryHandle,
   historyStore: HistoryStore,
@@ -329,6 +365,10 @@ function createWebSource(
       } catch {
         return null;
       }
+    },
+
+    async listFiles() {
+      return listProjectFiles(root);
     },
 
     dispose() {

@@ -6,6 +6,7 @@ import {
   parsePokemonTmhmMoves,
 } from "./parsers";
 import { createProjectHistoryManager, hashText } from "./history";
+import { createProjectSnapshot } from "./projectSnapshot";
 import { parsePokemonPalette } from "./palettes";
 import {
   loadPokemonBaseStatsEditDocument,
@@ -699,6 +700,33 @@ export async function createProjectSession(
       return result;
     },
     getHistorySummary: () => history.getSummary(),
+    getHistoryTimeline: () => history.getTimeline(),
+    selectivelyUndoHistoryEntry: async (entryId) => {
+      const state = await history.getState();
+      const entry = state.entries.find((candidate) => candidate.id === entryId);
+      if (!entry) {
+        throw new Error("That history entry is no longer available.");
+      }
+      const paths = entry.files.map((file) => file.path);
+      const result = await history.selectivelyUndo(entryId);
+      if (trainerBaseAffected(paths)) {
+        invalidateTrainerBaseCatalog(paths);
+      }
+      invalidateNonTrainerReadModels(paths);
+      if (trainerCacheAffected(paths)) {
+        await trainerCatalogCache?.clear();
+      }
+      return result;
+    },
+    exportProjectSnapshot: async (historyCursor) => {
+      const state = await history.getState();
+      return createProjectSnapshot(
+        source,
+        projectName,
+        state,
+        historyCursor ?? state.cursor,
+      );
+    },
     saveTextChanges: async (label, changes) => {
       const result = await history.save(label, changes);
       const changedPaths = changes.map((change) => change.path);

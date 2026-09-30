@@ -874,6 +874,38 @@ export interface HistorySummary {
   persistent: boolean;
 }
 
+export interface HistorySelectiveUndoBlock {
+  entryId: string;
+  label: string;
+  files: string[];
+}
+
+export interface HistoryTimelineEntry {
+  id: string;
+  timestamp: string;
+  label: string;
+  files: string[];
+  applied: boolean;
+  cursorAfter: number;
+  canSelectiveUndo: boolean;
+  selectiveUndoReason: string | null;
+  selectiveUndoBlockedBy: HistorySelectiveUndoBlock[];
+}
+
+export interface HistoryTimeline {
+  cursor: number;
+  entryCount: number;
+  persistent: boolean;
+  entries: HistoryTimelineEntry[];
+}
+
+export interface ProjectSnapshot {
+  fileName: string;
+  bytes: Uint8Array;
+  historyCursor: number;
+  historyEntryCount: number;
+}
+
 export interface HistoryStore {
   persistent: boolean;
   load(): Promise<HistoryState | null>;
@@ -995,6 +1027,7 @@ export interface ProjectSource {
   writeText(relativePath: string, contents: string): Promise<void>;
   exists(relativePath: string): Promise<boolean>;
   assetUrl(relativePath: string): Promise<string | null>;
+  listFiles?(): Promise<string[]>;
   prepareBuildReads?(): Promise<ProjectBuildReadPreparation>;
   historyStore: HistoryStore;
   dispose?(): void;
@@ -1094,6 +1127,9 @@ export interface ProjectSession {
     knownSpecies: string[],
   ): Promise<HistorySummary>;
   getHistorySummary(): Promise<HistorySummary>;
+  getHistoryTimeline(): Promise<HistoryTimeline>;
+  selectivelyUndoHistoryEntry(entryId: string): Promise<HistorySummary>;
+  exportProjectSnapshot(historyCursor?: number): Promise<ProjectSnapshot>;
   saveTextChanges(label: string, changes: TextWriteRequest[]): Promise<HistorySummary>;
   undoLastSave(): Promise<HistorySummary>;
   redoLastUndo(): Promise<HistorySummary>;

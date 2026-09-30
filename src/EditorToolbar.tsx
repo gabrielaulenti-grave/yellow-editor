@@ -6,12 +6,18 @@ interface EditorToolbarProps {
   history: HistorySummary | null;
   onUndo(): Promise<void>;
   onRedo(): Promise<void>;
+  onHistory(): void;
+  onSaveAs(): Promise<void>;
+  copyDisabled: boolean;
 }
 export function EditorToolbar({
   editor,
   history,
   onUndo,
   onRedo,
+  onHistory,
+  onSaveAs,
+  copyDisabled,
 }: EditorToolbarProps) {
   return (
     <section className="edit-toolbar" aria-label="Editing history controls">
@@ -43,6 +49,22 @@ export function EditorToolbar({
           title="Discard unsaved edits and reload the selected record from the project."
         >
           Revert
+        </button>
+        <button
+          disabled={editor.busy}
+          onClick={onHistory}
+          title="View saved Yellow Editor changes and create a safe copy from an earlier point."
+        >
+          History…
+        </button>
+        <button
+          disabled={editor.busy || copyDisabled}
+          onClick={() => void onSaveAs()}
+          title={copyDisabled
+            ? "Save or revert unsaved editor changes before creating a project copy."
+            : "Save the complete current project as an independent packed ZIP."}
+        >
+          Save As…
         </button>
       </div>
       <div className="history-status">
