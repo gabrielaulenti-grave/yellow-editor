@@ -11,6 +11,7 @@ import type {
   ScriptMacroCall,
   ScriptMacroCallDocument,
   ScriptMacroEditDocument,
+  ScriptRoutineCategory,
   ScriptRoutineSummary,
 } from "./core/types";
 import {
@@ -51,11 +52,34 @@ function routinesForPath(entry: ScriptCatalogEntry | null, path: string | null) 
   return entry.routines.filter((routine) => routine.path === path);
 }
 
+const SCRIPT_CATEGORY_ORDER: ScriptRoutineCategory[] = [
+  "event-state",
+  "dispatcher",
+  "helper",
+  "dialogue",
+  "movement",
+  "data",
+];
+
+const SCRIPT_CATEGORY_LABELS: Record<ScriptRoutineCategory, string> = {
+  "event-state": "Event states",
+  dispatcher: "Dispatcher",
+  helper: "Helpers",
+  dialogue: "Dialogue",
+  movement: "Movement",
+  data: "Data & tables",
+};
+
 function preferredRoutine(routines: ScriptRoutineSummary[]): ScriptRoutineSummary | null {
-  return routines.find((routine) => routine.kind === "state")
-    ?? routines.find((routine) => routine.kind === "routine")
-    ?? routines[0]
-    ?? null;
+  for (const category of SCRIPT_CATEGORY_ORDER) {
+    const routine = routines.find((candidate) => candidate.category === category);
+    if (routine) return routine;
+  }
+  return routines[0] ?? null;
+}
+
+function categoryLabel(category: ScriptRoutineCategory): string {
+  return SCRIPT_CATEGORY_LABELS[category];
 }
 
 function macroKindLabel(value: string): string {
@@ -566,8 +590,12 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   const selectedEntry =
     catalog?.entries.find((entry) => entry.id === selectedGroupId) ?? null;
   const selectedPathRoutines = routinesForPath(selectedEntry, selectedPath);
-  const scriptRoutines = selectedPathRoutines.filter((routine) => routine.kind !== "source-label");
-  const sourceLabels = selectedPathRoutines.filter((routine) => routine.kind === "source-label");
+  const categorizedRoutines = SCRIPT_CATEGORY_ORDER
+    .map((category) => ({
+      category,
+      routines: selectedPathRoutines.filter((routine) => routine.category === category),
+    }))
+    .filter((group) => group.routines.length > 0);
   const selectedRoutine =
     document?.routines.find((routine) => routine.label === selectedRoutineLabel) ?? null;
 
@@ -744,8 +772,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                 <small>
                   {entry.paths.length} file{entry.paths.length === 1 ? "" : "s"}
                   {" · "}
-                  {entry.routines.filter((routine) => routine.kind !== "source-label").length} script entry point
-                  {entry.routines.filter((routine) => routine.kind !== "source-label").length === 1 ? "" : "s"}
+                  {entry.routines.filter((routine) => routine.category === "event-state").length > 0
+                    ? `${entry.routines.filter((routine) => routine.category === "event-state").length} event state${entry.routines.filter((routine) => routine.category === "event-state").length === 1 ? "" : "s"}`
+                    : `${entry.routines.length} categorized label${entry.routines.length === 1 ? "" : "s"}`}
                 </small>
               </button>
             ))}
@@ -780,57 +809,73 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
 
               <div className="script-workspace-grid">
                 <aside className="script-routine-list">
-                  <strong>Script entry points</strong>
-                  {scriptRoutines.length === 0 ? (
+                  <strong>Script structure</strong>
+                  <p className="help-text script-routine-list-help">
+                    Event states stay prominent. Supporting dialogue, movement,
+                    helpers, and data are grouped separately so they remain
+                    available without competing with the map state machine.
+                  </p>
+
+                  {categorizedRoutines.length === 0 ? (
                     <p className="empty-state">
-                      No script states or recognized routines were detected in this file.
+                      No categorized script labels were detected in this file.
                     </p>
                   ) : (
-                    scriptRoutines.map((routine) => (
-                      <button
-                        key={routineKey(routine)}
-                        type="button"
-                        className={routine.label === selectedRoutineLabel ? "active" : ""}
-                        onClick={() => selectRoutine(routine.label)}
-                      >
-                        <span>{labelTitle(routine.label)}</span>
-                        <code>{routine.label}</code>
-                        <small>
-                          {routine.kind === "state" ? "script state" : "routine"}
-                          {" · line "}
-                          {routine.startLine}
-                          {" · "}
-                          {routine.recognizedOperationCount} recognized operation
-                          {routine.recognizedOperationCount === 1 ? "" : "s"}
-                        </small>
-                      </button>
-                    ))
-                  )}
+                    categorizedRoutines.map(({ category, routines }) => {
+                      const selectedInCategory = routines.some(
+                        (routine) => routine.label === selectedRoutineLabel,
+                      );
+                      const buttons = (
+                        <div className="script-routine-category-buttons">
+                          {routines.map((routine) => (
+                            <button
+                              key={routineKey(routine)}
+                              type="button"
+                              className={routine.label === selectedRoutineLabel ? "active" : ""}
+                              onClick={() => selectRoutine(routine.label)}
+                            >
+                              <span>{labelTitle(routine.label)}</span>
+                              <code>{routine.label}</code>
+                              <small>
+                                line {routine.startLine}
+                                {" · "}
+                                {routine.recognizedOperationCount} recognized operation
+                                {routine.recognizedOperationCount === 1 ? "" : "s"}
+                              </small>
+                            </button>
+                          ))}
+                        </div>
+                      );
 
-                  {sourceLabels.length > 0 && (
-                    <details className="script-other-labels">
-                      <summary>
-                        Other source labels ({sourceLabels.length})
-                      </summary>
-                      <p className="help-text">
-                        Text, movement, tables, and unclassified assembly labels stay available
-                        for inspection without crowding the main script list.
-                      </p>
-                      <div>
-                        {sourceLabels.map((routine) => (
-                          <button
-                            key={routineKey(routine)}
-                            type="button"
-                            className={routine.label === selectedRoutineLabel ? "active" : ""}
-                            onClick={() => selectRoutine(routine.label)}
+                      if (category === "event-state" || category === "dispatcher") {
+                        return (
+                          <section
+                            className="script-routine-category"
+                            key={category}
                           >
-                            <span>{labelTitle(routine.label)}</span>
-                            <code>{routine.label}</code>
-                            <small>source label · line {routine.startLine}</small>
-                          </button>
-                        ))}
-                      </div>
-                    </details>
+                            <div className="script-routine-category-heading">
+                              <strong>{categoryLabel(category)}</strong>
+                              <small>{routines.length}</small>
+                            </div>
+                            {buttons}
+                          </section>
+                        );
+                      }
+
+                      return (
+                        <details
+                          className="script-routine-category script-routine-category-collapsible"
+                          key={`${category}:${selectedInCategory ? "selected" : "idle"}`}
+                          defaultOpen={selectedInCategory}
+                        >
+                          <summary>
+                            <span>{categoryLabel(category)}</span>
+                            <small>{routines.length}</small>
+                          </summary>
+                          {buttons}
+                        </details>
+                      );
+                    })
                   )}
                 </aside>
 
@@ -856,9 +901,10 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                           <code>{document.path}:{selectedRoutine.startLine}</code>
                         </div>
                         <span>
+                          {categoryLabel(selectedRoutine.category)}
                           {selectedRoutine.operationKinds.length > 0
-                            ? selectedRoutine.operationKinds.join(" · ")
-                            : "assembly"}
+                            ? ` · ${selectedRoutine.operationKinds.join(" · ")}`
+                            : ""}
                         </span>
                       </div>
 
