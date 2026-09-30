@@ -330,13 +330,22 @@ function pointerTable(contents: string, label: string): string[] {
   return result;
 }
 
-function labelBlock(contents: string, label: string): { start: number; end: number } {
+function findLabelBlock(
+  contents: string,
+  label: string,
+): { start: number; end: number } | null {
   const marker = new RegExp("^" + label + "::?[ \\t]*$", "m").exec(contents);
-  if (!marker || marker.index === undefined) throw new Error("Could not find source label " + label + ".");
+  if (!marker || marker.index === undefined) return null;
   const start = marker.index + marker[0].length;
   const rest = contents.slice(start);
   const next = /^[A-Za-z_][A-Za-z0-9_.]*::?[ \t]*$/m.exec(rest);
   return { start, end: next?.index === undefined ? contents.length : start + next.index };
+}
+
+function labelBlock(contents: string, label: string): { start: number; end: number } {
+  const block = findLabelBlock(contents, label);
+  if (!block) throw new Error("Could not find source label " + label + ".");
+  return block;
 }
 
 function replaceBlock(contents: string, label: string, body: string): string {
@@ -524,7 +533,8 @@ function rgb5(hex: string): [number, number, number] {
 
 function paletteRows(contents: string, label: string): Map<string, [string, string, string, string]> {
   const result = new Map<string, [string, string, string, string]>();
-  const block = labelBlock(contents, label);
+  const block = findLabelBlock(contents, label);
+  if (!block) return result;
   for (const line of contents.slice(block.start, block.end).split(/\r?\n/)) {
     const semicolon = line.indexOf(";");
     if (semicolon < 0) continue;

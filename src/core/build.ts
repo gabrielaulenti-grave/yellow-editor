@@ -124,7 +124,7 @@ export function createSharedWasmBuildService(
         throw new Error(message);
       }
 
-      if (!environment.ready || !environment.requiredRgbdsVersion) {
+      if (!environment.ready || !environment.detectedRgbdsVersion) {
         onProgress?.({
           stage: "error",
           level: "error",
@@ -179,7 +179,7 @@ export function createSharedWasmBuildService(
       const result = await buildWebRom(
         source,
         target,
-        environment.requiredRgbdsVersion,
+        environment.detectedRgbdsVersion,
         onProgress,
       );
       if (handleIndexDurationMs > 0) {

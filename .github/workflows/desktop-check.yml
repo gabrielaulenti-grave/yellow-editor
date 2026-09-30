@@ -25,8 +25,16 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Prepare published shared WASM tools
-        run: npm run prepare:shared-wasm-dev
+      - name: Prepare shared WASM tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bison ninja-build
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git .emsdk
+          ./.emsdk/emsdk install 4.0.15
+          ./.emsdk/emsdk activate 4.0.15
+          source ./.emsdk/emsdk_env.sh
+          npm run prepare:rgbds-wasm
+          npm run prepare:shared-wasm-dev
 
       - name: Prepare emulator WASM
         run: npm run prepare:emulator-wasm
