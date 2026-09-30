@@ -34,6 +34,8 @@ interface EncountersTabProps {
   dirty: boolean;
   fishingDirty: boolean;
   busy: boolean;
+  fishingFocusMapConstant: string | null;
+  onOpenMap(mapConstant: string): void;
   onSectionChange(section: EncounterSection): Promise<void>;
   onSearchChange(value: string): void;
   onSelect(entry: EncounterTableIndexEntry): Promise<void>;
@@ -75,6 +77,8 @@ export function EncountersTab({
   dirty,
   fishingDirty,
   busy,
+  fishingFocusMapConstant,
+  onOpenMap,
   onSectionChange,
   onSearchChange,
   onSelect,
@@ -137,6 +141,8 @@ export function EncountersTab({
             pokemonIndex={pokemonIndex}
             dirty={fishingDirty}
             busy={busy}
+            focusMapConstant={fishingFocusMapConstant}
+            onOpenMap={onOpenMap}
             onUpdateSlot={onUpdateFishingSlot}
           />
         )
@@ -190,16 +196,32 @@ export function EncountersTab({
                 </div>
 
                 {selectedEntry && (
-                  <div className="affected-locations">
-                    <strong>
-                      {selectedEntry.affectedLocations.length > 1
-                        ? `Shared by ${selectedEntry.affectedLocations.length} locations`
-                        : "Affects"}
-                    </strong>
-                    <span>
-                      {selectedEntry.affectedLocations.join(", ") || "No map pointer found"}
-                    </span>
-                  </div>
+                  <>
+                    <div className="affected-locations">
+                      <strong>
+                        {selectedEntry.affectedLocations.length > 1
+                          ? `Shared by ${selectedEntry.affectedLocations.length} locations`
+                          : "Affects"}
+                      </strong>
+                      <span>
+                        {selectedEntry.affectedLocations.join(", ") || "No map pointer found"}
+                      </span>
+                    </div>
+                    {selectedEntry.affectedMaps.length > 0 && (
+                      <div className="map-crosslinks">
+                        {selectedEntry.affectedMaps.map((map) => (
+                          <button
+                            key={map.constant}
+                            type="button"
+                            className="small-button"
+                            onClick={() => onOpenMap(map.constant)}
+                          >
+                            View {map.displayName} on map →
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {availableVersions.length > 1 && (
