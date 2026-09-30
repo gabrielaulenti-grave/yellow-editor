@@ -8,7 +8,7 @@ const ZIP_LOCAL_SIGNATURE = 0x04034b50;
 const ZIP_CENTRAL_SIGNATURE = 0x02014b50;
 const ZIP_EOCD_SIGNATURE = 0x06054b50;
 const MAX_ZIP_ENTRIES = 0xffff;
-const MAX_ZIP_BYTES = 512 * 1024 * 1024;
+const MAX_ZIP_BYTES = 128 * 1024 * 1024;
 
 let crcTable: Uint32Array | null = null;
 
