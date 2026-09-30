@@ -4,8 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const EMSCRIPTEN_VERSION = "4.0.15";
 const PRET_SOURCE_COMMIT = "e89ead154b9968aa50eed9328ff2b38b6c194382";
-const RGBDS_VERSION = "1.0.3";
-const RGBDS_COMMIT = "307846b03ea89ee57bf75f179d5f8051175ac60d";
+const RGBDS_VERSION = "1.0.4";
+const RGBDS_COMMIT = "f7b8207322aa9e3714ef0d98d01989f320103026";
 const PRET_TOOLS = ["scan_includes", "gfx", "pkmncompress", "make_patch", "pcm"];
 const RGBDS_TOOLS = ["rgbasm", "rgblink", "rgbfix"];
 const DEFAULT_ORIGIN = "https://gabrielaulenti-grave.github.io/yellow-editor/wasm-tools";
