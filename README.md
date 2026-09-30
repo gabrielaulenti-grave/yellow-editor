@@ -39,4 +39,4 @@ For source development, Yellow Editor synchronizes the already-published pinned 
 
 ## Current editor coverage
 
-Yellow Editor currently supports source-backed Pokémon data and base-stat editing, move browsing, trainer parsing/editing, wild encounter editing, source-backed tile/block/map visualization with warp, sign-text, outdoor-map, and wild-encounter cross-navigation, ROM builds for Yellow and Red/Blue, an integrated Game Boy emulator, and persistent/exportable battery save RAM. The project checkout remains the source of truth, with edit history stored outside the checkout.
+Yellow Editor currently supports source-backed Pokémon data and base-stat editing, move browsing, trainer parsing/editing, wild encounter editing, source-backed tile/block/map visualization with warp, sign-text, ordinary NPC dialogue, outdoor-map, and wild-encounter cross-navigation, ROM builds for Yellow and Red/Blue, an integrated Game Boy emulator, and persistent/exportable battery save RAM. The project checkout remains the source of truth, with edit history stored outside the checkout.

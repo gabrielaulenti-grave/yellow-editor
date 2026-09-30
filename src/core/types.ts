@@ -43,6 +43,21 @@ export interface MapSignEvent {
   scriptPath: string;
 }
 
+export interface MapNpcEvent {
+  id: number;
+  objectConstant: string | null;
+  x: number;
+  y: number;
+  spriteConstant: string;
+  movementConstant: string;
+  directionOrRangeConstant: string;
+  textConstant: string;
+  textLabel: string | null;
+  scriptPath: string;
+  dialoguePath: string;
+  dialogueLabel: string | null;
+}
+
 export interface MapVisualization {
   map: MapIndexEntry;
   headerMapConstant: string;
@@ -60,6 +75,7 @@ export interface MapVisualization {
   blockCount: number;
   warps: MapWarpEvent[];
   signs: MapSignEvent[];
+  npcs: MapNpcEvent[];
   connections: MapConnection[];
   warnings: string[];
 }

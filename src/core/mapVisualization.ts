@@ -212,6 +212,117 @@ function parseSignEvents(
   return signs;
 }
 
+function parseObjectConstants(objectText: string): string[] {
+  return objectText
+    .split(/\r?\n/)
+    .map((line) => codeOnly(line).match(/^const_export\s+([A-Z0-9_]+)\b/i)?.[1] ?? null)
+    .filter((value): value is string => Boolean(value));
+}
+
+function splitAsmArguments(value: string): string[] {
+  return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+function globalLabelSource(contents: string, label: string): string | null {
+  const lines = contents.split(/\r?\n/);
+  const escaped = label.replace(/[.*+?^$()|[\]\\{}]/g, "\\$&");
+  const pattern = new RegExp("^\\s*" + escaped + ":{1,2}\\s*(?:;.*)?$");
+  const start = lines.findIndex((line) => pattern.test(line));
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^\s*[A-Za-z_][A-Za-z0-9_]*:{1,2}\s*(?:;.*)?$/.test(lines[index])) {
+      end = index;
+      break;
+    }
+  }
+  return lines.slice(start, end).join("\n");
+}
+
+function resolveNpcDialogueTarget(
+  textLabel: string | null,
+  scriptPath: string,
+  scriptText: string | null,
+  alternateScriptPath: string,
+  alternateScriptText: string | null,
+): { path: string; label: string | null } {
+  if (!textLabel) return { path: scriptPath, label: null };
+  if (!scriptText || !alternateScriptText) {
+    return { path: scriptPath, label: textLabel };
+  }
+
+  const wrapper = globalLabelSource(scriptText, textLabel);
+  if (!wrapper) return { path: scriptPath, label: textLabel };
+
+  const farcalls = [...new Set(
+    [...wrapper.matchAll(/^\s*farcall\s+([A-Za-z_][A-Za-z0-9_]*)\b/gm)]
+      .map((match) => match[1]),
+  )];
+  if (
+    farcalls.length === 1
+    && globalLabelSource(alternateScriptText, farcalls[0])
+  ) {
+    return { path: alternateScriptPath, label: farcalls[0] };
+  }
+
+  return { path: scriptPath, label: textLabel };
+}
+
+function parseNpcEvents(
+  objectText: string,
+  scriptPath: string,
+  scriptText: string | null,
+  alternateScriptPath: string,
+  alternateScriptText: string | null,
+): MapVisualization["npcs"] {
+  const npcs: MapVisualization["npcs"] = [];
+  const objectConstants = parseObjectConstants(objectText);
+  const textPointers = scriptText ? parseTextPointers(scriptText) : new Map<string, string>();
+  let objectIndex = 0;
+
+  for (const rawLine of objectText.split(/\r?\n/)) {
+    const clean = codeOnly(rawLine);
+    if (!/^object_event\b/i.test(clean)) continue;
+
+    const args = splitAsmArguments(clean.replace(/^object_event\s+/i, ""));
+    const id = objectIndex + 1;
+    const objectConstant = objectConstants[objectIndex] ?? null;
+    objectIndex += 1;
+
+    // Six arguments is the ordinary NPC form. Items add one more field and
+    // trainers add two, so keep those for their dedicated map layers.
+    if (args.length !== 6) continue;
+    if (!/^-?\d+$/.test(args[0]) || !/^-?\d+$/.test(args[1])) continue;
+
+    const textConstant = args[5];
+    const textLabel = textPointers.get(textConstant) ?? null;
+    const dialogueTarget = resolveNpcDialogueTarget(
+      textLabel,
+      scriptPath,
+      scriptText,
+      alternateScriptPath,
+      alternateScriptText,
+    );
+
+    npcs.push({
+      id,
+      objectConstant,
+      x: Number.parseInt(args[0], 10),
+      y: Number.parseInt(args[1], 10),
+      spriteConstant: args[2],
+      movementConstant: args[3],
+      directionOrRangeConstant: args[4],
+      textConstant,
+      textLabel,
+      scriptPath,
+      dialoguePath: dialogueTarget.path,
+      dialogueLabel: dialogueTarget.label,
+    });
+  }
+
+  return npcs;
+}
+
 function withTrailingPadding(
   bytes: Uint8Array,
   paddingAfter: number,
@@ -362,9 +473,11 @@ export async function loadMapVisualization(
   const warnings: string[] = [];
   const objectPath = `data/maps/objects/${mapSourceLabel}.asm`;
   const scriptPath = `scripts/${mapSourceLabel}.asm`;
+  const alternateScriptPath = `scripts/${mapSourceLabel}_2.asm`;
   const connections = parseMapConnections(headerText, entries);
   let warps: MapVisualization["warps"] = [];
   let signs: MapVisualization["signs"] = [];
+  let npcs: MapVisualization["npcs"] = [];
 
   if (await source.exists(objectPath)) {
     const objectText = await source.readText(objectPath);
@@ -372,7 +485,17 @@ export async function loadMapVisualization(
     const scriptText = await source.exists(scriptPath)
       ? await source.readText(scriptPath)
       : null;
+    const alternateScriptText = await source.exists(alternateScriptPath)
+      ? await source.readText(alternateScriptPath)
+      : null;
     signs = parseSignEvents(objectText, scriptPath, scriptText);
+    npcs = parseNpcEvents(
+      objectText,
+      scriptPath,
+      scriptText,
+      alternateScriptPath,
+      alternateScriptText,
+    );
 
     const movementWidth = map.width * 2;
     const movementHeight = map.height * 2;
@@ -415,9 +538,27 @@ export async function loadMapVisualization(
         );
       }
     }
+
+    for (const npc of npcs) {
+      if (
+        npc.x < 0
+        || npc.y < 0
+        || npc.x >= movementWidth
+        || npc.y >= movementHeight
+      ) {
+        warnings.push(
+          `NPC #${npc.id} is at (${npc.x}, ${npc.y}), outside the ${movementWidth}×${movementHeight} movement grid.`,
+        );
+      }
+      if (!npc.textLabel) {
+        warnings.push(
+          `NPC #${npc.id} uses ${npc.textConstant}, but no matching text pointer was resolved in ${scriptPath}.`,
+        );
+      }
+    }
   } else {
     warnings.push(
-      `Map object source ${objectPath} does not exist, so warp markers are unavailable.`,
+      `Map object source ${objectPath} does not exist, so warp, sign, and NPC markers are unavailable.`,
     );
   }
 
@@ -511,6 +652,7 @@ export async function loadMapVisualization(
     blockCount,
     warps,
     signs,
+    npcs,
     connections,
     warnings,
   };

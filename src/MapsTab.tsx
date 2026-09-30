@@ -195,11 +195,14 @@ function MapCanvas({
   showGrid,
   showWarps,
   showSigns,
+  showNpcs,
   selectedWarpId,
   selectedSignId,
+  selectedNpcId,
   arrivalWarpId,
   onSelectWarp,
   onSelectSign,
+  onSelectNpc,
 }: {
   visualization: MapVisualization;
   view: MapView;
@@ -207,11 +210,14 @@ function MapCanvas({
   showGrid: boolean;
   showWarps: boolean;
   showSigns: boolean;
+  showNpcs: boolean;
   selectedWarpId: number | null;
   selectedSignId: number | null;
+  selectedNpcId: number | null;
   arrivalWarpId: number | null;
   onSelectWarp: (warpId: number) => void;
   onSelectSign: (signId: number) => void;
+  onSelectNpc: (npcId: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -306,6 +312,25 @@ function MapCanvas({
           S
         </button>
       ))}
+      {view === "map" && showNpcs && visualization.npcs.map((npc) => (
+        <button
+          key={`npc:${npc.id}`}
+          type="button"
+          className={[
+            "world-map-npc-marker",
+            npc.id === selectedNpcId ? "selected" : "",
+          ].filter(Boolean).join(" ")}
+          style={{
+            left: (npc.x * 16 + 8) * scale,
+            top: (npc.y * 16 + 8) * scale,
+          }}
+          onClick={() => onSelectNpc(npc.id)}
+          aria-label={`NPC ${npc.id} at ${npc.x}, ${npc.y}`}
+          title={`NPC #${npc.id} · (${npc.x}, ${npc.y}) · ${npc.spriteConstant}`}
+        >
+          N
+        </button>
+      ))}
     </div>
   );
 }
@@ -342,8 +367,10 @@ export function MapsTab({
   const [showGrid, setShowGrid] = useState(false);
   const [showWarps, setShowWarps] = useState(true);
   const [showSigns, setShowSigns] = useState(true);
+  const [showNpcs, setShowNpcs] = useState(true);
   const [selectedWarpId, setSelectedWarpId] = useState<number | null>(null);
   const [selectedSignId, setSelectedSignId] = useState<number | null>(null);
+  const [selectedNpcId, setSelectedNpcId] = useState<number | null>(null);
   const [arrivalWarpId, setArrivalWarpId] = useState<number | null>(null);
   const [navigationStack, setNavigationStack] = useState<string[]>([]);
   const [lastOutdoorMap, setLastOutdoorMap] = useState<string | null>(null);
@@ -362,6 +389,7 @@ export function MapsTab({
       setVisualization(null);
       setSelectedWarpId(null);
       setSelectedSignId(null);
+      setSelectedNpcId(null);
       setArrivalWarpId(null);
       setNavigationStack([]);
       setLastOutdoorMap(null);
@@ -414,6 +442,7 @@ export function MapsTab({
     setSelectedConstant(mapConstant);
     setSelectedWarpId(null);
     setSelectedSignId(null);
+    setSelectedNpcId(null);
     setArrivalWarpId(null);
     setNavigationStack([]);
     setLastOutdoorMap(null);
@@ -441,6 +470,7 @@ export function MapsTab({
     setSelectedConstant(mapConstant);
     setSelectedWarpId(null);
     setSelectedSignId(null);
+    setSelectedNpcId(null);
     setArrivalWarpId(destinationWarpId);
     setError(null);
   }
@@ -452,6 +482,7 @@ export function MapsTab({
     setSelectedConstant(destination);
     setSelectedWarpId(null);
     setSelectedSignId(null);
+    setSelectedNpcId(null);
     setArrivalWarpId(null);
     setError(null);
   }
@@ -485,6 +516,7 @@ export function MapsTab({
           && result.warps.some((warp) => warp.id === arrivalWarpId);
         setSelectedWarpId(arrived ? arrivalWarpId : null);
         setSelectedSignId(null);
+        setSelectedNpcId(null);
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -563,6 +595,9 @@ export function MapsTab({
   const selectedSign = visualization?.signs.find(
     (sign) => sign.id === selectedSignId,
   ) ?? null;
+  const selectedNpc = visualization?.npcs.find(
+    (npc) => npc.id === selectedNpcId,
+  ) ?? null;
   const resolvedWarpDestination = selectedWarp?.isLastMap
     ? lastOutdoorMap
     : selectedWarp?.destinationMapConstant ?? null;
@@ -586,6 +621,38 @@ export function MapsTab({
 
   function versionLabel(version: string): string {
     return version[0]?.toUpperCase() + version.slice(1);
+  }
+
+  function constantLabel(value: string, prefix = ""): string {
+    const trimmed = prefix && value.startsWith(prefix)
+      ? value.slice(prefix.length)
+      : value;
+    return trimmed
+      .replace(/_/g, " ")
+      .toLowerCase()
+      .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+  }
+
+  function npcMovementSummary(
+    movementConstant: string,
+    directionOrRangeConstant: string,
+  ): string {
+    if (movementConstant === "WALK") {
+      const range = directionOrRangeConstant === "ANY_DIR"
+        ? "any direction"
+        : directionOrRangeConstant === "UP_DOWN"
+          ? "up/down"
+          : directionOrRangeConstant === "LEFT_RIGHT"
+            ? "left/right"
+            : constantLabel(directionOrRangeConstant).toLowerCase();
+      return `Walks · ${range}`;
+    }
+    if (movementConstant === "STAY") {
+      return directionOrRangeConstant === "NONE"
+        ? "Stays in place"
+        : `Stays · faces ${constantLabel(directionOrRangeConstant).toLowerCase()}`;
+    }
+    return `${constantLabel(movementConstant)} · ${constantLabel(directionOrRangeConstant)}`;
   }
 
   if (!project) {
@@ -704,6 +771,11 @@ export function MapsTab({
                   <span>Signs</span>
                   <strong>{visualization.signs.length}</strong>
                   <small>Background text events</small>
+                </div>
+                <div>
+                  <span>NPCs</span>
+                  <strong>{visualization.npcs.length}</strong>
+                  <small>Ordinary object events</small>
                 </div>
                 <div>
                   <span>Connections</span>
@@ -900,6 +972,14 @@ export function MapsTab({
                       />
                       <span>Sign markers</span>
                     </label>
+                    <label className="world-map-grid-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showNpcs}
+                        onChange={(event) => setShowNpcs(event.target.checked)}
+                      />
+                      <span>NPC markers</span>
+                    </label>
                   </>
                 )}
               </div>
@@ -961,16 +1041,25 @@ export function MapsTab({
                   showGrid={showGrid}
                   showWarps={showWarps}
                   showSigns={showSigns}
+                  showNpcs={showNpcs}
                   selectedWarpId={selectedWarpId}
                   selectedSignId={selectedSignId}
+                  selectedNpcId={selectedNpcId}
                   arrivalWarpId={arrivalWarpId}
                   onSelectWarp={(warpId) => {
                     setSelectedWarpId(warpId);
                     setSelectedSignId(null);
+                    setSelectedNpcId(null);
                   }}
                   onSelectSign={(signId) => {
                     setSelectedSignId(signId);
                     setSelectedWarpId(null);
+                    setSelectedNpcId(null);
+                  }}
+                  onSelectNpc={(npcId) => {
+                    setSelectedNpcId(npcId);
+                    setSelectedWarpId(null);
+                    setSelectedSignId(null);
                   }}
                 />
               </div>
@@ -983,7 +1072,11 @@ export function MapsTab({
                         key={warp.id}
                         type="button"
                         className={warp.id === selectedWarpId ? "active" : ""}
-                        onClick={() => setSelectedWarpId(warp.id)}
+                        onClick={() => {
+                          setSelectedWarpId(warp.id);
+                          setSelectedSignId(null);
+                          setSelectedNpcId(null);
+                        }}
                       >
                         <strong>#{warp.id}</strong>
                         <span>({warp.x}, {warp.y})</span>
@@ -1055,6 +1148,7 @@ export function MapsTab({
                         onClick={() => {
                           setSelectedSignId(sign.id);
                           setSelectedWarpId(null);
+                          setSelectedNpcId(null);
                         }}
                       >
                         <strong>Sign #{sign.id}</strong>
@@ -1088,12 +1182,109 @@ export function MapsTab({
                 </div>
               )}
 
+              {view === "map" && visualization.npcs.length > 0 && (
+                <div className="world-map-npc-panel">
+                  <div className="world-map-npc-heading">
+                    <div>
+                      <strong>NPCs</strong>
+                      <small>
+                        Ordinary six-field object events. Trainers and item balls remain separate layers.
+                      </small>
+                    </div>
+                  </div>
+                  <div className="world-map-npc-list" aria-label="Map NPCs">
+                    {visualization.npcs.map((npc) => (
+                      <button
+                        key={npc.id}
+                        type="button"
+                        className={npc.id === selectedNpcId ? "active" : ""}
+                        onClick={() => {
+                          setSelectedNpcId(npc.id);
+                          setSelectedWarpId(null);
+                          setSelectedSignId(null);
+                        }}
+                      >
+                        <strong>
+                          {npc.objectConstant
+                            ? constantLabel(npc.objectConstant)
+                            : `NPC #${npc.id}`}
+                        </strong>
+                        <span>({npc.x}, {npc.y}) · {constantLabel(npc.spriteConstant, "SPRITE_")}</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedNpc ? (
+                    <div className="world-map-npc-inspector">
+                      <div className="world-map-npc-details">
+                        <span>Selected NPC</span>
+                        <strong>
+                          {selectedNpc.objectConstant
+                            ? constantLabel(selectedNpc.objectConstant)
+                            : `NPC #${selectedNpc.id}`}
+                        </strong>
+                        <code>x {selectedNpc.x}, y {selectedNpc.y}</code>
+                        <dl>
+                          <div>
+                            <dt>Sprite</dt>
+                            <dd>
+                              {constantLabel(selectedNpc.spriteConstant, "SPRITE_")}
+                              <code>{selectedNpc.spriteConstant}</code>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Movement</dt>
+                            <dd>
+                              {npcMovementSummary(
+                                selectedNpc.movementConstant,
+                                selectedNpc.directionOrRangeConstant,
+                              )}
+                              <code>
+                                {selectedNpc.movementConstant}
+                                {" · "}{selectedNpc.directionOrRangeConstant}
+                              </code>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Text ID</dt>
+                            <dd><code>{selectedNpc.textConstant}</code></dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      <div className="world-map-npc-dialogue">
+                        <TextEditor
+                          key={`${selectedNpc.dialoguePath}:${selectedNpc.dialogueLabel ?? selectedNpc.textConstant}`}
+                          title="NPC dialogue"
+                          target={selectedNpc.dialogueLabel
+                            ? {
+                                path: selectedNpc.dialoguePath,
+                                label: selectedNpc.dialogueLabel,
+                              }
+                            : null}
+                          initialText={null}
+                        />
+                        <small className="help-text">
+                          Scripted NPCs can choose different dialogue based on game state.
+                          Yellow Editor only enables editing when the modular text editor can
+                          resolve a safe text leaf.
+                        </small>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="world-map-warp-empty">
+                      Select an N marker or NPC card to inspect its sprite, movement, and dialogue.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <p className="help-text">
                 {view === "tiles"
                   ? "Tile IDs run left-to-right, top-to-bottom. Each tile is decoded directly from the selected .2bpp source."
                   : view === "blocks"
                     ? "Block IDs run left-to-right, top-to-bottom. Every block is assembled from 16 tile IDs in the .bst blockset."
-                    : "Map markers use the game's 16×16 movement coordinates. Numbered markers are warps; S markers are signs whose dialogue opens in the same modular text editor used elsewhere in Yellow Editor."}
+                    : "Map markers use the game's 16×16 movement coordinates. Numbered markers are warps, S markers are signs, and N markers are ordinary NPC objects."}
               </p>
 
               {visualization.warnings.length > 0 && (
