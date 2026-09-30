@@ -542,6 +542,14 @@ export async function invoke<T>(
         itemCreateValuesArg(args),
       )) as T;
 
+    case "get_map_index":
+      return (await session.getMapIndex()) as T;
+
+    case "get_map_visualization":
+      return (await session.getMapVisualization(
+        stringArg(args, "mapConstant"),
+      )) as T;
+
     case "get_tmhm_compatibility":
       return (await session.getTmhmCompatibility(
         stringArg(args, "moveConstant"),
