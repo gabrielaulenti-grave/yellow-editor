@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
+  MacroCatalog,
+  MacroDefinitionSummary,
   ProjectInfo,
   ScriptCatalog,
   ScriptCatalogEntry,
   ScriptDocument,
+  ScriptMacroCall,
+  ScriptMacroCallDocument,
   ScriptRoutineSummary,
 } from "./core/types";
 import {
@@ -50,6 +54,88 @@ function preferredRoutine(routines: ScriptRoutineSummary[]): ScriptRoutineSummar
     ?? null;
 }
 
+function macroKindLabel(value: string): string {
+  return value === "unknown"
+    ? "unresolved"
+    : value.replace(/-/g, " ");
+}
+
+function MacroCallForm({
+  call,
+  definition,
+}: {
+  call: ScriptMacroCall;
+  definition: MacroDefinitionSummary | null;
+}) {
+  const parameters = definition?.parameters.length
+    ? definition.parameters
+    : call.arguments.map((argument) => ({
+        index: argument.index,
+        displayName: `Argument ${argument.index}`,
+        required: true,
+        inferredKind: argument.inferredKind,
+        confidence: argument.confidence,
+        examples: [argument.raw],
+        evidence: [],
+      }));
+
+  return (
+    <article className="script-macro-call-card">
+      <div className="script-macro-call-heading">
+        <div>
+          <strong>{call.name}</strong>
+          <code>{call.path}:{call.line}</code>
+        </div>
+        <small>
+          defined at {call.definitionPath}:{call.definitionLine}
+        </small>
+      </div>
+
+      {parameters.length === 0 ? (
+        <p className="help-text">This project macro takes no observed positional arguments.</p>
+      ) : (
+        <div className="script-macro-parameter-grid">
+          {parameters.map((parameter) => {
+            const argument = call.arguments.find((candidate) => candidate.index === parameter.index);
+            const inferredKind = parameter.inferredKind !== "unknown"
+              ? parameter.inferredKind
+              : argument?.inferredKind ?? "unknown";
+            const confidence = parameter.inferredKind !== "unknown"
+              ? parameter.confidence
+              : argument?.confidence ?? "low";
+
+            return (
+              <label key={parameter.index} className="script-macro-parameter">
+                <span>
+                  <strong>{parameter.displayName}</strong>
+                  <small>
+                    {macroKindLabel(inferredKind)}
+                    {" · "}
+                    {confidence} confidence
+                    {" · "}
+                    {parameter.required ? "required" : "optional/conditional"}
+                  </small>
+                </span>
+                <input
+                  value={argument?.raw ?? ""}
+                  readOnly
+                  placeholder={parameter.required ? "Not supplied" : "Optional"}
+                  aria-label={`${call.name} ${parameter.displayName}`}
+                />
+                {parameter.evidence.length > 0 && (
+                  <small className="script-macro-evidence">
+                    {parameter.evidence.join(" · ")}
+                  </small>
+                )}
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </article>
+  );
+}
+
 export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   const [catalog, setCatalog] = useState<ScriptCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -61,6 +147,12 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   const [document, setDocument] = useState<ScriptDocument | null>(null);
   const [documentLoading, setDocumentLoading] = useState(false);
   const [documentError, setDocumentError] = useState<string | null>(null);
+  const [macroCatalog, setMacroCatalog] = useState<MacroCatalog | null>(null);
+  const [macroCatalogLoading, setMacroCatalogLoading] = useState(false);
+  const [macroCatalogError, setMacroCatalogError] = useState<string | null>(null);
+  const [macroCalls, setMacroCalls] = useState<ScriptMacroCallDocument | null>(null);
+  const [macroCallsLoading, setMacroCallsLoading] = useState(false);
+  const [macroCallsError, setMacroCallsError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!project) {
@@ -114,6 +206,32 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   }, [project?.storageKey]);
 
   useEffect(() => {
+    if (!project) {
+      setMacroCatalog(null);
+      setMacroCatalogError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setMacroCatalogLoading(true);
+    setMacroCatalogError(null);
+    void invoke<MacroCatalog>("get_macro_catalog")
+      .then((nextCatalog) => {
+        if (!cancelled) setMacroCatalog(nextCatalog);
+      })
+      .catch((error) => {
+        if (!cancelled) setMacroCatalogError(String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setMacroCatalogLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.storageKey]);
+
+  useEffect(() => {
     if (!catalog || !focus) return;
     const entry = catalog.entries.find((candidate) => candidate.paths.includes(focus.path));
     if (!entry) return;
@@ -157,6 +275,35 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
     };
   }, [project?.storageKey, selectedPath]);
 
+  useEffect(() => {
+    if (!project || !selectedPath) {
+      setMacroCalls(null);
+      setMacroCallsError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setMacroCallsLoading(true);
+    setMacroCallsError(null);
+    void invoke<ScriptMacroCallDocument>("get_script_macro_calls", { path: selectedPath })
+      .then((nextCalls) => {
+        if (!cancelled) setMacroCalls(nextCalls);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setMacroCalls(null);
+          setMacroCallsError(String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setMacroCallsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.storageKey, selectedPath]);
+
   const filteredEntries = useMemo(() => {
     if (!catalog) return [];
     const query = search.trim().toLowerCase();
@@ -176,6 +323,22 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   const sourceLabels = selectedPathRoutines.filter((routine) => routine.kind === "source-label");
   const selectedRoutine =
     document?.routines.find((routine) => routine.label === selectedRoutineLabel) ?? null;
+
+  const macroDefinitions = useMemo(
+    () => new Map(
+      (macroCatalog?.macros ?? []).map((definition) => [definition.name.toLowerCase(), definition]),
+    ),
+    [macroCatalog],
+  );
+  const selectedRoutineMacroCalls = useMemo(() => {
+    if (!selectedRoutine || !macroCalls || !document) return [];
+    const nextStart = document.routines
+      .filter((routine) => routine.startLine > selectedRoutine.startLine)
+      .reduce((minimum, routine) => Math.min(minimum, routine.startLine), Number.POSITIVE_INFINITY);
+    return macroCalls.calls.filter(
+      (call) => call.line >= selectedRoutine.startLine && call.line < nextStart,
+    );
+  }, [document, macroCalls, selectedRoutine]);
 
   const previewReference = useMemo<MapScriptPreviewReference | null>(() => {
     if (!document || !selectedRoutineLabel) return null;
@@ -229,7 +392,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
             movement, battles, event flags, and the source that connects them.
           </p>
         </div>
-        <span className="read-only-badge">Script workspace foundation</span>
+        <span className="read-only-badge">Project-derived script model</span>
       </div>
 
       <div className="script-browser">
@@ -247,11 +410,25 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                 ? `${catalog.fileCount} files · ${catalog.routineCount} script entry points`
                 : "Scripts unavailable"}
           </p>
+          <p className="browser-count script-macro-count">
+            {macroCatalogLoading
+              ? "Learning project macros…"
+              : macroCatalog
+                ? `${macroCatalog.definitionCount} project macros · ${macroCatalog.callCount} calls analyzed`
+                : "Macro model unavailable"}
+          </p>
 
           {catalogError && (
             <div className="world-map-warning">
               <strong>Script index unavailable</strong>
               <p>{catalogError}</p>
+            </div>
+          )}
+
+          {macroCatalogError && (
+            <div className="world-map-warning">
+              <strong>Project macro model unavailable</strong>
+              <p>{macroCatalogError}</p>
             </div>
           )}
 
@@ -386,6 +563,52 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                       </div>
 
                       <MapScriptPreview reference={previewReference} />
+
+                      <section className="script-macro-inspector">
+                        <div className="script-macro-inspector-heading">
+                          <div>
+                            <h5>Project-derived macro forms</h5>
+                            <p className="help-text">
+                              These fields are generated from RGBDS macros found in the loaded
+                              project. Yellow Editor does not rely on a built-in Pokémon macro list.
+                            </p>
+                          </div>
+                          {selectedRoutineMacroCalls.length > 0 && (
+                            <span className="read-only-badge">
+                              {selectedRoutineMacroCalls.length} macro call
+                              {selectedRoutineMacroCalls.length === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </div>
+
+                        {macroCallsLoading && (
+                          <div className="world-map-loading" aria-live="polite">
+                            <strong>Resolving project macro calls…</strong>
+                          </div>
+                        )}
+
+                        {macroCallsError && !macroCallsLoading && (
+                          <div className="world-map-warning">
+                            <strong>Macro calls unavailable</strong>
+                            <p>{macroCallsError}</p>
+                          </div>
+                        )}
+
+                        {!macroCallsLoading && !macroCallsError && selectedRoutineMacroCalls.length === 0 && (
+                          <p className="empty-state">
+                            No project-defined macro calls were detected in this routine.
+                            Direct RGBDS assembly remains visible in the semantic preview above.
+                          </p>
+                        )}
+
+                        {!macroCallsLoading && selectedRoutineMacroCalls.map((call) => (
+                          <MacroCallForm
+                            key={`${call.path}:${call.line}:${call.name}`}
+                            call={call}
+                            definition={macroDefinitions.get(call.name.toLowerCase()) ?? null}
+                          />
+                        ))}
+                      </section>
 
                       <details className="trainer-full-script script-source-detail">
                         <summary>Advanced: view complete source file</summary>
