@@ -23,6 +23,7 @@ interface MacroDefinitionInternal {
   body: string[];
   parameterCount: number;
   usageHints: Map<number, MacroParameterKind[]>;
+  producedSymbols: Map<number, "label" | "constant">;
   nestedBindings: Array<{
     parentParameter: number;
     macroName: string;
@@ -170,6 +171,7 @@ function parseDefinitions(file: SourceFile): MacroDefinitionInternal[] {
     let shift = 0;
     let parameterCount = 0;
     const usageHints = new Map<number, MacroParameterKind[]>();
+    const producedSymbols = new Map<number, "label" | "constant">();
 
     for (const sourceLine of body) {
       const bodyLine = withoutComment(sourceLine);
@@ -183,6 +185,15 @@ function parseDefinitions(file: SourceFile): MacroDefinitionInternal[] {
         parameterCount = Math.max(parameterCount, parameter);
         const localIndex = parameter - shift;
         const token = "\\" + String(localIndex);
+        const escaped = escapeRegex(token);
+        if (new RegExp("^\\s*" + escaped + ":{1,2}(?:\\s|$)").test(bodyLine)) {
+          producedSymbols.set(parameter, "label");
+        } else if (
+          new RegExp("^\\s*DEF\\s+" + escaped + "\\s+", "i").test(bodyLine)
+          || new RegExp("^\\s*" + escaped + "\\s+(?:EQU|EQUS)\\b", "i").test(bodyLine)
+        ) {
+          producedSymbols.set(parameter, "constant");
+        }
         const hint = usageKind(bodyLine, token);
         if (hint) {
           const list = usageHints.get(parameter) ?? [];
@@ -200,6 +211,7 @@ function parseDefinitions(file: SourceFile): MacroDefinitionInternal[] {
       body,
       parameterCount,
       usageHints,
+      producedSymbols,
       nestedBindings: [],
     });
     index = end;
