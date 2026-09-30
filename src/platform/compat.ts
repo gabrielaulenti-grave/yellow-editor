@@ -161,7 +161,11 @@ function requireSession(): ProjectSession {
 
 function requireTextSession(session: ProjectSession): ProjectSession & TextEditingSession {
   const candidate = session as ProjectSession & Partial<TextEditingSession>;
-  if (!candidate.getTextDocument || !candidate.saveTextDocument) {
+  if (
+    !candidate.getTextDocument
+    || !candidate.getTextLeafDocuments
+    || !candidate.saveTextDocument
+  ) {
     throw new Error("This project session does not support text editing.");
   }
   return candidate as ProjectSession & TextEditingSession;
@@ -629,6 +633,12 @@ export async function invoke<T>(
         stringArg(args, "path"),
         stringArg(args, "label"),
         optionalStringArg(args, "previewText"),
+      )) as T;
+
+    case "get_text_leaf_documents":
+      return (await requireTextSession(session).getTextLeafDocuments(
+        stringArg(args, "path"),
+        stringArg(args, "label"),
       )) as T;
 
     case "save_text_document":
