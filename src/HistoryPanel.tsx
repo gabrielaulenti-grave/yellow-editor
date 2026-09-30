@@ -6,6 +6,7 @@ interface HistoryPanelProps {
   currentCopyDisabled: boolean;
   onClose(): void;
   onSaveCopy(historyCursor?: number): Promise<void>;
+  onSelectiveUndo(entryId: string): Promise<void>;
 }
 
 function formatTimestamp(value: string): string {
@@ -21,6 +22,7 @@ export function HistoryPanel({
   currentCopyDisabled,
   onClose,
   onSaveCopy,
+  onSelectiveUndo,
 }: HistoryPanelProps) {
   const entries = [...timeline.entries].reverse();
 
@@ -92,14 +94,28 @@ export function HistoryPanel({
                       {formatTimestamp(entry.timestamp)}
                     </time>
                   </div>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void onSaveCopy(entry.cursorAfter)}
-                    title="Create an independent project copy at this exact history point."
-                  >
-                    Save copy from here…
-                  </button>
+                  <div className="history-entry-actions">
+                    {entry.applied && (
+                      <button
+                        type="button"
+                        disabled={busy || !entry.canSelectiveUndo}
+                        onClick={() => void onSelectiveUndo(entry.id)}
+                        title={entry.canSelectiveUndo
+                          ? "Undo only this saved change while preserving unrelated later changes."
+                          : entry.selectiveUndoReason ?? undefined}
+                      >
+                        Undo this change
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void onSaveCopy(entry.cursorAfter)}
+                      title="Create an independent project copy at this exact history point."
+                    >
+                      Save copy from here…
+                    </button>
+                  </div>
                 </div>
 
                 <details>
@@ -110,6 +126,22 @@ export function HistoryPanel({
                     {entry.files.map((path) => <li key={path}><code>{path}</code></li>)}
                   </ul>
                 </details>
+
+                {entry.applied && !entry.canSelectiveUndo && (
+                  <div className="history-selective-undo-note">
+                    <strong>Independent undo unavailable:</strong>{" "}
+                    {entry.selectiveUndoReason}
+                    {entry.selectiveUndoBlockedBy.length > 0 && (
+                      <ul>
+                        {entry.selectiveUndoBlockedBy.map((blocker) => (
+                          <li key={blocker.entryId}>
+                            {blocker.label}: <code>{blocker.files.join(", ")}</code>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </li>
             );
           })}
