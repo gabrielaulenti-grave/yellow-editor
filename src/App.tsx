@@ -2093,6 +2093,7 @@ function App() {
             <HistoryPanel
               timeline={historyTimeline}
               busy={editBusy}
+              currentCopyDisabled={hasUnsavedChanges}
               onClose={() => setHistoryOpen(false)}
               onSaveCopy={saveSafeProjectCopy}
             />
