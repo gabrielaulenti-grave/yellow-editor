@@ -570,6 +570,21 @@ export async function invoke<T>(
         stringArg(args, "path"),
       )) as T;
 
+    case "get_script_macro_edit_document":
+      return (await session.getScriptMacroEditDocument(
+        stringArg(args, "path"),
+        numberArg(args, "line"),
+      )) as T;
+
+    case "save_script_macro_call":
+      return (await session.saveScriptMacroCall(
+        stringArg(args, "path"),
+        numberArg(args, "line"),
+        stringArg(args, "macroName"),
+        stringArg(args, "expectedHash"),
+        stringListArg(args, "arguments"),
+      )) as T;
+
     case "get_tmhm_compatibility":
       return (await session.getTmhmCompatibility(
         stringArg(args, "moveConstant"),
