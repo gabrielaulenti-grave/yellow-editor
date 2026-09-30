@@ -59,6 +59,24 @@ export function parseMapScriptInstructions(source: string, lineOffset = 0): Pars
   return result;
 }
 
+function coalesceMovementSteps(steps: MapMovementStep[]): MapMovementStep[] {
+  const result: MapMovementStep[] = [];
+  for (const step of steps) {
+    const previous = result[result.length - 1];
+    if (
+      previous
+      && previous.raw === step.raw
+      && previous.direction === step.direction
+      && previous.operation === step.operation
+    ) {
+      previous.count += step.count;
+      continue;
+    }
+    result.push({ ...step });
+  }
+  return result;
+}
+
 export function parseMovementPath(label: string, source: string): ParsedMovementPath {
   const steps: MapMovementStep[] = [];
   for (const line of source.split(/\r?\n/)) {
@@ -71,7 +89,12 @@ export function parseMovementPath(label: string, source: string): ParsedMovement
     const step = parseMovementStep(match[1], count);
     if (step) steps.push(step);
   }
-  return { label, steps, display: steps.map(renderMovementStep).join(" → ") };
+  const compactSteps = coalesceMovementSteps(steps);
+  return {
+    label,
+    steps: compactSteps,
+    display: compactSteps.map(renderMovementStep).join(" → "),
+  };
 }
 
 export function parseMapScriptRoutines(source: string): ParsedMapScriptRoutine[] {
