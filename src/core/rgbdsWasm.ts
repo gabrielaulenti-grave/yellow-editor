@@ -10,6 +10,7 @@ import type {
   ToolRuntimeStatus,
 } from "./toolRuntime";
 
+const BUNDLED_RGBDS_VERSION = "1.0.4";
 const RGBDS_WASM_TOOLS = ["rgbasm", "rgblink", "rgbfix"] as const;
 const RGBDS_TOOLS = [...RGBDS_WASM_TOOLS, "rgbgfx"] as const;
 
@@ -84,6 +85,38 @@ function manifestPath(version: string): string {
   return `wasm-tools/rgbds/${version}/manifest.json`;
 }
 
+function parseRgbdsVersion(version: string): [number, number, number] | null {
+  const match = version.trim().match(/^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/);
+  if (!match) {
+    return null;
+  }
+  return [
+    Number.parseInt(match[1], 10),
+    Number.parseInt(match[2], 10),
+    Number.parseInt(match[3], 10),
+  ];
+}
+
+function rgbdsVersionCompatible(requiredVersion: string, bundledVersion: string): boolean {
+  const required = parseRgbdsVersion(requiredVersion);
+  const bundled = parseRgbdsVersion(bundledVersion);
+  if (!required || !bundled) {
+    return requiredVersion === bundledVersion;
+  }
+  if (required[0] !== bundled[0]) {
+    return false;
+  }
+  for (let index = 1; index < required.length; index += 1) {
+    if (bundled[index] > required[index]) {
+      return true;
+    }
+    if (bundled[index] < required[index]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 async function loadManifest(version: string): Promise<RgbdsWasmManifest | null> {
   let promise = manifestPromises.get(version);
   if (!promise) {
@@ -149,17 +182,21 @@ export async function inspectRgbdsWasm(
     };
   }
 
-  const manifest = await loadManifest(requiredVersion);
+  const manifest = await loadManifest(BUNDLED_RGBDS_VERSION);
   if (!manifest) {
     return {
       ready: false,
       version: null,
       versionMatches: null,
       tools: RGBDS_TOOLS.map(unavailableTool),
-      message: `Yellow Editor does not currently include an RGBDS ${requiredVersion} WebAssembly bundle.`,
+      message: `Yellow Editor does not currently include its RGBDS ${BUNDLED_RGBDS_VERSION} WebAssembly bundle.`,
     };
   }
 
+  const versionMatches = rgbdsVersionCompatible(
+    requiredVersion,
+    manifest.rgbds.version,
+  );
   const wasmTools = RGBDS_WASM_TOOLS.map((name): BuildToolStatus => {
     const definition = manifest.tools[name];
     return definition
@@ -167,22 +204,32 @@ export async function inspectRgbdsWasm(
           name,
           available: true,
           path: appAssetUrl(
-            `wasm-tools/rgbds/${requiredVersion}/${definition.wasm}`,
+            `wasm-tools/rgbds/${manifest.rgbds.version}/${definition.wasm}`,
           ),
           version: `${manifest.rgbds.version} / emscripten ${manifest.emscripten.version}`,
         }
       : unavailableTool(name);
   });
-  const ready = wasmTools.every((tool) => tool.available);
+  const bundleComplete = wasmTools.every((tool) => tool.available);
+  const ready = versionMatches && bundleComplete;
+
+  let message: string;
+  if (!versionMatches) {
+    message = `Bundled RGBDS ${manifest.rgbds.version} is not compatible with this checkout's requested RGBDS ${requiredVersion}.`;
+  } else if (!bundleComplete) {
+    message = `The bundled RGBDS ${manifest.rgbds.version} WebAssembly bundle is incomplete.`;
+  } else if (manifest.rgbds.version !== requiredVersion) {
+    message = `RGBDS ${manifest.rgbds.version} assembler/linker/fixer are available as a compatible replacement for requested RGBDS ${requiredVersion}; Gen I graphics conversion uses the ${gen1PngDecoderLabel()}.`;
+  } else {
+    message = `RGBDS ${manifest.rgbds.version} assembler/linker/fixer are available as WebAssembly; Gen I graphics conversion uses the ${gen1PngDecoderLabel()}.`;
+  }
 
   return {
     ready,
     version: manifest.rgbds.version,
-    versionMatches: manifest.rgbds.version === requiredVersion,
+    versionMatches,
     tools: [...wasmTools, gen1RgbgfxStatus(manifest.rgbds.version)],
-    message: ready
-      ? `RGBDS ${manifest.rgbds.version} assembler/linker/fixer are available as WebAssembly; Gen I graphics conversion uses the ${gen1PngDecoderLabel()}.`
-      : `The RGBDS ${requiredVersion} WebAssembly bundle is incomplete.`,
+    message,
   };
 }
 
