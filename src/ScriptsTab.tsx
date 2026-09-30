@@ -29,6 +29,7 @@ export interface ScriptFocus {
 interface ScriptsTabProps {
   project: ProjectInfo | null;
   focus: ScriptFocus | null;
+  onDirtyChange?(dirty: boolean): void;
 }
 
 function routineKey(routine: ScriptRoutineSummary): string {
@@ -67,11 +68,15 @@ function MacroCallForm({
   call,
   definition,
   domains,
+  editBlocked,
+  onEditStateChange,
   onSaved,
 }: {
   call: ScriptMacroCall;
   definition: MacroDefinitionSummary | null;
   domains: ProjectSemanticDomain[];
+  editBlocked: boolean;
+  onEditStateChange(open: boolean, dirty: boolean): void;
   onSaved(): void;
 }) {
   const [editDocument, setEditDocument] = useState<ScriptMacroEditDocument | null>(null);
@@ -106,6 +111,7 @@ function MacroCallForm({
   ) || call.arguments.some((argument) => argument.semanticDomains.length > 0);
 
   async function beginEdit() {
+    onEditStateChange(true, false);
     setEditLoading(true);
     setEditError(null);
     setNotice(null);
@@ -122,6 +128,7 @@ function MacroCallForm({
       setEditDocument(nextDocument);
       setDraftArguments([...nextDocument.arguments]);
     } catch (error) {
+      onEditStateChange(false, false);
       setEditError(String(error));
     } finally {
       setEditLoading(false);
@@ -146,6 +153,7 @@ function MacroCallForm({
       }));
       setEditDocument(null);
       setDraftArguments([]);
+      onEditStateChange(false, false);
       setNotice("Saved to project history.");
       onSaved();
     } catch (error) {
@@ -243,6 +251,12 @@ function MacroCallForm({
                       const next = [...draftArguments];
                       next[parameter.index - 1] = event.target.value;
                       setDraftArguments(next);
+                      onEditStateChange(
+                        true,
+                        next.some(
+                          (value, index) => value !== editDocument?.arguments[index],
+                        ),
+                      );
                     }}
                     aria-label={`${call.name} ${parameter.displayName}`}
                   >
@@ -304,6 +318,7 @@ function MacroCallForm({
                   setEditDocument(null);
                   setDraftArguments([]);
                   setEditError(null);
+                  onEditStateChange(false, false);
                 }}
                 disabled={saving}
               >
@@ -322,9 +337,13 @@ function MacroCallForm({
             <button
               type="button"
               onClick={() => void beginEdit()}
-              disabled={editLoading}
+              disabled={editLoading || editBlocked}
             >
-              {editLoading ? "Checking source…" : "Edit safe parameters"}
+              {editBlocked
+                ? "Finish current macro edit first"
+                : editLoading
+                  ? "Checking source…"
+                  : "Edit safe parameters"}
             </button>
           )}
           <small>
@@ -346,7 +365,7 @@ function MacroCallForm({
   );
 }
 
-export function ScriptsTab({ project, focus }: ScriptsTabProps) {
+export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   const [catalog, setCatalog] = useState<ScriptCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -364,6 +383,18 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   const [macroCallsLoading, setMacroCallsLoading] = useState(false);
   const [macroCallsError, setMacroCallsError] = useState<string | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
+  const [activeMacroEdit, setActiveMacroEdit] = useState<{
+    key: string;
+    dirty: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    onDirtyChange?.(activeMacroEdit?.dirty ?? false);
+  }, [activeMacroEdit?.dirty, onDirtyChange]);
+
+  useEffect(() => () => {
+    onDirtyChange?.(false);
+  }, [onDirtyChange]);
 
   useEffect(() => {
     if (!project) {
@@ -569,7 +600,20 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
     };
   }, [document, focus, selectedRoutineLabel]);
 
+  function confirmDiscardMacroEdit(): boolean {
+    if (!activeMacroEdit) return true;
+    if (
+      activeMacroEdit.dirty
+      && !window.confirm("Discard the unsaved macro parameter changes?")
+    ) {
+      return false;
+    }
+    setActiveMacroEdit(null);
+    return true;
+  }
+
   function selectEntry(entry: ScriptCatalogEntry) {
+    if (entry.id === selectedGroupId || !confirmDiscardMacroEdit()) return;
     const path = entry.paths[0] ?? null;
     const routines = routinesForPath(entry, path);
     setSelectedGroupId(entry.id);
@@ -578,9 +622,15 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   }
 
   function selectPath(path: string) {
+    if (path === selectedPath || !confirmDiscardMacroEdit()) return;
     const routines = routinesForPath(selectedEntry, path);
     setSelectedPath(path);
     setSelectedRoutineLabel(preferredRoutine(routines)?.label ?? null);
+  }
+
+  function selectRoutine(label: string) {
+    if (label === selectedRoutineLabel || !confirmDiscardMacroEdit()) return;
+    setSelectedRoutineLabel(label);
   }
 
   if (!project) {
@@ -736,7 +786,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                         key={routineKey(routine)}
                         type="button"
                         className={routine.label === selectedRoutineLabel ? "active" : ""}
-                        onClick={() => setSelectedRoutineLabel(routine.label)}
+                        onClick={() => selectRoutine(routine.label)}
                       >
                         <span>{labelTitle(routine.label)}</span>
                         <code>{routine.label}</code>
@@ -767,7 +817,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                             key={routineKey(routine)}
                             type="button"
                             className={routine.label === selectedRoutineLabel ? "active" : ""}
-                            onClick={() => setSelectedRoutineLabel(routine.label)}
+                            onClick={() => selectRoutine(routine.label)}
                           >
                             <span>{labelTitle(routine.label)}</span>
                             <code>{routine.label}</code>
@@ -853,6 +903,19 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                             call={call}
                             definition={macroDefinitions.get(call.name.toLowerCase()) ?? null}
                             domains={macroCatalog?.domains ?? []}
+                            editBlocked={Boolean(
+                              activeMacroEdit
+                              && activeMacroEdit.key !== `${call.path}:${call.line}:${call.name}`,
+                            )}
+                            onEditStateChange={(open, dirty) => {
+                              const key = `${call.path}:${call.line}:${call.name}`;
+                              setActiveMacroEdit((current) => {
+                                if (!open) {
+                                  return current?.key === key ? null : current;
+                                }
+                                return { key, dirty };
+                              });
+                            }}
                             onSaved={() => setRefreshVersion((value) => value + 1)}
                           />
                         ))}
