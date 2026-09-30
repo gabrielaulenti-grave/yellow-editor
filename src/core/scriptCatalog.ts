@@ -28,14 +28,31 @@ function isScriptPath(path: string): boolean {
   return /^scripts\/.+\.asm$/i.test(path);
 }
 
+function scriptStateLabels(source: string): Set<string> {
+  return new Set(
+    [...source.matchAll(
+      /^\s*dw_const\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*SCRIPT_[A-Z0-9_]+\b/gm,
+    )].map((match) => match[1]),
+  );
+}
+
 function routineSummaries(path: string, source: string): ScriptRoutineSummary[] {
-  return parseMapScriptRoutines(source).map((routine) => ({
-    path,
-    label: routine.label,
-    startLine: routine.startLine,
-    recognizedOperationCount: routine.instructions.length,
-    operationKinds: [...new Set(routine.instructions.map((instruction) => instruction.kind))],
-  }));
+  const stateLabels = scriptStateLabels(source);
+  return parseMapScriptRoutines(source).map((routine) => {
+    const kind = stateLabels.has(routine.label)
+      ? "state"
+      : routine.instructions.length > 0 || /Script$/i.test(routine.label)
+        ? "routine"
+        : "source-label";
+    return {
+      path,
+      label: routine.label,
+      startLine: routine.startLine,
+      kind,
+      recognizedOperationCount: routine.instructions.length,
+      operationKinds: [...new Set(routine.instructions.map((instruction) => instruction.kind))],
+    };
+  });
 }
 
 export async function loadScriptCatalog(source: ProjectSource): Promise<ScriptCatalog> {
@@ -86,7 +103,10 @@ export async function loadScriptCatalog(source: ProjectSource): Promise<ScriptCa
   return {
     entries,
     fileCount: paths.length,
-    routineCount: entries.reduce((total, entry) => total + entry.routines.length, 0),
+    routineCount: entries.reduce(
+      (total, entry) => total + entry.routines.filter((routine) => routine.kind !== "source-label").length,
+      0,
+    ),
   };
 }
 
