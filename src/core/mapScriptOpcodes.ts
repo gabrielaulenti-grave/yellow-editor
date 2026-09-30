@@ -66,6 +66,10 @@ export function parseMovementStep(value: string, count: number | null): MapMovem
 
 export function renderMovementStep(step: MapMovementStep): string {
   const arrows: Record<MapMovementDirection, string> = { up: "↑", down: "↓", left: "←", right: "→" };
-  const base = step.direction ? arrows[step.direction] : step.operation === "change-facing" ? "Change facing" : "Special movement step";
+  const base = step.direction
+    ? arrows[step.direction]
+    : step.operation === "change-facing"
+      ? "Change facing"
+      : `Unresolved step (${step.raw})`;
   return step.count > 1 ? `${base} ×${step.count}` : base;
 }
