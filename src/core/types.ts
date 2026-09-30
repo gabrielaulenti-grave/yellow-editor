@@ -752,6 +752,11 @@ export interface EncounterVersionData {
   water: EncounterArea;
 }
 
+export interface MapLocationReference {
+  constant: string;
+  displayName: string;
+}
+
 export interface EncounterTableIndexEntry {
   path: string;
   tableLabel: string;
@@ -760,6 +765,7 @@ export interface EncounterTableIndexEntry {
   hasGrass: boolean;
   hasWater: boolean;
   affectedLocations: string[];
+  affectedMaps: MapLocationReference[];
   error: string | null;
 }
 
@@ -783,6 +789,7 @@ export interface SuperRodTable {
   id: string;
   displayName: string;
   affectedLocations: string[];
+  affectedMaps: MapLocationReference[];
   slots: FishingSlot[];
 }
 
