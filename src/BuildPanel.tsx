@@ -427,8 +427,8 @@ export function BuildPanel({
 
           {environment.versionMatches === false && (
             <p className="build-warning">
-              The detected RGBDS version does not match the checkout's requested version.
-              Yellow Editor will not enable the build with a mismatched compiler.
+              The detected RGBDS version is not compatible with the checkout's requested version.
+              Yellow Editor will not enable the build with an incompatible compiler.
             </p>
           )}
 
