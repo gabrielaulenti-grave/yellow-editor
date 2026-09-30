@@ -59,6 +59,7 @@ export function TextEditor({
 }: TextEditorProps) {
   const [open, setOpen] = useState(false);
   const [document, setDocument] = useState<TextDocument | null>(null);
+  const [leafDocuments, setLeafDocuments] = useState<TextDocument[]>([]);
   const [draft, setDraft] = useState<TextSegment[]>([]);
   const [preview, setPreview] = useState(initialText);
   const [busy, setBusy] = useState(false);
@@ -90,6 +91,7 @@ export function TextEditor({
   useEffect(() => {
     if (controlled) return;
     setDocument(null);
+    setLeafDocuments([]);
     setDraft([]);
     setPreview(initialText);
     setError(null);
@@ -125,15 +127,22 @@ export function TextEditor({
     if (controlled || initialText !== null || !target) return;
 
     let cancelled = false;
-    void invoke<TextDocument>("get_text_document", {
+    void invoke<TextDocument[]>("get_text_leaf_documents", {
       path: target.path,
       label: target.label,
-    }).then((next) => {
-      if (cancelled || next.segments.length === 0) return;
-      setPreview(textDocumentDisplayPreview(next));
+    }).then((documents) => {
+      if (cancelled) return;
+      const editable = documents.filter((entry) => entry.editable && entry.segments.length > 0);
+      if (editable.length > 1) {
+        setLeafDocuments(editable);
+        setPreview(`${editable.length} dialogue paths available. Open the editor to choose one.`);
+        return;
+      }
+      setLeafDocuments([]);
+      const next = editable[0] ?? documents.find((entry) => entry.segments.length > 0);
+      if (next) setPreview(textDocumentDisplayPreview(next));
     }).catch(() => {
-      // A custom wrapper may need contextual disambiguation. Leave its preview
-      // unresolved rather than surfacing a background-loading error.
+      // A custom wrapper may still be too dynamic to resolve safely.
     });
 
     return () => {
@@ -199,16 +208,41 @@ export function TextEditor({
     if (!target) return;
     setBusy(true);
     try {
+      if (initialText === null) {
+        const documents = await invoke<TextDocument[]>("get_text_leaf_documents", {
+          path: target.path,
+          label: target.label,
+        });
+        const editable = documents.filter((entry) => entry.editable && entry.segments.length > 0);
+        if (editable.length > 1) {
+          setLeafDocuments(editable);
+          setDocument(null);
+          setDraft([]);
+          setPreview(`${editable.length} dialogue paths available. Open the editor to choose one.`);
+          return;
+        }
+        if (editable.length === 1) {
+          const next = editable[0];
+          setLeafDocuments([]);
+          setDocument(next);
+          setDraft(next.segments.map((segment) => ({ ...segment })));
+          setPreview(textDocumentDisplayPreview(next));
+          return;
+        }
+      }
+
       const next = await invoke<TextDocument>("get_text_document", {
         path: target.path,
         label: target.label,
         previewText: preview ?? undefined,
       });
+      setLeafDocuments([]);
       setDocument(next);
       setDraft(next.segments.map((segment) => ({ ...segment })));
       setPreview(textDocumentDisplayPreview(next));
     } catch (loadError) {
       setDocument(null);
+      setLeafDocuments([]);
       setDraft([]);
       setError(String(loadError));
     } finally {
@@ -216,11 +250,26 @@ export function TextEditor({
     }
   }
 
+  function chooseLeaf(next: TextDocument) {
+    setDocument(next);
+    setDraft(next.segments.map((segment) => ({ ...segment })));
+    setPreview(textDocumentDisplayPreview(next));
+    setError(null);
+  }
+
+  function flowSummary(): string | null {
+    return leafDocuments.length > 1
+      ? `${leafDocuments.length} dialogue paths available. Open the editor to choose one.`
+      : null;
+  }
+
   function closeEditor() {
     if (dirty && !window.confirm("Discard the unsaved text changes?")) {
       return;
     }
     setOpen(false);
+    const summary = flowSummary();
+    if (summary) setPreview(summary);
     setError(null);
   }
 
@@ -276,7 +325,16 @@ export function TextEditor({
       });
       setDocument({ ...document, segments: savedSegments });
       setDraft(savedSegments);
-      setPreview(textDocumentDisplayPreview(document, savedSegments));
+      setPreview(
+        leafDocuments.length > 1
+          ? `${leafDocuments.length} dialogue paths available. Open the editor to choose one.`
+          : textDocumentDisplayPreview(document, savedSegments),
+      );
+      setLeafDocuments((current) => current.map((entry) =>
+        entry.path === document.path && entry.label === document.label
+          ? { ...document, segments: savedSegments }
+          : entry
+      ));
       onSaved?.(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
       setOpen(false);
@@ -317,8 +375,32 @@ export function TextEditor({
               <button type="button" className="small-button" disabled={busy} onClick={closeEditor}>Close</button>
             </div>
 
-            {busy && !document ? <p>Loading text…</p> : null}
+            {busy && !document && leafDocuments.length === 0 ? <p>Loading text…</p> : null}
             {error && <p className="text-editor-error">{error}</p>}
+
+            {!document && leafDocuments.length > 1 && (
+              <div className="text-editor-path-picker">
+                <div>
+                  <strong>This interaction has {leafDocuments.length} dialogue paths.</strong>
+                  <p className="help-text">
+                    Choose the piece of dialogue you want to edit. Yellow Editor keeps the surrounding game-state and Yes/No logic unchanged.
+                  </p>
+                </div>
+                <div className="text-editor-path-list">
+                  {leafDocuments.map((entry, index) => (
+                    <button
+                      key={`${entry.path}:${entry.label}`}
+                      type="button"
+                      onClick={() => chooseLeaf(entry)}
+                    >
+                      <strong>Dialogue path {index + 1}</strong>
+                      <span>{textDocumentDisplayPreview(entry) || entry.label}</span>
+                      <code>{entry.label}</code>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {document && (
               <>
