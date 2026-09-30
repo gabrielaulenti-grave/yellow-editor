@@ -143,6 +143,18 @@ async function readTilesetGraphics(
   source: ProjectSource,
   spec: BinaryAssetSpec,
 ): Promise<{ bytes: Uint8Array; sourcePath: string }> {
+  if (spec.path.toLowerCase().endsWith(".2bpp")) {
+    const pngPath = spec.path.replace(/\.2bpp$/i, ".png");
+    if (await source.exists(pngPath)) {
+      const pngBytes = await source.readBytes(pngPath);
+      const generated = await convertGen1PngToTiles(pngBytes, { depth: 2 });
+      return {
+        bytes: withTrailingPadding(generated, spec.paddingAfter),
+        sourcePath: pngPath,
+      };
+    }
+  }
+
   if (await source.exists(spec.path)) {
     return {
       bytes: await readBinaryAsset(source, spec),
@@ -150,23 +162,11 @@ async function readTilesetGraphics(
     };
   }
 
-  if (!spec.path.toLowerCase().endsWith(".2bpp")) {
-    throw new Error(`Tileset graphics file ${spec.path} does not exist.`);
-  }
-
-  const pngPath = spec.path.replace(/\.2bpp$/i, ".png");
-  if (!(await source.exists(pngPath))) {
-    throw new Error(
-      `Neither generated tileset graphics ${spec.path} nor source PNG ${pngPath} exists.`,
-    );
-  }
-
-  const pngBytes = await source.readBytes(pngPath);
-  const generated = await convertGen1PngToTiles(pngBytes, { depth: 2 });
-  return {
-    bytes: withTrailingPadding(generated, spec.paddingAfter),
-    sourcePath: pngPath,
-  };
+  throw new Error(
+    spec.path.toLowerCase().endsWith(".2bpp")
+      ? `Neither source PNG ${spec.path.replace(/\.2bpp$/i, ".png")} nor generated tileset graphics ${spec.path} exists.`
+      : `Tileset graphics file ${spec.path} does not exist.`,
+  );
 }
 
 export async function parseMapIndex(source: ProjectSource): Promise<MapIndexEntry[]> {
