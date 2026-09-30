@@ -263,6 +263,17 @@ export function TextEditor({
       : null;
   }
 
+  function returnToDialoguePaths() {
+    if (dirty && !window.confirm("Discard the unsaved text changes and choose another dialogue path?")) {
+      return;
+    }
+    setDocument(null);
+    setDraft([]);
+    const summary = flowSummary();
+    if (summary) setPreview(summary);
+    setError(null);
+  }
+
   function closeEditor() {
     if (dirty && !window.confirm("Discard the unsaved text changes?")) {
       return;
@@ -404,6 +415,16 @@ export function TextEditor({
 
             {document && (
               <>
+                {leafDocuments.length > 1 && (
+                  <button
+                    type="button"
+                    className="small-button text-editor-back-to-paths"
+                    disabled={busy}
+                    onClick={returnToDialoguePaths}
+                  >
+                    ← Dialogue paths
+                  </button>
+                )}
                 {document.terminator === "dex" ? (
                   <p className="help-text">
                     Pokédex rows have {TEXT_BOX_LINE_WIDTH} character spaces. Use <strong>Next line</strong> for another row on the same page and <strong>New Pokédex page</strong> to begin the next page. The entry must begin with <strong>Start text</strong>.
