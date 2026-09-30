@@ -1,0 +1,156 @@
+.script-browser {
+  display: grid;
+  grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.script-browser-sidebar,
+.script-routine-list {
+  min-width: 0;
+}
+
+.script-group-list,
+.script-routine-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.script-group-list {
+  max-height: 70vh;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.script-group-list button,
+.script-routine-list button,
+.script-source-tabs button {
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  background: var(--panel-bg, rgba(127, 127, 127, 0.05));
+  color: inherit;
+  text-align: left;
+}
+
+.script-group-list button {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.55rem;
+}
+
+.script-group-list button.active,
+.script-routine-list button.active,
+.script-source-tabs button.active {
+  border-color: currentColor;
+  background: rgba(127, 127, 127, 0.14);
+}
+
+.script-group-list small,
+.script-routine-list small {
+  opacity: 0.7;
+}
+
+.script-browser-details {
+  min-width: 0;
+}
+
+.script-workspace-heading,
+.script-routine-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.script-workspace-heading h3,
+.script-workspace-heading p,
+.script-routine-heading h4 {
+  margin-top: 0;
+}
+
+.script-source-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin: 0.8rem 0 1rem;
+}
+
+.script-source-tabs button {
+  padding: 0.45rem 0.65rem;
+  border-radius: 0.45rem;
+}
+
+.script-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.script-routine-list {
+  position: sticky;
+  top: 0.75rem;
+  max-height: 68vh;
+  overflow: auto;
+  padding: 0.75rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 0.65rem;
+}
+
+.script-routine-list > strong {
+  margin-bottom: 0.35rem;
+}
+
+.script-routine-list button {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.55rem 0.6rem;
+  border-radius: 0.5rem;
+}
+
+.script-routine-list code {
+  overflow-wrap: anywhere;
+}
+
+.script-routine-details {
+  min-width: 0;
+}
+
+.script-routine-heading {
+  margin-bottom: 0.75rem;
+}
+
+.script-routine-heading > div {
+  min-width: 0;
+}
+
+.script-routine-heading code {
+  overflow-wrap: anywhere;
+}
+
+.script-routine-heading > span {
+  max-width: 45%;
+  text-align: right;
+  font-size: 0.8rem;
+  opacity: 0.72;
+}
+
+.script-source-detail {
+  margin-top: 1rem;
+}
+
+@media (max-width: 900px) {
+  .script-browser,
+  .script-workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .script-group-list,
+  .script-routine-list {
+    max-height: none;
+  }
+
+  .script-routine-list {
+    position: static;
+  }
+}
