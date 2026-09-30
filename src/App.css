@@ -2360,3 +2360,149 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Map NPC overlays */
+
+.world-map-npc-marker {
+  position: absolute;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #6a4ca3;
+  color: #fff;
+  font: 700 11px/1 system-ui, sans-serif;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 45%);
+  cursor: pointer;
+}
+
+.world-map-npc-marker:hover,
+.world-map-npc-marker.selected {
+  z-index: 7;
+  outline: 2px solid #171717;
+  outline-offset: 1px;
+}
+
+.world-map-npc-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.world-map-npc-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.world-map-npc-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.world-map-npc-heading small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.world-map-npc-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 7px;
+}
+
+.world-map-npc-list button {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  text-align: left;
+  cursor: pointer;
+}
+
+.world-map-npc-list button.active {
+  border-color: #6a4ca3;
+  box-shadow: inset 0 0 0 1px #6a4ca3;
+}
+
+.world-map-npc-list button span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.world-map-npc-inspector {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.75fr) minmax(300px, 1.25fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.world-map-npc-details {
+  display: grid;
+  gap: 6px;
+}
+
+.world-map-npc-details > span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+}
+
+.world-map-npc-details > code {
+  width: fit-content;
+}
+
+.world-map-npc-details dl {
+  display: grid;
+  gap: 8px;
+  margin: 6px 0 0;
+}
+
+.world-map-npc-details dl > div {
+  display: grid;
+  gap: 2px;
+}
+
+.world-map-npc-details dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.035em;
+}
+
+.world-map-npc-details dd {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.world-map-npc-details dd code {
+  overflow-wrap: anywhere;
+}
+
+.world-map-npc-dialogue {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+@media (max-width: 760px) {
+  .world-map-npc-inspector {
+    grid-template-columns: 1fr;
+  }
+}
