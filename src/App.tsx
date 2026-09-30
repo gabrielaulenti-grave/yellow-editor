@@ -977,6 +977,7 @@ function App() {
       setEncounterSearch("");
       setEncounterSection("walking");
       setMapFocusConstant(null);
+      setScriptFocus(null);
       setFishingFocusMapConstant(null);
       setHistorySummary(history);
       setHistoryTimeline(null);
@@ -1019,6 +1020,7 @@ function App() {
       clearPokemonEditor();
       clearEncounterEditor();
       setMapFocusConstant(null);
+      setScriptFocus(null);
       setFishingFocusMapConstant(null);
       setSelectedMoveId(null);
       setSelectedItemId(null);
