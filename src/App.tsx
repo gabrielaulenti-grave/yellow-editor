@@ -1688,6 +1688,86 @@ function App() {
     }
   }
 
+  async function selectivelyUndoHistoryEntry(entryId: string) {
+    const entry = historyTimeline?.entries.find((candidate) => candidate.id === entryId);
+    if (!entry || editBusy) {
+      return;
+    }
+    if (hasUnsavedChanges) {
+      setStatus("Save or revert unsaved editor changes before undoing an older saved change.");
+      return;
+    }
+    if (!entry.canSelectiveUndo) {
+      setStatus(entry.selectiveUndoReason ?? "That saved change cannot be undone independently.");
+      return;
+    }
+
+    setEditBusy(true);
+    setStatus(`Undoing only: ${entry.label}…`);
+    try {
+      const history = await invoke<HistorySummary>("selectively_undo_history_entry", {
+        entryId,
+      });
+      setHistorySummary(history);
+      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+
+      const [
+        refreshedEncounters,
+        refreshedItems,
+        refreshedPokemonIndex,
+        refreshedTrainerResult,
+      ] = await Promise.all([
+        invoke<EncounterTableIndexEntry[]>("get_encounter_index"),
+        invoke<ItemData[]>("get_items"),
+        invoke<PokemonIndexEntry[]>("get_pokemon_index"),
+        invoke<TrainerCatalog>("get_trainers")
+          .then((catalog) => ({ catalog, error: null }))
+          .catch((error) => ({ catalog: null, error: String(error) })),
+      ]);
+
+      setEncounters(refreshedEncounters);
+      setItems(refreshedItems);
+      setPokemonIndex(refreshedPokemonIndex);
+
+      if (refreshedTrainerResult.catalog) {
+        installTrainerCatalog(
+          refreshedTrainerResult.catalog,
+          selectedTrainerId,
+          selectedTrainerClass,
+        );
+      } else if (refreshedTrainerResult.error) {
+        setTrainerWarnings((current) => [
+          ...new Set([
+            ...current,
+            `Trainer data could not be refreshed after selective undo: ${refreshedTrainerResult.error}`,
+          ]),
+        ]);
+      }
+
+      await loadFishing(`Undid only: ${entry.label}.`);
+
+      const refreshedPokemonEntry = refreshedPokemonIndex.find(
+        (candidate) => candidate.internalId === selectedPokemonId,
+      ) ?? selectedPokemonEntry;
+      if (refreshedPokemonEntry?.sourceSlug) {
+        await loadPokemon(refreshedPokemonEntry, `Undid only: ${entry.label}.`);
+      }
+
+      const selectedEncounter = refreshedEncounters.find(
+        (candidate) => candidate.path === selectedEncounterPath,
+      );
+      if (selectedEncounter) {
+        await loadEncounter(selectedEncounter, `Undid only: ${entry.label}.`);
+      } else {
+        setStatus(`Undid only: ${entry.label}. Later unrelated changes were preserved.`);
+      }
+    } catch (error) {
+      setStatus(String(error));
+    } finally {
+      setEditBusy(false);
+    }
+  }
+
   async function undoLastSave() {
     if (!historySummary?.canUndo || hasUnsavedChanges || editBusy) {
       return;
@@ -2096,6 +2176,7 @@ function App() {
               currentCopyDisabled={hasUnsavedChanges}
               onClose={() => setHistoryOpen(false)}
               onSaveCopy={saveSafeProjectCopy}
+              onSelectiveUndo={selectivelyUndoHistoryEntry}
             />
           )}
 
