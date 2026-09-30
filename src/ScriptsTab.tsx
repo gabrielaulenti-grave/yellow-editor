@@ -43,6 +43,13 @@ function routinesForPath(entry: ScriptCatalogEntry | null, path: string | null) 
   return entry.routines.filter((routine) => routine.path === path);
 }
 
+function preferredRoutine(routines: ScriptRoutineSummary[]): ScriptRoutineSummary | null {
+  return routines.find((routine) => routine.kind === "state")
+    ?? routines.find((routine) => routine.kind === "routine")
+    ?? routines[0]
+    ?? null;
+}
+
 export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   const [catalog, setCatalog] = useState<ScriptCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -91,7 +98,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
         setSelectedRoutineLabel(
           focusedEntry && focus?.routineLabel
             ? focus.routineLabel
-            : pathRoutines[0]?.label ?? null,
+            : preferredRoutine(pathRoutines)?.label ?? null,
         );
       })
       .catch((error) => {
@@ -165,6 +172,8 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
   const selectedEntry =
     catalog?.entries.find((entry) => entry.id === selectedGroupId) ?? null;
   const selectedPathRoutines = routinesForPath(selectedEntry, selectedPath);
+  const scriptRoutines = selectedPathRoutines.filter((routine) => routine.kind !== "source-label");
+  const sourceLabels = selectedPathRoutines.filter((routine) => routine.kind === "source-label");
   const selectedRoutine =
     document?.routines.find((routine) => routine.label === selectedRoutineLabel) ?? null;
 
@@ -190,13 +199,13 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
     const routines = routinesForPath(entry, path);
     setSelectedGroupId(entry.id);
     setSelectedPath(path);
-    setSelectedRoutineLabel(routines[0]?.label ?? null);
+    setSelectedRoutineLabel(preferredRoutine(routines)?.label ?? null);
   }
 
   function selectPath(path: string) {
     const routines = routinesForPath(selectedEntry, path);
     setSelectedPath(path);
-    setSelectedRoutineLabel(routines[0]?.label ?? null);
+    setSelectedRoutineLabel(preferredRoutine(routines)?.label ?? null);
   }
 
   if (!project) {
@@ -235,7 +244,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
             {catalogLoading
               ? "Indexing scripts…"
               : catalog
-                ? `${catalog.fileCount} files · ${catalog.routineCount} routines`
+                ? `${catalog.fileCount} files · ${catalog.routineCount} script entry points`
                 : "Scripts unavailable"}
           </p>
 
@@ -258,7 +267,8 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                 <small>
                   {entry.paths.length} file{entry.paths.length === 1 ? "" : "s"}
                   {" · "}
-                  {entry.routines.length} routine{entry.routines.length === 1 ? "" : "s"}
+                  {entry.routines.filter((routine) => routine.kind !== "source-label").length} script entry point
+                  {entry.routines.filter((routine) => routine.kind !== "source-label").length === 1 ? "" : "s"}
                 </small>
               </button>
             ))}
@@ -293,11 +303,13 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
 
               <div className="script-workspace-grid">
                 <aside className="script-routine-list">
-                  <strong>Routines</strong>
-                  {selectedPathRoutines.length === 0 ? (
-                    <p className="empty-state">No global routines were detected in this file.</p>
+                  <strong>Script entry points</strong>
+                  {scriptRoutines.length === 0 ? (
+                    <p className="empty-state">
+                      No script states or recognized routines were detected in this file.
+                    </p>
                   ) : (
-                    selectedPathRoutines.map((routine) => (
+                    scriptRoutines.map((routine) => (
                       <button
                         key={routineKey(routine)}
                         type="button"
@@ -307,13 +319,41 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                         <span>{labelTitle(routine.label)}</span>
                         <code>{routine.label}</code>
                         <small>
-                          line {routine.startLine}
+                          {routine.kind === "state" ? "script state" : "routine"}
+                          {" · line "}
+                          {routine.startLine}
                           {" · "}
                           {routine.recognizedOperationCount} recognized operation
                           {routine.recognizedOperationCount === 1 ? "" : "s"}
                         </small>
                       </button>
                     ))
+                  )}
+
+                  {sourceLabels.length > 0 && (
+                    <details className="script-other-labels">
+                      <summary>
+                        Other source labels ({sourceLabels.length})
+                      </summary>
+                      <p className="help-text">
+                        Text, movement, tables, and unclassified assembly labels stay available
+                        for inspection without crowding the main script list.
+                      </p>
+                      <div>
+                        {sourceLabels.map((routine) => (
+                          <button
+                            key={routineKey(routine)}
+                            type="button"
+                            className={routine.label === selectedRoutineLabel ? "active" : ""}
+                            onClick={() => setSelectedRoutineLabel(routine.label)}
+                          >
+                            <span>{labelTitle(routine.label)}</span>
+                            <code>{routine.label}</code>
+                            <small>source label · line {routine.startLine}</small>
+                          </button>
+                        ))}
+                      </div>
+                    </details>
                   )}
                 </aside>
 
