@@ -101,6 +101,46 @@
   margin-bottom: 0.35rem;
 }
 
+.script-routine-list-help {
+  margin: 0 0 0.55rem;
+  font-size: 0.8rem;
+}
+
+.script-routine-category {
+  display: grid;
+  gap: 0.4rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+}
+
+.script-routine-category:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.script-routine-category-heading,
+.script-routine-category-collapsible > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.script-routine-category-heading small,
+.script-routine-category-collapsible > summary small {
+  opacity: 0.65;
+}
+
+.script-routine-category-collapsible > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.script-routine-category-buttons {
+  display: grid;
+  gap: 0.45rem;
+}
+
 .script-routine-list button {
   display: grid;
   gap: 0.2rem;
