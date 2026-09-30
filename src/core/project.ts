@@ -369,6 +369,11 @@ export async function createProjectSession(
     return macroAnalysisPromise;
   }
 
+  function resetMacroAnalysis(): void {
+    semanticDomainCatalogPromise = null;
+    macroAnalysisPromise = null;
+  }
+
   async function getMacroCatalog() {
     return (await getMacroAnalysis()).catalog;
   }
@@ -385,6 +390,7 @@ export async function createProjectSession(
     if (!/^scripts\/.+\.asm$/i.test(path)) {
       throw new Error(`Unsupported script path: ${path}`);
     }
+    resetMacroAnalysis();
     const [sourceText, analysis] = await Promise.all([
       source.readText(path),
       getMacroAnalysis(),
@@ -402,6 +408,7 @@ export async function createProjectSession(
     if (!/^scripts\/.+\.asm$/i.test(path)) {
       throw new Error(`Unsupported script path: ${path}`);
     }
+    resetMacroAnalysis();
     const [sourceText, analysis] = await Promise.all([
       source.readText(path),
       getMacroAnalysis(),
@@ -428,8 +435,7 @@ export async function createProjectSession(
 
   function invalidateScriptReadModels(paths: string[]): void {
     if (paths.some((path) => /\.(?:asm|inc)$/i.test(path))) {
-      semanticDomainCatalogPromise = null;
-      macroAnalysisPromise = null;
+      resetMacroAnalysis();
     }
     if (paths.some((path) => path.startsWith("scripts/"))) {
       scriptCatalogPromise = null;
