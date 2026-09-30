@@ -210,6 +210,19 @@ export interface ScriptMacroCallDocument {
   calls: ScriptMacroCall[];
 }
 
+export interface ScriptMacroEditDocument {
+  path: string;
+  line: number;
+  macroName: string;
+  sourceHash: string;
+  sourceLine: string;
+  arguments: string[];
+  editableArgumentDomains: Array<{
+    index: number;
+    domainIds: string[];
+  }>;
+}
+
 export interface PokemonIndexEntry {
   internalId: number;
   constant: string | null;
@@ -1207,6 +1220,17 @@ export interface ProjectSession {
   getScriptDocument(path: string): Promise<ScriptDocument>;
   getMacroCatalog(): Promise<MacroCatalog>;
   getScriptMacroCalls(path: string): Promise<ScriptMacroCallDocument>;
+  getScriptMacroEditDocument(
+    path: string,
+    line: number,
+  ): Promise<ScriptMacroEditDocument>;
+  saveScriptMacroCall(
+    path: string,
+    line: number,
+    macroName: string,
+    expectedHash: string,
+    arguments_: string[],
+  ): Promise<HistorySummary>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,
