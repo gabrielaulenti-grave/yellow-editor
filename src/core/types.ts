@@ -82,11 +82,20 @@ export interface MapVisualization {
 
 export type ScriptRoutineKind = "state" | "routine" | "source-label";
 
+export type ScriptRoutineCategory =
+  | "event-state"
+  | "dispatcher"
+  | "helper"
+  | "dialogue"
+  | "movement"
+  | "data";
+
 export interface ScriptRoutineSummary {
   path: string;
   label: string;
   startLine: number;
   kind: ScriptRoutineKind;
+  category: ScriptRoutineCategory;
   recognizedOperationCount: number;
   operationKinds: string[];
 }
