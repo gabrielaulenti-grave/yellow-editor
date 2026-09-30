@@ -34,6 +34,7 @@ import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
+import { loadScriptCatalog, loadScriptDocument } from "./scriptCatalog";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -181,6 +182,7 @@ export async function createProjectSession(
   let encounterIndexPromise: ReturnType<typeof parseEncounterIndex> | null = null;
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
   let mapIndexPromise: ReturnType<typeof parseMapIndex> | null = null;
+  let scriptCatalogPromise: ReturnType<typeof loadScriptCatalog> | null = null;
   const mapVisualizationPromises = new Map<
     string,
     ReturnType<typeof loadMapVisualization>
@@ -322,7 +324,24 @@ export async function createProjectSession(
     return pending;
   }
 
+  function getScriptCatalog() {
+    if (!scriptCatalogPromise) {
+      scriptCatalogPromise = loadScriptCatalog(source).catch((error) => {
+        scriptCatalogPromise = null;
+        throw error;
+      });
+    }
+    return scriptCatalogPromise;
+  }
+
+  function getScriptDocument(path: string) {
+    return loadScriptDocument(source, path);
+  }
+
   function invalidateNonTrainerReadModels(paths: string[]): void {
+    if (paths.some((path) => path.startsWith("scripts/"))) {
+      scriptCatalogPromise = null;
+    }
     if (paths.some((path) => path.startsWith("data/pokemon/base_stats/"))) {
       pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
@@ -466,6 +485,8 @@ export async function createProjectSession(
     },
     getMapIndex,
     getMapVisualization,
+    getScriptCatalog,
+    getScriptDocument,
     getTmhmCompatibility: async (moveConstant) => {
       const index = await getTmhmCompatibilityIndex();
       return index.get(moveConstant) ?? [];
