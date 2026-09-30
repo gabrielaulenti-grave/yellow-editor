@@ -284,3 +284,26 @@
     text-align: left;
   }
 }
+
+
+.script-macro-warnings {
+  margin: 0.65rem 0;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 0.55rem;
+}
+
+.script-macro-warnings summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.script-macro-warnings ul {
+  margin: 0.55rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.script-macro-warnings li {
+  margin: 0.25rem 0;
+  overflow-wrap: anywhere;
+}
