@@ -554,6 +554,14 @@ export async function invoke<T>(
         stringArg(args, "mapConstant"),
       )) as T;
 
+    case "get_script_catalog":
+      return (await session.getScriptCatalog()) as T;
+
+    case "get_script_document":
+      return (await session.getScriptDocument(
+        stringArg(args, "path"),
+      )) as T;
+
     case "get_tmhm_compatibility":
       return (await session.getTmhmCompatibility(
         stringArg(args, "moveConstant"),
