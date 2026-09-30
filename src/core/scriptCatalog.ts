@@ -75,17 +75,7 @@ function recentLoadedLabel(
   registers: string[],
   maxBack = 8,
 ): string | null {
-  const registerPattern = registers.map((register) =>
-    register.replace(/[.*+?^$(){}|[\]\\]/g, "\\function scriptStateLabels(source: string): Set<string> {
-  return new Set(
-    [...source.matchAll(
-      /^\s*dw_const\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*SCRIPT_[A-Z0-9_]+\b/gm,
-    )].map((match) => match[1]),
-  );
-}
-
-")
-  ).join("|");
+  const registerPattern = registers.join("|");
   const pattern = new RegExp(
     `^\\s*ld\\s+(?:${registerPattern})\\s*,\\s*([A-Za-z_.][A-Za-z0-9_.]*)\\b`,
     "i",
