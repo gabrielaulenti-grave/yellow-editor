@@ -36,6 +36,10 @@ import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation"
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadScriptCatalog, loadScriptDocument } from "./scriptCatalog";
 import { loadMacroAnalysis } from "./macroCatalog";
+import {
+  loadScriptMacroEditDocument,
+  prepareScriptMacroCallWrite,
+} from "./scriptMacroEditing";
 import { loadProjectSemanticDomains } from "./semanticDomains";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
@@ -377,6 +381,51 @@ export async function createProjectSession(
     return analysis.callsByScriptPath.get(path) ?? { path, calls: [] };
   }
 
+  async function getScriptMacroEditDocument(path: string, line: number) {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    const [sourceText, analysis] = await Promise.all([
+      source.readText(path),
+      getMacroAnalysis(),
+    ]);
+    return loadScriptMacroEditDocument(sourceText, path, line, analysis);
+  }
+
+  async function saveScriptMacroCall(
+    path: string,
+    line: number,
+    macroName: string,
+    expectedHash: string,
+    arguments_: string[],
+  ) {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    const [sourceText, analysis] = await Promise.all([
+      source.readText(path),
+      getMacroAnalysis(),
+    ]);
+    const change = await prepareScriptMacroCallWrite(
+      sourceText,
+      path,
+      line,
+      macroName,
+      expectedHash,
+      arguments_,
+      analysis,
+    );
+    const result = await history.save(
+      `Edit script macro ${macroName} at ${path}:${line}`,
+      [change],
+    );
+    invalidateNonTrainerReadModels([path]);
+    if (trainerCacheAffected([path])) {
+      await trainerCatalogCache?.clear();
+    }
+    return result;
+  }
+
   function invalidateScriptReadModels(paths: string[]): void {
     if (paths.some((path) => /\.(?:asm|inc)$/i.test(path))) {
       semanticDomainCatalogPromise = null;
@@ -542,6 +591,8 @@ export async function createProjectSession(
     getScriptDocument,
     getMacroCatalog,
     getScriptMacroCalls,
+    getScriptMacroEditDocument,
+    saveScriptMacroCall,
     getTmhmCompatibility: async (moveConstant) => {
       const index = await getTmhmCompatibilityIndex();
       return index.get(moveConstant) ?? [];
