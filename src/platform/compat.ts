@@ -734,7 +734,7 @@ export async function saveProjectCopy(
   historyCursor?: number,
 ): Promise<string | null> {
   const snapshot = await requireSession().exportProjectSnapshot(historyCursor);
-  const bytes = Uint8Array.from(snapshot.bytes);
+  const bytes = snapshot.bytes;
 
   if (isTauri()) {
     const [{ save }, { invoke: tauriInvoke }] = await Promise.all([
