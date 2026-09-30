@@ -676,6 +676,11 @@ export async function invoke<T>(
     case "get_history_timeline":
       return (await session.getHistoryTimeline()) as T;
 
+    case "selectively_undo_history_entry":
+      return (await session.selectivelyUndoHistoryEntry(
+        stringArg(args, "entryId"),
+      )) as T;
+
     case "export_project_snapshot":
       return (await session.exportProjectSnapshot(
         typeof args?.historyCursor === "number" ? args.historyCursor : undefined,
