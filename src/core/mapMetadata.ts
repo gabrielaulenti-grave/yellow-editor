@@ -1,4 +1,4 @@
-import type { ProjectSource } from "./types";
+import type { MapLocationReference, ProjectSource } from "./types";
 
 const MAP_CONSTANTS_PATH = "constants/map_constants.asm";
 
@@ -31,23 +31,39 @@ export async function loadMapConstants(source: ProjectSource): Promise<string[]>
     .map((match) => match[1]);
 }
 
-export function affectedWildLocations(
+export function affectedWildMaps(
   indexContents: string,
   mapConstants: string[],
-): Map<string, string[]> {
+): Map<string, MapLocationReference[]> {
   const pointerBlock = indexContents.split(/^\s*INCLUDE\s+/m)[0];
   const labels = [...pointerBlock.matchAll(/^\s*dw\s+([A-Za-z_][A-Za-z0-9_]*WildMons)\b/gm)]
     .map((match) => match[1]);
-  const result = new Map<string, string[]>();
+  const result = new Map<string, MapLocationReference[]>();
 
   labels.forEach((label, index) => {
     const mapConstant = mapConstants[index];
     if (!mapConstant || label === "NothingWildMons") {
       return;
     }
-    const locations = result.get(label) ?? [];
-    locations.push(mapConstantDisplayName(mapConstant));
-    result.set(label, locations);
+    const maps = result.get(label) ?? [];
+    maps.push({
+      constant: mapConstant,
+      displayName: mapConstantDisplayName(mapConstant),
+    });
+    result.set(label, maps);
   });
   return result;
+}
+
+export function affectedWildLocations(
+  indexContents: string,
+  mapConstants: string[],
+): Map<string, string[]> {
+  const maps = affectedWildMaps(indexContents, mapConstants);
+  return new Map(
+    [...maps.entries()].map(([label, locations]) => [
+      label,
+      locations.map((location) => location.displayName),
+    ]),
+  );
 }

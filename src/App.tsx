@@ -143,6 +143,9 @@ function App() {
   const [encounterSearch, setEncounterSearch] = useState("");
   const [encounterSection, setEncounterSection] =
     useState<EncounterSection>("walking");
+  const [mapFocusConstant, setMapFocusConstant] = useState<string | null>(null);
+  const [fishingFocusMapConstant, setFishingFocusMapConstant] =
+    useState<string | null>(null);
   const [fishingDocument, setFishingDocument] =
     useState<FishingEditDocument | null>(null);
   const [fishingDraft, setFishingDraft] = useState<FishingDraft | null>(null);
@@ -942,6 +945,8 @@ function App() {
       setTrainerSection("parties");
       setEncounterSearch("");
       setEncounterSection("walking");
+      setMapFocusConstant(null);
+      setFishingFocusMapConstant(null);
       setHistorySummary(history);
       if (encounterData[0]) {
         await loadEncounter(encounterData[0], "Project loaded successfully.");
@@ -980,6 +985,8 @@ function App() {
       setEncounters([]);
       clearPokemonEditor();
       clearEncounterEditor();
+      setMapFocusConstant(null);
+      setFishingFocusMapConstant(null);
       setSelectedMoveId(null);
       setSelectedItemId(null);
       setItemCompatibilitySelections({});
@@ -1921,15 +1928,15 @@ function App() {
             : trainerClassEditorController
           : readOnlyEditorController;
 
-  async function selectTab(nextTab: Tab) {
+  async function selectTab(nextTab: Tab): Promise<boolean> {
     if (nextTab === activeTab) {
-      return;
+      return true;
     }
     if (
       hasUnsavedChanges &&
       !window.confirm("Discard the unsaved changes and switch tabs?")
     ) {
-      return;
+      return false;
     }
     if (pokemonDirty) {
       await revertUnsavedChanges();
@@ -1953,6 +1960,25 @@ function App() {
       revertTrainerClassChanges();
     }
     setActiveTab(nextTab);
+    return true;
+  }
+
+  async function openMapFromEncounter(mapConstant: string) {
+    if (!(await selectTab("maps"))) return;
+    setMapFocusConstant(mapConstant);
+  }
+
+  async function openWalkingEncounterFromMap(entry: EncounterTableIndexEntry) {
+    if (!(await selectTab("encounters"))) return;
+    setEncounterSection("walking");
+    setFishingFocusMapConstant(null);
+    await selectEncounter(entry);
+  }
+
+  async function openFishingFromMap(mapConstant: string) {
+    if (!(await selectTab("encounters"))) return;
+    setEncounterSection("fishing");
+    setFishingFocusMapConstant(mapConstant);
   }
 
   return (
@@ -2164,6 +2190,8 @@ function App() {
           dirty={encounterDirty}
           fishingDirty={fishingDirty}
           busy={editBusy}
+          fishingFocusMapConstant={fishingFocusMapConstant}
+          onOpenMap={(mapConstant) => void openMapFromEncounter(mapConstant)}
           onSectionChange={selectEncounterSection}
           onSearchChange={setEncounterSearch}
           onSelect={selectEncounter}
@@ -2176,7 +2204,15 @@ function App() {
       )}
 
       {activeTab === "maps" && (
-        <MapsTab project={project} />
+        <MapsTab
+          project={project}
+          encounters={encounters}
+          fishingDocument={fishingDocument}
+          pokemonIndex={pokemonIndex}
+          focusMapConstant={mapFocusConstant}
+          onOpenWalkingEncounter={(entry) => void openWalkingEncounterFromMap(entry)}
+          onOpenFishing={(mapConstant) => void openFishingFromMap(mapConstant)}
+        />
       )}
 
       <BuildTestTab

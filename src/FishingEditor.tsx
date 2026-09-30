@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FishingEditDocument, PokemonIndexEntry } from "./core/types";
 import { encounterLevelError } from "./editor/encounterForm";
 import type {
@@ -15,6 +15,8 @@ interface FishingEditorProps {
   pokemonIndex: PokemonIndexEntry[];
   dirty: boolean;
   busy: boolean;
+  focusMapConstant: string | null;
+  onOpenMap(mapConstant: string): void;
   onUpdateSlot(
     rod: FishingRod,
     tableId: string | null,
@@ -109,11 +111,33 @@ export function FishingEditor({
   pokemonIndex,
   dirty,
   busy,
+  focusMapConstant,
+  onOpenMap,
   onUpdateSlot,
 }: FishingEditorProps) {
   const [rod, setRod] = useState<FishingRod>("old");
   const [search, setSearch] = useState("");
   const [selectedTableId, setSelectedTableId] = useState<string | null>(null);
+  const handledFocusMap = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (
+      !focusMapConstant
+      || !draft
+      || handledFocusMap.current === focusMapConstant
+    ) {
+      return;
+    }
+    const table = draft.superRodTables.find((entry) =>
+      entry.affectedMaps.some((map) => map.constant === focusMapConstant),
+    );
+    handledFocusMap.current = focusMapConstant;
+    if (!table) return;
+    setRod("super");
+    setSelectedTableId(table.id);
+    setSearch("");
+  }, [focusMapConstant, draft]);
+
   if (!document || !draft) {
     return <p>Fishing data could not be loaded from this project.{error ? ` ${error}` : ""}</p>;
   }
@@ -224,6 +248,20 @@ export function FishingEditor({
             <h4>{selectedTable.displayName}</h4>
             <p className="muted-code">data/wild/super_rod.asm</p>
             <AffectedLocations locations={selectedTable.affectedLocations} />
+            {selectedTable.affectedMaps.length > 0 && (
+              <div className="map-crosslinks">
+                {selectedTable.affectedMaps.map((map) => (
+                  <button
+                    key={map.constant}
+                    type="button"
+                    className="small-button"
+                    onClick={() => onOpenMap(map.constant)}
+                  >
+                    View {map.displayName} on map →
+                  </button>
+                ))}
+              </div>
+            )}
             {document.format === "red-blue" && selectedTable.affectedLocations.length > 1 && (
               <p className="shared-warning">Editing this group changes Super Rod encounters in every listed location.</p>
             )}

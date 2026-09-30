@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
+  EncounterTableEditDocument,
+  EncounterTableIndexEntry,
+  FishingEditDocument,
   MapIndexEntry,
   MapVisualization,
+  PokemonIndexEntry,
   ProjectInfo,
 } from "./core/types";
 import { invoke } from "./platform/compat";
+import { TextEditor } from "./TextEditor";
 
 type MapView = "map" | "blocks" | "tiles";
 
@@ -189,18 +194,24 @@ function MapCanvas({
   zoom,
   showGrid,
   showWarps,
+  showSigns,
   selectedWarpId,
+  selectedSignId,
   arrivalWarpId,
   onSelectWarp,
+  onSelectSign,
 }: {
   visualization: MapVisualization;
   view: MapView;
   zoom: number;
   showGrid: boolean;
   showWarps: boolean;
+  showSigns: boolean;
   selectedWarpId: number | null;
+  selectedSignId: number | null;
   arrivalWarpId: number | null;
   onSelectWarp: (warpId: number) => void;
+  onSelectSign: (signId: number) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -258,7 +269,7 @@ function MapCanvas({
 
       {view === "map" && showWarps && visualization.warps.map((warp) => (
         <button
-          key={warp.id}
+          key={`warp:${warp.id}`}
           type="button"
           className={[
             "world-map-warp-marker",
@@ -276,6 +287,25 @@ function MapCanvas({
           {warp.id}
         </button>
       ))}
+      {view === "map" && showSigns && visualization.signs.map((sign) => (
+        <button
+          key={`sign:${sign.id}`}
+          type="button"
+          className={[
+            "world-map-sign-marker",
+            sign.id === selectedSignId ? "selected" : "",
+          ].filter(Boolean).join(" ")}
+          style={{
+            left: (sign.x * 16 + 8) * scale,
+            top: (sign.y * 16 + 8) * scale,
+          }}
+          onClick={() => onSelectSign(sign.id)}
+          aria-label={`Sign ${sign.id} at ${sign.x}, ${sign.y}`}
+          title={`Sign #${sign.id} · (${sign.x}, ${sign.y}) · ${sign.textConstant}`}
+        >
+          S
+        </button>
+      ))}
     </div>
   );
 }
@@ -284,7 +314,25 @@ function formatMapId(id: number): string {
   return `$${id.toString(16).toUpperCase().padStart(2, "0")}`;
 }
 
-export function MapsTab({ project }: { project: ProjectInfo | null }) {
+interface MapsTabProps {
+  project: ProjectInfo | null;
+  encounters: EncounterTableIndexEntry[];
+  fishingDocument: FishingEditDocument | null;
+  pokemonIndex: PokemonIndexEntry[];
+  focusMapConstant: string | null;
+  onOpenWalkingEncounter(entry: EncounterTableIndexEntry): void;
+  onOpenFishing(mapConstant: string): void;
+}
+
+export function MapsTab({
+  project,
+  encounters,
+  fishingDocument,
+  pokemonIndex,
+  focusMapConstant,
+  onOpenWalkingEncounter,
+  onOpenFishing,
+}: MapsTabProps) {
   const [maps, setMaps] = useState<MapIndexEntry[]>([]);
   const [selectedConstant, setSelectedConstant] = useState<string | null>(null);
   const [visualization, setVisualization] = useState<MapVisualization | null>(null);
@@ -293,12 +341,18 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
   const [zoom, setZoom] = useState(1);
   const [showGrid, setShowGrid] = useState(false);
   const [showWarps, setShowWarps] = useState(true);
+  const [showSigns, setShowSigns] = useState(true);
   const [selectedWarpId, setSelectedWarpId] = useState<number | null>(null);
+  const [selectedSignId, setSelectedSignId] = useState<number | null>(null);
   const [arrivalWarpId, setArrivalWarpId] = useState<number | null>(null);
   const [navigationStack, setNavigationStack] = useState<string[]>([]);
   const [lastOutdoorMap, setLastOutdoorMap] = useState<string | null>(null);
   const [indexLoading, setIndexLoading] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [encounterSummary, setEncounterSummary] =
+    useState<EncounterTableEditDocument | null>(null);
+  const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
+  const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -307,6 +361,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
       setSelectedConstant(null);
       setVisualization(null);
       setSelectedWarpId(null);
+      setSelectedSignId(null);
       setArrivalWarpId(null);
       setNavigationStack([]);
       setLastOutdoorMap(null);
@@ -343,9 +398,22 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
     (entry) => entry.constant === selectedConstant,
   ) ?? null;
 
+  useEffect(() => {
+    if (
+      !focusMapConstant
+      || maps.length === 0
+      || !maps.some((entry) => entry.constant === focusMapConstant)
+      || selectedConstant === focusMapConstant
+    ) {
+      return;
+    }
+    selectMapFromBrowser(focusMapConstant);
+  }, [focusMapConstant, maps]);
+
   function selectMapFromBrowser(mapConstant: string) {
     setSelectedConstant(mapConstant);
     setSelectedWarpId(null);
+    setSelectedSignId(null);
     setArrivalWarpId(null);
     setNavigationStack([]);
     setLastOutdoorMap(null);
@@ -372,6 +440,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
 
     setSelectedConstant(mapConstant);
     setSelectedWarpId(null);
+    setSelectedSignId(null);
     setArrivalWarpId(destinationWarpId);
     setError(null);
   }
@@ -382,6 +451,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
     setNavigationStack((stack) => stack.slice(0, -1));
     setSelectedConstant(destination);
     setSelectedWarpId(null);
+    setSelectedSignId(null);
     setArrivalWarpId(null);
     setError(null);
   }
@@ -414,6 +484,7 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
         const arrived = arrivalWarpId !== null
           && result.warps.some((warp) => warp.id === arrivalWarpId);
         setSelectedWarpId(arrived ? arrivalWarpId : null);
+        setSelectedSignId(null);
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -426,6 +497,55 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
       cancelled = true;
     };
   }, [project?.storageKey, selectedMap?.constant, arrivalWarpId]);
+
+  const selectedEncounterEntry = selectedConstant
+    ? encounters.find((entry) =>
+        entry.affectedMaps.some((map) => map.constant === selectedConstant),
+      ) ?? null
+    : null;
+  const selectedFishingTable = selectedConstant
+    ? fishingDocument?.superRodTables.find((table) =>
+        table.affectedMaps.some((map) => map.constant === selectedConstant),
+      ) ?? null
+    : null;
+
+  useEffect(() => {
+    if (!selectedEncounterEntry) {
+      setEncounterSummary(null);
+      setEncounterSummaryError(null);
+      setEncounterSummaryLoading(false);
+      return;
+    }
+    if (selectedEncounterEntry.error) {
+      setEncounterSummary(null);
+      setEncounterSummaryError(selectedEncounterEntry.error);
+      setEncounterSummaryLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setEncounterSummaryLoading(true);
+    setEncounterSummaryError(null);
+    void invoke<EncounterTableEditDocument>("get_encounter_table", {
+      path: selectedEncounterEntry.path,
+    })
+      .then((document) => {
+        if (!cancelled) setEncounterSummary(document);
+      })
+      .catch((reason) => {
+        if (!cancelled) {
+          setEncounterSummary(null);
+          setEncounterSummaryError(String(reason));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setEncounterSummaryLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedEncounterEntry?.path, selectedEncounterEntry?.error]);
 
   const filteredMaps = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -440,6 +560,9 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
   const selectedWarp = visualization?.warps.find(
     (warp) => warp.id === selectedWarpId,
   ) ?? null;
+  const selectedSign = visualization?.signs.find(
+    (sign) => sign.id === selectedSignId,
+  ) ?? null;
   const resolvedWarpDestination = selectedWarp?.isLastMap
     ? lastOutdoorMap
     : selectedWarp?.destinationMapConstant ?? null;
@@ -450,6 +573,19 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
   function navigateSelectedWarp() {
     if (!selectedWarp || !resolvedWarpDestination) return;
     navigateToMap(resolvedWarpDestination, selectedWarp.destinationWarpId);
+  }
+
+  function speciesName(constant: string): string {
+    return pokemonIndex.find((pokemon) => pokemon.constant === constant)?.displayName
+      ?? constant.replace(/_/g, " ");
+  }
+
+  function speciesSummary(slots: Array<{ speciesConstant: string }>): string {
+    return [...new Set(slots.map((slot) => speciesName(slot.speciesConstant)))].join(", ");
+  }
+
+  function versionLabel(version: string): string {
+    return version[0]?.toUpperCase() + version.slice(1);
   }
 
   if (!project) {
@@ -565,11 +701,141 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   <small>Doors, stairs, ladders, exits</small>
                 </div>
                 <div>
+                  <span>Signs</span>
+                  <strong>{visualization.signs.length}</strong>
+                  <small>Background text events</small>
+                </div>
+                <div>
                   <span>Connections</span>
                   <strong>{visualization.connections.length}</strong>
                   <small>Outdoor map edges</small>
                 </div>
               </div>
+
+              <section className="world-map-encounters">
+                <div className="world-map-encounters-heading">
+                  <div>
+                    <strong>Wild encounters</strong>
+                    <small>
+                      Gameplay data linked to this map. Terrain-specific encounter tiles are not visualized yet.
+                    </small>
+                  </div>
+                </div>
+
+                <div className="world-map-encounter-grid">
+                  <div className="world-map-encounter-card">
+                    <div className="world-map-encounter-card-heading">
+                      <div>
+                        <strong>Grass &amp; Surfing</strong>
+                        {selectedEncounterEntry && (
+                          <small>
+                            {selectedEncounterEntry.affectedMaps.length > 1
+                              ? `Shared by ${selectedEncounterEntry.affectedMaps.length} maps`
+                              : selectedEncounterEntry.displayName}
+                          </small>
+                        )}
+                      </div>
+                      {selectedEncounterEntry && (
+                        <button
+                          type="button"
+                          className="small-button"
+                          onClick={() => onOpenWalkingEncounter(selectedEncounterEntry)}
+                        >
+                          Open in Wild Encounters →
+                        </button>
+                      )}
+                    </div>
+
+                    {encounterSummaryLoading ? (
+                      <p className="help-text">Reading encounter table…</p>
+                    ) : encounterSummaryError ? (
+                      <p className="world-map-encounter-error">{encounterSummaryError}</p>
+                    ) : encounterSummary ? (
+                      <div className="world-map-encounter-versions">
+                        {encounterSummary.versions.map((entry) => (
+                          <div key={entry.version}>
+                            {encounterSummary.versions.length > 1 && (
+                              <strong>{versionLabel(entry.version)}</strong>
+                            )}
+                            {entry.grass.rate > 0 && (
+                              <p>
+                                <b>Grass</b>
+                                <span>Rate {entry.grass.rate} · {speciesSummary(entry.grass.slots)}</span>
+                              </p>
+                            )}
+                            {entry.water.rate > 0 && (
+                              <p>
+                                <b>Surfing</b>
+                                <span>Rate {entry.water.rate} · {speciesSummary(entry.water.slots)}</span>
+                              </p>
+                            )}
+                            {entry.grass.rate === 0 && entry.water.rate === 0 && (
+                              <p className="help-text">No active grass or surfing encounters.</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="help-text">No grass or surfing encounter table is assigned to this map.</p>
+                    )}
+                  </div>
+
+                  <div className="world-map-encounter-card">
+                    <div className="world-map-encounter-card-heading">
+                      <div>
+                        <strong>Fishing</strong>
+                        <small>
+                          {selectedFishingTable
+                            ? selectedFishingTable.affectedMaps.length > 1
+                              ? `Super Rod table shared by ${selectedFishingTable.affectedMaps.length} maps`
+                              : "Map-specific Super Rod table"
+                            : "No map-specific Super Rod table"}
+                        </small>
+                      </div>
+                      {selectedConstant && fishingDocument && (
+                        <button
+                          type="button"
+                          className="small-button"
+                          onClick={() => onOpenFishing(selectedConstant)}
+                        >
+                          Open Fishing →
+                        </button>
+                      )}
+                    </div>
+
+                    {fishingDocument ? (
+                      <div className="world-map-fishing-summary">
+                        <p>
+                          <b>Old Rod</b>
+                          <span>
+                            {speciesName(fishingDocument.oldRod.speciesConstant)}
+                            {" Lv. "}{fishingDocument.oldRod.level}
+                          </span>
+                        </p>
+                        <p>
+                          <b>Good Rod</b>
+                          <span>{fishingDocument.goodRod.map((slot) =>
+                            `${speciesName(slot.speciesConstant)} Lv. ${slot.level}`
+                          ).join(", ")}</span>
+                        </p>
+                        {selectedFishingTable ? (
+                          <p>
+                            <b>Super Rod</b>
+                            <span>{speciesSummary(selectedFishingTable.slots)}</span>
+                          </p>
+                        ) : (
+                          <p className="help-text">No Super Rod table is assigned specifically to this map.</p>
+                        )}
+                        <small>
+                          Old and Good Rod contents are global when fishing is permitted; this does not identify fishable tiles.
+                        </small>
+                      </div>
+                    ) : (
+                      <p className="help-text">Fishing data is unavailable for this project.</p>
+                    )}
+                  </div>
+                </div>
+              </section>
 
               <div className="world-map-controls">
                 <div className="segmented-control world-map-view-control">
@@ -625,6 +891,14 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                         onChange={(event) => setShowWarps(event.target.checked)}
                       />
                       <span>Warp markers</span>
+                    </label>
+                    <label className="world-map-grid-toggle">
+                      <input
+                        type="checkbox"
+                        checked={showSigns}
+                        onChange={(event) => setShowSigns(event.target.checked)}
+                      />
+                      <span>Sign markers</span>
                     </label>
                   </>
                 )}
@@ -686,9 +960,18 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                   zoom={zoom}
                   showGrid={showGrid}
                   showWarps={showWarps}
+                  showSigns={showSigns}
                   selectedWarpId={selectedWarpId}
+                  selectedSignId={selectedSignId}
                   arrivalWarpId={arrivalWarpId}
-                  onSelectWarp={setSelectedWarpId}
+                  onSelectWarp={(warpId) => {
+                    setSelectedWarpId(warpId);
+                    setSelectedSignId(null);
+                  }}
+                  onSelectSign={(signId) => {
+                    setSelectedSignId(signId);
+                    setSelectedWarpId(null);
+                  }}
                 />
               </div>
 
@@ -761,12 +1044,55 @@ export function MapsTab({ project }: { project: ProjectInfo | null }) {
                 </div>
               )}
 
+              {view === "map" && visualization.signs.length > 0 && (
+                <div className="world-map-sign-panel">
+                  <div className="world-map-sign-list" aria-label="Map signs">
+                    {visualization.signs.map((sign) => (
+                      <button
+                        key={sign.id}
+                        type="button"
+                        className={sign.id === selectedSignId ? "active" : ""}
+                        onClick={() => {
+                          setSelectedSignId(sign.id);
+                          setSelectedWarpId(null);
+                        }}
+                      >
+                        <strong>Sign #{sign.id}</strong>
+                        <span>({sign.x}, {sign.y})</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedSign ? (
+                    <div className="world-map-sign-inspector">
+                      <div className="world-map-sign-details">
+                        <span>Selected sign</span>
+                        <strong>Sign #{selectedSign.id}</strong>
+                        <code>x {selectedSign.x}, y {selectedSign.y}</code>
+                        <code>{selectedSign.textConstant}</code>
+                      </div>
+                      <TextEditor
+                        title={`Sign #${selectedSign.id} text`}
+                        target={selectedSign.textLabel
+                          ? { path: selectedSign.scriptPath, label: selectedSign.textLabel }
+                          : null}
+                        initialText={null}
+                      />
+                    </div>
+                  ) : (
+                    <p className="world-map-warp-empty">
+                      Select an S marker to inspect and edit that sign's text.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <p className="help-text">
                 {view === "tiles"
                   ? "Tile IDs run left-to-right, top-to-bottom. Each tile is decoded directly from the selected .2bpp source."
                   : view === "blocks"
                     ? "Block IDs run left-to-right, top-to-bottom. Every block is assembled from 16 tile IDs in the .bst blockset."
-                    : "Numbered markers use the game's 16×16 movement coordinates. Select a warp to inspect it, then follow its destination to navigate between maps."}
+                    : "Map markers use the game's 16×16 movement coordinates. Numbered markers are warps; S markers are signs whose dialogue opens in the same modular text editor used elsewhere in Yellow Editor."}
               </p>
 
               {visualization.warnings.length > 0 && (
