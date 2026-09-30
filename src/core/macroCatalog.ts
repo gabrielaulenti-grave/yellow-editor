@@ -4,7 +4,10 @@ import type {
   MacroInferenceConfidence,
   MacroParameterKind,
   MacroParameterSummary,
+  ProjectSemanticDomain,
+  ProjectSemanticDomainCatalog,
   ProjectSource,
+  SemanticDomainMatch,
   ScriptMacroArgument,
   ScriptMacroCall,
   ScriptMacroCallDocument,
@@ -34,6 +37,7 @@ interface MacroDefinitionInternal {
 interface ParameterObservations {
   values: string[];
   kinds: MacroParameterKind[];
+  domains: string[][];
 }
 
 export interface MacroAnalysis {
@@ -264,6 +268,36 @@ function collectProjectSymbols(files: SourceFile[]): {
   return { labels, constants };
 }
 
+function buildSemanticIndex(
+  catalog: ProjectSemanticDomainCatalog,
+): Map<string, ProjectSemanticDomain[]> {
+  const result = new Map<string, ProjectSemanticDomain[]>();
+  for (const domain of catalog.domains) {
+    for (const option of domain.options) {
+      const existing = result.get(option.value) ?? [];
+      existing.push(domain);
+      result.set(option.value, existing);
+    }
+  }
+  return result;
+}
+
+function semanticMatchesFor(
+  raw: string,
+  index: Map<string, ProjectSemanticDomain[]>,
+): SemanticDomainMatch[] {
+  const value = raw.trim();
+  const domains = index.get(value) ?? [];
+  const confidence: MacroInferenceConfidence = domains.length === 1 ? "high" : "medium";
+  return domains.map((domain) => ({
+    domainId: domain.id,
+    domainLabel: domain.label,
+    domainKind: domain.kind,
+    confidence,
+    evidence: [`exact value found in the loaded project's ${domain.label} index`],
+  }));
+}
+
 function classifyArgument(
   raw: string,
   labels: Set<string>,
@@ -292,6 +326,7 @@ function parseCall(
   definitions: Map<string, MacroDefinitionInternal>,
   labels: Set<string>,
   constants: Set<string>,
+  semanticIndex: Map<string, ProjectSemanticDomain[]>,
 ): ScriptMacroCall | null {
   const clean = withoutComment(sourceLine);
   if (!clean || /^[.@A-Za-z_][A-Za-z0-9_.@#]*:{1,2}(?:\s|$)/.test(clean)) {
@@ -311,6 +346,7 @@ function parseCall(
       raw,
       inferredKind: inferred.kind,
       confidence: inferred.confidence,
+      semanticDomains: semanticMatchesFor(raw, semanticIndex),
     };
   });
 
@@ -332,13 +368,14 @@ function observe(
   const params = observations.get(key) ?? [];
   for (const argument of call.arguments) {
     while (params.length < argument.index) {
-      params.push({ values: [], kinds: [] });
+      params.push({ values: [], kinds: [], domains: [] });
     }
     const slot = params[argument.index - 1];
     if (slot.values.length < 8 && !slot.values.includes(argument.raw)) {
       slot.values.push(argument.raw);
     }
     slot.kinds.push(argument.inferredKind);
+    slot.domains.push(argument.semanticDomains.map((domain) => domain.domainId));
   }
   observations.set(key, params);
 }
@@ -450,11 +487,86 @@ function collectMacroProducedSymbols(
   }
 }
 
+function confidenceRank(value: MacroInferenceConfidence): number {
+  return value === "high" ? 3 : value === "medium" ? 2 : 1;
+}
+
+function strongerConfidence(
+  left: MacroInferenceConfidence,
+  right: MacroInferenceConfidence,
+): MacroInferenceConfidence {
+  return confidenceRank(left) >= confidenceRank(right) ? left : right;
+}
+
+function inferSemanticDomains(
+  slot: ParameterObservations,
+  catalog: ProjectSemanticDomainCatalog,
+): SemanticDomainMatch[] {
+  if (slot.domains.length === 0) return [];
+
+  const counts = new Map<string, number>();
+  for (const memberships of slot.domains) {
+    for (const domainId of new Set(memberships)) {
+      counts.set(domainId, (counts.get(domainId) ?? 0) + 1);
+    }
+  }
+
+  const total = slot.domains.length;
+  return [...counts.entries()]
+    .filter(([, count]) => count / total >= 0.5)
+    .flatMap(([domainId, count]) => {
+      const domain = catalog.domains.find((candidate) => candidate.id === domainId);
+      if (!domain) return [];
+      const ratio = count / total;
+      const confidence: MacroInferenceConfidence =
+        ratio === 1 && total >= 2
+          ? "high"
+          : ratio >= 0.75
+            ? "medium"
+            : "low";
+      return [{
+        domainId: domain.id,
+        domainLabel: domain.label,
+        domainKind: domain.kind,
+        confidence,
+        evidence: [
+          `${count} of ${total} observed project call value${total === 1 ? "" : "s"} match the ${domain.label} domain`,
+        ],
+      }];
+    })
+    .sort((left, right) =>
+      confidenceRank(right.confidence) - confidenceRank(left.confidence)
+      || left.domainLabel.localeCompare(right.domainLabel));
+}
+
+function mergeSemanticDomains(
+  direct: SemanticDomainMatch[],
+  nested: SemanticDomainMatch[],
+): SemanticDomainMatch[] {
+  const merged = new Map<string, SemanticDomainMatch>();
+  for (const candidate of [...direct, ...nested]) {
+    const existing = merged.get(candidate.domainId);
+    if (!existing) {
+      merged.set(candidate.domainId, {
+        ...candidate,
+        evidence: [...candidate.evidence],
+      });
+      continue;
+    }
+    existing.confidence = strongerConfidence(existing.confidence, candidate.confidence);
+    existing.evidence = [...new Set([...existing.evidence, ...candidate.evidence])];
+  }
+  return [...merged.values()].sort((left, right) =>
+    confidenceRank(right.confidence) - confidenceRank(left.confidence)
+    || left.domainLabel.localeCompare(right.domainLabel));
+}
+
 function summarizeParameters(
   definition: MacroDefinitionInternal,
   observations: Map<string, ParameterObservations[]>,
   argumentCounts: Map<string, number[]>,
   summaries: Map<string, MacroDefinitionSummary>,
+  semanticCatalog: ProjectSemanticDomainCatalog,
 ): MacroParameterSummary[] {
   const key = definition.name.toLowerCase();
   const observed = observations.get(key) ?? [];
@@ -464,10 +576,11 @@ function summarizeParameters(
   const result: MacroParameterSummary[] = [];
 
   for (let index = 1; index <= parameterCount; index += 1) {
-    const slot = observed[index - 1] ?? { values: [], kinds: [] };
+    const slot = observed[index - 1] ?? { values: [], kinds: [], domains: [] };
     const hints = definition.usageHints.get(index) ?? [];
     const nestedKinds: MacroParameterKind[] = [];
     const nestedEvidence: string[] = [];
+    const nestedDomains: SemanticDomainMatch[] = [];
 
     for (const binding of definition.nestedBindings.filter(
       (candidate) => candidate.parentParameter === index,
@@ -479,6 +592,15 @@ function summarizeParameters(
         nestedEvidence.push(
           "passed to " + binding.macroName + " argument " + String(binding.childParameter),
         );
+        for (const domain of parameter.semanticDomains) {
+          nestedDomains.push({
+            ...domain,
+            evidence: [
+              ...domain.evidence,
+              "inherited through " + binding.macroName + " argument " + String(binding.childParameter),
+            ],
+          });
+        }
       }
     }
 
@@ -491,6 +613,10 @@ function summarizeParameters(
     }
     if (hints.length > 0) evidence.push("inferred from RGBDS instruction context");
     evidence.push(...nestedEvidence);
+    const semanticDomains = mergeSemanticDomains(
+      inferSemanticDomains(slot, semanticCatalog),
+      nestedDomains,
+    );
 
     result.push({
       index,
@@ -500,6 +626,7 @@ function summarizeParameters(
       confidence: merged.confidence,
       examples: slot.values,
       evidence,
+      semanticDomains,
     });
   }
 
@@ -511,6 +638,7 @@ function buildSummaries(
   observations: Map<string, ParameterObservations[]>,
   callCounts: Map<string, number>,
   argumentCounts: Map<string, number[]>,
+  semanticCatalog: ProjectSemanticDomainCatalog,
 ): MacroDefinitionSummary[] {
   const summaries = new Map<string, MacroDefinitionSummary>();
 
@@ -535,6 +663,7 @@ function buildSummaries(
         observations,
         argumentCounts,
         summaries,
+        semanticCatalog,
       );
     }
   }
@@ -546,13 +675,17 @@ function buildSummaries(
   );
 }
 
-export async function loadMacroAnalysis(source: ProjectSource): Promise<MacroAnalysis> {
+export async function loadMacroAnalysis(
+  source: ProjectSource,
+  semanticCatalogInput: ProjectSemanticDomainCatalog | Promise<ProjectSemanticDomainCatalog>,
+): Promise<MacroAnalysis> {
   if (!source.listFiles) {
     throw new Error(
       "This project source cannot enumerate RGBDS source files. Reopen the project with a current Yellow Editor workspace.",
     );
   }
 
+  const semanticCatalogPromise = Promise.resolve(semanticCatalogInput);
   const paths = [...new Set(await source.listFiles())]
     .filter(isRgbdsSourcePath)
     .sort((left, right) => left.localeCompare(right));
@@ -575,6 +708,8 @@ export async function loadMacroAnalysis(source: ProjectSource): Promise<MacroAna
   }));
 
   const readableFiles = files.filter((file): file is SourceFile => file !== null);
+  const semanticCatalog = await semanticCatalogPromise;
+  const semanticIndex = buildSemanticIndex(semanticCatalog);
   const definitions = readableFiles.flatMap(parseDefinitions);
   const byName = new Map<string, MacroDefinitionInternal>();
   for (const definition of definitions) {
@@ -613,6 +748,7 @@ export async function loadMacroAnalysis(source: ProjectSource): Promise<MacroAna
         byName,
         symbols.labels,
         symbols.constants,
+        semanticIndex,
       );
       if (!call) return;
 
@@ -631,7 +767,13 @@ export async function loadMacroAnalysis(source: ProjectSource): Promise<MacroAna
     }
   }
 
-  const macros = buildSummaries(definitions, observations, callCounts, argumentCounts);
+  const macros = buildSummaries(
+    definitions,
+    observations,
+    callCounts,
+    argumentCounts,
+    semanticCatalog,
+  );
   return {
     catalog: {
       macros,
@@ -640,6 +782,8 @@ export async function loadMacroAnalysis(source: ProjectSource): Promise<MacroAna
       definitionCount: macros.length,
       callCount,
       warnings,
+      domains: semanticCatalog.domains,
+      domainWarnings: semanticCatalog.warnings,
     },
     callsByScriptPath,
   };
