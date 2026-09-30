@@ -5,6 +5,35 @@ export interface ProjectInfo {
   storageKey: string;
 }
 
+export interface MapIndexEntry {
+  id: number;
+  constant: string;
+  displayName: string;
+  width: number;
+  height: number;
+  headerLabel: string | null;
+  headerPath: string | null;
+  isAlias: boolean;
+  isUnused: boolean;
+}
+
+export interface MapVisualization {
+  map: MapIndexEntry;
+  headerMapConstant: string;
+  mapSourceLabel: string;
+  tilesetConstant: string;
+  tilesetName: string;
+  mapBlockPath: string;
+  blocksetPath: string;
+  tilesetGfxPath: string;
+  mapBlocks: number[];
+  blockset: number[];
+  tilesetGfx: number[];
+  tileCount: number;
+  blockCount: number;
+  warnings: string[];
+}
+
 export interface PokemonIndexEntry {
   internalId: number;
   constant: string | null;
@@ -956,6 +985,8 @@ export interface ProjectSession {
     document: ItemCreateDocument,
     values: ItemCreateValues,
   ): Promise<HistorySummary>;
+  getMapIndex(): Promise<MapIndexEntry[]>;
+  getMapVisualization(mapConstant: string): Promise<MapVisualization>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,
