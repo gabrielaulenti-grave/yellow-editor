@@ -392,6 +392,10 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
     onDirtyChange?.(activeMacroEdit?.dirty ?? false);
   }, [activeMacroEdit?.dirty, onDirtyChange]);
 
+  useEffect(() => {
+    setActiveMacroEdit(null);
+  }, [project?.storageKey]);
+
   useEffect(() => () => {
     onDirtyChange?.(false);
   }, [onDirtyChange]);
