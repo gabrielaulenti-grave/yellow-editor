@@ -702,7 +702,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
             {catalogLoading
               ? "Indexing scripts…"
               : catalog
-                ? `${catalog.fileCount} files · ${catalog.routineCount} script entry points`
+                ? `${catalog.fileCount} files · ${catalog.routineCount} executable routines`
                 : "Scripts unavailable"}
           </p>
           <p className="browser-count script-macro-count">
