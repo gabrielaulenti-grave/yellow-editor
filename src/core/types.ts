@@ -126,7 +126,8 @@ export type ProjectSemanticDomainKind =
   | "move"
   | "item"
   | "map"
-  | "trainer-class";
+  | "trainer-class"
+  | "constant-family";
 
 export interface ProjectSemanticDomainOption {
   value: string;
@@ -137,6 +138,7 @@ export interface ProjectSemanticDomain {
   id: string;
   label: string;
   kind: ProjectSemanticDomainKind;
+  sourcePath: string | null;
   options: ProjectSemanticDomainOption[];
 }
 
