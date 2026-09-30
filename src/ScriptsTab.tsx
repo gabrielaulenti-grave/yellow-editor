@@ -3,6 +3,7 @@ import type {
   MacroCatalog,
   MacroDefinitionSummary,
   ProjectInfo,
+  ProjectSemanticDomain,
   ScriptCatalog,
   ScriptCatalogEntry,
   ScriptDocument,
@@ -63,9 +64,11 @@ function macroKindLabel(value: string): string {
 function MacroCallForm({
   call,
   definition,
+  domains,
 }: {
   call: ScriptMacroCall;
   definition: MacroDefinitionSummary | null;
+  domains: ProjectSemanticDomain[];
 }) {
   const parameters = definition?.parameters.length
     ? definition.parameters
@@ -77,6 +80,7 @@ function MacroCallForm({
         confidence: argument.confidence,
         examples: [argument.raw],
         evidence: [],
+        semanticDomains: argument.semanticDomains,
       }));
 
   return (
@@ -103,25 +107,66 @@ function MacroCallForm({
             const confidence = parameter.inferredKind !== "unknown"
               ? parameter.confidence
               : argument?.confidence ?? "low";
+            const semanticMatches = parameter.semanticDomains.length > 0
+              ? parameter.semanticDomains
+              : argument?.semanticDomains ?? [];
+            const primarySemanticMatch = semanticMatches[0] ?? null;
+            const semanticDomain = primarySemanticMatch
+              ? domains.find((candidate) => candidate.id === primarySemanticMatch.domainId) ?? null
+              : null;
+            const rawValue = argument?.raw ?? "";
+            const optionExists = semanticDomain?.options.some((option) => option.value === rawValue) ?? false;
 
             return (
               <label key={parameter.index} className="script-macro-parameter">
                 <span>
                   <strong>{parameter.displayName}</strong>
                   <small>
-                    {macroKindLabel(inferredKind)}
-                    {" · "}
-                    {confidence} confidence
+                    {primarySemanticMatch
+                      ? `${primarySemanticMatch.domainLabel} · ${primarySemanticMatch.confidence} semantic confidence`
+                      : `${macroKindLabel(inferredKind)} · ${confidence} confidence`}
                     {" · "}
                     {parameter.required ? "required" : "optional/conditional"}
                   </small>
                 </span>
-                <input
-                  value={argument?.raw ?? ""}
-                  readOnly
-                  placeholder={parameter.required ? "Not supplied" : "Optional"}
-                  aria-label={`${call.name} ${parameter.displayName}`}
-                />
+                {semanticDomain ? (
+                  <select
+                    value={rawValue}
+                    disabled
+                    aria-label={`${call.name} ${parameter.displayName}`}
+                  >
+                    {!optionExists && rawValue && (
+                      <option value={rawValue}>{rawValue}</option>
+                    )}
+                    {!rawValue && (
+                      <option value="">{parameter.required ? "Not supplied" : "Optional"}</option>
+                    )}
+                    {semanticDomain.options.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label === option.value
+                          ? option.value
+                          : `${option.label} — ${option.value}`}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    value={rawValue}
+                    readOnly
+                    placeholder={parameter.required ? "Not supplied" : "Optional"}
+                    aria-label={`${call.name} ${parameter.displayName}`}
+                  />
+                )}
+                {semanticMatches.length > 1 && (
+                  <small className="script-macro-evidence">
+                    Also matches: {semanticMatches.slice(1).map((match) => match.domainLabel).join(", ")}
+                  </small>
+                )}
+                {primarySemanticMatch?.evidence.length ? (
+                  <small className="script-macro-evidence">
+                    {primarySemanticMatch.evidence.join(" · ")}
+                  </small>
+                ) : null}
                 {parameter.evidence.length > 0 && (
                   <small className="script-macro-evidence">
                     {parameter.evidence.join(" · ")}
@@ -414,7 +459,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
             {macroCatalogLoading
               ? "Learning project macros…"
               : macroCatalog
-                ? `${macroCatalog.definitionCount} project macros · ${macroCatalog.callCount} calls analyzed`
+                ? `${macroCatalog.definitionCount} project macros · ${macroCatalog.callCount} calls analyzed · ${macroCatalog.domains.length} semantic domains`
                 : "Macro model unavailable"}
           </p>
 
@@ -430,6 +475,20 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
               <strong>Project macro model unavailable</strong>
               <p>{macroCatalogError}</p>
             </div>
+          )}
+
+          {macroCatalog && macroCatalog.domainWarnings.length > 0 && (
+            <details className="script-macro-warnings">
+              <summary>
+                {macroCatalog.domainWarnings.length} semantic-domain warning
+                {macroCatalog.domainWarnings.length === 1 ? "" : "s"}
+              </summary>
+              <ul>
+                {macroCatalog.domainWarnings.map((warning, index) => (
+                  <li key={`domain:${index}:${warning}`}>{warning}</li>
+                ))}
+              </ul>
+            </details>
           )}
 
           {macroCatalog && macroCatalog.warnings.length > 0 && (
@@ -625,6 +684,7 @@ export function ScriptsTab({ project, focus }: ScriptsTabProps) {
                             key={`${call.path}:${call.line}:${call.name}`}
                             call={call}
                             definition={macroDefinitions.get(call.name.toLowerCase()) ?? null}
+                            domains={macroCatalog?.domains ?? []}
                           />
                         ))}
                       </section>
