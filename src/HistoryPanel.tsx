@@ -117,7 +117,7 @@ export function HistoryPanel({
             <div className="history-entry-main">
               <div>
                 <div className="history-entry-title-row">
-                  <strong>Before first Yellow Editor save</strong>
+                  <strong>History baseline</strong>
                   <span className="history-entry-state">
                     {timeline.cursor === 0 ? "Current state" : "Baseline"}
                   </span>
@@ -130,7 +130,7 @@ export function HistoryPanel({
                 type="button"
                 disabled={busy}
                 onClick={() => void onSaveCopy(0)}
-                title="Create an independent project copy from before the first retained Yellow Editor save."
+                title="Create an independent project copy from before the oldest retained Yellow Editor save."
               >
                 Save baseline copy…
               </button>
