@@ -121,7 +121,7 @@ function isDataSection(source: string): boolean {
     if (!line) continue;
     if (/^[A-Za-z_.][A-Za-z0-9_.]*:{1,2}$/.test(line)) continue;
     if (
-      /^(?:db|dw|dl|ds|dba|dbw|dab|assert|DEF|REPT|ENDR|IF|ELIF|ELSE|ENDC|def_[A-Za-z0-9_]+)\b/i.test(line)
+      /^(?:db|dw|dw_const|dl|ds|dba|dbw|dab|assert|DEF|REPT|ENDR|IF|ELIF|ELSE|ENDC|def_[A-Za-z0-9_]+)\b/i.test(line)
     ) {
       sawData = true;
       continue;
@@ -159,7 +159,12 @@ function routineCategory(
     return "movement";
   }
 
-  if (isDataSection(source)) return "data";
+  if (
+    isDataSection(source)
+    || /(?:Pointers?|Table|Data)$/i.test(label)
+  ) {
+    return "data";
+  }
   return "helper";
 }
 
