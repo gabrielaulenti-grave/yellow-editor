@@ -701,6 +701,23 @@ export async function createProjectSession(
     },
     getHistorySummary: () => history.getSummary(),
     getHistoryTimeline: () => history.getTimeline(),
+    selectivelyUndoHistoryEntry: async (entryId) => {
+      const state = await history.getState();
+      const entry = state.entries.find((candidate) => candidate.id === entryId);
+      if (!entry) {
+        throw new Error("That history entry is no longer available.");
+      }
+      const paths = entry.files.map((file) => file.path);
+      const result = await history.selectivelyUndo(entryId);
+      if (trainerBaseAffected(paths)) {
+        invalidateTrainerBaseCatalog(paths);
+      }
+      invalidateNonTrainerReadModels(paths);
+      if (trainerCacheAffected(paths)) {
+        await trainerCatalogCache?.clear();
+      }
+      return result;
+    },
     exportProjectSnapshot: async (historyCursor) => {
       const state = await history.getState();
       return createProjectSnapshot(
