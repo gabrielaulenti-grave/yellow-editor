@@ -259,7 +259,7 @@ export async function createProjectSnapshot(
 
   return {
     fileName: snapshotFileName(source, projectName, state, targetCursor),
-    bytes: Array.from(createStoredZip(files)),
+    bytes: createStoredZip(files),
     historyCursor: targetCursor,
     historyEntryCount: state.entries.length,
   };
