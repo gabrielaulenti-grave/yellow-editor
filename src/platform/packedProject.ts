@@ -526,6 +526,10 @@ export async function createPackedProjectSource(
       }
     },
 
+    async listFiles() {
+      return parsed.orderedEntries.map((entry) => entry.path);
+    },
+
     async prepareBuildReads(): Promise<ProjectBuildReadPreparation> {
       return {
         indexed: true,
