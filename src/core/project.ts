@@ -32,6 +32,7 @@ import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
+import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -178,6 +179,11 @@ export async function createProjectSession(
   let tmhmCompatibilityIndexPromise: Promise<Map<string, PokemonTmhmCompatibilityReference[]>> | null = null;
   let encounterIndexPromise: ReturnType<typeof parseEncounterIndex> | null = null;
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
+  let mapIndexPromise: ReturnType<typeof parseMapIndex> | null = null;
+  const mapVisualizationPromises = new Map<
+    string,
+    ReturnType<typeof loadMapVisualization>
+  >();
   const encounterTablePromises = new Map<
     string,
     ReturnType<typeof loadEncounterTableEditDocument>
@@ -287,6 +293,32 @@ export async function createProjectSession(
       });
     }
     return fishingPromise;
+  }
+
+  function getMapIndex() {
+    if (!mapIndexPromise) {
+      mapIndexPromise = parseMapIndex(source).catch((error) => {
+        mapIndexPromise = null;
+        throw error;
+      });
+    }
+    return mapIndexPromise;
+  }
+
+  function getMapVisualization(mapConstant: string) {
+    const cached = mapVisualizationPromises.get(mapConstant);
+    if (cached) {
+      return cached;
+    }
+
+    const pending = (async () =>
+      loadMapVisualization(source, mapConstant, await getMapIndex())
+    )().catch((error) => {
+      mapVisualizationPromises.delete(mapConstant);
+      throw error;
+    });
+    mapVisualizationPromises.set(mapConstant, pending);
+    return pending;
   }
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
@@ -431,6 +463,8 @@ export async function createProjectSession(
       if (changes.length === 0) return history.getSummary();
       return history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
     },
+    getMapIndex,
+    getMapVisualization,
     getTmhmCompatibility: async (moveConstant) => {
       const index = await getTmhmCompatibilityIndex();
       return index.get(moveConstant) ?? [];
