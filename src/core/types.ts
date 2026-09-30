@@ -892,7 +892,7 @@ export interface HistoryTimeline {
 
 export interface ProjectSnapshot {
   fileName: string;
-  bytes: number[];
+  bytes: Uint8Array;
   historyCursor: number;
   historyEntryCount: number;
 }
