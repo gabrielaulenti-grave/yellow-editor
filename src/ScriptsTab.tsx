@@ -225,6 +225,7 @@ function MacroCallForm({
             const optionExists = semanticDomain?.options.some((option) => option.value === rawValue) ?? false;
             const editable = Boolean(
               editDocument
+              && !editBlocked
               && editableEntry
               && semanticDomain
               && editableEntry.domainIds.includes(semanticDomain.id),
@@ -328,7 +329,7 @@ function MacroCallForm({
                 type="button"
                 className="primary-button"
                 onClick={() => void saveEdit()}
-                disabled={!dirty || saving}
+                disabled={!dirty || saving || editBlocked}
               >
                 {saving ? "Saving…" : "Save parameters"}
               </button>
@@ -916,6 +917,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                               setActiveMacroEdit((current) => {
                                 if (!open) {
                                   return current?.key === key ? null : current;
+                                }
+                                if (current && current.key !== key) {
+                                  return current;
                                 }
                                 return { key, dirty };
                               });
