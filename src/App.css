@@ -2506,3 +2506,144 @@ pre {
     grid-template-columns: 1fr;
   }
 }
+
+
+/* Project history and safe copies */
+
+.history-panel {
+  display: grid;
+  gap: 16px;
+  margin: -2px 0 18px;
+}
+
+.history-panel-heading,
+.history-safety-card,
+.history-entry-main,
+.history-entry-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.history-panel-heading h2,
+.history-panel-heading p,
+.history-safety-card p,
+.history-entry time,
+.history-empty {
+  margin: 0;
+}
+
+.history-panel-heading p,
+.history-safety-card p,
+.history-entry time,
+.history-file-list,
+.history-empty {
+  color: var(--muted);
+}
+
+.history-panel-heading p,
+.history-safety-card p {
+  margin-top: 4px;
+}
+
+.history-safety-card {
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.history-current-marker {
+  padding: 10px 12px;
+  border-left: 4px solid var(--accent);
+  background: var(--accent-soft);
+  border-radius: 6px;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-entry {
+  display: grid;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.history-entry.undone {
+  opacity: 0.72;
+  background: var(--panel-soft);
+}
+
+.history-entry.current {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.history-entry-title-row {
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history-entry-state {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.history-entry.current .history-entry-state {
+  background: var(--accent-soft);
+  color: var(--link);
+}
+
+.history-entry time {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.82rem;
+}
+
+.history-entry details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.history-file-list {
+  display: grid;
+  gap: 3px;
+  margin: 8px 0 0;
+  padding-left: 22px;
+  font-size: 0.82rem;
+}
+
+.history-file-list code {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 700px) {
+  .history-panel-heading,
+  .history-safety-card,
+  .history-entry-main {
+    display: grid;
+  }
+
+  .history-panel-heading button,
+  .history-safety-card button,
+  .history-entry-main > button {
+    width: fit-content;
+  }
+}
