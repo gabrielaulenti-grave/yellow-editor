@@ -36,6 +36,7 @@ import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation"
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadScriptCatalog, loadScriptDocument } from "./scriptCatalog";
 import { loadMacroAnalysis } from "./macroCatalog";
+import { loadProjectSemanticDomains } from "./semanticDomains";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -184,6 +185,7 @@ export async function createProjectSession(
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
   let mapIndexPromise: ReturnType<typeof parseMapIndex> | null = null;
   let scriptCatalogPromise: ReturnType<typeof loadScriptCatalog> | null = null;
+  let semanticDomainCatalogPromise: ReturnType<typeof loadProjectSemanticDomains> | null = null;
   let macroAnalysisPromise: ReturnType<typeof loadMacroAnalysis> | null = null;
   const mapVisualizationPromises = new Map<
     string,
@@ -340,9 +342,22 @@ export async function createProjectSession(
     return loadScriptDocument(source, path);
   }
 
+  function getSemanticDomainCatalog() {
+    if (!semanticDomainCatalogPromise) {
+      semanticDomainCatalogPromise = loadProjectSemanticDomains(source, projectName).catch((error) => {
+        semanticDomainCatalogPromise = null;
+        throw error;
+      });
+    }
+    return semanticDomainCatalogPromise;
+  }
+
   function getMacroAnalysis() {
     if (!macroAnalysisPromise) {
-      macroAnalysisPromise = loadMacroAnalysis(source).catch((error) => {
+      macroAnalysisPromise = loadMacroAnalysis(
+        source,
+        getSemanticDomainCatalog(),
+      ).catch((error) => {
         macroAnalysisPromise = null;
         throw error;
       });
@@ -364,6 +379,7 @@ export async function createProjectSession(
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
     if (paths.some((path) => /\.(?:asm|inc)$/i.test(path))) {
+      semanticDomainCatalogPromise = null;
       macroAnalysisPromise = null;
     }
     if (paths.some((path) => path.startsWith("scripts/"))) {
