@@ -95,6 +95,10 @@ function parseYellowSuperRod(contents: string): SuperRodTable[] {
       id: fields[0],
       displayName: mapConstantDisplayName(fields[0]),
       affectedLocations: [mapConstantDisplayName(fields[0])],
+      affectedMaps: [{
+        constant: fields[0],
+        displayName: mapConstantDisplayName(fields[0]),
+      }],
       slots,
     });
   }
@@ -119,6 +123,7 @@ function parseRedBlueSuperRod(contents: string): SuperRodTable[] {
   }
 
   const mapsByGroup = new Map<string, string[]>();
+  const mapConstantsByGroup = new Map<string, string[]>();
   const groupOrder: string[] = [];
   for (let index = label + 1; index < lines.length; index += 1) {
     if (/^\s*db\s+-1\b/.test(lines[index])) {
@@ -132,9 +137,11 @@ function parseRedBlueSuperRod(contents: string): SuperRodTable[] {
     }
     if (!mapsByGroup.has(match[2])) {
       mapsByGroup.set(match[2], []);
+      mapConstantsByGroup.set(match[2], []);
       groupOrder.push(match[2]);
     }
     mapsByGroup.get(match[2])?.push(mapConstantDisplayName(match[1]));
+    mapConstantsByGroup.get(match[2])?.push(match[1]);
   }
 
   return groupOrder.map((group) => {
@@ -169,6 +176,10 @@ function parseRedBlueSuperRod(contents: string): SuperRodTable[] {
       id: group,
       displayName: groupDisplayName(group),
       affectedLocations: mapsByGroup.get(group) ?? [],
+      affectedMaps: (mapConstantsByGroup.get(group) ?? []).map((constant) => ({
+        constant,
+        displayName: mapConstantDisplayName(constant),
+      })),
       slots,
     };
   });
