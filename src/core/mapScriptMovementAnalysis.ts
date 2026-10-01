@@ -137,7 +137,7 @@ function mergeAlternatives(
 export function movementLabelAlternativesAtCall(
   source: string,
   callIndex: number,
-  register: "de" | "hl" = "de",
+  register: "de" | "hl" | "a" = "de",
 ): MovementLabelAlternative[] {
   const lines = source.split(/\r?\n/);
   if (callIndex <= 0 || callIndex >= lines.length) return [];
@@ -165,9 +165,10 @@ export function movementLabelAlternativesAtCall(
     processed += 1;
     if (state.steps > 256 || state.pc < 0 || state.pc >= lines.length) continue;
     if (state.pc === callIndex) {
-      if (state.de) {
+      const value = register === "a" ? state.a : state.de;
+      if (value) {
         alternatives.push({
-          label: state.de,
+          label: value,
           conditions: state.conditions,
           confidence: state.confidence,
         });
@@ -209,9 +210,12 @@ export function movementLabelAlternativesAtCall(
       continue;
     }
 
-    const loadDe = clean.match(new RegExp(`^ld\\s+${register}\\s*,\\s*([A-Za-z_.][A-Za-z0-9_.]*)\\b`, "i"));
-    if (loadDe) {
-      queue.push(next({ de: operandValue(loadDe[1]) }));
+    const loadTarget = clean.match(
+      new RegExp(`^ld\\s+${register}\\s*,\\s*([A-Za-z_.][A-Za-z0-9_.]*)\\b`, "i"),
+    );
+    if (loadTarget) {
+      const value = operandValue(loadTarget[1]);
+      queue.push(next(register === "a" ? { a: value } : { de: value }));
       continue;
     }
 
