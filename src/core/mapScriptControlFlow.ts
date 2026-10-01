@@ -41,6 +41,12 @@ export type MapScriptBranchOutcome =
       target: string;
       summary?: string;
       targetSource?: MapScriptSourceSpan;
+    }
+  | {
+      type: "call";
+      target: string;
+      summary?: string;
+      targetSource?: MapScriptSourceSpan;
     };
 
 export interface MapScriptFlowBranch {
@@ -122,6 +128,17 @@ function conditionalBranch(line: string, index: number): ConditionalBranch | nul
     };
   }
 
+  const conditionalCall = clean.match(
+    /^call\s+(z|nz|c|nc)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+  );
+  if (conditionalCall) {
+    return {
+      flag: conditionalCall[1].toLowerCase() as ConditionalBranch["flag"],
+      outcome: { type: "call", target: conditionalCall[2] },
+      index,
+    };
+  }
+
   const conditionalReturn = clean.match(/^ret\s+(z|nz|c|nc)\b/i);
   if (conditionalReturn) {
     return {
@@ -141,7 +158,9 @@ function isZeroBranch(
 }
 
 function eventCondition(lines: string[], index: number): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
-  const event = withoutComment(lines[index]).match(/^CheckEvent\s+([A-Z][A-Z0-9_]*)\s*$/i)?.[1];
+  const event = withoutComment(lines[index]).match(
+    /^Check(?:And(?:Set|Reset))?Event[A-Za-z0-9_]*\s+([A-Z][A-Z0-9_]*)\s*$/i,
+  )?.[1];
   if (!event) return null;
   const branch = conditionalBranch(lines[index + 1] ?? "", index + 1);
   if (!branch || !isZeroBranch(branch)) return null;
@@ -389,15 +408,28 @@ function enrichExternalOutcome(
   outcome: MapScriptBranchOutcome,
   context: FlowContext,
 ): MapScriptBranchOutcome {
-  if (outcome.type !== "jump") return outcome;
+  if (outcome.type !== "jump" && outcome.type !== "call") return outcome;
   if (context.localLabels.has(outcome.target)) return outcome;
 
-  const reset = resetRoutineSummary(context.externalSections.get(outcome.target));
-  if (!reset) return outcome;
+  const section = context.externalSections.get(outcome.target);
+  const reset = resetRoutineSummary(section);
+  if (reset) {
+    return {
+      ...outcome,
+      summary: reset.summary,
+      targetSource: reset.source,
+    };
+  }
+  if (!section) return outcome;
+
   return {
     ...outcome,
-    summary: reset.summary,
-    targetSource: reset.source,
+    targetSource: {
+      lineStart: section.startLine,
+      lineEnd: section.startLine + section.lines.length - 1,
+      raw: section.lines.join("\n"),
+      confidence: "exact",
+    },
   };
 }
 
@@ -435,6 +467,28 @@ function structureCondition(
   const conditionEnd = parsed.branch.index;
 
   if (depth > 8) return makeSimpleBlock(context, parsed);
+
+  if (branchOutcome.type === "call") {
+    return {
+      block: {
+        type: "if",
+        id: `${context.state.label}:${context.state.startLine + parsed.startIndex}:if`,
+        condition: parsed.condition,
+        whenTrue: {
+          items: [],
+          outcome: enrichExternalOutcome(branchOutcome, context),
+        },
+        whenFalse: { items: [], outcome: { type: "continue" } },
+        source: sourceSpan(
+          context.state,
+          context.lines,
+          parsed.startIndex,
+          parsed.branch.index,
+        ),
+      },
+      nextIndex: parsed.branch.index + 1,
+    };
+  }
 
   if (branchOutcome.type === "return") {
     const falseItems = buildRange(context, conditionEnd + 1, endExclusive, depth + 1);
