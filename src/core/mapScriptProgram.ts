@@ -1,4 +1,5 @@
 import { parseMovementPath } from "./mapScriptParser";
+import { movementLabelAlternativesAtCall } from "./mapScriptMovementAnalysis";
 import type { MapMovementStep, MapScriptOperationKind } from "./mapScriptOpcodes";
 
 export type MapScriptConfidence = "exact" | "inferred";
@@ -7,6 +8,13 @@ export interface MapScriptSourceSpan {
   lineStart: number;
   lineEnd: number;
   raw: string;
+  confidence: MapScriptConfidence;
+}
+
+export interface MapScriptMovementAlternative {
+  pathLabel: string;
+  path: MapMovementStep[];
+  conditions: string[];
   confidence: MapScriptConfidence;
 }
 
@@ -25,6 +33,7 @@ export type MapScriptSemanticNode =
       actorConstant?: string;
       pathLabel?: string;
       path: MapMovementStep[];
+      alternatives: MapScriptMovementAlternative[];
       dynamic: boolean;
     })
   | (BaseNode & {
@@ -351,6 +360,12 @@ function nodesForSection(
         actor: "player",
         pathLabel: movementLabel ?? undefined,
         path,
+        alternatives: movementLabel ? [{
+          pathLabel: movementLabel,
+          path,
+          conditions: [],
+          confidence: "exact",
+        }] : [],
         dynamic: !movementLabel || path.length === 0,
         description: path.length === 0 ? "Temporarily controls the player's movement." : undefined,
         source: sourceSpan(section, lines, sourceStart, index, movementLabel ? "exact" : "inferred"),
@@ -360,9 +375,28 @@ function nodesForSection(
 
     if (/^call\s+MoveSprite\b/i.test(clean)) {
       const actor = loadedValueBeforeStore(lines, index, /^ldh?\s+\[hSpriteIndex\]\s*,\s*a\b/i);
-      const movementLabel = recentRegisterValue(lines, index, "de", 10);
-      const movement = movementLabel ? movementSource(sections, section, movementLabel) : null;
-      const path = movementLabel && movement ? parseMovementPath(movementLabel, movement).steps : [];
+      const symbolicAlternatives = movementLabelAlternativesAtCall(section.source, index);
+      const alternatives = symbolicAlternatives.map((alternative) => {
+        const movement = movementSource(sections, section, alternative.label);
+        return {
+          pathLabel: alternative.label,
+          path: movement ? parseMovementPath(alternative.label, movement).steps : [],
+          conditions: alternative.conditions,
+          confidence: alternative.confidence,
+        } satisfies MapScriptMovementAlternative;
+      });
+      const fallbackLabel = recentRegisterValue(lines, index, "de", 10);
+      if (alternatives.length === 0 && fallbackLabel) {
+        const movement = movementSource(sections, section, fallbackLabel);
+        alternatives.push({
+          pathLabel: fallbackLabel,
+          path: movement ? parseMovementPath(fallbackLabel, movement).steps : [],
+          conditions: [],
+          confidence: "inferred",
+        });
+      }
+
+      const single = alternatives.length === 1 ? alternatives[0] : null;
       nodes.push({
         id: `${section.label}:${absoluteLine}:move-character`,
         type: "movement",
@@ -370,10 +404,26 @@ function nodesForSection(
         title: "Move character",
         actor: "character",
         actorConstant: actor ?? undefined,
-        pathLabel: movementLabel ?? undefined,
-        path,
-        dynamic: !movementLabel || path.length === 0 || /^w[A-Za-z0-9_]+$/.test(movementLabel),
-        source: sourceSpan(section, lines, index),
+        pathLabel: single?.pathLabel,
+        path: single?.path ?? [],
+        alternatives,
+        dynamic: alternatives.length === 0
+          || alternatives.some((alternative) =>
+            alternative.path.length === 0
+            || /^w[A-Za-z0-9_]+$/.test(alternative.pathLabel)
+          ),
+        description: alternatives.length > 1
+          ? "The selected movement path depends on earlier script conditions."
+          : undefined,
+        source: sourceSpan(
+          section,
+          lines,
+          index,
+          index,
+          alternatives.every((alternative) => alternative.confidence === "exact")
+            ? "exact"
+            : "inferred",
+        ),
       });
       continue;
     }
