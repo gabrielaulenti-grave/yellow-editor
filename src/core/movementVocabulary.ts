@@ -350,8 +350,11 @@ function deriveNpcExactValues(
 
 export async function loadProjectMovementVocabulary(
   source: ProjectSource,
+  sourceFilesInput?: ProjectRgbdsSourceFile[] | Promise<ProjectRgbdsSourceFile[]>,
 ): Promise<ProjectMovementVocabulary> {
-  const files = await readProjectRgbdsSources(source);
+  const files = sourceFilesInput
+    ? [...await Promise.resolve(sourceFilesInput)]
+    : await readProjectRgbdsSources(source);
   const catalog = projectConstantCatalogFromSources(files);
   const candidates = catalog.groups
     .map((group) => ({
