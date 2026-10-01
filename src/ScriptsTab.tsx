@@ -840,7 +840,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                         onClick={() => selectAuditExample(file.path, 1)}
                       >
                         <span>
-                          <strong>{displayName(file.path.replace(/^scripts\//i, "").replace(/\.asm$/i, ""))}</strong>
+                          <strong>{labelTitle(file.path.replace(/^scripts\//i, "").replace(/\.asm$/i, ""))}</strong>
                           <small>
                             {file.unresolvedInvocationCount} unresolved · {file.structuralInvocationCount} known awaiting semantic lift
                           </small>
