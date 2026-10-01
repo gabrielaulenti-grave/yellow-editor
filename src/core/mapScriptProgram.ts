@@ -4,7 +4,10 @@ import {
   playerMovementAlternativesAtCall,
 } from "./mapScriptMovementAnalysis";
 import type { MapMovementStep, MapScriptOperationKind } from "./mapScriptOpcodes";
-import type { ProjectMovementVocabulary } from "./types";
+import type {
+  ProjectEventMacroSemantic,
+  ProjectMovementVocabulary,
+} from "./types";
 
 export type MapScriptConfidence = "exact" | "inferred";
 
@@ -60,8 +63,9 @@ export type MapScriptSemanticNode =
     })
   | (BaseNode & {
       type: "event";
-      action: "check" | "check-set" | "check-reset" | "set" | "reset";
+      action: "check" | "check-set" | "check-reset" | "check-any" | "check-all" | "set" | "reset";
       event: string;
+      events?: string[];
     })
   | (BaseNode & {
       type: "condition";
@@ -397,6 +401,7 @@ function nodesForSection(
   sections: Map<string, LabelSection>,
   transitions: MapScriptStateTransition[],
   objectWrappers: Map<string, "show" | "hide">,
+  eventMacros: Map<string, ProjectEventMacroSemantic>,
   movementVocabulary?: ProjectMovementVocabulary,
 ): MapScriptSemanticNode[] {
   const lines = section.source.split(/\r?\n/);
@@ -469,53 +474,46 @@ function nodesForSection(
       }
     }
 
-    const event = clean.match(
-      /^([A-Za-z_][A-Za-z0-9_]*Event[A-Za-z0-9_]*)\s+(EVENT_[A-Z0-9_]+)\b/i,
+    const macroInvocation = clean.match(
+      /^([A-Za-z_][A-Za-z0-9_#@.]*)\s+(.+)$/,
     );
-    if (event) {
-      const macro = event[1].toLowerCase();
-      const action = macro.startsWith("checkandsetevent")
-        ? "check-set"
-        : macro.startsWith("checkandresetevent")
-          ? "check-reset"
-          : macro.startsWith("checkevent")
-            ? "check"
-            : macro.startsWith("setevent")
-              ? "set"
-              : macro.startsWith("resetevent")
-                ? "reset"
-                : null;
-      if (action) {
-        const checking = action === "check"
-          || action === "check-set"
-          || action === "check-reset";
-        const title = action === "check-set"
-          ? "Check event and remember it"
-          : action === "check-reset"
-            ? "Check event and clear it"
-            : action === "check"
-              ? "Check event"
-              : action === "set"
-                ? "Remember that this happened"
-                : "Clear event state";
-        nodes.push({
-          id: `${section.label}:${absoluteLine}:${action}-event`,
-          type: "event",
-          kind: checking ? "condition" : "event",
-          title,
-          action,
-          event: event[2],
-          source: sourceSpan(
-            section,
-            lines,
-            index,
-            index,
-            /^(?:CheckEvent|SetEvent|ResetEvent)$/i.test(event[1])
-              ? "exact"
-              : "inferred",
-          ),
-        });
-        continue;
+    if (macroInvocation) {
+      const semantic = eventMacros.get(macroInvocation[1].toLowerCase());
+      if (semantic) {
+        const arguments_ = macroInvocation[2]
+          .split(",")
+          .map((value) => value.trim());
+        const events = semantic.eventParameterIndexes
+          .map((parameter) => arguments_[parameter - 1])
+          .filter((value): value is string => Boolean(value && /^EVENT_[A-Z0-9_]+$/i.test(value)));
+
+        if (events.length > 0) {
+          const checking = semantic.action.startsWith("check");
+          const title = semantic.action === "check-set"
+            ? "Check event and remember it"
+            : semantic.action === "check-reset"
+              ? "Check event and clear it"
+              : semantic.action === "check-any"
+                ? "Check whether any event has happened"
+                : semantic.action === "check-all"
+                  ? "Check whether all events have happened"
+                  : semantic.action === "check"
+                    ? "Check event"
+                    : semantic.action === "set"
+                      ? "Remember that this happened"
+                      : "Clear event state";
+          nodes.push({
+            id: `${section.label}:${absoluteLine}:${semantic.action}-event`,
+            type: "event",
+            kind: checking ? "condition" : "event",
+            title,
+            action: semantic.action,
+            event: events[0],
+            events,
+            source: sourceSpan(section, lines, index, index, "inferred"),
+          });
+          continue;
+        }
       }
     }
 
@@ -908,6 +906,7 @@ export function parseMapScriptProgram(
   source: string,
   focusLabel?: string,
   movementVocabulary?: ProjectMovementVocabulary,
+  eventMacroSemantics: ProjectEventMacroSemantic[] = [],
 ): MapScriptProgram {
   const sectionList = globalLabelSections(source);
   const sections = new Map(sectionList.map((section) => [section.label, section]));
@@ -918,6 +917,9 @@ export function parseMapScriptProgram(
   if (focusLabel && sections.has(focusLabel)) labels.add(focusLabel);
   const setterLabels = scriptStateSetterLabels(sections);
   const objectWrappers = objectWrapperActions(sections);
+  const eventMacros = new Map(
+    eventMacroSemantics.map((semantic) => [semantic.name.toLowerCase(), semantic]),
+  );
 
   const states: MapScriptState[] = [...labels].map((label) => {
     const section = sections.get(label);
@@ -964,6 +966,7 @@ export function parseMapScriptProgram(
         sections,
         transitions,
         objectWrappers,
+        eventMacros,
         movementVocabulary,
       ),
       transitions,
