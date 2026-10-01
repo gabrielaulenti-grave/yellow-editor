@@ -1,3 +1,4 @@
+import type { ProjectMovementVocabulary } from "./types";
 import {
   findMapScriptOpcode,
   parseMovementStep,
@@ -77,7 +78,12 @@ function coalesceMovementSteps(steps: MapMovementStep[]): MapMovementStep[] {
   return result;
 }
 
-export function parseMovementPath(label: string, source: string): ParsedMovementPath {
+export function parseMovementPath(
+  label: string,
+  source: string,
+  vocabulary?: ProjectMovementVocabulary,
+  mode: "npc" | "joypad" = "npc",
+): ParsedMovementPath {
   const steps: MapMovementStep[] = [];
   for (const line of source.split(/\r?\n/)) {
     const match = withoutComment(line).match(/^db\s+([^,\s]+)(?:\s*,\s*([^,\s]+))?/i);
@@ -86,7 +92,7 @@ export function parseMovementPath(label: string, source: string): ParsedMovement
     const count = rawCount && /^\d+$/.test(rawCount) ? Number(rawCount)
       : rawCount && /^\$[0-9a-f]+$/i.test(rawCount) ? Number.parseInt(rawCount.slice(1), 16)
       : null;
-    const step = parseMovementStep(match[1], count);
+    const step = parseMovementStep(match[1], count, vocabulary, mode);
     if (step) steps.push(step);
   }
   const compactSteps = coalesceMovementSteps(steps);
