@@ -222,8 +222,10 @@ function flowConditionAt(lines: string[], index: number): ParsedCondition | null
 function labelsInState(lines: string[]): Map<string, number> {
   const result = new Map<string, number>();
   lines.forEach((line, index) => {
-    const label = line.match(/^\s*([A-Za-z_.][A-Za-z0-9_.]*):{1,2}\s*(?:;.*)?$/)?.[1];
-    if (label) result.set(label, index);
+    const match = line.match(
+      /^\s*((?:\.[A-Za-z_][A-Za-z0-9_.]*)(?::{1,2})?|(?:[A-Za-z_][A-Za-z0-9_]*):{1,2})\s*(?:;.*)?$/,
+    );
+    if (match) result.set(match[1].replace(/:{1,2}$/, ""), index);
   });
   return result;
 }
@@ -251,7 +253,11 @@ function globalRoutineSections(source: string | undefined): Map<string, RoutineS
 function previousExecutableIndex(lines: string[], start: number, endExclusive: number): number | null {
   for (let index = endExclusive - 1; index >= start; index -= 1) {
     const clean = withoutComment(lines[index]);
-    if (!clean || /^[A-Za-z_.][A-Za-z0-9_.]*:{1,2}$/.test(clean)) continue;
+    if (
+      !clean
+      || /^(?:\.[A-Za-z_][A-Za-z0-9_.]*)(?::{1,2})?$/.test(clean)
+      || /^[A-Za-z_][A-Za-z0-9_]*:{1,2}$/.test(clean)
+    ) continue;
     return index;
   }
   return null;
