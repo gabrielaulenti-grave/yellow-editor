@@ -160,6 +160,9 @@ function iconFor(kind: MapScriptOperationKind): string {
     case "wait": return "…";
     case "object": return "◉";
     case "recovery": return "+";
+    case "control": return "⌘";
+    case "flag": return "◇";
+    case "screen": return "◐";
     case "transition": return "→";
   }
 }
@@ -255,6 +258,37 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
       ];
     }
     case "recovery":
+      return [];
+    case "control": {
+      const alternatives = node.alternatives && node.alternatives.length > 1
+        ? node.alternatives.map((alternative, index) => ({
+            label: alternative.conditions.length > 0
+              ? `If ${alternative.conditions.map(provenanceConditionText).join(" AND ")}`
+              : `Input mode ${index + 1}`,
+            value: alternative.value === "0"
+              ? "No inputs ignored"
+              : titleCaseConstant(alternative.value),
+          }))
+        : [];
+      return [
+        ...alternatives,
+        ...(alternatives.length === 0 && node.value
+          ? [{
+              label: node.control === "player-input" ? "Ignored input mask" : "Value",
+              value: node.value === "0"
+                ? "0"
+                : titleCaseConstant(node.value),
+            }]
+          : []),
+      ];
+    }
+    case "flag":
+      return [
+        { label: "Flag", value: titleCaseConstant(node.flag.replace(/^BIT_/, "")) },
+        { label: "Stored in", value: variableTitle(node.variable) },
+        { label: "Action", value: node.action === "set" ? "Set" : "Clear" },
+      ];
+    case "screen":
       return [];
   }
 }
@@ -593,7 +627,15 @@ function ScriptNodeCard({
       <span className="map-script-step-icon" aria-hidden="true">{iconFor(node.kind)}</span>
       <div className="map-script-step-body">
         <div className="map-script-step-title-row">
-          <strong>{node.title}</strong>
+          <strong>{
+            node.type === "flag" && node.flag === "BIT_NO_BATTLES"
+              ? node.action === "set" ? "Disable battles in this area" : "Allow battles in this area"
+              : node.type === "flag" && node.flag === "BIT_PRINT_END_BATTLE_TEXT"
+                ? node.action === "set" ? "Enable end-of-battle dialogue" : "Disable end-of-battle dialogue"
+                : node.type === "flag" && node.flag === "BIT_TALKED_TO_TRAINER"
+                  ? node.action === "set" ? "Mark trainer interaction active" : "Clear trainer interaction state"
+                  : node.title
+          }</strong>
           {node.source.confidence === "inferred" && <small className="map-script-confidence">Inferred</small>}
         </div>
         {description && <p>{description}</p>}
