@@ -24,11 +24,24 @@ interface SourceSection {
 }
 
 function directionFromSymbol(symbol: string): ProjectMovementDirection | null {
-  const upper = symbol.toUpperCase();
-  if (/(?:^|_)(UP|NORTH)(?:_|$)/.test(upper)) return "up";
-  if (/(?:^|_)(DOWN|SOUTH)(?:_|$)/.test(upper)) return "down";
-  if (/(?:^|_)(LEFT|WEST)(?:_|$)/.test(upper)) return "left";
-  if (/(?:^|_)(RIGHT|EAST)(?:_|$)/.test(upper)) return "right";
+  const normalized = symbol
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .toUpperCase();
+  const tokens = normalized.split("_").filter(Boolean);
+  const hasUp = tokens.includes("UP") || tokens.includes("NORTH");
+  const hasDown = tokens.includes("DOWN") || tokens.includes("SOUTH");
+  const hasLeft = tokens.includes("LEFT") || tokens.includes("WEST");
+  const hasRight = tokens.includes("RIGHT") || tokens.includes("EAST");
+
+  if (hasUp && hasLeft && !hasDown && !hasRight) return "up-left";
+  if (hasUp && hasRight && !hasDown && !hasLeft) return "up-right";
+  if (hasDown && hasLeft && !hasUp && !hasRight) return "down-left";
+  if (hasDown && hasRight && !hasUp && !hasLeft) return "down-right";
+  if (hasUp && !hasDown && !hasLeft && !hasRight) return "up";
+  if (hasDown && !hasUp && !hasLeft && !hasRight) return "down";
+  if (hasLeft && !hasUp && !hasDown && !hasRight) return "left";
+  if (hasRight && !hasUp && !hasDown && !hasLeft) return "right";
   return null;
 }
 
@@ -422,6 +435,218 @@ function referencedDataTokens(
   return index < 0 ? [] : dataTokensFromSection(owner.lines, index + 1);
 }
 
+interface IndexedByteTable {
+  section: SourceSection;
+  rows: number[][];
+}
+
+interface IndexedJumpTable {
+  section: SourceSection;
+  labels: string[];
+}
+
+function splitDataArguments(value: string): string[] {
+  const result: string[] = [];
+  let start = 0;
+  let depth = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    else if (char === ")" || char === "]" || char === "}") depth = Math.max(0, depth - 1);
+    else if (char === "," && depth === 0) {
+      result.push(value.slice(start, index).trim());
+      start = index + 1;
+    }
+  }
+  result.push(value.slice(start).trim());
+  return result.filter(Boolean);
+}
+
+function indexedByteTables(
+  sections: SourceSection[],
+  symbols: Map<string, number>,
+): IndexedByteTable[] {
+  const result: IndexedByteTable[] = [];
+  for (const section of sections) {
+    const rows: number[][] = [];
+    for (const sourceLine of section.lines.slice(1)) {
+      const clean = sourceLine.split(";", 1)[0].trim();
+      if (!clean) continue;
+      const data = clean.match(/^db\s+(.+)$/i);
+      if (!data) {
+        if (rows.length > 0) break;
+        continue;
+      }
+      const values = splitDataArguments(data[1]).map((expression) =>
+        evaluateRgbdsExpression(expression, symbols)
+      );
+      if (values.length === 0 || values.some((value) => value === null)) {
+        rows.length = 0;
+        break;
+      }
+      rows.push(values as number[]);
+    }
+    if (rows.length >= 8) result.push({ section, rows });
+  }
+  return result;
+}
+
+function indexedJumpTables(sections: SourceSection[]): IndexedJumpTable[] {
+  const result: IndexedJumpTable[] = [];
+  for (const section of sections) {
+    const labels: string[] = [];
+    for (const sourceLine of section.lines.slice(1)) {
+      const clean = sourceLine.split(";", 1)[0].trim();
+      if (!clean) continue;
+      const pointer = clean.match(/^dw\s+([A-Za-z_][A-Za-z0-9_.]*)\b/i)?.[1];
+      if (!pointer) {
+        if (labels.length > 0) break;
+        continue;
+      }
+      labels.push(pointer);
+    }
+    if (labels.length >= 4) result.push({ section, labels });
+  }
+  return result;
+}
+
+function commandSemanticFromRoutineLabel(
+  label: string,
+): Pick<ProjectMovementCommandValue, "action" | "direction"> | null {
+  const normalized = label
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .toUpperCase();
+  const direction = directionFromSymbol(label);
+
+  if (/(?:^|_)(?:DELAY|WAIT|PAUSE)(?:_|$)/.test(normalized)) {
+    return { action: "delay" };
+  }
+  if (/(?:^|_)(?:END|STOP|DONE)(?:_|$)/.test(normalized)) {
+    return { action: "end" };
+  }
+  if (
+    direction
+    && /(?:^|_)(?:LOOK|FACE|FACING|TURN)(?:_|$)/.test(normalized)
+  ) {
+    return { action: "look", direction };
+  }
+  if (
+    direction
+    && /(?:^|_)(?:MOVE|WALK|STEP|SLIDE|HOP)(?:_|$)/.test(normalized)
+  ) {
+    return { action: "move", direction };
+  }
+  return null;
+}
+
+function deriveIndexedCommandValues(
+  files: ProjectRgbdsSourceFile[],
+  catalog: ProjectConstantCatalog,
+  family: string,
+  knownCommands: ProjectMovementCommandValue[],
+  wantedValues: Set<number>,
+): ProjectMovementCommandValue[] {
+  if (wantedValues.size === 0) return [];
+  const directionalKnown = knownCommands.filter(
+    (command) =>
+      (command.action === "move" || command.action === "look")
+      && Boolean(command.direction),
+  );
+  if (directionalKnown.length < 4) return [];
+
+  const symbols = new Map(
+    catalog.constants.map((constant) => [constant.symbol, constant.value]),
+  );
+  const sections = files.flatMap(globalSections);
+  const byteTables = indexedByteTables(sections, symbols);
+  const jumpTables = indexedJumpTables(sections);
+
+  const candidates: Array<{
+    byteTable: IndexedByteTable;
+    jumpTable: IndexedJumpTable;
+    matches: number;
+    conflicts: number;
+  }> = [];
+
+  for (const byteTable of byteTables) {
+    for (const jumpTable of jumpTables) {
+      let matches = 0;
+      let conflicts = 0;
+      for (const command of directionalKnown) {
+        const row = byteTable.rows[command.value];
+        const functionIndex = row?.[0];
+        if (
+          functionIndex === undefined
+          || functionIndex < 0
+          || functionIndex >= jumpTable.labels.length
+        ) {
+          continue;
+        }
+        const semantic = commandSemanticFromRoutineLabel(
+          jumpTable.labels[functionIndex],
+        );
+        if (!semantic?.direction) continue;
+
+        if (
+          semantic.direction === command.direction
+          && semantic.action === command.action
+        ) {
+          matches += 1;
+        } else {
+          conflicts += 1;
+        }
+      }
+      if (matches >= 4 && conflicts === 0) {
+        candidates.push({ byteTable, jumpTable, matches, conflicts });
+      }
+    }
+  }
+
+  candidates.sort((left, right) =>
+    right.matches - left.matches
+    || left.byteTable.section.path.localeCompare(right.byteTable.section.path)
+    || left.byteTable.section.label.localeCompare(right.byteTable.section.label)
+    || left.jumpTable.section.path.localeCompare(right.jumpTable.section.path)
+    || left.jumpTable.section.label.localeCompare(right.jumpTable.section.label)
+  );
+  if (candidates.length === 0) return [];
+  if (
+    candidates.length > 1
+    && candidates[0].matches === candidates[1].matches
+  ) {
+    return [];
+  }
+
+  const selected = candidates[0];
+  const result: ProjectMovementCommandValue[] = [];
+  for (const value of [...wantedValues].sort((left, right) => left - right)) {
+    if (knownCommands.some((command) => command.value === value)) continue;
+    const row = selected.byteTable.rows[value];
+    const functionIndex = row?.[0];
+    if (
+      functionIndex === undefined
+      || functionIndex < 0
+      || functionIndex >= selected.jumpTable.labels.length
+    ) {
+      continue;
+    }
+    const semantic = commandSemanticFromRoutineLabel(
+      selected.jumpTable.labels[functionIndex],
+    );
+    if (!semantic) continue;
+    result.push({
+      value,
+      symbol: `${value.toString(16).padStart(2, "0")}`,
+      family,
+      action: semantic.action,
+      direction: semantic.direction,
+      sourcePath: selected.byteTable.section.path,
+    });
+  }
+  return result;
+}
+
 function deriveMovementConsumers(
   files: ProjectRgbdsSourceFile[],
   catalog: ProjectConstantCatalog,
@@ -447,6 +672,7 @@ function deriveMovementConsumers(
     register: "hl" | "de";
     family: string;
     sourcePaths: Set<string>;
+    observedValues: Set<number>;
     uses: number;
   }
 
@@ -557,9 +783,14 @@ function deriveMovementConsumers(
               register,
               family,
               sourcePaths: new Set<string>(),
+              observedValues: new Set<number>(),
               uses: 0,
             };
             candidate.sourcePaths.add(file.path);
+            for (const token of tokens) {
+              const value = evaluateRgbdsExpression(token, symbols);
+              if (value !== null) candidate.observedValues.add(value);
+            }
             candidate.uses += 1;
             candidates.set(key, candidate);
           }
@@ -570,15 +801,34 @@ function deriveMovementConsumers(
 
   return [...candidates.values()]
     .filter((candidate) => candidate.uses > 0)
-    .map((candidate) => ({
-      routine: candidate.routine,
-      register: candidate.register,
-      family: candidate.family,
-      commands: [...(commandsByFamily.get(candidate.family) ?? [])].sort(
-        (left, right) => left.value - right.value || left.symbol.localeCompare(right.symbol),
-      ),
-      sourcePaths: [...candidate.sourcePaths].sort(),
-    }))
+    .map((candidate) => {
+      const knownCommands = commandsByFamily.get(candidate.family) ?? [];
+      const inferredCommands = deriveIndexedCommandValues(
+        files,
+        catalog,
+        candidate.family,
+        knownCommands,
+        candidate.observedValues,
+      );
+      const commands = [...knownCommands, ...inferredCommands]
+        .filter((command, index, entries) =>
+          entries.findIndex((candidateCommand) =>
+            candidateCommand.value === command.value
+            && candidateCommand.action === command.action
+            && candidateCommand.direction === command.direction
+          ) === index
+        )
+        .sort(
+          (left, right) => left.value - right.value || left.symbol.localeCompare(right.symbol),
+        );
+      return {
+        routine: candidate.routine,
+        register: candidate.register,
+        family: candidate.family,
+        commands,
+        sourcePaths: [...candidate.sourcePaths].sort(),
+      };
+    })
     .sort((left, right) =>
       left.routine.localeCompare(right.routine)
       || left.register.localeCompare(right.register)
