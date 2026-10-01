@@ -103,6 +103,22 @@ export type MapScriptSemanticNode =
     })
   | (BaseNode & {
       type: "recovery";
+    })
+  | (BaseNode & {
+      type: "control";
+      control: "player-input" | "dialogue-auto-advance" | "held-input";
+      value?: string;
+      alternatives?: MapScriptValueAlternative[];
+    })
+  | (BaseNode & {
+      type: "flag";
+      variable: string;
+      flag: string;
+      action: "set" | "clear";
+    })
+  | (BaseNode & {
+      type: "screen";
+      action: "fade-out" | "fade-in";
     });
 
 export interface MapScriptStateTransition {
@@ -525,6 +541,153 @@ function nodesForSection(
           continue;
         }
       }
+    }
+
+    const joyIgnoreStore = /^ld\s+\[wJoyIgnore\]\s*,\s*a\s*$/i.test(clean);
+    if (joyIgnoreStore) {
+      const symbolic = movementLabelAlternativesAtCall(
+        section.source,
+        index,
+        "a",
+      ).map((alternative) => ({
+        value: alternative.label,
+        conditions: alternative.conditions,
+        confidence: alternative.confidence,
+      }));
+      const single = symbolic.length === 1 ? symbolic[0] : null;
+      const restoring = single?.value === "0";
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:player-input`,
+        type: "control",
+        kind: "control",
+        title: restoring ? "Restore player controls" : "Restrict player controls",
+        control: "player-input",
+        value: single?.value,
+        alternatives: symbolic.length > 1 ? symbolic : undefined,
+        description: restoring
+          ? "Allow normal player input again."
+          : "Ignore the listed inputs while this scripted scene is running.",
+        source: sourceSpan(
+          section,
+          lines,
+          index,
+          index,
+          symbolic.length > 0
+            && symbolic.every((alternative) => alternative.confidence === "exact")
+            ? "exact"
+            : "inferred",
+        ),
+      });
+      continue;
+    }
+
+    if (/^ld\s+\[wDoNotWaitForButtonPressAfterDisplayingText\]\s*,\s*a\s*$/i.test(clean)) {
+      const symbolic = movementLabelAlternativesAtCall(
+        section.source,
+        index,
+        "a",
+      ).map((alternative) => ({
+        value: alternative.label,
+        conditions: alternative.conditions,
+        confidence: alternative.confidence,
+      }));
+      const single = symbolic.length === 1 ? symbolic[0] : null;
+      const enabled = single?.value !== "0";
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:dialogue-auto-advance`,
+        type: "control",
+        kind: "control",
+        title: enabled
+          ? "Auto-advance the next dialogue"
+          : "Wait normally after dialogue",
+        control: "dialogue-auto-advance",
+        value: single?.value,
+        alternatives: symbolic.length > 1 ? symbolic : undefined,
+        description: enabled
+          ? "Do not wait for a button press after the next displayed text."
+          : "Restore the normal wait-for-button behavior after dialogue.",
+        source: sourceSpan(section, lines, index, index, "inferred"),
+      });
+      continue;
+    }
+
+    if (/^ldh?\s+\[hJoyHeld\]\s*,\s*a\s*$/i.test(clean)) {
+      const symbolic = movementLabelAlternativesAtCall(
+        section.source,
+        index,
+        "a",
+      );
+      if (symbolic.length === 1 && symbolic[0].label === "0") {
+        nodes.push({
+          id: `${section.label}:${absoluteLine}:clear-held-input`,
+          type: "control",
+          kind: "control",
+          title: "Clear held player input",
+          control: "held-input",
+          value: "0",
+          description: "Discard any held button state before continuing the scene.",
+          source: sourceSpan(section, lines, index, index, "inferred"),
+        });
+        continue;
+      }
+    }
+
+    const flagMutation = clean.match(
+      /^(set|res)\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*\[hl\]\s*$/i,
+    );
+    if (flagMutation) {
+      const variable = recentRegisterValue(lines, index, "hl", 5);
+      if (variable?.startsWith("w")) {
+        nodes.push({
+          id: `${section.label}:${absoluteLine}:${flagMutation[1].toLowerCase()}-flag`,
+          type: "flag",
+          kind: "flag",
+          title: flagMutation[1].toLowerCase() === "set"
+            ? "Set engine state flag"
+            : "Clear engine state flag",
+          variable,
+          flag: flagMutation[2],
+          action: flagMutation[1].toLowerCase() === "set" ? "set" : "clear",
+          source: sourceSpan(section, lines, Math.max(1, index - 1), index),
+        });
+        continue;
+      }
+    }
+
+    if (/^call\s+StopAllMusic\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:stop-music`,
+        type: "music",
+        kind: "music",
+        title: "Stop music",
+        description: "Silence the current music before the scene changes tracks.",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+GBFadeOutToBlack\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:fade-out`,
+        type: "screen",
+        kind: "screen",
+        title: "Fade screen to black",
+        action: "fade-out",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+GBFadeInFromBlack\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:fade-in`,
+        type: "screen",
+        kind: "screen",
+        title: "Fade screen back in",
+        action: "fade-in",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
     }
 
     if (/^call\s+StartSimulatingJoypadStates\b/i.test(clean)) {
