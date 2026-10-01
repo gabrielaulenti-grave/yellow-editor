@@ -79,6 +79,94 @@ function thresholdUseCounts(
   return counts;
 }
 
+function directionFamily(symbol: string): string | null {
+  const match = symbol.toUpperCase().match(
+    /^(.*?)(?:_)?(UP|DOWN|LEFT|RIGHT|NORTH|SOUTH|EAST|WEST)$/,
+  );
+  if (!match || !match[1]) return null;
+  return match[1].replace(/_+$/, "");
+}
+
+function joypadUsageScores(
+  files: ProjectRgbdsSourceFile[],
+  values: ProjectMovementExactValue[],
+): Map<string, number> {
+  const symbols = new Set(values.map((entry) => entry.symbol));
+  const scores = new Map<string, number>();
+
+  for (const file of files) {
+    const lines = file.contents.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const clean = lines[index].split(";", 1)[0].trim();
+      const load = clean.match(
+        /^ld\s+a\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*$/i,
+      );
+      if (!load || !symbols.has(load[1])) continue;
+
+      for (
+        let probe = index + 1;
+        probe < Math.min(lines.length, index + 5);
+        probe += 1
+      ) {
+        const next = lines[probe].split(";", 1)[0].trim();
+        if (!next) continue;
+        if (
+          /^ld\s+\[wSimulatedJoypadStatesEnd(?:\s*\+\s*\d+)?\]\s*,\s*a\s*$/i.test(next)
+          || /^ld\s+\[hli\]\s*,\s*a\s*$/i.test(next)
+            && lines.slice(Math.max(0, index - 3), index + 1).some((line) =>
+              /^\s*ld\s+hl\s*,\s*wSimulatedJoypadStatesEnd\b/i.test(
+                line.split(";", 1)[0].trim(),
+              )
+            )
+        ) {
+          scores.set(load[1], (scores.get(load[1]) ?? 0) + 1);
+        }
+        break;
+      }
+    }
+  }
+
+  return scores;
+}
+
+function deriveJoypadExactValues(
+  files: ProjectRgbdsSourceFile[],
+  values: ProjectMovementExactValue[],
+): ProjectMovementExactValue[] {
+  const directional = values.filter((entry) => entry.direction);
+  const scores = joypadUsageScores(files, directional);
+  const families = new Map<string, ProjectMovementExactValue[]>();
+
+  for (const entry of directional) {
+    const family = directionFamily(entry.symbol);
+    if (!family) continue;
+    const familyValues = families.get(family) ?? [];
+    familyValues.push(entry);
+    families.set(family, familyValues);
+  }
+
+  const ranked = [...families.entries()]
+    .map(([family, entries]) => ({
+      family,
+      entries,
+      directions: new Set(entries.map((entry) => entry.direction)),
+      usage: entries.reduce(
+        (total, entry) => total + (scores.get(entry.symbol) ?? 0),
+        0,
+      ),
+    }))
+    .filter((candidate) => candidate.directions.size >= 3)
+    .sort((left, right) =>
+      right.usage - left.usage
+      || right.directions.size - left.directions.size
+      || right.entries.length - left.entries.length
+      || left.family.localeCompare(right.family),
+    );
+
+  const selected = ranked.find((candidate) => candidate.usage > 0) ?? null;
+  return selected?.entries ?? [];
+}
+
 function exactValues(
   constants: ProjectConstantCatalog["constants"],
 ): ProjectMovementExactValue[] {
@@ -309,10 +397,12 @@ export async function loadProjectMovementVocabulary(
     );
   }
 
+  const projectExactValues = exactValues(catalog.constants);
   return {
     npcRanges: selected ? rangesFromGroup(selected.group) : [],
     npcExactValues: deriveNpcExactValues(files, catalog),
-    exactValues: exactValues(catalog.constants),
+    joypadExactValues: deriveJoypadExactValues(files, projectExactValues),
+    exactValues: projectExactValues,
     warnings,
   };
 }
