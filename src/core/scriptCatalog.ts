@@ -70,7 +70,7 @@ function textRoutineLabels(source: string, sections: Map<string, string>): Set<s
   return result;
 }
 
-function movementRoutineLabels(source: string, sections: Map<string, string>): Set<string> {
+function movementRoutineLabels(sections: Map<string, string>): Set<string> {
   const result = new Set<string>();
 
   for (const body of sections.values()) {
@@ -161,7 +161,7 @@ function routineSummaries(path: string, source: string): ScriptRoutineSummary[] 
   const stateLabels = scriptStateLabels(source);
   const sections = globalLabelSections(source);
   const textLabels = textRoutineLabels(source, sections);
-  const movementLabels = movementRoutineLabels(source, sections);
+  const movementLabels = movementRoutineLabels(sections);
 
   return parseMapScriptRoutines(source).map((routine) => {
     const section = sections.get(routine.label) ?? "";
