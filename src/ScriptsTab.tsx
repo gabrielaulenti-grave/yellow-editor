@@ -628,6 +628,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
         ...focused,
         movementVocabulary: document.movementVocabulary,
         externalRoutines: document.externalRoutines,
+        eventMacroSemantics: document.eventMacroSemantics,
       };
     }
     return {
@@ -636,6 +637,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
       mapScriptSource: document.source,
       movementVocabulary: document.movementVocabulary,
       externalRoutines: document.externalRoutines,
+      eventMacroSemantics: document.eventMacroSemantics,
     };
   }, [document, focus, selectedRoutineLabel]);
 
