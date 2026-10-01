@@ -1,3 +1,4 @@
+import type { ProjectRgbdsProjectRgbdsSourceFile } from "./projectConstants";
 import type {
   MacroCatalog,
   MacroDefinitionSummary,
@@ -12,11 +13,6 @@ import type {
   ScriptMacroCall,
   ScriptMacroCallDocument,
 } from "./types";
-
-interface SourceFile {
-  path: string;
-  contents: string;
-}
 
 interface MacroDefinitionInternal {
   name: string;
@@ -153,7 +149,7 @@ function usageKind(line: string, token: string): MacroParameterKind | null {
   return null;
 }
 
-function parseDefinitions(file: SourceFile): MacroDefinitionInternal[] {
+function parseDefinitions(file: ProjectRgbdsSourceFile): MacroDefinitionInternal[] {
   const lines = file.contents.split(/\r?\n/);
   const result: MacroDefinitionInternal[] = [];
 
@@ -244,7 +240,7 @@ function lineIsInsideDefinition(
   return ranges?.some((range) => line >= range.startLine && line <= range.endLine) ?? false;
 }
 
-function collectProjectSymbols(files: SourceFile[]): {
+function collectProjectSymbols(files: ProjectRgbdsSourceFile[]): {
   labels: Set<string>;
   constants: Set<string>;
 } {
@@ -309,7 +305,7 @@ function simpleSymbol(value: string): string | null {
 }
 
 function collectSourceConstantDomains(
-  files: SourceFile[],
+  files: ProjectRgbdsSourceFile[],
   ranges: Map<string, Array<{ startLine: number; endLine: number }>>,
   definitions: Map<string, MacroDefinitionInternal>,
   baseCatalog: ProjectSemanticDomainCatalog,
@@ -370,7 +366,7 @@ function collectSourceConstantDomains(
 }
 
 function collectSourceLabelDomains(
-  files: SourceFile[],
+  files: ProjectRgbdsSourceFile[],
   ranges: Map<string, Array<{ startLine: number; endLine: number }>>,
   definitions: Map<string, MacroDefinitionInternal>,
 ): ProjectSemanticDomain[] {
@@ -595,7 +591,7 @@ function propagateProducedSymbols(
 }
 
 function collectMacroProducedSymbols(
-  files: SourceFile[],
+  files: ProjectRgbdsSourceFile[],
   ranges: Map<string, Array<{ startLine: number; endLine: number }>>,
   definitions: Map<string, MacroDefinitionInternal>,
   labels: Set<string>,
@@ -819,36 +815,45 @@ function buildSummaries(
 export async function loadMacroAnalysis(
   source: ProjectSource,
   semanticCatalogInput: ProjectSemanticDomainCatalog | Promise<ProjectSemanticDomainCatalog>,
+  sourceFilesInput?: ProjectRgbdsSourceFile[] | Promise<ProjectRgbdsSourceFile[]>,
 ): Promise<MacroAnalysis> {
-  if (!source.listFiles) {
-    throw new Error(
-      "This project source cannot enumerate RGBDS source files. Reopen the project with a current Yellow Editor workspace.",
+  const semanticCatalogPromise = Promise.resolve(semanticCatalogInput);
+  const warnings: string[] = [];
+  let readableFiles: ProjectRgbdsSourceFile[];
+
+  if (sourceFilesInput) {
+    readableFiles = [...await Promise.resolve(sourceFilesInput)]
+      .filter((file) => isRgbdsSourcePath(file.path))
+      .sort((left, right) => left.path.localeCompare(right.path));
+  } else {
+    if (!source.listFiles) {
+      throw new Error(
+        "This project source cannot enumerate RGBDS source files. Reopen the project with a current Yellow Editor workspace.",
+      );
+    }
+    const paths = [...new Set(await source.listFiles())]
+      .filter(isRgbdsSourcePath)
+      .sort((left, right) => left.localeCompare(right));
+    const files = new Array<ProjectRgbdsSourceFile | null>(paths.length).fill(null);
+    let nextIndex = 0;
+    const workerCount = Math.min(12, paths.length);
+
+    await Promise.all(Array.from({ length: workerCount }, async () => {
+      while (nextIndex < paths.length) {
+        const index = nextIndex;
+        nextIndex += 1;
+        const path = paths[index];
+        try {
+          files[index] = { path, contents: await source.readText(path) };
+        } catch (error) {
+          warnings.push("Could not inspect " + path + ": " + String(error));
+        }
+      }
+    }));
+    readableFiles = files.filter(
+      (file): file is ProjectRgbdsSourceFile => file !== null,
     );
   }
-
-  const semanticCatalogPromise = Promise.resolve(semanticCatalogInput);
-  const paths = [...new Set(await source.listFiles())]
-    .filter(isRgbdsSourcePath)
-    .sort((left, right) => left.localeCompare(right));
-  const files = new Array<SourceFile | null>(paths.length).fill(null);
-  const warnings: string[] = [];
-  let nextIndex = 0;
-  const workerCount = Math.min(12, paths.length);
-
-  await Promise.all(Array.from({ length: workerCount }, async () => {
-    while (nextIndex < paths.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const path = paths[index];
-      try {
-        files[index] = { path, contents: await source.readText(path) };
-      } catch (error) {
-        warnings.push("Could not inspect " + path + ": " + String(error));
-      }
-    }
-  }));
-
-  const readableFiles = files.filter((file): file is SourceFile => file !== null);
   const baseSemanticCatalog = await semanticCatalogPromise;
   const definitions = readableFiles.flatMap(parseDefinitions);
   const byName = new Map<string, MacroDefinitionInternal>();
