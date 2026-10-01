@@ -217,6 +217,8 @@ function branchOutcomeText(outcome: MapScriptBranchOutcome): string {
       return "Stop this script state here";
     case "jump":
       return outcome.summary ?? `Continue at ${titleCaseConstant(outcome.target.replace(/Script$/, ""))}`;
+    case "call":
+      return outcome.summary ?? `Run ${titleCaseConstant(outcome.target.replace(/Script$/, ""))} and continue`;
   }
 }
 
@@ -489,8 +491,8 @@ function BranchBody({
       {showOutcome && (
         <div className="map-script-branch-outcome">
           <span>{branchOutcomeText(branch.outcome)}</span>
-          {branch.outcome.type === "jump" && <code>{branch.outcome.target}</code>}
-          {branch.outcome.type === "jump" && branch.outcome.targetSource && (
+          {(branch.outcome.type === "jump" || branch.outcome.type === "call") && <code>{branch.outcome.target}</code>}
+          {(branch.outcome.type === "jump" || branch.outcome.type === "call") && branch.outcome.targetSource && (
             <details className="map-script-source-detail">
               <summary>Advanced: target routine source</summary>
               <pre className="trainer-script-source"><code>{branch.outcome.targetSource.raw}</code></pre>
