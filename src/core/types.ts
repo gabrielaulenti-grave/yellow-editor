@@ -159,11 +159,19 @@ export interface ProjectMovementVocabulary {
   warnings: string[];
 }
 
+export interface ScriptExternalRoutineSource {
+  label: string;
+  path: string;
+  startLine: number;
+  source: string;
+}
+
 export interface ScriptDocument {
   path: string;
   source: string;
   routines: ScriptRoutineSummary[];
   movementVocabulary?: ProjectMovementVocabulary;
+  externalRoutines?: ScriptExternalRoutineSource[];
 }
 
 export type MacroParameterKind =
