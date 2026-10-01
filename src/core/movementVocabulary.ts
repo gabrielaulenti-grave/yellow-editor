@@ -1,8 +1,10 @@
 import {
   evaluateRgbdsExpression,
-  loadProjectConstantCatalog,
+  projectConstantCatalogFromSources,
+  readProjectRgbdsSources,
   type ProjectConstantGroup,
   type ProjectConstantCatalog,
+  type ProjectRgbdsProjectRgbdsSourceFile,
 } from "./projectConstants";
 import type {
   ProjectMovementDirection,
@@ -11,11 +13,6 @@ import type {
   ProjectMovementVocabulary,
   ProjectSource,
 } from "./types";
-
-interface SourceFile {
-  path: string;
-  contents: string;
-}
 
 interface SourceSection {
   label: string;
@@ -52,32 +49,8 @@ function movementGroupDirections(group: ProjectConstantGroup) {
     );
 }
 
-async function readSourceFiles(source: ProjectSource): Promise<SourceFile[]> {
-  if (!source.listFiles) return [];
-  const paths = [...new Set(await source.listFiles())]
-    .filter((path) => /\.(?:asm|inc)$/i.test(path))
-    .sort((left, right) => left.localeCompare(right));
-
-  const result = new Array<SourceFile>(paths.length);
-  let nextIndex = 0;
-  const workers = Array.from({ length: Math.min(12, paths.length) }, async () => {
-    while (nextIndex < paths.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const path = paths[index];
-      try {
-        result[index] = { path, contents: await source.readText(path) };
-      } catch {
-        result[index] = { path, contents: "" };
-      }
-    }
-  });
-  await Promise.all(workers);
-  return result;
-}
-
 function thresholdUseCounts(
-  files: SourceFile[],
+  files: ProjectRgbdsSourceFile[],
   candidateSymbols: Set<string>,
 ): Map<string, number> {
   const counts = new Map<string, number>();
@@ -148,7 +121,7 @@ function rangesFromGroup(group: ProjectConstantGroup): ProjectMovementRange[] {
   }));
 }
 
-function globalSections(file: SourceFile): SourceSection[] {
+function globalSections(file: ProjectRgbdsSourceFile): SourceSection[] {
   const lines = file.contents.split(/\r?\n/);
   const starts: Array<{ label: string; index: number }> = [];
   lines.forEach((line, index) => {
@@ -223,7 +196,7 @@ function directionFromTargetBlock(
 }
 
 function deriveNpcExactValues(
-  files: SourceFile[],
+  files: ProjectRgbdsSourceFile[],
   catalog: ProjectConstantCatalog,
 ): ProjectMovementExactValue[] {
   const symbols = new Map(catalog.constants.map((constant) => [
@@ -290,10 +263,8 @@ function deriveNpcExactValues(
 export async function loadProjectMovementVocabulary(
   source: ProjectSource,
 ): Promise<ProjectMovementVocabulary> {
-  const [catalog, files] = await Promise.all([
-    loadProjectConstantCatalog(source),
-    readSourceFiles(source),
-  ]);
+  const files = await readProjectRgbdsSources(source);
+  const catalog = projectConstantCatalogFromSources(files);
   const candidates = catalog.groups
     .map((group) => ({
       group,
