@@ -433,6 +433,22 @@ function textScriptInsightText(insight: TextScriptInsight): string {
         : "Ask Yes / No";
     case "give-item":
       return `Give ${insight.quantity} × ${titleCaseConstant(insight.item)}${insight.failureTarget ? `; if the Bag is full, continue at ${titleCaseConstant(insight.failureTarget)}` : ""}`;
+    case "give-pokemon":
+      return `Give level ${insight.level} ${titleCaseConstant(insight.species)}${insight.failureTarget ? `; if the Pokémon cannot be received, continue at ${titleCaseConstant(insight.failureTarget)}` : ""}`;
+    case "inventory":
+      return insight.action === "has-item"
+        ? `Check whether the Bag contains ${insight.item ? titleCaseConstant(insight.item) : "the selected item"}${insight.failureTarget ? `; if not, continue at ${titleCaseConstant(insight.failureTarget)}` : ""}`
+        : `Check the Bag quantity of ${insight.item ? titleCaseConstant(insight.item) : "the selected item"}`;
+    case "remove-item":
+      return `Remove ${insight.item ? titleCaseConstant(insight.item) : "the selected item"} from the Bag`;
+    case "trade":
+      return insight.trade
+        ? `Start in-game trade ${titleCaseConstant(insight.trade)}`
+        : "Start the selected in-game trade";
+    case "cry":
+      return insight.species
+        ? `Play ${titleCaseConstant(insight.species)}'s cry`
+        : "Play the selected Pokémon's cry";
     case "event":
       return `${titleCaseConstant(insight.action)}: ${insight.events.map(titleCaseConstant).join(" · ")}`;
     case "object":
