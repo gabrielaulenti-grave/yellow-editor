@@ -1,4 +1,4 @@
-import type { ProjectRgbdsProjectRgbdsSourceFile } from "./projectConstants";
+import type { ProjectRgbdsSourceFile } from "./projectConstants";
 import type {
   MacroCatalog,
   MacroDefinitionSummary,
