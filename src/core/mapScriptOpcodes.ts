@@ -96,6 +96,7 @@ function customCommandMeaning(
   const unique = matches.filter((command, index) =>
     matches.findIndex((candidate) =>
       candidate.action === command.action
+      && candidate.style === command.style
       && candidate.direction === command.direction
     ) === index
   );
