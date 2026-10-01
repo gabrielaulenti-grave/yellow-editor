@@ -1,3 +1,4 @@
+import type { ProjectEventMacroSemantic } from "./types";
 import type {
   MapScriptSemanticNode,
   MapScriptSourceSpan,
@@ -13,6 +14,11 @@ export type MapScriptCondition =
   | {
       type: "battle-result";
       result: "lost" | "not-lost";
+    }
+  | {
+      type: "event-group";
+      events: string[];
+      state: "none-set" | "any-set" | "all-set" | "not-all-set";
     }
   | {
       type: "variable-compare";
@@ -96,6 +102,7 @@ interface FlowContext {
   nodesByStart: Map<number, MapScriptSemanticNode[]>;
   localLabels: Map<string, number>;
   externalSections: Map<string, RoutineSection>;
+  eventMacros: Map<string, ProjectEventMacroSemantic>;
 }
 
 function withoutComment(line: string): string {
@@ -157,15 +164,63 @@ function isZeroBranch(
   return branch.flag === "z" || branch.flag === "nz";
 }
 
-function eventCondition(lines: string[], index: number): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
-  const event = withoutComment(lines[index]).match(
-    /^Check(?:And(?:Set|Reset))?Event[A-Za-z0-9_]*\s+([A-Z][A-Z0-9_]*)\s*$/i,
-  )?.[1];
+function eventCondition(
+  lines: string[],
+  index: number,
+  eventMacros: Map<string, ProjectEventMacroSemantic>,
+): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
+  const clean = withoutComment(lines[index]);
+  const invocation = clean.match(/^([A-Za-z_][A-Za-z0-9_#@.]*)\s+(.+)$/);
+  if (invocation) {
+    const semantic = eventMacros.get(invocation[1].toLowerCase());
+    if (semantic?.action.startsWith("check") && semantic.zeroMeaning) {
+      const arguments_ = invocation[2].split(",").map((value) => value.trim());
+      const events = semantic.eventParameterIndexes
+        .map((parameter) => arguments_[parameter - 1])
+        .filter((value): value is string =>
+          Boolean(value && /^EVENT_[A-Z0-9_]+$/i.test(value))
+        );
+      const branch = conditionalBranch(lines[index + 1] ?? "", index + 1);
+      if (!branch || !isZeroBranch(branch) || events.length === 0) return null;
+
+      if (semantic.zeroMeaning === "event-clear") {
+        return {
+          condition: {
+            type: "event-state",
+            event: events[0],
+            state: branch.flag === "z" ? "clear" : "set",
+          },
+          branch,
+        };
+      }
+
+      if (semantic.zeroMeaning === "none-set") {
+        return {
+          condition: {
+            type: "event-group",
+            events,
+            state: branch.flag === "z" ? "none-set" : "any-set",
+          },
+          branch,
+        };
+      }
+
+      return {
+        condition: {
+          type: "event-group",
+          events,
+          state: branch.flag === "z" ? "all-set" : "not-all-set",
+        },
+        branch,
+      };
+    }
+  }
+
+  const event = clean.match(/^CheckEvent\s+([A-Z][A-Z0-9_]*)\s*$/i)?.[1];
   if (!event) return null;
   const branch = conditionalBranch(lines[index + 1] ?? "", index + 1);
   if (!branch || !isZeroBranch(branch)) return null;
 
-  // CheckEvent leaves Z when the event is clear and NZ when it is set.
   return {
     condition: {
       type: "event-state",
@@ -292,11 +347,15 @@ function routineResultCondition(
   };
 }
 
-function flowConditionAt(lines: string[], index: number): ParsedCondition | null {
+function flowConditionAt(
+  lines: string[],
+  index: number,
+  eventMacros: Map<string, ProjectEventMacroSemantic>,
+): ParsedCondition | null {
   const routineResult = routineResultCondition(lines, index);
   if (routineResult) return routineResult;
 
-  const event = eventCondition(lines, index);
+  const event = eventCondition(lines, index, eventMacros);
   if (event) return { ...event, startIndex: index };
 
   const battle = battleResultCondition(lines, index);
@@ -606,7 +665,7 @@ function buildRange(
   let index = startIndex;
 
   while (index < endExclusive) {
-    const parsed = flowConditionAt(context.lines, index);
+    const parsed = flowConditionAt(context.lines, index, context.eventMacros);
     if (parsed && parsed.branch.index < endExclusive) {
       const structured = structureCondition(context, parsed, endExclusive, depth);
       if (structured) {
@@ -633,6 +692,7 @@ function buildRange(
 export function structuredMapScriptFlow(
   state: MapScriptState,
   fullSource?: string,
+  eventMacroSemantics: ProjectEventMacroSemantic[] = [],
 ): MapScriptFlowItem[] {
   const lines = state.source.split(/\r?\n/);
   const context: FlowContext = {
@@ -641,6 +701,9 @@ export function structuredMapScriptFlow(
     nodesByStart: nodesByStart(state),
     localLabels: labelsInState(lines),
     externalSections: globalRoutineSections(fullSource),
+    eventMacros: new Map(
+      eventMacroSemantics.map((semantic) => [semantic.name.toLowerCase(), semantic]),
+    ),
   };
 
   // Index 0 is the state's own label.
