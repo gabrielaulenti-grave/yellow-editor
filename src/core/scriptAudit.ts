@@ -58,6 +58,7 @@ const DIRECT_SEMANTIC_PREDEFS = new Set([
   "GetQuantityOfItemInBag",
   "HealParty",
   "HideObject",
+  "ReplaceTileBlock",
   "ShowObject",
 ]);
 
@@ -291,6 +292,32 @@ function semanticMacroReason(
   return null;
 }
 
+function wrapperMacroSemanticReason(
+  name: string,
+  target: string | undefined,
+  movementVocabulary: ProjectMovementVocabulary,
+  setterLabels: Set<string>,
+  objectWrappers: Set<string>,
+): string | null {
+  if (!target) return null;
+  const lower = name.toLowerCase();
+  if (!["callfar", "farjp", "predef_jump"].includes(lower)) return null;
+
+  if (
+    DIRECT_SEMANTIC_CALLS.has(target)
+    || DIRECT_SEMANTIC_PREDEFS.has(target)
+    || /^RemoveItemByID(?:Bank[0-9A-F]+)?$/i.test(target)
+    || /^Music_/i.test(target)
+    || movementVocabulary.consumers.some((consumer) => consumer.routine === target)
+    || setterLabels.has(target)
+    || objectWrappers.has(target)
+  ) {
+    return `Project wrapper invokes semantic target ${target}.`;
+  }
+
+  return null;
+}
+
 interface ConstructAccumulator {
   name: string;
   kind: ScriptAuditConstructKind;
@@ -460,7 +487,17 @@ export function buildScriptAudit(
 
       const macroCall = macroCalls.get(lineNumber);
       if (macroCall) {
-        const semanticReason = semanticMacroReason(macroCall.name, eventMacros, textCommandMacros);
+        const semanticReason = semanticMacroReason(
+          macroCall.name,
+          eventMacros,
+          textCommandMacros,
+        ) ?? wrapperMacroSemanticReason(
+          macroCall.name,
+          macroCall.arguments[0]?.raw,
+          movementVocabulary,
+          setterLabels,
+          objectWrappers,
+        );
         if (semanticReason) {
           addConstruct(
             constructs,
@@ -517,7 +554,18 @@ export function buildScriptAudit(
       }
 
       if (head && macroDefinitions.has(lowerHead)) {
-        const semanticReason = semanticMacroReason(head, eventMacros, textCommandMacros);
+        const firstArgument = clean.slice(head.length).trim().split(",")[0]?.trim();
+        const semanticReason = semanticMacroReason(
+          head,
+          eventMacros,
+          textCommandMacros,
+        ) ?? wrapperMacroSemanticReason(
+          head,
+          firstArgument,
+          movementVocabulary,
+          setterLabels,
+          objectWrappers,
+        );
         if (semanticReason) {
           addConstruct(
             constructs,
