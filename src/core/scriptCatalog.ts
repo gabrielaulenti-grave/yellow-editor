@@ -43,10 +43,6 @@ function scriptStateEntries(
   return result;
 }
 
-function scriptStateLabels(source: string): Set<string> {
-  return new Set(scriptStateEntries(source).map((entry) => entry.label));
-}
-
 function globalLabelSections(source: string): Map<string, string> {
   const lines = source.split(/\r?\n/);
   const starts: Array<{ label: string; index: number }> = [];
