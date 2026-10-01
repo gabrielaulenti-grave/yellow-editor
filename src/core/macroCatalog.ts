@@ -825,6 +825,11 @@ export async function loadMacroAnalysis(
     readableFiles = [...await Promise.resolve(sourceFilesInput)]
       .filter((file) => isRgbdsSourcePath(file.path))
       .sort((left, right) => left.path.localeCompare(right.path));
+    for (const file of readableFiles) {
+      if (file.readError) {
+        warnings.push("Could not inspect " + file.path + ": " + file.readError);
+      }
+    }
   } else {
     if (!source.listFiles) {
       throw new Error(
