@@ -715,6 +715,70 @@ function deriveIndexedCommandValues(
   return result;
 }
 
+function movementConsumerGuards(
+  routine: string,
+  files: ProjectRgbdsSourceFile[],
+): string[] {
+  const section = files
+    .flatMap(globalSections)
+    .find((candidate) => candidate.label === routine);
+  if (!section) return [];
+
+  const lines = section.lines.map((line) => line.split(";", 1)[0].trim());
+  const guards: string[] = [];
+
+  for (let index = 1; index < lines.length; index += 1) {
+    const variable = lines[index].match(
+      /^ld\s+a\s*,\s*\[([A-Za-z_][A-Za-z0-9_]*)\]\s*$/i,
+    )?.[1];
+    if (variable) {
+      const bit = lines[index + 1]?.match(
+        /^bit\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*a\s*$/i,
+      )?.[1];
+      const bitReturn = lines[index + 2]?.match(/^ret\s+(z|nz)\b/i)?.[1];
+      if (bit && bitReturn) {
+        guards.push(
+          `${bit} must be ${bitReturn.toLowerCase() === "z" ? "set" : "clear"} in ${variable}`,
+        );
+        continue;
+      }
+
+      if (/^and\s+a\s*$/i.test(lines[index + 1] ?? "")) {
+        const zeroReturn = lines[index + 2]?.match(/^ret\s+(z|nz)\b/i)?.[1];
+        if (zeroReturn) {
+          guards.push(
+            `${variable} must be ${zeroReturn.toLowerCase() === "nz" ? "0" : "nonzero"}`,
+          );
+          continue;
+        }
+      }
+    }
+
+    const left = lines[index].match(/^ld\s+a\s*,\s*([bcdehl])\s*$/i)?.[1];
+    const right = lines[index + 1]?.match(/^cp\s+([bcdehl])\s*$/i)?.[1];
+    const registerReturn = lines[index + 2]?.match(/^ret\s+(z|nz)\b/i)?.[1];
+    if (left && right && registerReturn) {
+      const precedingCall = lines
+        .slice(Math.max(1, index - 8), index)
+        .reverse()
+        .map((line) => line.match(
+          /^(?:call|callfar|farcall)\s+([A-Za-z_][A-Za-z0-9_]*)\b/i,
+        )?.[1])
+        .find(Boolean);
+      const relation = registerReturn.toLowerCase() === "nz"
+        ? "must equal"
+        : "must differ from";
+      guards.push(
+        precedingCall
+          ? `${left} ${relation} ${right} after ${precedingCall}`
+          : `${left} ${relation} ${right}`,
+      );
+    }
+  }
+
+  return [...new Set(guards)];
+}
+
 function deriveMovementConsumers(
   files: ProjectRgbdsSourceFile[],
   catalog: ProjectConstantCatalog,
@@ -896,6 +960,7 @@ function deriveMovementConsumers(
         family: candidate.family,
         commands,
         sourcePaths: [...candidate.sourcePaths].sort(),
+        guards: movementConsumerGuards(candidate.routine, files),
       };
     })
     .sort((left, right) =>
