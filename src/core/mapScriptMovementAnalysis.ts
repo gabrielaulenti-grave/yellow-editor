@@ -16,6 +16,11 @@ interface SymbolicComparison {
   right: string;
 }
 
+interface SymbolicCarryResult {
+  routine: string;
+  argument: string | null;
+}
+
 interface SymbolicState {
   pc: number;
   de: string | null;
@@ -25,6 +30,7 @@ interface SymbolicState {
   playerMovementLabel: string | null;
   playerMovementValues: Array<string | null>;
   comparison: SymbolicComparison | null;
+  carryResult: SymbolicCarryResult | null;
   conditions: string[];
   confidence: "exact" | "inferred";
   steps: number;
@@ -58,6 +64,37 @@ function conditionText(
   return `${comparison.left} ${equality ? "=" : "≠"} ${comparison.right}`;
 }
 
+function carryConditionText(
+  result: SymbolicCarryResult | null,
+  carry: boolean,
+): string | null {
+  if (!result) return null;
+  const argument = result.argument ? `(${result.argument})` : "";
+  return `${result.routine}${argument} ${carry ? "returned carry" : "returned without carry"}`;
+}
+
+function symbolicBranchConditions(
+  state: SymbolicState,
+  flag: string,
+): { jump: string | null; fallthrough: string | null } {
+  const normalized = flag.toLowerCase();
+  if (normalized === "z" || normalized === "nz") {
+    const equality = normalized === "z";
+    return {
+      jump: conditionText(state.comparison, equality),
+      fallthrough: conditionText(state.comparison, !equality),
+    };
+  }
+  if (normalized === "c" || normalized === "nc") {
+    const carry = normalized === "c";
+    return {
+      jump: carryConditionText(state.carryResult, carry),
+      fallthrough: carryConditionText(state.carryResult, !carry),
+    };
+  }
+  return { jump: null, fallthrough: null };
+}
+
 function targetIndex(labels: Map<string, number>, target: string): number | null {
   return labels.get(target) ?? null;
 }
@@ -72,6 +109,9 @@ function stateKey(state: SymbolicState): string {
     state.playerMovementLabel ?? "",
     state.playerMovementValues.map((value) => value ?? "").join(","),
     state.comparison ? `${state.comparison.left}:${state.comparison.right}` : "",
+    state.carryResult
+      ? `${state.carryResult.routine}:${state.carryResult.argument ?? ""}`
+      : "",
     state.conditions.join("&"),
   ].join("|");
 }
@@ -111,6 +151,7 @@ export function movementLabelAlternativesAtCall(
     playerMovementLabel: null,
     playerMovementValues: [],
     comparison: null,
+    carryResult: null,
     conditions: [],
     confidence: "exact",
     steps: 0,
@@ -231,6 +272,7 @@ export function movementLabelAlternativesAtCall(
         playerMovementLabel: state.de,
         playerMovementValues: [],
         comparison: null,
+        carryResult: null,
       }));
       continue;
     }
@@ -240,6 +282,7 @@ export function movementLabelAlternativesAtCall(
         comparison: state.a
           ? { left: state.a, right: "0" }
           : null,
+        carryResult: null,
       }));
       continue;
     }
@@ -250,11 +293,12 @@ export function movementLabelAlternativesAtCall(
         comparison: state.a
           ? { left: state.a, right: operandValue(compare[1]) }
           : null,
+        carryResult: null,
       }));
       continue;
     }
 
-    const conditional = clean.match(/^(?:jr|jp)\s+(z|nz)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
+    const conditional = clean.match(/^(?:jr|jp)\s+(z|nz|c|nc)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
     if (conditional) {
       const target = targetIndex(labels, conditional[2]);
       if (target === null || target <= state.pc) {
@@ -262,23 +306,23 @@ export function movementLabelAlternativesAtCall(
         continue;
       }
 
-      const jumpOnEqual = conditional[1].toLowerCase() === "z";
-      const jumpCondition = conditionText(state.comparison, jumpOnEqual);
-      const fallthroughCondition = conditionText(state.comparison, !jumpOnEqual);
+      const branchConditions = symbolicBranchConditions(state, conditional[1]);
       queue.push(next({
         pc: target,
-        conditions: jumpCondition
-          ? [...state.conditions, jumpCondition]
+        conditions: branchConditions.jump
+          ? [...state.conditions, branchConditions.jump]
           : state.conditions,
         comparison: null,
-        confidence: jumpCondition ? state.confidence : "inferred",
+        carryResult: null,
+        confidence: branchConditions.jump ? state.confidence : "inferred",
       }));
       queue.push(next({
-        conditions: fallthroughCondition
-          ? [...state.conditions, fallthroughCondition]
+        conditions: branchConditions.fallthrough
+          ? [...state.conditions, branchConditions.fallthrough]
           : state.conditions,
         comparison: null,
-        confidence: fallthroughCondition ? state.confidence : "inferred",
+        carryResult: null,
+        confidence: branchConditions.fallthrough ? state.confidence : "inferred",
       }));
       continue;
     }
@@ -291,9 +335,14 @@ export function movementLabelAlternativesAtCall(
       continue;
     }
 
-    if (/^(?:call|farcall|predef)\b/i.test(clean)) {
+    const genericCall = clean.match(/^(?:call|farcall|predef)\s+([A-Za-z_][A-Za-z0-9_]*)\b/i);
+    if (genericCall) {
       queue.push(next({
         comparison: null,
+        carryResult: {
+          routine: genericCall[1],
+          argument: state.hl,
+        },
         confidence: state.de || state.playerMovementLabel || state.playerMovementValues.length > 0
           ? "inferred"
           : state.confidence,
@@ -301,7 +350,7 @@ export function movementLabelAlternativesAtCall(
       continue;
     }
 
-    queue.push(next({ comparison: null }));
+    queue.push(next({ comparison: null, carryResult: null }));
   }
 
   return mergeAlternatives(alternatives);
@@ -328,6 +377,7 @@ export function playerMovementAlternativesAtCall(
     playerMovementLabel: null,
     playerMovementValues: [],
     comparison: null,
+    carryResult: null,
     conditions: [],
     confidence: "exact",
     steps: 0,
@@ -440,6 +490,7 @@ export function playerMovementAlternativesAtCall(
         playerMovementLabel: state.de,
         playerMovementValues: [],
         comparison: null,
+        carryResult: null,
       }));
       continue;
     }
@@ -449,6 +500,7 @@ export function playerMovementAlternativesAtCall(
         comparison: state.a
           ? { left: state.a, right: "0" }
           : null,
+        carryResult: null,
       }));
       continue;
     }
@@ -459,34 +511,36 @@ export function playerMovementAlternativesAtCall(
         comparison: state.a
           ? { left: state.a, right: operandValue(compare[1]) }
           : null,
+        carryResult: null,
       }));
       continue;
     }
 
-    const conditional = clean.match(/^(?:jr|jp)\s+(z|nz)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
+    const conditional = clean.match(/^(?:jr|jp)\s+(z|nz|c|nc)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
     if (conditional) {
       const target = targetIndex(labels, conditional[2]);
       if (target === null || target <= state.pc) {
         queue.push(next({ confidence: "inferred" }));
         continue;
       }
-      const jumpOnEqual = conditional[1].toLowerCase() === "z";
-      const jumpCondition = conditionText(state.comparison, jumpOnEqual);
-      const fallthroughCondition = conditionText(state.comparison, !jumpOnEqual);
+
+      const branchConditions = symbolicBranchConditions(state, conditional[1]);
       queue.push(next({
         pc: target,
-        conditions: jumpCondition
-          ? [...state.conditions, jumpCondition]
+        conditions: branchConditions.jump
+          ? [...state.conditions, branchConditions.jump]
           : state.conditions,
         comparison: null,
-        confidence: jumpCondition ? state.confidence : "inferred",
+        carryResult: null,
+        confidence: branchConditions.jump ? state.confidence : "inferred",
       }));
       queue.push(next({
-        conditions: fallthroughCondition
-          ? [...state.conditions, fallthroughCondition]
+        conditions: branchConditions.fallthrough
+          ? [...state.conditions, branchConditions.fallthrough]
           : state.conditions,
         comparison: null,
-        confidence: fallthroughCondition ? state.confidence : "inferred",
+        carryResult: null,
+        confidence: branchConditions.fallthrough ? state.confidence : "inferred",
       }));
       continue;
     }
@@ -499,9 +553,14 @@ export function playerMovementAlternativesAtCall(
       continue;
     }
 
-    if (/^(?:call|farcall|predef)\b/i.test(clean)) {
+    const genericCall = clean.match(/^(?:call|farcall|predef)\s+([A-Za-z_][A-Za-z0-9_]*)\b/i);
+    if (genericCall) {
       queue.push(next({
         comparison: null,
+        carryResult: {
+          routine: genericCall[1],
+          argument: state.hl,
+        },
         confidence: state.playerMovementLabel || state.playerMovementValues.length > 0
           ? "inferred"
           : state.confidence,
@@ -509,7 +568,7 @@ export function playerMovementAlternativesAtCall(
       continue;
     }
 
-    queue.push(next({ comparison: null }));
+    queue.push(next({ comparison: null, carryResult: null }));
   }
 
   return alternatives.filter((alternative, index, entries) =>
