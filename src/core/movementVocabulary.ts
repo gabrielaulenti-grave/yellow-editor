@@ -374,11 +374,26 @@ function movementCommandCandidate(
     /^(.*)_(STEP|MOVE|WALK|SLIDE|HOP|LOOK|FACE|FACING|TURN)_(UP|DOWN|LEFT|RIGHT|NORTH|SOUTH|EAST|WEST)$/,
   );
   if (directional && direction) {
+    const action = /^(LOOK|FACE|FACING|TURN)$/.test(directional[2])
+      ? "look" as const
+      : "move" as const;
+    const style = action === "move"
+      ? directional[2] === "STEP"
+        ? "step" as const
+        : directional[2] === "SLIDE"
+          ? "slide" as const
+          : directional[2] === "HOP"
+            ? "hop" as const
+            : directional[2] === "WALK"
+              ? "walk" as const
+              : undefined
+      : undefined;
     return {
       value: constant.value,
       symbol: constant.symbol,
       family: directional[1].replace(/_+$/, ""),
-      action: /^(LOOK|FACE|FACING|TURN)$/.test(directional[2]) ? "look" : "move",
+      action,
+      style,
       direction,
       sourcePath: constant.sourcePath,
     };
@@ -512,7 +527,7 @@ function indexedJumpTables(sections: SourceSection[]): IndexedJumpTable[] {
 
 function commandSemanticFromRoutineLabel(
   label: string,
-): Pick<ProjectMovementCommandValue, "action" | "direction"> | null {
+): Pick<ProjectMovementCommandValue, "action" | "direction" | "style"> | null {
   const normalized = label
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .replace(/[^A-Za-z0-9]+/g, "_")
@@ -535,9 +550,56 @@ function commandSemanticFromRoutineLabel(
     direction
     && /(?:^|_)(?:MOVE|WALK|STEP|SLIDE|HOP)(?:_|$)/.test(normalized)
   ) {
-    return { action: "move", direction };
+    const style = /(?:^|_)HOP(?:_|$)/.test(normalized)
+      ? "hop" as const
+      : /(?:^|_)SLIDE(?:_|$)/.test(normalized)
+        ? "slide" as const
+        : /(?:^|_)STEP(?:_|$)/.test(normalized)
+          ? "step" as const
+          : /(?:^|_)WALK(?:_|$)/.test(normalized)
+            ? "walk" as const
+            : undefined;
+    return { action: "move", direction, style };
   }
   return null;
+}
+
+function movementStyleFromRoutineLabel(
+  label: string,
+): ProjectMovementCommandValue["style"] {
+  const normalized = label
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .toUpperCase();
+  if (/(?:^|_)(?:HOP|JUMP)(?:_|$)/.test(normalized)) return "hop";
+  if (/(?:^|_)SLIDE(?:_|$)/.test(normalized)) return "slide";
+  if (/(?:^|_)STEP(?:_|$)/.test(normalized)) return "step";
+  if (/(?:^|_)WALK(?:_|$)/.test(normalized)) return "walk";
+  return undefined;
+}
+
+function inferredStyleFromSecondaryDispatch(
+  row: number[],
+  byteTable: IndexedByteTable,
+  primaryJumpTable: IndexedJumpTable,
+  jumpTables: IndexedJumpTable[],
+): ProjectMovementCommandValue["style"] {
+  if (row.length < 3) return undefined;
+  const secondaryIndex = row[2];
+  const styles = new Set(
+    jumpTables
+      .filter((table) =>
+        table !== primaryJumpTable
+        && table.section.path === byteTable.section.path
+        && secondaryIndex >= 0
+        && secondaryIndex < table.labels.length
+      )
+      .map((table) => movementStyleFromRoutineLabel(table.labels[secondaryIndex]))
+      .filter((style): style is NonNullable<ProjectMovementCommandValue["style"]> =>
+        Boolean(style)
+      ),
+  );
+  return styles.size === 1 ? [...styles][0] : undefined;
 }
 
 function deriveIndexedCommandValues(
@@ -640,6 +702,12 @@ function deriveIndexedCommandValues(
       symbol: `${value.toString(16).padStart(2, "0")}`,
       family,
       action: semantic.action,
+      style: semantic.style ?? inferredStyleFromSecondaryDispatch(
+        row,
+        selected.byteTable,
+        selected.jumpTable,
+        jumpTables,
+      ),
       direction: semantic.direction,
       sourcePath: selected.byteTable.section.path,
     });
@@ -693,6 +761,7 @@ function deriveMovementConsumers(
     const unique = matches.filter((command, index) =>
       matches.findIndex((candidate) =>
         candidate.action === command.action
+        && candidate.style === command.style
         && candidate.direction === command.direction
       ) === index
     );
