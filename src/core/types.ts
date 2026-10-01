@@ -161,12 +161,19 @@ export interface ProjectMovementConsumer {
   guards: string[];
 }
 
+export interface ProjectSpriteMovementStatus {
+  value: number;
+  routine: string;
+  sourcePath: string;
+}
+
 export interface ProjectMovementVocabulary {
   npcRanges: ProjectMovementRange[];
   npcExactValues: ProjectMovementExactValue[];
   joypadExactValues: ProjectMovementExactValue[];
   exactValues: ProjectMovementExactValue[];
   consumers: ProjectMovementConsumer[];
+  spriteStatuses: ProjectSpriteMovementStatus[];
   warnings: string[];
 }
 
