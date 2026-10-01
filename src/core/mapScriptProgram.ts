@@ -108,6 +108,13 @@ export type MapScriptSemanticNode =
       music?: string;
     })
   | (BaseNode & {
+      type: "map-edit";
+      action: "replace-tile-block";
+      block?: string;
+      x?: string;
+      y?: string;
+    })
+  | (BaseNode & {
       type: "facing";
       actor?: string;
       facing?: string;
@@ -203,6 +210,24 @@ function recentRegisterValue(
   for (let index = beforeIndex - 1; index >= Math.max(0, beforeIndex - maxBack); index -= 1) {
     const value = withoutComment(lines[index]).match(pattern)?.[1];
     if (value) return value;
+  }
+  return null;
+}
+
+function recentLbBcPair(
+  lines: string[],
+  beforeIndex: number,
+  maxBack = 10,
+): { b: string; c: string } | null {
+  for (
+    let index = beforeIndex - 1;
+    index >= Math.max(1, beforeIndex - maxBack);
+    index -= 1
+  ) {
+    const pair = withoutComment(lines[index]).match(
+      /^lb\s+bc\s*,\s*([^,\s]+)\s*,\s*([^\s;]+)\s*$/i,
+    );
+    if (pair) return { b: pair[1], c: pair[2] };
   }
   return null;
 }
@@ -1162,6 +1187,27 @@ function nodesForSection(
         title: "Play music",
         music: routine ?? recentRegisterValue(lines, index, "a", 8) ?? undefined,
         source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^(?:predef|predef_jump)\s+ReplaceTileBlock\b/i.test(clean)) {
+      const coords = recentLbBcPair(lines, index, 10);
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:replace-tile-block`,
+        type: "map-edit",
+        kind: "map",
+        title: "Replace map tile block",
+        action: "replace-tile-block",
+        block: loadedValueBeforeStore(
+          lines,
+          index,
+          /^ld\s+\[wNewTileBlockID\]\s*,\s*a\b/i,
+        ) ?? undefined,
+        x: coords?.b,
+        y: coords?.c,
+        description: "Change one map block in the loaded map.",
+        source: sourceSpan(section, lines, Math.max(1, index - 3), index),
       });
       continue;
     }
