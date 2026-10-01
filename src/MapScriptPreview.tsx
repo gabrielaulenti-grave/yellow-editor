@@ -24,6 +24,7 @@ import {
 } from "./core/mapScriptProgram";
 import type {
   ProjectMovementVocabulary,
+  ScriptExternalRoutineSource,
   TrainerInteraction,
   TrainerInteractionDialogue,
 } from "./core/types";
@@ -36,6 +37,7 @@ export interface MapScriptPreviewReference {
   mapScriptSource: string;
   routineSource?: string | null;
   movementVocabulary?: ProjectMovementVocabulary;
+  externalRoutines?: ScriptExternalRoutineSource[];
   interaction?: TrainerInteraction | null;
 }
 
@@ -628,6 +630,9 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
       <div className="map-script-state-list">
         {model.states.map((state, stateIndex) => {
           const flow = structuredMapScriptFlow(state, reference.mapScriptSource);
+          const externalRoutine = state.external
+            ? reference.externalRoutines?.find((routine) => routine.label === state.label)
+            : undefined;
           const phaseDialogue = findResolvedScriptPhaseDialogue(
             model.dialoguePhases,
             summaryStateTitle(state.label, reference.scriptPath),
@@ -661,11 +666,25 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
               </summary>
               <div className="map-script-state-body">
                 {state.external ? (
-                  <p className="empty-state">
-                    This state points to a shared project routine outside this map script.
-                    Yellow Editor keeps it in the state machine instead of dropping the entry,
-                    but does not invent local source for it.
-                  </p>
+                  <div className="empty-state">
+                    <p>
+                      This state points to a shared project routine outside this map script.
+                      Yellow Editor keeps it in the state machine instead of dropping the entry.
+                    </p>
+                    {externalRoutine ? (
+                      <>
+                        <p>
+                          Resolved project source: <code>{externalRoutine.path}:{externalRoutine.startLine}</code>
+                        </p>
+                        <details className="map-script-source-detail">
+                          <summary>View shared routine source</summary>
+                          <pre className="trainer-script-source"><code>{externalRoutine.source}</code></pre>
+                        </details>
+                      </>
+                    ) : (
+                      <p>No unique project definition was resolved for this routine.</p>
+                    )}
+                  </div>
                 ) : flow.length === 0 ? (
                   <p className="empty-state">No semantic operations are recognized in this state yet. The original source remains available below.</p>
                 ) : (
