@@ -150,6 +150,10 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
         ...(node.actor === "character" && node.actorConstant
           ? [{ label: "Character", value: titleCaseConstant(node.actorConstant) }]
           : []),
+        ...(node.guards ?? []).map((guard) => ({
+          label: "Runs when",
+          value: guard,
+        })),
         ...conditionalPaths,
         ...(conditionalPaths.length === 0 && path
           ? [{ label: "Path", value: path, path: true }]
