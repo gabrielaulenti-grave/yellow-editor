@@ -183,7 +183,18 @@ function zeroTestCondition(lines: string[], index: number): { condition: MapScri
   const variable = withoutComment(lines[index]).match(/^ld\s+a\s*,\s*\[(w[A-Za-z0-9_]+)\]\s*$/i)?.[1];
   if (!variable) return null;
   if (!/^and\s+a\s*$/i.test(withoutComment(lines[index + 1] ?? ""))) return null;
-  const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
+
+  let branch: ConditionalBranch | null = null;
+  for (let probe = index + 2; probe <= Math.min(lines.length - 1, index + 5); probe += 1) {
+    const clean = withoutComment(lines[probe]);
+    if (!clean) continue;
+    branch = conditionalBranch(lines[probe], probe);
+    if (branch) break;
+    // LD does not modify the Game Boy CPU flags, so a zero test remains valid
+    // across setup loads such as "ld de, DefaultMovement".
+    if (/^ld\b/i.test(clean)) continue;
+    return null;
+  }
   if (!branch) return null;
 
   return {
