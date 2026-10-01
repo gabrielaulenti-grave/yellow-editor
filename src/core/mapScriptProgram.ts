@@ -503,6 +503,65 @@ function nodesForSection(
       continue;
     }
 
+    const customMovementCall = clean.match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i);
+    const customMovementConsumer = customMovementCall
+      ? movementVocabulary?.consumers.find(
+          (consumer) => consumer.routine === customMovementCall[1],
+        )
+      : undefined;
+    if (customMovementCall && customMovementConsumer) {
+      const symbolicAlternatives = movementLabelAlternativesAtCall(
+        section.source,
+        index,
+        customMovementConsumer.register,
+      );
+      const alternatives = symbolicAlternatives.map((alternative) => {
+        const movement = movementSource(sections, section, alternative.label);
+        return {
+          pathLabel: alternative.label,
+          path: movement
+            ? parseMovementPath(
+                alternative.label,
+                movement,
+                movementVocabulary,
+                "custom",
+                customMovementConsumer.routine,
+              ).steps
+            : [],
+          conditions: alternative.conditions,
+          confidence: alternative.confidence,
+        } satisfies MapScriptMovementAlternative;
+      });
+
+      const single = alternatives.length === 1 ? alternatives[0] : null;
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:custom-movement`,
+        type: "movement",
+        kind: "movement",
+        title: "Run scripted character movement",
+        actor: "character",
+        pathLabel: single?.pathLabel,
+        path: single?.path ?? [],
+        alternatives,
+        dynamic: alternatives.length === 0
+          || alternatives.some((alternative) => alternative.path.length === 0),
+        description: alternatives.length > 1
+          ? "The selected project-defined movement path depends on earlier script conditions."
+          : "This movement vocabulary was derived from the loaded project.",
+        source: sourceSpan(
+          section,
+          lines,
+          index,
+          index,
+          alternatives.length > 0
+            && alternatives.every((alternative) => alternative.confidence === "exact")
+            ? "exact"
+            : "inferred",
+        ),
+      });
+      continue;
+    }
+
     if (/^call\s+MoveSprite\b/i.test(clean)) {
       const actor = loadedValueBeforeStore(lines, index, /^ldh?\s+\[hSpriteIndex\]\s*,\s*a\b/i);
       const symbolicAlternatives = movementLabelAlternativesAtCall(section.source, index);
