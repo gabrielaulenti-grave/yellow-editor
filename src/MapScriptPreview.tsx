@@ -797,6 +797,9 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
                 <code>{state.scriptConstant ?? state.label}</code>
               </summary>
               <div className="map-script-state-body">
+                {state.label === reference.routineLabel && (
+                  <TextScriptLogic label={state.label} reference={reference} />
+                )}
                 {state.external ? (
                   <div className="empty-state">
                     <p>
