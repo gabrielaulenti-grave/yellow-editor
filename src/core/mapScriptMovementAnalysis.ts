@@ -119,7 +119,8 @@ export function movementLabelAlternativesAtCall(
     if (visited.has(key)) continue;
     visited.add(key);
 
-    const clean = withoutComment(lines[state.pc]);
+    const sourceLine = lines[state.pc];
+    const clean = withoutComment(sourceLine);
     const next = (updates: Partial<SymbolicState> = {}): SymbolicState => ({
       ...state,
       ...updates,
@@ -127,16 +128,24 @@ export function movementLabelAlternativesAtCall(
       steps: state.steps + 1,
     });
 
-    if (!clean || /^\.?[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(clean)) {
+    if (!clean) {
+      queue.push(next());
+      continue;
+    }
+
+    if (/^(?:ret|reti)\b/i.test(clean)) {
+      continue;
+    }
+
+    if (
+      /^\s*(?:\.[A-Za-z_][A-Za-z0-9_.]*)(?::{1,2})?\s*(?:;.*)?$/.test(sourceLine)
+      || /^\s*[A-Za-z_][A-Za-z0-9_]*:{1,2}\s*(?:;.*)?$/.test(sourceLine)
+    ) {
       queue.push(next());
       continue;
     }
 
     if (/^(?:db|dw|dl|ds)\b/i.test(clean)) {
-      continue;
-    }
-
-    if (/^(?:ret|reti)\b/i.test(clean)) {
       continue;
     }
 
