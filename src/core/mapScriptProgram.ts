@@ -25,6 +25,12 @@ export interface MapScriptMovementAlternative {
   confidence: MapScriptConfidence;
 }
 
+export interface MapScriptValueAlternative {
+  value: string;
+  conditions: string[];
+  confidence: MapScriptConfidence;
+}
+
 interface BaseNode {
   id: string;
   kind: MapScriptOperationKind;
@@ -55,6 +61,7 @@ export type MapScriptSemanticNode =
   | (BaseNode & {
       type: "opponent";
       opponent?: string;
+      trainerNo?: string;
     })
   | (BaseNode & {
       type: "wait";
@@ -81,6 +88,7 @@ export type MapScriptSemanticNode =
       type: "object";
       action: "show" | "hide";
       object?: string;
+      alternatives?: MapScriptValueAlternative[];
     })
   | (BaseNode & {
       type: "music";
@@ -90,6 +98,7 @@ export type MapScriptSemanticNode =
       type: "facing";
       actor?: string;
       facing?: string;
+      alternatives?: MapScriptValueAlternative[];
     })
   | (BaseNode & {
       type: "recovery";
@@ -742,6 +751,44 @@ function nodesForSection(
       continue;
     }
 
+    const directFacingStore = clean.match(
+      /^ld\s+\[wSprite([0-9A-F]+)StateData1FacingDirection\]\s*,\s*a\s*$/i,
+    );
+    if (directFacingStore) {
+      const symbolic = movementLabelAlternativesAtCall(
+        section.source,
+        index,
+        "a",
+      ).map((alternative) => ({
+        value: alternative.label,
+        conditions: alternative.conditions,
+        confidence: alternative.confidence,
+      }));
+      const single = symbolic.length === 1 ? symbolic[0] : null;
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:direct-facing`,
+        type: "facing",
+        kind: "facing",
+        title: "Turn character",
+        actor: `SPRITE_SLOT_${directFacingStore[1]}`,
+        facing: single?.value,
+        alternatives: symbolic,
+        description: symbolic.length > 1
+          ? "The facing direction depends on earlier script conditions."
+          : "This script writes the sprite's facing direction directly.",
+        source: sourceSpan(
+          section,
+          lines,
+          index,
+          index,
+          symbolic.every((alternative) => alternative.confidence === "exact")
+            ? "exact"
+            : "inferred",
+        ),
+      });
+      continue;
+    }
+
     if (/^call\s+SaveEndBattleTextPointers\b/i.test(clean)) {
       nodes.push({
         id: `${section.label}:${absoluteLine}:battle-dialogue`,
@@ -757,6 +804,21 @@ function nodesForSection(
     }
 
     if (/^ld\s+\[wCurOpponent\]\s*,\s*a\b/i.test(clean)) {
+      let trainerNo: string | undefined;
+      let sourceEnd = index;
+      for (let probe = index + 1; probe <= Math.min(lines.length - 1, index + 8); probe += 1) {
+        if (!/^ld\s+\[wTrainerNo\]\s*,\s*a\b/i.test(withoutComment(lines[probe]))) {
+          continue;
+        }
+        const alternatives = movementLabelAlternativesAtCall(
+          section.source,
+          probe,
+          "a",
+        );
+        if (alternatives.length === 1) trainerNo = alternatives[0].label;
+        sourceEnd = probe;
+        break;
+      }
       nodes.push({
         id: `${section.label}:${absoluteLine}:opponent`,
         type: "opponent",
@@ -764,7 +826,8 @@ function nodesForSection(
         title: "Choose trainer opponent",
         description: "Prepare the trainer encounter. The battle engine starts after this map script returns.",
         opponent: recentRegisterValue(lines, index, "a", 6) ?? undefined,
-        source: sourceSpan(section, lines, Math.max(1, index - 1), index),
+        trainerNo,
+        source: sourceSpan(section, lines, Math.max(1, index - 1), sourceEnd),
       });
       continue;
     }
@@ -848,13 +911,24 @@ function nodesForSection(
       ? objectWrappers.get(objectWrapperCall)
       : undefined;
     if (objectWrapperCall && objectWrapperAction) {
+      const symbolic = movementLabelAlternativesAtCall(
+        section.source,
+        index,
+        "a",
+      ).map((alternative) => ({
+        value: alternative.label,
+        conditions: alternative.conditions,
+        confidence: alternative.confidence,
+      }));
+      const single = symbolic.length === 1 ? symbolic[0] : null;
       nodes.push({
         id: `${section.label}:${absoluteLine}:${objectWrapperAction}-object-wrapper`,
         type: "object",
         kind: "object",
         title: `${objectWrapperAction === "show" ? "Show" : "Hide"} character or object`,
         action: objectWrapperAction,
-        object: recentRegisterValue(lines, index, "a", 6) ?? undefined,
+        object: single?.value ?? recentRegisterValue(lines, index, "a", 6) ?? undefined,
+        alternatives: symbolic.length > 1 ? symbolic : undefined,
         description: `This action is performed through project helper ${objectWrapperCall}.`,
         source: sourceSpan(section, lines, index, index, "inferred"),
       });
@@ -864,14 +938,44 @@ function nodesForSection(
     const objectAction = clean.match(/^predef\s+(ShowObject|HideObject)\b/i)?.[1];
     if (objectAction) {
       const action = objectAction.toLowerCase().startsWith("show") ? "show" : "hide";
+      let storeIndex = -1;
+      for (let probe = index - 1; probe >= Math.max(1, index - 10); probe -= 1) {
+        if (/^ld\s+\[wToggleableObjectIndex\]\s*,\s*a\b/i.test(withoutComment(lines[probe]))) {
+          storeIndex = probe;
+          break;
+        }
+      }
+      const symbolic = storeIndex >= 0
+        ? movementLabelAlternativesAtCall(section.source, storeIndex, "a").map((alternative) => ({
+            value: alternative.label,
+            conditions: alternative.conditions,
+            confidence: alternative.confidence,
+          }))
+        : [];
+      const single = symbolic.length === 1 ? symbolic[0] : null;
       nodes.push({
         id: `${section.label}:${absoluteLine}:${action}-object`,
         type: "object",
         kind: "object",
         title: `${action === "show" ? "Show" : "Hide"} character or object`,
         action,
-        object: loadedValueBeforeStore(lines, index, /^ld\s+\[wToggleableObjectIndex\]\s*,\s*a\b/i) ?? undefined,
-        source: sourceSpan(section, lines, index),
+        object: single?.value
+          ?? loadedValueBeforeStore(lines, index, /^ld\s+\[wToggleableObjectIndex\]\s*,\s*a\b/i)
+          ?? undefined,
+        alternatives: symbolic.length > 1 ? symbolic : undefined,
+        description: symbolic.length > 1
+          ? "The selected object depends on earlier script conditions."
+          : undefined,
+        source: sourceSpan(
+          section,
+          lines,
+          storeIndex >= 0 ? storeIndex : index,
+          index,
+          symbolic.length > 0
+            && symbolic.every((alternative) => alternative.confidence === "exact")
+            ? "exact"
+            : "inferred",
+        ),
       });
       continue;
     }
