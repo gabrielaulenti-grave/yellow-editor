@@ -228,6 +228,15 @@ export function movementLabelAlternativesAtCall(
       continue;
     }
 
+    if (/^xor\s+a\s*$/i.test(clean)) {
+      queue.push(next({
+        a: "0",
+        comparison: null,
+        carryResult: null,
+      }));
+      continue;
+    }
+
     const loadAFromVariable = clean.match(/^ld\s+a\s*,\s*\[([^\]]+)\]\s*$/i);
     if (loadAFromVariable) {
       queue.push(next({
@@ -446,6 +455,15 @@ export function playerMovementAlternativesAtCall(
       queue.push(next({
         hl: operandValue(loadHl[1]),
         joypadPointerIndex: loadHl[1] === "wSimulatedJoypadStatesEnd" ? 0 : null,
+      }));
+      continue;
+    }
+
+    if (/^xor\s+a\s*$/i.test(clean)) {
+      queue.push(next({
+        a: "0",
+        comparison: null,
+        carryResult: null,
       }));
       continue;
     }
