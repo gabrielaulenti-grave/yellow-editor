@@ -97,8 +97,10 @@ function withoutComment(line: string): string {
 }
 
 function isLabel(line: string): boolean {
-  return /^\.?[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(line)
-    && !/^(?:db|dw|dl|ds)$/i.test(line);
+  return (
+    /^\.[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(line)
+    || /^[A-Za-z_][A-Za-z0-9_]*:{1,2}$/.test(line)
+  );
 }
 
 function directGlobalLabels(files: ProjectRgbdsSourceFile[]): Set<string> {
