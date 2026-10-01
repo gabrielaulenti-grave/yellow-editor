@@ -309,7 +309,7 @@ export function analyzeTextScript(
       insights.push({
         type: "object",
         action: objectAction.toLowerCase().startsWith("show") ? "show" : "hide",
-        object: recentRegisterValue(lines, index, "a"),
+        object: recentRegisterValue(lines, index, "a") ?? undefined,
       });
       continue;
     }
@@ -319,7 +319,7 @@ export function analyzeTextScript(
       insights.push({
         type: "object",
         action: objectWrappers.get(call)!,
-        object: recentRegisterValue(lines, index, "a"),
+        object: recentRegisterValue(lines, index, "a") ?? undefined,
       });
       continue;
     }
