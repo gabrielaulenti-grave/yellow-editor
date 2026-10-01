@@ -902,8 +902,17 @@ export function parseMapScriptProgram(
     }
 
     const pointerIndex = pointerLabels.indexOf(label);
-    const nextStateLabel = pointerIndex >= 0
+    const sectionIndex = sectionList.findIndex(
+      (candidate) => candidate.label === section.label,
+    );
+    const physicalNextLabel = sectionIndex >= 0
+      ? sectionList[sectionIndex + 1]?.label ?? null
+      : null;
+    const declaredNextLabel = pointerIndex >= 0
       ? pointerLabels[pointerIndex + 1] ?? null
+      : null;
+    const nextStateLabel = physicalNextLabel === declaredNextLabel
+      ? declaredNextLabel
       : null;
     const transitions = transitionsForSection(
       section,
