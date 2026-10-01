@@ -557,6 +557,9 @@ export async function invoke<T>(
     case "get_script_catalog":
       return (await session.getScriptCatalog()) as T;
 
+    case "get_script_audit":
+      return (await session.getScriptAudit()) as T;
+
     case "get_script_document":
       return (await session.getScriptDocument(
         stringArg(args, "path"),
