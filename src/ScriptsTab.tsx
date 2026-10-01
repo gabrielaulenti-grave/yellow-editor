@@ -7,6 +7,7 @@ import type {
   ProjectSemanticDomain,
   ScriptCatalog,
   ScriptCatalogEntry,
+  ScriptAuditReport,
   ScriptDocument,
   ScriptMacroCall,
   ScriptMacroCallDocument,
@@ -394,6 +395,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   const [catalog, setCatalog] = useState<ScriptCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [audit, setAudit] = useState<ScriptAuditReport | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -475,6 +479,35 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
       cancelled = true;
     };
   }, [project?.storageKey]);
+
+  useEffect(() => {
+    if (!project) {
+      setAudit(null);
+      setAuditError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setAuditLoading(true);
+    setAuditError(null);
+    void invoke<ScriptAuditReport>("get_script_audit")
+      .then((nextAudit) => {
+        if (!cancelled) setAudit(nextAudit);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAudit(null);
+          setAuditError(String(error));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAuditLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [project?.storageKey, refreshVersion]);
 
   useEffect(() => {
     if (!project) {
@@ -674,6 +707,20 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
     setSelectedRoutineLabel(label);
   }
 
+  function selectAuditExample(path: string, line: number) {
+    if (!catalog || !confirmDiscardMacroEdit()) return;
+    const entry = catalog.entries.find((candidate) => candidate.paths.includes(path));
+    if (!entry) return;
+    const routines = routinesForPath(entry, path)
+      .filter((routine) => routine.startLine <= line)
+      .sort((left, right) => right.startLine - left.startLine);
+    setSelectedGroupId(entry.id);
+    setSelectedPath(path);
+    setSelectedRoutineLabel(
+      routines[0]?.label ?? preferredRoutine(routinesForPath(entry, path))?.label ?? null,
+    );
+  }
+
   if (!project) {
     return (
       <section className="editor-card">
@@ -697,6 +744,145 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
         </div>
         <span className="read-only-badge">Guarded structured editing</span>
       </div>
+
+      <section className="script-audit-panel">
+        <div className="script-audit-heading">
+          <div>
+            <h3>Project script coverage</h3>
+            <p className="help-text">
+              Audits every <code>scripts/*.asm</code> line against the same project-derived
+              macro, event, movement, and control-flow models used by the editor.
+            </p>
+          </div>
+          {audit && (
+            <span className={audit.unresolvedLineCount === 0 ? "editable-badge" : "read-only-badge"}>
+              {audit.unresolvedLineCount === 0
+                ? "Syntax fully classified"
+                : `${audit.unresolvedLineCount} unresolved line${audit.unresolvedLineCount === 1 ? "" : "s"}`}
+            </span>
+          )}
+        </div>
+
+        {auditLoading && (
+          <div className="world-map-loading" aria-live="polite">
+            <strong>Scanning every map script…</strong>
+          </div>
+        )}
+
+        {auditError && !auditLoading && (
+          <div className="world-map-warning">
+            <strong>Script coverage audit unavailable</strong>
+            <p>{auditError}</p>
+          </div>
+        )}
+
+        {audit && !auditLoading && (
+          <>
+            <div className="script-audit-metrics">
+              <div>
+                <strong>{audit.fileCount}</strong>
+                <small>script files</small>
+              </div>
+              <div>
+                <strong>
+                  {audit.meaningfulLineCount > 0
+                    ? Math.round(
+                        ((audit.meaningfulLineCount - audit.unresolvedLineCount)
+                          / audit.meaningfulLineCount) * 100,
+                      )
+                    : 100}%
+                </strong>
+                <small>syntax classified</small>
+              </div>
+              <div>
+                <strong>{audit.semanticInvocationCount}</strong>
+                <small>semantic invocations</small>
+              </div>
+              <div>
+                <strong>{audit.structuralInvocationCount}</strong>
+                <small>known, not yet lifted</small>
+              </div>
+              <div>
+                <strong>{audit.unresolvedInvocationCount}</strong>
+                <small>unresolved constructs</small>
+              </div>
+            </div>
+
+            {audit.constructs.some((construct) => construct.status === "unresolved") && (
+              <details className="script-audit-details" open>
+                <summary>
+                  Unresolved source constructs · {audit.constructs.filter((construct) => construct.status === "unresolved").length}
+                </summary>
+                <div className="script-audit-construct-list">
+                  {audit.constructs
+                    .filter((construct) => construct.status === "unresolved")
+                    .slice(0, 40)
+                    .map((construct) => {
+                      const example = construct.examples[0];
+                      return (
+                        <button
+                          type="button"
+                          key={construct.key}
+                          onClick={() => example && selectAuditExample(example.path, example.line)}
+                        >
+                          <span>
+                            <strong>{construct.name}</strong>
+                            <small>{construct.kind} · {construct.occurrences} occurrence{construct.occurrences === 1 ? "" : "s"}</small>
+                          </span>
+                          {example && <code>{example.path}:{example.line}</code>}
+                        </button>
+                      );
+                    })}
+                </div>
+              </details>
+            )}
+
+            {audit.constructs.some((construct) => construct.status === "structural") && (
+              <details className="script-audit-details">
+                <summary>
+                  Known constructs awaiting semantic lift · {audit.constructs.filter((construct) => construct.status === "structural").length}
+                </summary>
+                <p className="help-text">
+                  These are safe, resolved project syntax or routines. Yellow Editor can preserve
+                  them, but has not yet assigned a beginner-facing gameplay action.
+                </p>
+                <div className="script-audit-construct-list">
+                  {audit.constructs
+                    .filter((construct) => construct.status === "structural")
+                    .slice(0, 60)
+                    .map((construct) => {
+                      const example = construct.examples[0];
+                      return (
+                        <button
+                          type="button"
+                          key={construct.key}
+                          onClick={() => example && selectAuditExample(example.path, example.line)}
+                        >
+                          <span>
+                            <strong>{construct.name}</strong>
+                            <small>{construct.kind} · {construct.occurrences} occurrence{construct.occurrences === 1 ? "" : "s"}</small>
+                          </span>
+                          {example && <code>{example.path}:{example.line}</code>}
+                        </button>
+                      );
+                    })}
+                </div>
+              </details>
+            )}
+
+            {audit.warnings.length > 0 && (
+              <details className="script-audit-details">
+                <summary>Audit warnings · {audit.warnings.length}</summary>
+                <ul>
+                  {audit.warnings.slice(0, 20).map((warning, index) => (
+                    <li key={`${index}:${warning}`}>{warning}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </>
+        )}
+      </section>
 
       <div className="script-browser">
         <aside className="script-browser-sidebar">
