@@ -4,6 +4,7 @@ import {
   playerMovementAlternativesAtCall,
 } from "./mapScriptMovementAnalysis";
 import type { MapMovementStep, MapScriptOperationKind } from "./mapScriptOpcodes";
+import { eventArgumentsForSemantic } from "./eventMacroSemantics";
 import type {
   ProjectEventMacroSemantic,
   ProjectMovementVocabulary,
@@ -71,7 +72,18 @@ export type MapScriptSemanticNode =
     })
   | (BaseNode & {
       type: "event";
-      action: "check" | "check-set" | "check-reset" | "check-any" | "check-all" | "set" | "reset";
+      action:
+        | "check"
+        | "check-set"
+        | "check-reset"
+        | "check-any"
+        | "check-all"
+        | "set"
+        | "reset"
+        | "set-many"
+        | "reset-many"
+        | "set-range"
+        | "reset-range";
       event: string;
       events?: string[];
     })
@@ -564,9 +576,10 @@ function nodesForSection(
         const arguments_ = macroInvocation[2]
           .split(",")
           .map((value) => value.trim());
-        const events = semantic.eventParameterIndexes
-          .map((parameter) => arguments_[parameter - 1])
-          .filter((value): value is string => Boolean(value && /^EVENT_[A-Z0-9_]+$/i.test(value)));
+        const events = eventArgumentsForSemantic(
+          semantic,
+          arguments_,
+        );
 
         if (events.length > 0) {
           const checking = semantic.action.startsWith("check");
@@ -580,9 +593,17 @@ function nodesForSection(
                   ? "Check whether all events have happened"
                   : semantic.action === "check"
                     ? "Check event"
-                    : semantic.action === "set"
-                      ? "Remember that this happened"
-                      : "Clear event state";
+                    : semantic.action === "set-many"
+                      ? "Remember multiple events"
+                      : semantic.action === "reset-many"
+                        ? "Clear multiple events"
+                        : semantic.action === "set-range"
+                          ? "Remember an event range"
+                          : semantic.action === "reset-range"
+                            ? "Clear an event range"
+                            : semantic.action === "set"
+                              ? "Remember that this happened"
+                              : "Clear event state";
           nodes.push({
             id: `${section.label}:${absoluteLine}:${semantic.action}-event`,
             type: "event",
