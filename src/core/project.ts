@@ -47,6 +47,7 @@ import {
 import { loadProjectSemanticDomains } from "./semanticDomains";
 import { loadProjectMovementVocabulary } from "./movementVocabulary";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
+import { buildScriptAudit } from "./scriptAudit";
 import { readProjectRgbdsSources } from "./projectConstants";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
@@ -196,6 +197,7 @@ export async function createProjectSession(
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
   let mapIndexPromise: ReturnType<typeof parseMapIndex> | null = null;
   let scriptCatalogPromise: ReturnType<typeof loadScriptCatalog> | null = null;
+  let scriptAuditPromise: Promise<ReturnType<typeof buildScriptAudit>> | null = null;
   let rgbdsSourceFilesPromise: ReturnType<typeof readProjectRgbdsSources> | null = null;
   let movementVocabularyPromise: ReturnType<typeof loadProjectMovementVocabulary> | null = null;
   let eventMacroSemanticsPromise: Promise<ReturnType<typeof deriveProjectEventMacroSemantics>> | null = null;
@@ -352,6 +354,28 @@ export async function createProjectSession(
     return scriptCatalogPromise;
   }
 
+  function getScriptAudit() {
+    if (!scriptAuditPromise) {
+      scriptAuditPromise = Promise.all([
+        getRgbdsSourceFiles(),
+        getMacroAnalysis(),
+        getMovementVocabulary(),
+        getEventMacroSemantics(),
+      ]).then(([files, macroAnalysis, movementVocabulary, eventMacroSemantics]) =>
+        buildScriptAudit(
+          files,
+          macroAnalysis,
+          movementVocabulary,
+          eventMacroSemantics,
+        )
+      ).catch((error) => {
+        scriptAuditPromise = null;
+        throw error;
+      });
+    }
+    return scriptAuditPromise;
+  }
+
   function getRgbdsSourceFiles() {
     if (!rgbdsSourceFilesPromise) {
       rgbdsSourceFilesPromise = readProjectRgbdsSources(source).catch((error) => {
@@ -436,6 +460,7 @@ export async function createProjectSession(
     rgbdsSourceFilesPromise = null;
     movementVocabularyPromise = null;
     eventMacroSemanticsPromise = null;
+    scriptAuditPromise = null;
   }
 
   async function getMacroCatalog() {
@@ -658,6 +683,7 @@ export async function createProjectSession(
     getMapIndex,
     getMapVisualization,
     getScriptCatalog,
+    getScriptAudit,
     getScriptDocument,
     getMacroCatalog,
     getScriptMacroCalls,
