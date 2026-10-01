@@ -1,9 +1,5 @@
 import type { ProjectRgbdsSourceFile } from "./projectConstants";
-import type {
-  ProjectEventMacroAction,
-  ProjectEventMacroSemantic,
-  ProjectEventZeroMeaning,
-} from "./types";
+import type { ProjectEventMacroSemantic } from "./types";
 
 function withoutComment(line: string): string {
   const index = line.indexOf(";");
