@@ -159,6 +159,29 @@ export interface ProjectMovementVocabulary {
   warnings: string[];
 }
 
+export type ProjectEventMacroAction =
+  | "check"
+  | "set"
+  | "reset"
+  | "check-set"
+  | "check-reset"
+  | "check-any"
+  | "check-all";
+
+export type ProjectEventZeroMeaning =
+  | "event-clear"
+  | "none-set"
+  | "all-set";
+
+export interface ProjectEventMacroSemantic {
+  name: string;
+  action: ProjectEventMacroAction;
+  eventParameterIndexes: number[];
+  zeroMeaning?: ProjectEventZeroMeaning;
+  sourcePath: string;
+  sourceLine: number;
+}
+
 export interface ScriptExternalRoutineSource {
   label: string;
   path: string;
@@ -172,6 +195,7 @@ export interface ScriptDocument {
   routines: ScriptRoutineSummary[];
   movementVocabulary?: ProjectMovementVocabulary;
   externalRoutines?: ScriptExternalRoutineSource[];
+  eventMacroSemantics?: ProjectEventMacroSemantic[];
 }
 
 export type MacroParameterKind =
