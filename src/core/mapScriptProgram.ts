@@ -202,17 +202,33 @@ function localLabelSource(section: LabelSection, label: string): string | null {
   });
   if (start < 0) return null;
 
-  let end = lines.length;
+  const result = [lines[start]];
+  let sawData = false;
   for (let index = start + 1; index < lines.length; index += 1) {
-    const nextLabel = lines[index].match(
-      /^\s*((?:\.[A-Za-z_][A-Za-z0-9_.]*)(?::{1,2})?|(?:[A-Za-z_][A-Za-z0-9_]*):{1,2})\s*(?:;.*)?$/,
-    );
-    if (nextLabel) {
-      end = index;
-      break;
+    const sourceLine = lines[index];
+    const clean = withoutComment(sourceLine);
+    if (!clean) {
+      result.push(sourceLine);
+      continue;
     }
+
+    if (/^\.[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(clean)) {
+      result.push(sourceLine);
+      continue;
+    }
+
+    const data = clean.match(/^db\s+([^,\s]+)/i);
+    if (data) {
+      sawData = true;
+      result.push(sourceLine);
+      if (data[1] === "-1" || /^\$ff$/i.test(data[1])) break;
+      continue;
+    }
+
+    if (sawData) break;
+    return null;
   }
-  return lines.slice(start, end).join("\n");
+  return sawData ? result.join("\n") : null;
 }
 
 function movementSource(
