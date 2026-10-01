@@ -23,6 +23,7 @@ import {
   type MapScriptState,
 } from "./core/mapScriptProgram";
 import type {
+  ProjectEventMacroSemantic,
   ProjectMovementVocabulary,
   ScriptExternalRoutineSource,
   TrainerInteraction,
@@ -38,6 +39,7 @@ export interface MapScriptPreviewReference {
   routineSource?: string | null;
   movementVocabulary?: ProjectMovementVocabulary;
   externalRoutines?: ScriptExternalRoutineSource[];
+  eventMacroSemantics?: ProjectEventMacroSemantic[];
   interaction?: TrainerInteraction | null;
 }
 
@@ -165,7 +167,9 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
     case "wait":
       return node.frames !== undefined ? [{ label: "Duration", value: `${node.frames} frame${node.frames === 1 ? "" : "s"}` }] : [];
     case "event":
-      return [{ label: "Event", value: titleCaseConstant(node.event) }];
+      return node.events && node.events.length > 1
+        ? [{ label: "Events", value: node.events.map(titleCaseConstant).join(" · ") }]
+        : [{ label: "Event", value: titleCaseConstant(node.event) }];
     case "condition":
       return [
         { label: "Condition", value: node.condition },
@@ -191,6 +195,15 @@ function conditionText(condition: MapScriptCondition): string {
   switch (condition.type) {
     case "event-state":
       return `${titleCaseConstant(condition.event)} ${condition.state === "set" ? "has happened" : "has not happened"}`;
+    case "event-group": {
+      const events = condition.events.map(titleCaseConstant).join(" or ");
+      switch (condition.state) {
+        case "none-set": return `neither ${events} has happened`;
+        case "any-set": return `at least one of ${events} has happened`;
+        case "all-set": return `all of ${events} have happened`;
+        case "not-all-set": return `not all of ${events} have happened`;
+      }
+    }
     case "battle-result":
       return condition.result === "lost" ? "the player lost the battle" : "the player did not lose the battle";
     case "variable-compare":
@@ -596,6 +609,7 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
       reference.mapScriptSource,
       reference.routineLabel,
       reference.movementVocabulary,
+      reference.eventMacroSemantics,
     );
     const states = focusedMapScriptStates(program, reference.routineLabel, 1, 1);
     const dialoguePhases = parseResolvedScriptDialogueSummary(reference.routineSource ?? "");
@@ -607,6 +621,7 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
     reference.routineLabel,
     reference.routineSource,
     reference.movementVocabulary,
+    reference.eventMacroSemantics,
   ]);
 
   if (model.states.length === 0) {
@@ -631,7 +646,11 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
 
       <div className="map-script-state-list">
         {model.states.map((state, stateIndex) => {
-          const flow = structuredMapScriptFlow(state, reference.mapScriptSource);
+          const flow = structuredMapScriptFlow(
+            state,
+            reference.mapScriptSource,
+            reference.eventMacroSemantics,
+          );
           const externalRoutine = state.external
             ? reference.externalRoutines?.find((routine) => routine.label === state.label)
             : undefined;
