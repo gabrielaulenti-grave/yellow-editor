@@ -30,12 +30,21 @@ function isScriptPath(path: string): boolean {
   return /^scripts\/.+\.asm$/i.test(path);
 }
 
+function scriptStateEntries(
+  source: string,
+): Array<{ label: string; line: number }> {
+  const result: Array<{ label: string; line: number }> = [];
+  source.split(/\r?\n/).forEach((line, index) => {
+    const label = line.match(
+      /^\s*dw_const\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*SCRIPT_[A-Z0-9_]+\b/i,
+    )?.[1];
+    if (label) result.push({ label, line: index + 1 });
+  });
+  return result;
+}
+
 function scriptStateLabels(source: string): Set<string> {
-  return new Set(
-    [...source.matchAll(
-      /^\s*dw_const\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*SCRIPT_[A-Z0-9_]+\b/gm,
-    )].map((match) => match[1]),
-  );
+  return new Set(scriptStateEntries(source).map((entry) => entry.label));
 }
 
 function globalLabelSections(source: string): Map<string, string> {
@@ -158,12 +167,13 @@ function routineCategory(
 }
 
 function routineSummaries(path: string, source: string): ScriptRoutineSummary[] {
-  const stateLabels = scriptStateLabels(source);
+  const stateEntries = scriptStateEntries(source);
+  const stateLabels = new Set(stateEntries.map((entry) => entry.label));
   const sections = globalLabelSections(source);
   const textLabels = textRoutineLabels(source, sections);
   const movementLabels = movementRoutineLabels(sections);
 
-  return parseMapScriptRoutines(source).map((routine) => {
+  const summaries = parseMapScriptRoutines(source).map((routine) => {
     const section = sections.get(routine.label) ?? "";
     const category = routineCategory(
       path,
@@ -190,8 +200,26 @@ function routineSummaries(path: string, source: string): ScriptRoutineSummary[] 
       category,
       recognizedOperationCount: routine.instructions.length,
       operationKinds: [...new Set(routine.instructions.map((instruction) => instruction.kind))],
-    };
+    } satisfies ScriptRoutineSummary;
   });
+
+  const existingLabels = new Set(summaries.map((summary) => summary.label));
+  for (const state of stateEntries) {
+    if (existingLabels.has(state.label)) continue;
+    summaries.push({
+      path,
+      label: state.label,
+      startLine: state.line,
+      kind: "state",
+      category: "event-state",
+      recognizedOperationCount: 0,
+      operationKinds: [],
+    });
+  }
+
+  return summaries.sort((left, right) =>
+    left.startLine - right.startLine || left.label.localeCompare(right.label)
+  );
 }
 
 export async function loadScriptCatalog(source: ProjectSource): Promise<ScriptCatalog> {
