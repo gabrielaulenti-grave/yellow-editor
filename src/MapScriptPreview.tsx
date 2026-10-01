@@ -195,6 +195,15 @@ function conditionText(condition: MapScriptCondition): string {
       return `${variableTitle(condition.variable)} ${condition.comparison === "equals" ? "is" : "is not"} ${titleCaseConstant(condition.value)}`;
     case "flag-state":
       return `${titleCaseConstant(condition.flag)} is ${condition.state === "set" ? "on" : "off"} in ${variableTitle(condition.variable)}`;
+    case "routine-result": {
+      const argument = condition.argument
+        ? ` for ${titleCaseConstant(condition.argument)}`
+        : "";
+      const result = condition.result === "carry"
+        ? "returned carry"
+        : "returned without carry";
+      return `${titleCaseConstant(condition.routine)}${argument} ${result}`;
+    }
   }
 }
 
