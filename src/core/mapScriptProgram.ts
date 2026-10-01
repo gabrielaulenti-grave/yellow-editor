@@ -1,5 +1,8 @@
 import { parseMovementPath } from "./mapScriptParser";
-import { movementLabelAlternativesAtCall } from "./mapScriptMovementAnalysis";
+import {
+  movementLabelAlternativesAtCall,
+  playerMovementAlternativesAtCall,
+} from "./mapScriptMovementAnalysis";
 import type { MapMovementStep, MapScriptOperationKind } from "./mapScriptOpcodes";
 import type { ProjectMovementVocabulary } from "./types";
 
@@ -405,34 +408,97 @@ function nodesForSection(
     }
 
     if (/^call\s+StartSimulatingJoypadStates\b/i.test(clean)) {
-      let movementLabel: string | null = null;
-      let sourceStart = index;
-      for (let back = index - 1; back >= Math.max(1, index - 16); back -= 1) {
-        if (/^call\s+DecodeRLEList\b/i.test(withoutComment(lines[back]))) {
-          movementLabel = recentRegisterValue(lines, back, "de", 6);
-          sourceStart = Math.max(1, back - 2);
-          break;
+      const symbolicAlternatives = playerMovementAlternativesAtCall(
+        section.source,
+        index,
+      );
+      const alternatives = symbolicAlternatives.map((alternative) => {
+        if (alternative.label) {
+          const movement = movementSource(sections, section, alternative.label);
+          return {
+            pathLabel: alternative.label,
+            path: movement
+              ? parseMovementPath(
+                  alternative.label,
+                  movement,
+                  movementVocabulary,
+                  "joypad",
+                ).steps
+              : [],
+            conditions: alternative.conditions,
+            confidence: alternative.confidence,
+          } satisfies MapScriptMovementAlternative;
+        }
+
+        const inlineSource = alternative.values
+          .map((value) => `db ${value}`)
+          .join("\n");
+        return {
+          pathLabel: "Prepared joypad movement",
+          path: parseMovementPath(
+            "Prepared joypad movement",
+            inlineSource,
+            movementVocabulary,
+            "joypad",
+          ).steps,
+          conditions: alternative.conditions,
+          confidence: alternative.confidence,
+        } satisfies MapScriptMovementAlternative;
+      });
+
+      if (alternatives.length === 0) {
+        let movementLabel: string | null = null;
+        for (let back = index - 1; back >= Math.max(1, index - 16); back -= 1) {
+          if (/^call\s+DecodeRLEList\b/i.test(withoutComment(lines[back]))) {
+            movementLabel = recentRegisterValue(lines, back, "de", 6);
+            break;
+          }
+        }
+        if (movementLabel) {
+          const movement = movementSource(sections, section, movementLabel);
+          alternatives.push({
+            pathLabel: movementLabel,
+            path: movement
+              ? parseMovementPath(
+                  movementLabel,
+                  movement,
+                  movementVocabulary,
+                  "joypad",
+                ).steps
+              : [],
+            conditions: [],
+            confidence: "inferred",
+          });
         }
       }
-      const movement = movementLabel ? movementSource(sections, section, movementLabel) : null;
-      const path = movementLabel && movement ? parseMovementPath(movementLabel, movement, movementVocabulary, "joypad").steps : [];
+
+      const single = alternatives.length === 1 ? alternatives[0] : null;
       nodes.push({
         id: `${section.label}:${absoluteLine}:move-player`,
         type: "movement",
         kind: "movement",
         title: "Move the player automatically",
         actor: "player",
-        pathLabel: movementLabel ?? undefined,
-        path,
-        alternatives: movementLabel ? [{
-          pathLabel: movementLabel,
-          path,
-          conditions: [],
-          confidence: "exact",
-        }] : [],
-        dynamic: !movementLabel || path.length === 0,
-        description: path.length === 0 ? "Temporarily controls the player's movement." : undefined,
-        source: sourceSpan(section, lines, sourceStart, index, movementLabel ? "exact" : "inferred"),
+        pathLabel: single?.pathLabel,
+        path: single?.path ?? [],
+        alternatives,
+        dynamic: alternatives.length === 0
+          || alternatives.some((alternative) => alternative.path.length === 0),
+        description: alternatives.length > 1
+          ? "The player's automatic movement depends on earlier script conditions."
+          : alternatives.length === 0
+            ? "Temporarily controls the player's movement."
+            : undefined,
+        source: sourceSpan(
+          section,
+          lines,
+          index,
+          index,
+          alternatives.length > 0
+            && alternatives.every((alternative) => alternative.confidence === "exact")
+            ? "exact"
+            : "inferred",
+        ),
       });
       continue;
     }
