@@ -316,7 +316,7 @@ function sectionTerminates(source: string): boolean {
   for (let index = lines.length - 1; index >= 1; index -= 1) {
     const clean = withoutComment(lines[index]);
     if (!clean || /^\.[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(clean)) continue;
-    if (/^(?:ret|reti)\b/i.test(clean)) return true;
+    if (/^(?:ret|reti)\s*$/i.test(clean)) return true;
     if (/^(?:jp|jr)\s+(?!z\b|nz\b|c\b|nc\b)[A-Za-z_.][A-Za-z0-9_.]*\b/i.test(clean)) return true;
     return false;
   }
