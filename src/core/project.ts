@@ -34,7 +34,11 @@ import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
-import { loadScriptCatalog, loadScriptDocument } from "./scriptCatalog";
+import {
+  loadScriptCatalog,
+  loadScriptDocument,
+  resolveExternalScriptRoutines,
+} from "./scriptCatalog";
 import { loadMacroAnalysis } from "./macroCatalog";
 import {
   loadScriptMacroEditDocument,
@@ -370,11 +374,16 @@ export async function createProjectSession(
   }
 
   async function getScriptDocument(path: string) {
-    const [document, movementVocabulary] = await Promise.all([
+    const [document, movementVocabulary, sourceFiles] = await Promise.all([
       loadScriptDocument(source, path),
       getMovementVocabulary(),
+      getRgbdsSourceFiles(),
     ]);
-    return { ...document, movementVocabulary };
+    return {
+      ...document,
+      movementVocabulary,
+      externalRoutines: resolveExternalScriptRoutines(document, sourceFiles),
+    };
   }
 
   function getSemanticDomainCatalog() {
