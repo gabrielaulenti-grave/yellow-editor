@@ -28,6 +28,7 @@ export interface MapMovementStep {
   direction?: MapMovementDirection;
   count: number;
   operation?: "change-facing" | "look" | "delay" | "special";
+  style?: "step" | "slide" | "hop" | "walk";
   raw: string;
 }
 
@@ -76,6 +77,7 @@ function customCommandMeaning(
 ): {
   direction?: MapMovementDirection;
   operation?: "look" | "delay";
+  style?: "step" | "slide" | "hop" | "walk";
   end?: boolean;
 } | null {
   if (!vocabulary || !consumerRoutine) return null;
@@ -106,7 +108,10 @@ function customCommandMeaning(
     };
   }
   if (command.action === "move" && command.direction) {
-    return { direction: command.direction as MapMovementDirection };
+    return {
+      direction: command.direction as MapMovementDirection,
+      style: command.style,
+    };
   }
   return null;
 }
@@ -202,7 +207,12 @@ export function parseMovementStep(
       };
     }
     if (command?.direction) {
-      return { direction: command.direction, count: stepCount, raw: value };
+      return {
+        direction: command.direction,
+        count: stepCount,
+        style: command.style,
+        raw: value,
+      };
     }
     return { count: stepCount, operation: "special", raw: value };
   }
@@ -252,14 +262,23 @@ export function renderMovementStep(step: MapMovementStep): string {
     "down-left": "↙",
     "down-right": "↘",
   };
+  const styledDirection = step.direction
+    ? `${step.style === "hop"
+        ? "Hop "
+        : step.style === "slide"
+          ? "Slide "
+          : step.style === "walk"
+            ? "Walk "
+            : ""}${arrows[step.direction]}`
+    : null;
   const base = step.operation === "delay"
     ? "Pause"
     : step.operation === "look"
       ? `Face ${step.direction ? arrows[step.direction] : "direction"}`
       : step.operation === "change-facing"
         ? "Change facing"
-        : step.direction
-          ? arrows[step.direction]
+        : styledDirection
+          ? styledDirection
           : `Unresolved step (${step.raw})`;
   return step.count > 1 ? `${base} ×${step.count}` : base;
 }
