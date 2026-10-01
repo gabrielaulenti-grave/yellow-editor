@@ -308,6 +308,19 @@ export async function loadScriptDocument(
 }
 
 
+function sourceSectionEndsUnconditionally(lines: string[]): boolean {
+  for (let index = lines.length - 1; index >= 1; index -= 1) {
+    const clean = lines[index].split(";", 1)[0].trim();
+    if (!clean || /^\.[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(clean)) continue;
+    if (/^(?:ret|reti)\s*$/i.test(clean)) return true;
+    if (/^(?:jp|jr)\s+(?!z\b|nz\b|c\b|nc\b)[A-Za-z_.][A-Za-z0-9_.]*\b/i.test(clean)) {
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+
 export function resolveExternalScriptRoutines(
   document: ScriptDocument,
   files: ProjectRgbdsSourceFile[],
@@ -336,7 +349,18 @@ export function resolveExternalScriptRoutines(
 
     starts.forEach((start, index) => {
       if (!wanted.has(start.label)) return;
-      const end = starts[index + 1]?.index ?? lines.length;
+
+      let end = starts[index + 1]?.index ?? lines.length;
+      let sectionIndex = index;
+      for (let depth = 0; depth < 4; depth += 1) {
+        const sectionEnd = starts[sectionIndex + 1]?.index ?? lines.length;
+        const sectionLines = lines.slice(starts[sectionIndex].index, sectionEnd);
+        end = sectionEnd;
+        if (sourceSectionEndsUnconditionally(sectionLines)) break;
+        if (sectionIndex + 1 >= starts.length) break;
+        sectionIndex += 1;
+      }
+
       result.push({
         label: start.label,
         path: file.path,
