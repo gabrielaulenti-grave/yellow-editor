@@ -41,6 +41,7 @@ import {
   prepareScriptMacroCallWrite,
 } from "./scriptMacroEditing";
 import { loadProjectSemanticDomains } from "./semanticDomains";
+import { loadProjectMovementVocabulary } from "./movementVocabulary";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -189,6 +190,7 @@ export async function createProjectSession(
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
   let mapIndexPromise: ReturnType<typeof parseMapIndex> | null = null;
   let scriptCatalogPromise: ReturnType<typeof loadScriptCatalog> | null = null;
+  let movementVocabularyPromise: ReturnType<typeof loadProjectMovementVocabulary> | null = null;
   let semanticDomainCatalogPromise: ReturnType<typeof loadProjectSemanticDomains> | null = null;
   let macroAnalysisPromise: ReturnType<typeof loadMacroAnalysis> | null = null;
   const mapVisualizationPromises = new Map<
@@ -342,8 +344,22 @@ export async function createProjectSession(
     return scriptCatalogPromise;
   }
 
-  function getScriptDocument(path: string) {
-    return loadScriptDocument(source, path);
+  function getMovementVocabulary() {
+    if (!movementVocabularyPromise) {
+      movementVocabularyPromise = loadProjectMovementVocabulary(source).catch((error) => {
+        movementVocabularyPromise = null;
+        throw error;
+      });
+    }
+    return movementVocabularyPromise;
+  }
+
+  async function getScriptDocument(path: string) {
+    const [document, movementVocabulary] = await Promise.all([
+      loadScriptDocument(source, path),
+      getMovementVocabulary(),
+    ]);
+    return { ...document, movementVocabulary };
   }
 
   function getSemanticDomainCatalog() {
@@ -372,6 +388,11 @@ export async function createProjectSession(
   function resetMacroAnalysis(): void {
     semanticDomainCatalogPromise = null;
     macroAnalysisPromise = null;
+  }
+
+  function resetScriptSourceAnalysis(): void {
+    resetMacroAnalysis();
+    movementVocabularyPromise = null;
   }
 
   async function getMacroCatalog() {
@@ -435,7 +456,7 @@ export async function createProjectSession(
 
   function invalidateScriptReadModels(paths: string[]): void {
     if (paths.some((path) => /\.(?:asm|inc)$/i.test(path))) {
-      resetMacroAnalysis();
+      resetScriptSourceAnalysis();
     }
     if (paths.some((path) => path.startsWith("scripts/"))) {
       scriptCatalogPromise = null;
