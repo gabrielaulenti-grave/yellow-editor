@@ -12,6 +12,9 @@ export type MapScriptOperationKind =
   | "wait"
   | "object"
   | "recovery"
+  | "control"
+  | "flag"
+  | "screen"
   | "transition";
 
 export type MapMovementDirection =
