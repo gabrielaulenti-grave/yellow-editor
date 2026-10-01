@@ -82,7 +82,8 @@ export function parseMovementPath(
   label: string,
   source: string,
   vocabulary?: ProjectMovementVocabulary,
-  mode: "npc" | "joypad" = "npc",
+  mode: "npc" | "joypad" | "custom" = "npc",
+  consumerRoutine?: string,
 ): ParsedMovementPath {
   const steps: MapMovementStep[] = [];
   for (const line of source.split(/\r?\n/)) {
@@ -92,7 +93,13 @@ export function parseMovementPath(
     const count = rawCount && /^\d+$/.test(rawCount) ? Number(rawCount)
       : rawCount && /^\$[0-9a-f]+$/i.test(rawCount) ? Number.parseInt(rawCount.slice(1), 16)
       : null;
-    const step = parseMovementStep(match[1], count, vocabulary, mode);
+    const step = parseMovementStep(
+      match[1],
+      count,
+      vocabulary,
+      mode,
+      consumerRoutine,
+    );
     if (step) steps.push(step);
   }
   const compactSteps = coalesceMovementSteps(steps);
