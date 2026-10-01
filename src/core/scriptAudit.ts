@@ -36,8 +36,11 @@ const DIRECT_SEMANTIC_CALLS = new Set([
   "DisplayTextID",
   "EngageMapTrainer",
   "GiveItem",
+  "GivePokemon",
   "InitBattleEnemyParameters",
+  "IsItemInBag",
   "MoveSprite",
+  "PlayCry",
   "PlayDefaultMusic",
   "PlayMusic",
   "PrintText",
@@ -50,6 +53,8 @@ const DIRECT_SEMANTIC_CALLS = new Set([
 
 const DIRECT_SEMANTIC_PREDEFS = new Set([
   "EmotionBubble",
+  "DoInGameTradeDialogue",
+  "GetQuantityOfItemInBag",
   "HealParty",
   "HideObject",
   "ShowObject",
@@ -208,6 +213,7 @@ function semanticCall(
 ): string | null {
   if (
     DIRECT_SEMANTIC_CALLS.has(name)
+    || /^RemoveItemByID(?:Bank[0-9A-F]+)?$/i.test(name)
     || /DisplayTextID/i.test(name)
     || movementVocabulary.consumers.some((consumer) => consumer.routine === name)
     || setterLabels.has(name)
