@@ -193,8 +193,16 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
 
 function conditionText(condition: MapScriptCondition): string {
   switch (condition.type) {
-    case "event-state":
-      return `${titleCaseConstant(condition.event)} ${condition.state === "set" ? "has happened" : "has not happened"}`;
+    case "event-state": {
+      const base = `${titleCaseConstant(condition.event)} ${condition.state === "set" ? "has happened" : "has not happened"}`;
+      if (condition.afterCheck === "set") {
+        return `${base}; this check then remembers the event`;
+      }
+      if (condition.afterCheck === "reset") {
+        return `${base}; this check then clears the event`;
+      }
+      return base;
+    }
     case "event-group": {
       const events = condition.events.map(titleCaseConstant).join(" or ");
       switch (condition.state) {
