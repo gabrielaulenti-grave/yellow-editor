@@ -30,6 +30,10 @@ import type {
   TrainerInteractionDialogue,
 } from "./core/types";
 import { TextEditor, type TextEditorTarget } from "./TextEditor";
+import {
+  analyzeTextScript,
+  type TextScriptInsight,
+} from "./core/textScriptAnalysis";
 import "./MapScriptPreview.css";
 
 export interface MapScriptPreviewReference {
@@ -335,6 +339,72 @@ function dialoguePreviewsForFlow(
   return previews;
 }
 
+function textScriptInsightText(insight: TextScriptInsight): string {
+  switch (insight.type) {
+    case "dialogue":
+      return `Show ${titleCaseConstant(insight.label)}`;
+    case "condition":
+      return insight.branchTarget
+        ? `If ${insight.description}: continue at ${titleCaseConstant(insight.branchTarget)}`
+        : `If ${insight.description}`;
+    case "choice":
+      return insight.declineTarget
+        ? `Ask Yes / No; No continues at ${titleCaseConstant(insight.declineTarget)}`
+        : "Ask Yes / No";
+    case "give-item":
+      return `Give ${insight.quantity} × ${titleCaseConstant(insight.item)}${insight.failureTarget ? `; if the Bag is full, continue at ${titleCaseConstant(insight.failureTarget)}` : ""}`;
+    case "event":
+      return `${titleCaseConstant(insight.action)}: ${insight.events.map(titleCaseConstant).join(" · ")}`;
+    case "object":
+      return `${insight.action === "show" ? "Show" : "Hide"} ${insight.object ? titleCaseConstant(insight.object) : "map object"}`;
+    case "trainer":
+      return insight.trainerHeader
+        ? `Start trainer interaction using ${titleCaseConstant(insight.trainerHeader)}`
+        : "Start trainer interaction";
+    case "battle":
+      return insight.routine === "EngageMapTrainer"
+        ? "Engage the selected map trainer"
+        : "Initialize battle enemy parameters";
+    case "transition":
+      return `Advance map script to ${titleCaseConstant(insight.scriptConstant)}`;
+    case "wait":
+      return insight.frames ? `Wait ${insight.frames} frames` : "Wait";
+    case "emotion":
+      return insight.bubble
+        ? `Show ${titleCaseConstant(insight.bubble)} emotion bubble`
+        : "Show emotion bubble";
+  }
+}
+
+function TextScriptLogic({
+  label,
+  reference,
+}: {
+  label: string | null;
+  reference: MapScriptPreviewReference;
+}) {
+  if (!label || label.startsWith("TEXT_")) return null;
+  const insights = analyzeTextScript(
+    reference.mapScriptSource,
+    label,
+    reference.eventMacroSemantics,
+  );
+  if (insights.length === 0) return null;
+
+  return (
+    <details className="map-script-source-detail">
+      <summary>Interaction logic · {insights.length} recognized step{insights.length === 1 ? "" : "s"}</summary>
+      <ol className="map-script-dialogue-logic">
+        {insights.map((insight, index) => (
+          <li key={`${index}:${JSON.stringify(insight)}`}>
+            {textScriptInsightText(insight)}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
 function DialoguePreview({
   preview,
   node,
@@ -357,6 +427,14 @@ function DialoguePreview({
         title="Dialogue"
         target={preview?.target ?? textEditorTarget(reference, displayedLabel ?? node.textLabel)}
         initialText={preview?.target ? null : preview?.text ?? null}
+      />
+      <TextScriptLogic
+        label={displayedLabel ?? (
+          node.textLabel?.startsWith("TEXT_")
+            ? textPointerLabels(reference.mapScriptSource).get(node.textLabel) ?? null
+            : node.textLabel ?? null
+        )}
+        reference={reference}
       />
       {displayedLabel && displayedLabel !== node.textLabel && (
         <small className="map-script-dialogue-resolution">
