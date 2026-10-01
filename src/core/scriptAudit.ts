@@ -30,6 +30,7 @@ const RGBDS_DIRECTIVES = new Set([
 const DIRECT_SEMANTIC_CALLS = new Set([
   "CallFunctionInTable",
   "ExecuteCurMapScriptInTable",
+  "DecodeArrowMovementRLE",
   "DecodeRLEList",
   "Delay3",
   "DelayFrames",
