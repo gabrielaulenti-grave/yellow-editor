@@ -1,3 +1,5 @@
+import type { ProjectMovementVocabulary } from "./types";
+
 export type MapScriptOperationKind =
   | "condition"
   | "dialogue"
@@ -52,16 +54,108 @@ export function findMapScriptOpcode(line: string): MapScriptOpcodeDefinition | n
   return MAP_SCRIPT_OPCODES.find((opcode) => opcode.patterns.some((pattern) => pattern.test(line))) ?? null;
 }
 
-export function parseMovementStep(value: string, count: number | null): MapMovementStep | null {
+function movementByteValue(value: string): number | null {
+  if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
+  if (/^\$[0-9a-f]+$/i.test(value)) return Number.parseInt(value.slice(1), 16);
+  if (/^%[01_]+$/.test(value)) return Number.parseInt(value.slice(1).replace(/_/g, ""), 2);
+  return null;
+}
+
+function projectDirectionForSymbol(
+  value: string,
+  vocabulary: ProjectMovementVocabulary | undefined,
+): MapMovementDirection | null {
+  const matches = vocabulary?.exactValues.filter(
+    (entry) => entry.symbol === value && entry.direction,
+  ) ?? [];
+  const directions = [...new Set(matches.map((entry) => entry.direction))];
+  return directions.length === 1 ? directions[0] as MapMovementDirection : null;
+}
+
+function projectOperationForSymbol(
+  value: string,
+  vocabulary: ProjectMovementVocabulary | undefined,
+): "change-facing" | null {
+  return vocabulary?.exactValues.some(
+    (entry) => entry.symbol === value && entry.operation === "change-facing",
+  ) ? "change-facing" : null;
+}
+
+function projectNumericMeaning(
+  value: number,
+  vocabulary: ProjectMovementVocabulary | undefined,
+  mode: "npc" | "joypad",
+): { direction?: MapMovementDirection; operation?: "change-facing" } | null {
+  if (!vocabulary) return null;
+
+  const operationMatches = vocabulary.exactValues.filter(
+    (entry) => entry.value === value && entry.operation === "change-facing",
+  );
+  if (operationMatches.length > 0 && mode === "npc") {
+    return { operation: "change-facing" };
+  }
+
+  if (mode === "npc") {
+    const range = vocabulary.npcRanges.find(
+      (candidate) =>
+        value >= candidate.minimum
+        && (candidate.maximumExclusive === null || value < candidate.maximumExclusive),
+    );
+    if (range) return { direction: range.direction };
+  }
+
+  const exactDirections = [...new Set(
+    vocabulary.exactValues
+      .filter((entry) => entry.value === value && entry.direction)
+      .map((entry) => entry.direction),
+  )];
+  if (exactDirections.length === 1) {
+    return { direction: exactDirections[0] as MapMovementDirection };
+  }
+  return null;
+}
+
+export function parseMovementStep(
+  value: string,
+  count: number | null,
+  vocabulary?: ProjectMovementVocabulary,
+  mode: "npc" | "joypad" = "npc",
+): MapMovementStep | null {
   if (value === "-1" || /^\$ff$/i.test(value)) return null;
+  const stepCount = count && count > 0 ? count : 1;
+
+  const symbolicOperation = projectOperationForSymbol(value, vocabulary);
+  if (symbolicOperation) {
+    return { count: stepCount, operation: symbolicOperation, raw: value };
+  }
+  const symbolicDirection = projectDirectionForSymbol(value, vocabulary);
+  if (symbolicDirection) {
+    return { direction: symbolicDirection, count: stepCount, raw: value };
+  }
+
+  const numeric = movementByteValue(value);
+  if (numeric !== null) {
+    const meaning = projectNumericMeaning(numeric, vocabulary, mode);
+    if (meaning?.operation) {
+      return { count: stepCount, operation: meaning.operation, raw: value };
+    }
+    if (meaning?.direction) {
+      return { direction: meaning.direction, count: stepCount, raw: value };
+    }
+  }
+
+  // Legacy fallback keeps previews useful if project-wide constant analysis is
+  // unavailable. Project-derived semantics take precedence whenever present.
   const directions: Record<string, MapMovementDirection> = {
     NPC_MOVEMENT_UP: "up", NPC_MOVEMENT_DOWN: "down", NPC_MOVEMENT_LEFT: "left", NPC_MOVEMENT_RIGHT: "right",
     PAD_UP: "up", PAD_DOWN: "down", PAD_LEFT: "left", PAD_RIGHT: "right",
   };
   const direction = directions[value];
-  if (direction) return { direction, count: count && count > 0 ? count : 1, raw: value };
-  if (value === "NPC_CHANGE_FACING") return { count: count && count > 0 ? count : 1, operation: "change-facing", raw: value };
-  return { count: count && count > 0 ? count : 1, operation: "special", raw: value };
+  if (direction) return { direction, count: stepCount, raw: value };
+  if (value === "NPC_CHANGE_FACING") {
+    return { count: stepCount, operation: "change-facing", raw: value };
+  }
+  return { count: stepCount, operation: "special", raw: value };
 }
 
 export function renderMovementStep(step: MapMovementStep): string {
