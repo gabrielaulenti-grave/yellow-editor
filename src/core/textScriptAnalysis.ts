@@ -24,6 +24,30 @@ export type TextScriptInsight =
       failureTarget?: string;
     }
   | {
+      type: "give-pokemon";
+      species: string;
+      level: string;
+      failureTarget?: string;
+    }
+  | {
+      type: "inventory";
+      action: "has-item" | "quantity";
+      item?: string;
+      failureTarget?: string;
+    }
+  | {
+      type: "remove-item";
+      item?: string;
+    }
+  | {
+      type: "trade";
+      trade?: string;
+    }
+  | {
+      type: "cry";
+      species?: string;
+    }
+  | {
       type: "event";
       action: string;
       events: string[];
@@ -99,7 +123,7 @@ function sourceSections(contents: string): Map<string, SourceSection> {
 function recentRegisterValue(
   lines: string[],
   beforeIndex: number,
-  register: "a" | "c" | "hl" | "de",
+  register: "a" | "b" | "c" | "hl" | "de",
   maxBack = 8,
 ): string | null {
   const pattern = new RegExp(
@@ -117,6 +141,61 @@ function recentRegisterValue(
     if (value) return value;
   }
   return null;
+}
+
+function recentStoredAValue(
+  lines: string[],
+  beforeIndex: number,
+  destination: RegExp,
+  maxBack = 10,
+): string | null {
+  for (
+    let index = beforeIndex - 1;
+    index >= Math.max(1, beforeIndex - maxBack);
+    index -= 1
+  ) {
+    if (!destination.test(withoutComment(lines[index]))) continue;
+    return recentRegisterValue(lines, index, "a", maxBack);
+  }
+  return null;
+}
+
+function recentBcPair(
+  lines: string[],
+  beforeIndex: number,
+  maxBack = 10,
+): { first: string; second: string } | null {
+  for (
+    let index = beforeIndex - 1;
+    index >= Math.max(1, beforeIndex - maxBack);
+    index -= 1
+  ) {
+    const clean = withoutComment(lines[index]);
+    const pair = clean.match(
+      /^lb\s+bc\s*,\s*([^,\s]+)\s*,\s*([^\s;]+)\s*$/i,
+    );
+    if (pair) return { first: pair[1], second: pair[2] };
+  }
+
+  let first = recentRegisterValue(lines, beforeIndex, "b", maxBack);
+  const second = recentRegisterValue(lines, beforeIndex, "c", maxBack);
+  if (!first || !second) return null;
+
+  if (first.toLowerCase() === "a") {
+    for (
+      let index = beforeIndex - 1;
+      index >= Math.max(1, beforeIndex - maxBack);
+      index -= 1
+    ) {
+      const clean = withoutComment(lines[index]);
+      if (!/^ld\s+b\s*,\s*a\s*$/i.test(clean)) continue;
+      const source = recentRegisterValue(lines, index, "a", maxBack);
+      if (source) first = source.replace(/^\[|\]$/g, "");
+      break;
+    }
+  }
+
+  return { first, second };
 }
 
 function setterLabels(sections: Map<string, SourceSection>): Set<string> {
@@ -365,6 +444,73 @@ export function analyzeTextScript(
         failureTarget,
       });
       pendingItem = null;
+      continue;
+    }
+
+    if (/^call\s+GivePokemon\b/i.test(clean)) {
+      const pair = recentBcPair(lines, index, 12);
+      if (pair) {
+        const failureTarget = withoutComment(lines[index + 1] ?? "").match(
+          /^(?:jr|jp)\s+nc\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+        )?.[1];
+        insights.push({
+          type: "give-pokemon",
+          species: pair.first,
+          level: pair.second,
+          failureTarget,
+        });
+      }
+      continue;
+    }
+
+    if (/^call\s+IsItemInBag\b/i.test(clean)) {
+      const item = recentRegisterValue(lines, index, "b", 8) ?? undefined;
+      const branch = withoutComment(lines[index + 1] ?? "").match(
+        /^(?:jr|jp)\s+z\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+      );
+      insights.push({
+        type: "inventory",
+        action: "has-item",
+        item,
+        failureTarget: branch?.[1],
+      });
+      continue;
+    }
+
+    if (/^predef\s+GetQuantityOfItemInBag\b/i.test(clean)) {
+      insights.push({
+        type: "inventory",
+        action: "quantity",
+        item: recentRegisterValue(lines, index, "b", 8) ?? undefined,
+      });
+      continue;
+    }
+
+    if (/^(?:call|farcall)\s+RemoveItemByID(?:Bank[0-9A-F]+)?\b/i.test(clean)) {
+      const item = recentStoredAValue(
+        lines,
+        index,
+        /^ldh?\s+\[hItemToRemoveID\]\s*,\s*a\b/i,
+      ) ?? recentRegisterValue(lines, index, "a", 8) ?? undefined;
+      insights.push({ type: "remove-item", item });
+      continue;
+    }
+
+    if (/^predef\s+DoInGameTradeDialogue\b/i.test(clean)) {
+      const trade = recentStoredAValue(
+        lines,
+        index,
+        /^ld\s+\[wWhichTrade\]\s*,\s*a\b/i,
+      ) ?? undefined;
+      insights.push({ type: "trade", trade });
+      continue;
+    }
+
+    if (/^call\s+PlayCry\b/i.test(clean)) {
+      insights.push({
+        type: "cry",
+        species: recentRegisterValue(lines, index, "a", 8) ?? undefined,
+      });
       continue;
     }
 
