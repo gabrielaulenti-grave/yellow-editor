@@ -15,6 +15,7 @@ export type MapScriptOperationKind =
   | "control"
   | "flag"
   | "screen"
+  | "map"
   | "transition";
 
 export type MapMovementDirection =
