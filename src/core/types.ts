@@ -133,6 +133,7 @@ export interface ProjectMovementExactValue {
 
 export interface ProjectMovementVocabulary {
   npcRanges: ProjectMovementRange[];
+  npcExactValues: ProjectMovementExactValue[];
   exactValues: ProjectMovementExactValue[];
   warnings: string[];
 }
