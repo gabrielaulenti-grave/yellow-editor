@@ -1,6 +1,7 @@
 import { parseMovementPath } from "./mapScriptParser";
 import { movementLabelAlternativesAtCall } from "./mapScriptMovementAnalysis";
 import type { MapMovementStep, MapScriptOperationKind } from "./mapScriptOpcodes";
+import type { ProjectMovementVocabulary } from "./types";
 
 export type MapScriptConfidence = "exact" | "inferred";
 
@@ -251,6 +252,7 @@ function nodesForSection(
   section: LabelSection,
   sections: Map<string, LabelSection>,
   pointers: Map<string, string>,
+  movementVocabulary?: ProjectMovementVocabulary,
 ): MapScriptSemanticNode[] {
   const lines = section.source.split(/\r?\n/);
   const nodes: MapScriptSemanticNode[] = [];
@@ -351,7 +353,7 @@ function nodesForSection(
         }
       }
       const movement = movementLabel ? movementSource(sections, section, movementLabel) : null;
-      const path = movementLabel && movement ? parseMovementPath(movementLabel, movement).steps : [];
+      const path = movementLabel && movement ? parseMovementPath(movementLabel, movement, movementVocabulary, "joypad").steps : [];
       nodes.push({
         id: `${section.label}:${absoluteLine}:move-player`,
         type: "movement",
@@ -380,7 +382,7 @@ function nodesForSection(
         const movement = movementSource(sections, section, alternative.label);
         return {
           pathLabel: alternative.label,
-          path: movement ? parseMovementPath(alternative.label, movement).steps : [],
+          path: movement ? parseMovementPath(alternative.label, movement, movementVocabulary, "npc").steps : [],
           conditions: alternative.conditions,
           confidence: alternative.confidence,
         } satisfies MapScriptMovementAlternative;
@@ -390,7 +392,7 @@ function nodesForSection(
         const movement = movementSource(sections, section, fallbackLabel);
         alternatives.push({
           pathLabel: fallbackLabel,
-          path: movement ? parseMovementPath(fallbackLabel, movement).steps : [],
+          path: movement ? parseMovementPath(fallbackLabel, movement, movementVocabulary, "npc").steps : [],
           conditions: [],
           confidence: "inferred",
         });
@@ -585,7 +587,11 @@ function nodesForSection(
   return nodes;
 }
 
-export function parseMapScriptProgram(source: string, focusLabel?: string): MapScriptProgram {
+export function parseMapScriptProgram(
+  source: string,
+  focusLabel?: string,
+  movementVocabulary?: ProjectMovementVocabulary,
+): MapScriptProgram {
   const sectionList = globalLabelSections(source);
   const sections = new Map(sectionList.map((section) => [section.label, section]));
   const pointers = scriptPointers(source);
@@ -601,7 +607,7 @@ export function parseMapScriptProgram(source: string, focusLabel?: string): MapS
       scriptConstant: constantByLabel.get(section.label) ?? null,
       startLine: section.startLine,
       source: section.source,
-      nodes: nodesForSection(section, sections, pointers),
+      nodes: nodesForSection(section, sections, pointers, movementVocabulary),
       transitions: transitionsForSection(section, pointers),
       predecessorLabels: [],
     }));
