@@ -140,12 +140,14 @@ export interface ProjectMovementExactValue {
 }
 
 export type ProjectMovementCommandAction = "move" | "look" | "delay" | "end";
+export type ProjectMovementCommandStyle = "step" | "slide" | "hop" | "walk";
 
 export interface ProjectMovementCommandValue {
   value: number;
   symbol: string;
   family: string;
   action: ProjectMovementCommandAction;
+  style?: ProjectMovementCommandStyle;
   direction?: ProjectMovementDirection;
   sourcePath: string;
 }
