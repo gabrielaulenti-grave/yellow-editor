@@ -46,6 +46,7 @@ import {
 } from "./scriptMacroEditing";
 import { loadProjectSemanticDomains } from "./semanticDomains";
 import { loadProjectMovementVocabulary } from "./movementVocabulary";
+import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { readProjectRgbdsSources } from "./projectConstants";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
@@ -197,6 +198,7 @@ export async function createProjectSession(
   let scriptCatalogPromise: ReturnType<typeof loadScriptCatalog> | null = null;
   let rgbdsSourceFilesPromise: ReturnType<typeof readProjectRgbdsSources> | null = null;
   let movementVocabularyPromise: ReturnType<typeof loadProjectMovementVocabulary> | null = null;
+  let eventMacroSemanticsPromise: Promise<ReturnType<typeof deriveProjectEventMacroSemantics>> | null = null;
   let semanticDomainCatalogPromise: ReturnType<typeof loadProjectSemanticDomains> | null = null;
   let macroAnalysisPromise: ReturnType<typeof loadMacroAnalysis> | null = null;
   const mapVisualizationPromises = new Map<
@@ -373,16 +375,30 @@ export async function createProjectSession(
     return movementVocabularyPromise;
   }
 
+  function getEventMacroSemantics() {
+    if (!eventMacroSemanticsPromise) {
+      eventMacroSemanticsPromise = getRgbdsSourceFiles()
+        .then((files) => deriveProjectEventMacroSemantics(files))
+        .catch((error) => {
+          eventMacroSemanticsPromise = null;
+          throw error;
+        });
+    }
+    return eventMacroSemanticsPromise;
+  }
+
   async function getScriptDocument(path: string) {
-    const [document, movementVocabulary, sourceFiles] = await Promise.all([
+    const [document, movementVocabulary, sourceFiles, eventMacroSemantics] = await Promise.all([
       loadScriptDocument(source, path),
       getMovementVocabulary(),
       getRgbdsSourceFiles(),
+      getEventMacroSemantics(),
     ]);
     return {
       ...document,
       movementVocabulary,
       externalRoutines: resolveExternalScriptRoutines(document, sourceFiles),
+      eventMacroSemantics,
     };
   }
 
@@ -419,6 +435,7 @@ export async function createProjectSession(
     resetMacroAnalysis();
     rgbdsSourceFilesPromise = null;
     movementVocabularyPromise = null;
+    eventMacroSemanticsPromise = null;
   }
 
   async function getMacroCatalog() {
