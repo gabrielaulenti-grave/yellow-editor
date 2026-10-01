@@ -245,8 +245,8 @@ export function movementLabelAlternativesAtCall(
       continue;
     }
 
-    const loadAImmediate = clean.match(/^ld\s+a\s*,\s*([^\s;]+)\s*$/i);
-    if (loadAImmediate) {
+    const loadAImmediate = clean.match(/^ld\s+a\s*,\s*(.+?)\s*$/i);
+    if (loadAImmediate && !loadAImmediate[1].startsWith("[")) {
       queue.push(next({
         a: operandValue(loadAImmediate[1]),
       }));
@@ -483,8 +483,8 @@ export function playerMovementAlternativesAtCall(
       continue;
     }
 
-    const loadAImmediate = clean.match(/^ld\s+a\s*,\s*([^\s;]+)\s*$/i);
-    if (loadAImmediate) {
+    const loadAImmediate = clean.match(/^ld\s+a\s*,\s*(.+?)\s*$/i);
+    if (loadAImmediate && !loadAImmediate[1].startsWith("[")) {
       queue.push(next({ a: operandValue(loadAImmediate[1]) }));
       continue;
     }
