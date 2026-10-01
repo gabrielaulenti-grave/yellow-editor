@@ -624,12 +624,16 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
       && focused.routineLabel === selectedRoutineLabel
       && focused.mapScriptSource === document.source
     ) {
-      return focused;
+      return {
+        ...focused,
+        movementVocabulary: document.movementVocabulary,
+      };
     }
     return {
       scriptPath: document.path,
       routineLabel: selectedRoutineLabel,
       mapScriptSource: document.source,
+      movementVocabulary: document.movementVocabulary,
     };
   }, [document, focus, selectedRoutineLabel]);
 
