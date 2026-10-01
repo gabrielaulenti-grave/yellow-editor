@@ -355,7 +355,7 @@ export function buildScriptAudit(
       }
 
       const invocation = clean.match(
-        /^(call|farcall|predef)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_][A-Za-z0-9_.]*)\b/i,
+        /^(call|farcall|predef)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
       );
       if (invocation) {
         const kind = invocation[1].toLowerCase() as "call" | "farcall" | "predef";
