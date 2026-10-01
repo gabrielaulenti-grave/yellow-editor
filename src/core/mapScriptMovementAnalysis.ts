@@ -398,13 +398,13 @@ export function playerMovementAlternativesAtCall(
 
     const loadAFromVariable = clean.match(/^ld\s+a\s*,\s*\[([^\]]+)\]\s*$/i);
     if (loadAFromVariable) {
-      queue.push(next({ a: operandValue(loadAFromVariable[1]), comparison: null }));
+      queue.push(next({ a: operandValue(loadAFromVariable[1]) }));
       continue;
     }
 
     const loadAImmediate = clean.match(/^ld\s+a\s*,\s*([^\s;]+)\s*$/i);
     if (loadAImmediate) {
-      queue.push(next({ a: operandValue(loadAImmediate[1]), comparison: null }));
+      queue.push(next({ a: operandValue(loadAImmediate[1]) }));
       continue;
     }
 
