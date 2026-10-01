@@ -134,6 +134,7 @@ export interface ProjectMovementExactValue {
 export interface ProjectMovementVocabulary {
   npcRanges: ProjectMovementRange[];
   npcExactValues: ProjectMovementExactValue[];
+  joypadExactValues: ProjectMovementExactValue[];
   exactValues: ProjectMovementExactValue[];
   warnings: string[];
 }
