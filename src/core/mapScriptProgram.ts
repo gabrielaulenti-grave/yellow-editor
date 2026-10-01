@@ -231,6 +231,52 @@ function localLabelSource(section: LabelSection, label: string): string | null {
   return sawData ? result.join("\n") : null;
 }
 
+function hasMovementTerminator(source: string): boolean {
+  return source.split(/\r?\n/).some((line) => {
+    const value = withoutComment(line).match(/^db\s+([^,\s]+)/i)?.[1];
+    return value === "-1" || Boolean(value && /^\$ff$/i.test(value));
+  });
+}
+
+function dataOnlyAfterLabel(source: string): boolean {
+  const lines = source.split(/\r?\n/).slice(1);
+  let sawData = false;
+  for (const sourceLine of lines) {
+    const clean = withoutComment(sourceLine);
+    if (!clean) continue;
+    if (/^db\b/i.test(clean)) {
+      sawData = true;
+      continue;
+    }
+    return false;
+  }
+  return sawData;
+}
+
+function globalMovementSource(
+  sections: Map<string, LabelSection>,
+  label: string,
+): string | null {
+  const start = sections.get(label);
+  if (!start) return null;
+  const ordered = [...sections.values()].sort(
+    (left, right) => left.startLine - right.startLine,
+  );
+  const startIndex = ordered.findIndex((section) => section.label === label);
+  if (startIndex < 0) return null;
+
+  let result = start.source;
+  if (hasMovementTerminator(result)) return result;
+
+  for (let index = startIndex + 1; index < ordered.length; index += 1) {
+    const nextSection = ordered[index];
+    if (!dataOnlyAfterLabel(nextSection.source)) break;
+    result += `\n${nextSection.source}`;
+    if (hasMovementTerminator(nextSection.source)) break;
+  }
+  return result;
+}
+
 function movementSource(
   sections: Map<string, LabelSection>,
   owner: LabelSection,
@@ -238,7 +284,7 @@ function movementSource(
 ): string | null {
   return label.startsWith(".")
     ? localLabelSource(owner, label)
-    : sections.get(label)?.source ?? null;
+    : globalMovementSource(sections, label);
 }
 
 function transitionsForSection(
