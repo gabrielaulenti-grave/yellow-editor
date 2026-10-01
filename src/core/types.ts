@@ -113,6 +113,60 @@ export interface ScriptCatalog {
   routineCount: number;
 }
 
+export type ScriptAuditStatus = "semantic" | "structural" | "unresolved";
+
+export type ScriptAuditConstructKind =
+  | "macro"
+  | "call"
+  | "farcall"
+  | "predef"
+  | "instruction"
+  | "directive";
+
+export interface ScriptAuditExample {
+  path: string;
+  line: number;
+  source: string;
+}
+
+export interface ScriptAuditConstruct {
+  key: string;
+  name: string;
+  kind: ScriptAuditConstructKind;
+  status: ScriptAuditStatus;
+  occurrences: number;
+  paths: string[];
+  examples: ScriptAuditExample[];
+  reason: string;
+}
+
+export interface ScriptAuditFile {
+  path: string;
+  semanticLines: number;
+  structuralLines: number;
+  unresolvedLines: number;
+  meaningfulLines: number;
+  semanticInvocationCount: number;
+  structuralInvocationCount: number;
+  unresolvedInvocationCount: number;
+  unresolvedKeys: string[];
+  structuralInvocationKeys: string[];
+}
+
+export interface ScriptAuditReport {
+  fileCount: number;
+  meaningfulLineCount: number;
+  semanticLineCount: number;
+  structuralLineCount: number;
+  unresolvedLineCount: number;
+  semanticInvocationCount: number;
+  structuralInvocationCount: number;
+  unresolvedInvocationCount: number;
+  files: ScriptAuditFile[];
+  constructs: ScriptAuditConstruct[];
+  warnings: string[];
+}
+
 export type ProjectMovementDirection =
   | "up"
   | "down"
@@ -1323,6 +1377,7 @@ export interface ProjectSession {
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
   getScriptCatalog(): Promise<ScriptCatalog>;
+  getScriptAudit(): Promise<ScriptAuditReport>;
   getScriptDocument(path: string): Promise<ScriptDocument>;
   getMacroCatalog(): Promise<MacroCatalog>;
   getScriptMacroCalls(path: string): Promise<ScriptMacroCallDocument>;
