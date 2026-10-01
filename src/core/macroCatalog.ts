@@ -155,7 +155,7 @@ function parseDefinitions(file: ProjectRgbdsSourceFile): MacroDefinitionInternal
 
   for (let index = 0; index < lines.length; index += 1) {
     const clean = withoutComment(lines[index]);
-    const start = clean.match(/^MACRO\s+([A-Za-z_][A-Za-z0-9_#@.]*)\b/i);
+    const start = clean.match(/^MACRO\??\s+([A-Za-z_][A-Za-z0-9_#@.]*)\b/i);
     if (!start) continue;
 
     const body: string[] = [];
