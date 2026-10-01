@@ -158,6 +158,7 @@ export interface ProjectMovementConsumer {
   family: string;
   commands: ProjectMovementCommandValue[];
   sourcePaths: string[];
+  guards: string[];
 }
 
 export interface ProjectMovementVocabulary {
