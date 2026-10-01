@@ -163,7 +163,10 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
         ...(node.playerLoses ? [{ label: "Loss text source", value: titleCaseConstant(node.playerLoses) }] : []),
       ];
     case "opponent":
-      return node.opponent ? [{ label: "Opponent", value: titleCaseConstant(node.opponent) }] : [];
+      return [
+        ...(node.opponent ? [{ label: "Opponent", value: titleCaseConstant(node.opponent) }] : []),
+        ...(node.trainerNo ? [{ label: "Trainer party", value: titleCaseConstant(node.trainerNo) }] : []),
+      ];
     case "wait":
       return node.frames !== undefined ? [{ label: "Duration", value: `${node.frames} frame${node.frames === 1 ? "" : "s"}` }] : [];
     case "event":
@@ -178,14 +181,36 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
     case "transition":
       return [{ label: "Next state", value: node.targetLabel ? stateTitle(node.targetLabel) : titleCaseConstant(node.targetConstant) }];
     case "object":
-      return node.object ? [{ label: "Object", value: titleCaseConstant(node.object) }] : [];
+      return node.alternatives && node.alternatives.length > 1
+        ? node.alternatives.map((alternative, index) => ({
+            label: alternative.conditions.length > 0
+              ? `If ${alternative.conditions.join(" AND ")}`
+              : `Alternative ${index + 1}`,
+            value: titleCaseConstant(alternative.value),
+          }))
+        : node.object
+          ? [{ label: "Object", value: titleCaseConstant(node.object) }]
+          : [];
     case "music":
       return node.music ? [{ label: "Music", value: titleCaseConstant(node.music) }] : [];
-    case "facing":
+    case "facing": {
+      const facingLabel = (value: string) => value === "0"
+        ? "Down"
+        : titleCaseConstant(value).replace(/^Sprite Facing /i, "");
       return [
         ...(node.actor ? [{ label: "Character", value: titleCaseConstant(node.actor) }] : []),
-        ...(node.facing ? [{ label: "Facing", value: node.facing === "0" ? "Down" : titleCaseConstant(node.facing) }] : []),
+        ...(node.alternatives && node.alternatives.length > 1
+          ? node.alternatives.map((alternative, index) => ({
+              label: alternative.conditions.length > 0
+                ? `If ${alternative.conditions.join(" AND ")}`
+                : `Facing option ${index + 1}`,
+              value: facingLabel(alternative.value),
+            }))
+          : node.facing
+            ? [{ label: "Facing", value: facingLabel(node.facing) }]
+            : []),
       ];
+    }
     case "recovery":
       return [];
   }
