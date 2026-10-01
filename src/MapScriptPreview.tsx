@@ -164,6 +164,7 @@ function iconFor(kind: MapScriptOperationKind): string {
     case "control": return "⌘";
     case "flag": return "◇";
     case "screen": return "◐";
+    case "map": return "▦";
     case "transition": return "→";
   }
 }
@@ -291,6 +292,11 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
       ];
     case "screen":
       return [];
+    case "map-edit":
+      return [
+        ...(node.block ? [{ label: "Block", value: titleCaseConstant(node.block) }] : []),
+        ...(node.x && node.y ? [{ label: "Map coordinate", value: `(${node.x}, ${node.y})` }] : []),
+      ];
   }
 }
 
