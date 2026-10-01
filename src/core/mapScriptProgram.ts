@@ -321,6 +321,61 @@ function movementSource(
     : globalMovementSource(sections, label);
 }
 
+function coordinateMovementAlternatives(
+  sections: Map<string, LabelSection>,
+  owner: LabelSection,
+  tableLabel: string,
+  movementVocabulary?: ProjectMovementVocabulary,
+): MapScriptMovementAlternative[] {
+  const tableSource = movementSource(sections, owner, tableLabel);
+  if (!tableSource) return [];
+
+  const rows: Array<{ x: string; y: string; label: string }> = [];
+  for (const line of tableSource.split(/\r?\n/)) {
+    const match = withoutComment(line).match(
+      /^map_coord_movement\s+([^,]+)\s*,\s*([^,]+)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+    );
+    if (!match) continue;
+    rows.push({
+      x: match[1].trim(),
+      y: match[2].trim(),
+      label: match[3],
+    });
+  }
+  if (rows.length === 0) return [];
+
+  const grouped = new Map<string, Array<{ x: string; y: string }>>();
+  for (const row of rows) {
+    const coords = grouped.get(row.label) ?? [];
+    coords.push({ x: row.x, y: row.y });
+    grouped.set(row.label, coords);
+  }
+
+  return [...grouped.entries()].map(([label, coords]) => {
+    const movement = movementSource(sections, owner, label);
+    const coordinateText = coords
+      .map(({ x, y }) => `(${x}, ${y})`)
+      .join(", ");
+    return {
+      pathLabel: label,
+      path: movement
+        ? parseMovementPath(
+            label,
+            movement,
+            movementVocabulary,
+            "joypad",
+          ).steps
+        : [],
+      conditions: [
+        coords.length === 1
+          ? `player is at ${coordinateText}`
+          : `player is at one of ${coordinateText}`,
+      ],
+      confidence: "exact",
+    } satisfies MapScriptMovementAlternative;
+  });
+}
+
 function objectWrapperActions(
   sections: Map<string, LabelSection>,
 ): Map<string, "show" | "hide"> {
@@ -731,13 +786,29 @@ function nodesForSection(
 
       if (alternatives.length === 0) {
         let movementLabel: string | null = null;
-        for (let back = index - 1; back >= Math.max(1, index - 16); back -= 1) {
-          if (/^call\s+DecodeRLEList\b/i.test(withoutComment(lines[back]))) {
+        let coordinateTableLabel: string | null = null;
+        for (let back = index - 1; back >= Math.max(1, index - 20); back -= 1) {
+          const prior = withoutComment(lines[back]);
+          if (/^call\s+DecodeRLEList\b/i.test(prior)) {
             movementLabel = recentRegisterValue(lines, back, "de", 6);
             break;
           }
+          if (/^call\s+DecodeArrowMovementRLE\b/i.test(prior)) {
+            coordinateTableLabel = recentRegisterValue(lines, back, "hl", 8);
+            break;
+          }
         }
-        if (movementLabel) {
+
+        if (coordinateTableLabel) {
+          alternatives.push(
+            ...coordinateMovementAlternatives(
+              sections,
+              section,
+              coordinateTableLabel,
+              movementVocabulary,
+            ),
+          );
+        } else if (movementLabel) {
           const movement = movementSource(sections, section, movementLabel);
           alternatives.push({
             pathLabel: movementLabel,
