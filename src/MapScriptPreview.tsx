@@ -22,7 +22,11 @@ import {
   type MapScriptSemanticNode,
   type MapScriptState,
 } from "./core/mapScriptProgram";
-import type { TrainerInteraction, TrainerInteractionDialogue } from "./core/types";
+import type {
+  ProjectMovementVocabulary,
+  TrainerInteraction,
+  TrainerInteractionDialogue,
+} from "./core/types";
 import { TextEditor, type TextEditorTarget } from "./TextEditor";
 import "./MapScriptPreview.css";
 
@@ -31,6 +35,7 @@ export interface MapScriptPreviewReference {
   routineLabel: string;
   mapScriptSource: string;
   routineSource?: string | null;
+  movementVocabulary?: ProjectMovementVocabulary;
   interaction?: TrainerInteraction | null;
 }
 
@@ -574,13 +579,22 @@ function stateRole(state: MapScriptState, focusLabel: string, index: number, foc
 
 export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
   const model = useMemo(() => {
-    const program = parseMapScriptProgram(reference.mapScriptSource, reference.routineLabel);
+    const program = parseMapScriptProgram(
+      reference.mapScriptSource,
+      reference.routineLabel,
+      reference.movementVocabulary,
+    );
     const states = focusedMapScriptStates(program, reference.routineLabel, 1, 1);
     const dialoguePhases = parseResolvedScriptDialogueSummary(reference.routineSource ?? "");
     const battleHandoffs = mapScriptBattleHandoffs(program, reference.mapScriptSource);
     const resumeLabels = new Set(battleHandoffs.map((handoff) => handoff.resumeStateLabel));
     return { states, dialoguePhases, battleHandoffs, resumeLabels };
-  }, [reference.mapScriptSource, reference.routineLabel, reference.routineSource]);
+  }, [
+    reference.mapScriptSource,
+    reference.routineLabel,
+    reference.routineSource,
+    reference.movementVocabulary,
+  ]);
 
   if (model.states.length === 0) {
     return (
