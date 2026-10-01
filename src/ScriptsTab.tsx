@@ -808,6 +808,50 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
               </div>
             </div>
 
+            {audit.files.some((file) =>
+              file.unresolvedInvocationCount > 0
+              || file.structuralInvocationCount > 0
+            ) && (
+              <details className="script-audit-details" open>
+                <summary>
+                  Map-by-map review queue · {audit.files.filter((file) =>
+                    file.unresolvedInvocationCount > 0
+                    || file.structuralInvocationCount > 0
+                  ).length} file{audit.files.filter((file) =>
+                    file.unresolvedInvocationCount > 0
+                    || file.structuralInvocationCount > 0
+                  ).length === 1 ? "" : "s"}
+                </summary>
+                <p className="help-text">
+                  Ordered by true unresolved constructs first, then by project routines/macros
+                  that are safe and understood structurally but still need a beginner-facing semantic lift.
+                </p>
+                <div className="script-audit-construct-list">
+                  {audit.files
+                    .filter((file) =>
+                      file.unresolvedInvocationCount > 0
+                      || file.structuralInvocationCount > 0
+                    )
+                    .slice(0, 80)
+                    .map((file) => (
+                      <button
+                        type="button"
+                        key={file.path}
+                        onClick={() => selectAuditExample(file.path, 1)}
+                      >
+                        <span>
+                          <strong>{displayName(file.path.replace(/^scripts\//i, "").replace(/\.asm$/i, ""))}</strong>
+                          <small>
+                            {file.unresolvedInvocationCount} unresolved · {file.structuralInvocationCount} known awaiting semantic lift
+                          </small>
+                        </span>
+                        <code>{file.path}</code>
+                      </button>
+                    ))}
+                </div>
+              </details>
+            )}
+
             {audit.constructs.some((construct) => construct.status === "unresolved") && (
               <details className="script-audit-details" open>
                 <summary>
