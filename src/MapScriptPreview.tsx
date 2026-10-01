@@ -89,6 +89,41 @@ function variableTitle(variable: string): string {
   return titleCaseConstant(variable.replace(/^w(?=[A-Z])/, "")).toLowerCase();
 }
 
+function actorTitle(actor: string): string {
+  const slot = actor.match(/^SPRITE_SLOT_([0-9A-F]+)$/i)?.[1];
+  return slot ? `Sprite slot ${slot}` : titleCaseConstant(actor);
+}
+
+function provenanceConditionText(value: string): string {
+  const routine = value.match(
+    /^([A-Za-z_][A-Za-z0-9_]*)\(([^)]+)\) returned (carry|without carry)$/i,
+  );
+  if (routine) {
+    const routineName = routine[1];
+    const argument = titleCaseConstant(routine[2]);
+    const carried = routine[3].toLowerCase() === "carry";
+    if (/coords?.*in.*array|in.*coords?.*array/i.test(routineName)) {
+      return `player is ${carried ? "inside" : "outside"} ${argument}`;
+    }
+    return `${titleCaseConstant(routineName)} for ${argument} ${carried ? "succeeded" : "did not signal carry"}`;
+  }
+
+  const event = value.match(/^(EVENT_[A-Z0-9_]+)\s*(=|≠)\s*clear$/i);
+  if (event) {
+    return `${titleCaseConstant(event[1])} ${event[2] === "=" ? "has not happened" : "has happened"}`;
+  }
+
+  const comparison = value.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(=|≠)\s*(.+)$/);
+  if (comparison) {
+    const left = comparison[1].startsWith("w")
+      ? variableTitle(comparison[1])
+      : titleCaseConstant(comparison[1]);
+    return `${left} ${comparison[2] === "=" ? "is" : "is not"} ${titleCaseConstant(comparison[3])}`;
+  }
+
+  return value;
+}
+
 function textPointerLabels(contents: string): Map<string, string> {
   const result = new Map<string, string>();
   for (const match of contents.matchAll(
@@ -137,7 +172,7 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
         ? node.alternatives.map((alternative, index) => {
             const rendered = alternative.path.map(renderMovementStep).join(" · ");
             const condition = alternative.conditions.length > 0
-              ? alternative.conditions.join(" AND ")
+              ? alternative.conditions.map(provenanceConditionText).join(" AND ")
               : `Alternative ${index + 1}`;
             return {
               label: `If ${condition}`,
@@ -192,7 +227,7 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
       return node.alternatives && node.alternatives.length > 1
         ? node.alternatives.map((alternative, index) => ({
             label: alternative.conditions.length > 0
-              ? `If ${alternative.conditions.join(" AND ")}`
+              ? `If ${alternative.conditions.map(provenanceConditionText).join(" AND ")}`
               : `Alternative ${index + 1}`,
             value: titleCaseConstant(alternative.value),
           }))
@@ -206,11 +241,11 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
         ? "Down"
         : titleCaseConstant(value).replace(/^Sprite Facing /i, "");
       return [
-        ...(node.actor ? [{ label: "Character", value: titleCaseConstant(node.actor) }] : []),
+        ...(node.actor ? [{ label: "Character", value: actorTitle(node.actor) }] : []),
         ...(node.alternatives && node.alternatives.length > 1
           ? node.alternatives.map((alternative, index) => ({
               label: alternative.conditions.length > 0
-                ? `If ${alternative.conditions.join(" AND ")}`
+                ? `If ${alternative.conditions.map(provenanceConditionText).join(" AND ")}`
                 : `Facing option ${index + 1}`,
               value: facingLabel(alternative.value),
             }))
@@ -252,6 +287,12 @@ function conditionText(condition: MapScriptCondition): string {
     case "flag-state":
       return `${titleCaseConstant(condition.flag)} is ${condition.state === "set" ? "on" : "off"} in ${variableTitle(condition.variable)}`;
     case "routine-result": {
+      if (
+        condition.argument
+        && /coords?.*in.*array|in.*coords?.*array/i.test(condition.routine)
+      ) {
+        return `the player is ${condition.result === "carry" ? "inside" : "outside"} ${titleCaseConstant(condition.argument)}`;
+      }
       const argument = condition.argument
         ? ` for ${titleCaseConstant(condition.argument)}`
         : "";
