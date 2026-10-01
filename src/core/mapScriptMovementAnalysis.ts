@@ -290,6 +290,15 @@ export function movementLabelAlternativesAtCall(
       continue;
     }
 
+    const checkedEvent = clean.match(/^CheckEvent\s+(EVENT_[A-Z0-9_]+)\b/i)?.[1];
+    if (checkedEvent) {
+      queue.push(next({
+        comparison: { left: checkedEvent, right: "clear" },
+        carryResult: null,
+      }));
+      continue;
+    }
+
     if (/^and\s+a\b/i.test(clean)) {
       queue.push(next({
         comparison: state.a
@@ -512,6 +521,15 @@ export function playerMovementAlternativesAtCall(
         playerMovementLabel: state.de,
         playerMovementValues: [],
         comparison: null,
+        carryResult: null,
+      }));
+      continue;
+    }
+
+    const checkedEvent = clean.match(/^CheckEvent\s+(EVENT_[A-Z0-9_]+)\b/i)?.[1];
+    if (checkedEvent) {
+      queue.push(next({
+        comparison: { left: checkedEvent, right: "clear" },
         carryResult: null,
       }));
       continue;
