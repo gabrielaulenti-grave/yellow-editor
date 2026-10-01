@@ -1,10 +1,12 @@
 import { parseMapScriptRoutines } from "./mapScriptParser";
+import type { ProjectRgbdsSourceFile } from "./projectConstants";
 import { movementLabelAlternativesAtCall } from "./mapScriptMovementAnalysis";
 import type {
   ProjectSource,
   ScriptCatalog,
   ScriptCatalogEntry,
   ScriptDocument,
+  ScriptExternalRoutineSource,
   ScriptRoutineCategory,
   ScriptRoutineSummary,
 } from "./types";
@@ -303,4 +305,50 @@ export async function loadScriptDocument(
     source: contents,
     routines: routineSummaries(path, contents),
   };
+}
+
+
+export function resolveExternalScriptRoutines(
+  document: ScriptDocument,
+  files: ProjectRgbdsSourceFile[],
+): ScriptExternalRoutineSource[] {
+  const localLabels = new Set(
+    parseMapScriptRoutines(document.source).map((routine) => routine.label),
+  );
+  const wanted = new Set(
+    document.routines
+      .filter((routine) => routine.kind === "state" && !localLabels.has(routine.label))
+      .map((routine) => routine.label),
+  );
+  if (wanted.size === 0) return [];
+
+  const result: ScriptExternalRoutineSource[] = [];
+  for (const file of files) {
+    if (file.path === document.path || !file.contents) continue;
+    const lines = file.contents.split(/\r?\n/);
+    const starts: Array<{ label: string; index: number }> = [];
+    lines.forEach((line, index) => {
+      const label = line.match(
+        /^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/,
+      )?.[1];
+      if (label) starts.push({ label, index });
+    });
+
+    starts.forEach((start, index) => {
+      if (!wanted.has(start.label)) return;
+      const end = starts[index + 1]?.index ?? lines.length;
+      result.push({
+        label: start.label,
+        path: file.path,
+        startLine: start.index + 1,
+        source: lines.slice(start.index, end).join("\n"),
+      });
+    });
+  }
+
+  return result.sort((left, right) =>
+    left.label.localeCompare(right.label)
+    || left.path.localeCompare(right.path)
+    || left.startLine - right.startLine
+  );
 }
