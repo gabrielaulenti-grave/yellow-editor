@@ -179,6 +179,24 @@ function variableComparisonCondition(lines: string[], index: number): { conditio
   };
 }
 
+function zeroTestCondition(lines: string[], index: number): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
+  const variable = withoutComment(lines[index]).match(/^ld\s+a\s*,\s*\[(w[A-Za-z0-9_]+)\]\s*$/i)?.[1];
+  if (!variable) return null;
+  if (!/^and\s+a\s*$/i.test(withoutComment(lines[index + 1] ?? ""))) return null;
+  const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
+  if (!branch) return null;
+
+  return {
+    condition: {
+      type: "variable-compare",
+      variable,
+      comparison: branch.flag === "z" ? "equals" : "not-equals",
+      value: "0",
+    },
+    branch,
+  };
+}
+
 function flagCondition(lines: string[], index: number): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
   const variable = withoutComment(lines[index]).match(/^ld\s+a\s*,\s*\[(w[A-Za-z0-9_]+)\]\s*$/i)?.[1];
   if (!variable) return null;
@@ -212,6 +230,9 @@ function flowConditionAt(lines: string[], index: number): ParsedCondition | null
 
   const variable = variableComparisonCondition(lines, index);
   if (variable) return { ...variable, startIndex: index };
+
+  const zeroTest = zeroTestCondition(lines, index);
+  if (zeroTest) return { ...zeroTest, startIndex: index };
 
   const flag = flagCondition(lines, index);
   if (flag) return { ...flag, startIndex: index };
