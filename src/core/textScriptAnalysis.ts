@@ -1,3 +1,4 @@
+import { eventArgumentsForSemantic } from "./eventMacroSemantics";
 import type {
   ProjectEventMacroSemantic,
 } from "./types";
@@ -377,11 +378,10 @@ export function analyzeTextScript(
       const semantic = eventMacros.get(macroInvocation[1].toLowerCase());
       if (semantic) {
         const args = macroInvocation[2].split(",").map((value) => value.trim());
-        const events = semantic.eventParameterIndexes
-          .map((parameter) => args[parameter - 1])
-          .filter((value): value is string =>
-            Boolean(value && /^EVENT_[A-Z0-9_]+$/i.test(value))
-          );
+        const events = eventArgumentsForSemantic(
+          semantic,
+          args,
+        );
         if (events.length > 0) {
           insights.push({
             type: "event",
