@@ -14,7 +14,15 @@ export type MapScriptOperationKind =
   | "recovery"
   | "transition";
 
-export type MapMovementDirection = "up" | "down" | "left" | "right";
+export type MapMovementDirection =
+  | "up"
+  | "down"
+  | "left"
+  | "right"
+  | "up-left"
+  | "up-right"
+  | "down-left"
+  | "down-right";
 
 export interface MapMovementStep {
   direction?: MapMovementDirection;
@@ -234,7 +242,16 @@ export function parseMovementStep(
 }
 
 export function renderMovementStep(step: MapMovementStep): string {
-  const arrows: Record<MapMovementDirection, string> = { up: "↑", down: "↓", left: "←", right: "→" };
+  const arrows: Record<MapMovementDirection, string> = {
+    up: "↑",
+    down: "↓",
+    left: "←",
+    right: "→",
+    "up-left": "↖",
+    "up-right": "↗",
+    "down-left": "↙",
+    "down-right": "↘",
+  };
   const base = step.operation === "delay"
     ? "Pause"
     : step.operation === "look"
