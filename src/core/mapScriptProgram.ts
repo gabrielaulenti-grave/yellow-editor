@@ -369,7 +369,6 @@ function transitionsForSection(
 function nodesForSection(
   section: LabelSection,
   sections: Map<string, LabelSection>,
-  pointers: Map<string, string>,
   transitions: MapScriptStateTransition[],
   movementVocabulary?: ProjectMovementVocabulary,
 ): MapScriptSemanticNode[] {
@@ -875,7 +874,6 @@ export function parseMapScriptProgram(
       nodes: nodesForSection(
         section,
         sections,
-        pointers,
         transitions,
         movementVocabulary,
       ),
