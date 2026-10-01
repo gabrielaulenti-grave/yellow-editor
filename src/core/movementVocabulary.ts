@@ -4,7 +4,7 @@ import {
   readProjectRgbdsSources,
   type ProjectConstantGroup,
   type ProjectConstantCatalog,
-  type ProjectRgbdsProjectRgbdsSourceFile,
+  type ProjectRgbdsSourceFile,
 } from "./projectConstants";
 import type {
   ProjectMovementDirection,
