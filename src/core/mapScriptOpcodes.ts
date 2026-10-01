@@ -19,7 +19,7 @@ export type MapMovementDirection = "up" | "down" | "left" | "right";
 export interface MapMovementStep {
   direction?: MapMovementDirection;
   count: number;
-  operation?: "change-facing" | "special";
+  operation?: "change-facing" | "look" | "delay" | "special";
   raw: string;
 }
 
@@ -58,6 +58,48 @@ function movementByteValue(value: string): number | null {
   if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10);
   if (/^\$[0-9a-f]+$/i.test(value)) return Number.parseInt(value.slice(1), 16);
   if (/^%[01_]+$/.test(value)) return Number.parseInt(value.slice(1).replace(/_/g, ""), 2);
+  return null;
+}
+
+function customCommandMeaning(
+  value: string,
+  vocabulary: ProjectMovementVocabulary | undefined,
+  consumerRoutine: string | undefined,
+): {
+  direction?: MapMovementDirection;
+  operation?: "look" | "delay";
+  end?: boolean;
+} | null {
+  if (!vocabulary || !consumerRoutine) return null;
+  const consumer = vocabulary.consumers.find(
+    (candidate) => candidate.routine === consumerRoutine,
+  );
+  if (!consumer) return null;
+
+  const numeric = movementByteValue(value);
+  const matches = consumer.commands.filter((command) =>
+    command.symbol === value || (numeric !== null && command.value === numeric)
+  );
+  const unique = matches.filter((command, index) =>
+    matches.findIndex((candidate) =>
+      candidate.action === command.action
+      && candidate.direction === command.direction
+    ) === index
+  );
+  if (unique.length !== 1) return null;
+
+  const command = unique[0];
+  if (command.action === "end") return { end: true };
+  if (command.action === "delay") return { operation: "delay" };
+  if (command.action === "look") {
+    return {
+      operation: "look",
+      direction: command.direction as MapMovementDirection | undefined,
+    };
+  }
+  if (command.action === "move" && command.direction) {
+    return { direction: command.direction as MapMovementDirection };
+  }
   return null;
 }
 
@@ -131,10 +173,31 @@ export function parseMovementStep(
   value: string,
   count: number | null,
   vocabulary?: ProjectMovementVocabulary,
-  mode: "npc" | "joypad" = "npc",
+  mode: "npc" | "joypad" | "custom" = "npc",
+  consumerRoutine?: string,
 ): MapMovementStep | null {
   if (value === "-1" || /^\$ff$/i.test(value)) return null;
   const stepCount = count && count > 0 ? count : 1;
+
+  if (mode === "custom") {
+    const command = customCommandMeaning(value, vocabulary, consumerRoutine);
+    if (command?.end) return null;
+    if (command?.operation === "delay") {
+      return { count: stepCount, operation: "delay", raw: value };
+    }
+    if (command?.operation === "look") {
+      return {
+        direction: command.direction,
+        count: stepCount,
+        operation: "look",
+        raw: value,
+      };
+    }
+    if (command?.direction) {
+      return { direction: command.direction, count: stepCount, raw: value };
+    }
+    return { count: stepCount, operation: "special", raw: value };
+  }
 
   const symbolicOperation = projectOperationForSymbol(value, vocabulary);
   if (symbolicOperation) {
@@ -172,10 +235,14 @@ export function parseMovementStep(
 
 export function renderMovementStep(step: MapMovementStep): string {
   const arrows: Record<MapMovementDirection, string> = { up: "↑", down: "↓", left: "←", right: "→" };
-  const base = step.direction
-    ? arrows[step.direction]
-    : step.operation === "change-facing"
-      ? "Change facing"
-      : `Unresolved step (${step.raw})`;
+  const base = step.operation === "delay"
+    ? "Pause"
+    : step.operation === "look"
+      ? `Face ${step.direction ? arrows[step.direction] : "direction"}`
+      : step.operation === "change-facing"
+        ? "Change facing"
+        : step.direction
+          ? arrows[step.direction]
+          : `Unresolved step (${step.raw})`;
   return step.count > 1 ? `${base} ×${step.count}` : base;
 }
