@@ -1,4 +1,9 @@
-import { loadProjectConstantCatalog, type ProjectConstantGroup } from "./projectConstants";
+import {
+  evaluateRgbdsExpression,
+  loadProjectConstantCatalog,
+  type ProjectConstantGroup,
+  type ProjectConstantCatalog,
+} from "./projectConstants";
 import type {
   ProjectMovementDirection,
   ProjectMovementExactValue,
@@ -6,6 +11,17 @@ import type {
   ProjectMovementVocabulary,
   ProjectSource,
 } from "./types";
+
+interface SourceFile {
+  path: string;
+  contents: string;
+}
+
+interface SourceSection {
+  label: string;
+  path: string;
+  lines: string[];
+}
 
 function directionFromSymbol(symbol: string): ProjectMovementDirection | null {
   const upper = symbol.toUpperCase();
@@ -36,54 +52,62 @@ function movementGroupDirections(group: ProjectConstantGroup) {
     );
 }
 
-async function thresholdUseCounts(
-  source: ProjectSource,
-  candidateSymbols: Set<string>,
-): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
-  if (!source.listFiles || candidateSymbols.size === 0) return counts;
-
+async function readSourceFiles(source: ProjectSource): Promise<SourceFile[]> {
+  if (!source.listFiles) return [];
   const paths = [...new Set(await source.listFiles())]
     .filter((path) => /\.(?:asm|inc)$/i.test(path))
     .sort((left, right) => left.localeCompare(right));
 
+  const result = new Array<SourceFile>(paths.length);
   let nextIndex = 0;
   const workers = Array.from({ length: Math.min(12, paths.length) }, async () => {
     while (nextIndex < paths.length) {
       const index = nextIndex;
       nextIndex += 1;
-      let contents = "";
+      const path = paths[index];
       try {
-        contents = await source.readText(paths[index]);
+        result[index] = { path, contents: await source.readText(path) };
       } catch {
-        continue;
-      }
-      const lines = contents.split(/\r?\n/);
-      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-        const clean = lines[lineIndex].split(";", 1)[0].trim();
-        const compare = clean.match(/^cp\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$/i);
-        if (!compare || !candidateSymbols.has(compare[1])) continue;
-
-        let nextExecutable = "";
-        for (
-          let probe = lineIndex + 1;
-          probe < Math.min(lines.length, lineIndex + 4);
-          probe += 1
-        ) {
-          nextExecutable = lines[probe].split(";", 1)[0].trim();
-          if (nextExecutable) break;
-        }
-        if (!/^(?:jr|jp)\s+(?:c|nc)\b/i.test(nextExecutable)) continue;
-        counts.set(compare[1], (counts.get(compare[1]) ?? 0) + 1);
+        result[index] = { path, contents: "" };
       }
     }
   });
   await Promise.all(workers);
+  return result;
+}
+
+function thresholdUseCounts(
+  files: SourceFile[],
+  candidateSymbols: Set<string>,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  if (candidateSymbols.size === 0) return counts;
+
+  for (const file of files) {
+    const lines = file.contents.split(/\r?\n/);
+    for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+      const clean = lines[lineIndex].split(";", 1)[0].trim();
+      const compare = clean.match(/^cp\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$/i);
+      if (!compare || !candidateSymbols.has(compare[1])) continue;
+
+      let nextExecutable = "";
+      for (
+        let probe = lineIndex + 1;
+        probe < Math.min(lines.length, lineIndex + 4);
+        probe += 1
+      ) {
+        nextExecutable = lines[probe].split(";", 1)[0].trim();
+        if (nextExecutable) break;
+      }
+      if (!/^(?:jr|jp)\s+(?:c|nc)\b/i.test(nextExecutable)) continue;
+      counts.set(compare[1], (counts.get(compare[1]) ?? 0) + 1);
+    }
+  }
   return counts;
 }
 
 function exactValues(
-  constants: Awaited<ReturnType<typeof loadProjectConstantCatalog>>["constants"],
+  constants: ProjectConstantCatalog["constants"],
 ): ProjectMovementExactValue[] {
   const result: ProjectMovementExactValue[] = [];
   for (const constant of constants) {
@@ -124,10 +148,152 @@ function rangesFromGroup(group: ProjectConstantGroup): ProjectMovementRange[] {
   }));
 }
 
+function globalSections(file: SourceFile): SourceSection[] {
+  const lines = file.contents.split(/\r?\n/);
+  const starts: Array<{ label: string; index: number }> = [];
+  lines.forEach((line, index) => {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/);
+    if (match) starts.push({ label: match[1], index });
+  });
+  return starts.map((start, index) => ({
+    label: start.label,
+    path: file.path,
+    lines: lines.slice(start.index, starts[index + 1]?.index ?? lines.length),
+  }));
+}
+
+function localLabelIndexes(lines: string[]): Map<string, number> {
+  const result = new Map<string, number>();
+  lines.forEach((line, index) => {
+    const match = line.match(
+      /^\s*((?:\.[A-Za-z_][A-Za-z0-9_.]*)(?::{1,2})?)\s*(?:;.*)?$/,
+    );
+    if (match) result.set(match[1].replace(/:{1,2}$/, ""), index);
+  });
+  return result;
+}
+
+function helperDirections(
+  sections: SourceSection[],
+): Map<string, ProjectMovementDirection> {
+  const result = new Map<string, ProjectMovementDirection>();
+  for (const section of sections) {
+    const directions = new Set<ProjectMovementDirection>();
+    for (const sourceLine of section.lines) {
+      const clean = sourceLine.split(";", 1)[0].trim();
+      const load = clean.match(/^ld\s+c\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*$/i);
+      const direction = load ? directionFromSymbol(load[1]) : null;
+      if (direction) directions.add(direction);
+    }
+    if (directions.size === 1) {
+      result.set(section.label, [...directions][0]);
+    }
+  }
+  return result;
+}
+
+function directionFromTargetBlock(
+  section: SourceSection,
+  targetIndex: number,
+  helpers: Map<string, ProjectMovementDirection>,
+): ProjectMovementDirection | null {
+  for (
+    let index = targetIndex + 1;
+    index < Math.min(section.lines.length, targetIndex + 10);
+    index += 1
+  ) {
+    const sourceLine = section.lines[index];
+    const clean = sourceLine.split(";", 1)[0].trim();
+    if (!clean) continue;
+    if (/^\.[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(clean)) break;
+
+    const direct = clean.match(/^ld\s+c\s*,\s*([A-Za-z_][A-Za-z0-9_.]*)\s*$/i);
+    if (direct) {
+      const direction = directionFromSymbol(direct[1]);
+      if (direction) return direction;
+    }
+
+    const call = clean.match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i);
+    if (call) {
+      const direction = helpers.get(call[1]);
+      if (direction) return direction;
+    }
+  }
+  return null;
+}
+
+function deriveNpcExactValues(
+  files: SourceFile[],
+  catalog: ProjectConstantCatalog,
+): ProjectMovementExactValue[] {
+  const symbols = new Map(catalog.constants.map((constant) => [
+    constant.symbol,
+    constant.value,
+  ]));
+  const sections = files.flatMap(globalSections);
+  const helpers = helperDirections(sections);
+  const result: ProjectMovementExactValue[] = [];
+
+  for (const section of sections) {
+    const labels = localLabelIndexes(section.lines);
+    const sectionValues: ProjectMovementExactValue[] = [];
+
+    for (let index = 1; index < section.lines.length; index += 1) {
+      const clean = section.lines[index].split(";", 1)[0].trim();
+      const compare = clean.match(/^cp\s+([^\s;]+)\s*$/i);
+      if (!compare) continue;
+
+      let branchIndex = index + 1;
+      while (
+        branchIndex < Math.min(section.lines.length, index + 4)
+        && !section.lines[branchIndex].split(";", 1)[0].trim()
+      ) {
+        branchIndex += 1;
+      }
+      const branch = section.lines[branchIndex]?.split(";", 1)[0].trim().match(
+        /^(?:jr|jp)\s+z\s*,\s*(\.[A-Za-z_][A-Za-z0-9_.]*)\b/i,
+      );
+      if (!branch) continue;
+
+      const targetIndex = labels.get(branch[1]);
+      if (targetIndex === undefined) continue;
+      const direction = directionFromTargetBlock(section, targetIndex, helpers);
+      if (!direction) continue;
+
+      const value = evaluateRgbdsExpression(compare[1], symbols);
+      if (value === null) continue;
+      sectionValues.push({
+        value,
+        symbol: compare[1],
+        direction,
+        sourcePath: section.path,
+      });
+    }
+
+    const uniqueDirections = new Set(
+      sectionValues.map((entry) => entry.direction).filter(Boolean),
+    );
+    if (sectionValues.length >= 4 && uniqueDirections.size >= 3) {
+      result.push(...sectionValues);
+    }
+  }
+
+  return result.filter((entry, index, entries) =>
+    entries.findIndex(
+      (candidate) =>
+        candidate.value === entry.value
+        && candidate.direction === entry.direction,
+    ) === index
+  );
+}
+
 export async function loadProjectMovementVocabulary(
   source: ProjectSource,
 ): Promise<ProjectMovementVocabulary> {
-  const catalog = await loadProjectConstantCatalog(source);
+  const [catalog, files] = await Promise.all([
+    loadProjectConstantCatalog(source),
+    readSourceFiles(source),
+  ]);
   const candidates = catalog.groups
     .map((group) => ({
       group,
@@ -142,7 +308,7 @@ export async function loadProjectMovementVocabulary(
       directional.map((entry) => entry.constant.symbol),
     ),
   );
-  const thresholdCounts = await thresholdUseCounts(source, candidateSymbols);
+  const thresholdCounts = thresholdUseCounts(files, candidateSymbols);
 
   const ranked = candidates
     .map(({ group, directional }) => ({
@@ -174,6 +340,7 @@ export async function loadProjectMovementVocabulary(
 
   return {
     npcRanges: selected ? rangesFromGroup(selected.group) : [],
+    npcExactValues: deriveNpcExactValues(files, catalog),
     exactValues: exactValues(catalog.constants),
     warnings,
   };
