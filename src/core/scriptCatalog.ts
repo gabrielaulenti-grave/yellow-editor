@@ -1,4 +1,5 @@
 import { parseMapScriptRoutines } from "./mapScriptParser";
+import { movementLabelAlternativesAtCall } from "./mapScriptMovementAnalysis";
 import type {
   ProjectSource,
   ScriptCatalog,
@@ -69,41 +70,29 @@ function textRoutineLabels(source: string, sections: Map<string, string>): Set<s
   return result;
 }
 
-function recentLoadedLabel(
-  lines: string[],
-  callIndex: number,
-  registers: string[],
-  maxBack = 8,
-): string | null {
-  const registerPattern = registers.join("|");
-  const pattern = new RegExp(
-    `^\\s*ld\\s+(?:${registerPattern})\\s*,\\s*([A-Za-z_.][A-Za-z0-9_.]*)\\b`,
-    "i",
-  );
-  for (let index = callIndex - 1; index >= Math.max(0, callIndex - maxBack); index -= 1) {
-    const match = lines[index].split(";", 1)[0].match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-}
-
 function movementRoutineLabels(source: string, sections: Map<string, string>): Set<string> {
   const result = new Set<string>();
-  const lines = source.split(/\r?\n/);
 
-  lines.forEach((line, index) => {
-    const clean = line.split(";", 1)[0].trim();
-    if (/^call\s+MoveSprite\b/i.test(clean)) {
-      const label = recentLoadedLabel(lines, index, ["de"]);
-      if (label && !label.startsWith(".")) result.add(label);
-    } else if (/^call\s+DecodeRLEList\b/i.test(clean)) {
-      const label = recentLoadedLabel(lines, index, ["de"]);
-      if (label && !label.startsWith(".")) result.add(label);
-    } else if (/^call\s+[A-Za-z0-9_]*(?:Movement|Path)[A-Za-z0-9_]*\b/i.test(clean)) {
-      const label = recentLoadedLabel(lines, index, ["hl", "de"]);
-      if (label && !label.startsWith(".")) result.add(label);
-    }
-  });
+  for (const body of sections.values()) {
+    const lines = body.split(/\r?\n/);
+    lines.forEach((line, index) => {
+      const clean = line.split(";", 1)[0].trim();
+      if (!/^call\s+[A-Za-z_][A-Za-z0-9_]*\b/i.test(clean)) return;
+
+      const routine = clean.match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1] ?? "";
+      const registers: Array<"de" | "hl"> = /^MoveSprite$/i.test(routine)
+        ? ["de"]
+        : /(?:Movement|Path)/i.test(routine)
+          ? ["hl", "de"]
+          : [];
+
+      for (const register of registers) {
+        for (const alternative of movementLabelAlternativesAtCall(body, index, register)) {
+          if (!alternative.label.startsWith(".")) result.add(alternative.label);
+        }
+      }
+    });
+  }
 
   for (const label of sections.keys()) {
     if (/(?:Movement(?:Data)?|MovementPath|RLE)$/i.test(label)) {
