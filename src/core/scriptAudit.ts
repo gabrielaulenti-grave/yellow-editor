@@ -29,6 +29,7 @@ const RGBDS_DIRECTIVES = new Set([
 
 const DIRECT_SEMANTIC_CALLS = new Set([
   "CallFunctionInTable",
+  "ExecuteCurMapScriptInTable",
   "DecodeRLEList",
   "Delay3",
   "DelayFrames",
@@ -225,15 +226,54 @@ function semanticCall(
   return null;
 }
 
+function projectTextCommandMacros(
+  files: ProjectRgbdsSourceFile[],
+): Set<string> {
+  const result = new Set<string>();
+  for (const file of files) {
+    const lines = file.contents.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const start = withoutComment(lines[index]).match(
+        /^MACRO\??\s+([A-Za-z_][A-Za-z0-9_#@.]*)\b/i,
+      );
+      if (!start) continue;
+
+      let emitsTextCommand = false;
+      for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+        const clean = withoutComment(lines[cursor]);
+        if (/^ENDM\b/i.test(clean)) {
+          index = cursor;
+          break;
+        }
+        if (/^db\s+TX_[A-Z0-9_]+\b/i.test(clean)) {
+          emitsTextCommand = true;
+        }
+      }
+      if (emitsTextCommand) result.add(start[1].toLowerCase());
+    }
+  }
+  return result;
+}
+
 function semanticMacroReason(
   name: string,
   eventMacros: Map<string, ProjectEventMacroSemantic>,
+  textCommandMacros: Set<string>,
 ): string | null {
   if (eventMacros.has(name.toLowerCase())) {
     return "Event behavior is derived from this project's macro definition.";
   }
   if (TEXT_SEMANTIC_MACROS.has(name.toLowerCase())) {
     return "Handled by the dialogue/text model.";
+  }
+  if (textCommandMacros.has(name.toLowerCase())) {
+    return "Project macro emits a text-engine command understood as part of the interaction language.";
+  }
+  if (/^(?:trainer|def_trainers)$/i.test(name)) {
+    return "Defines trainer interaction data already modeled by Yellow Editor.";
+  }
+  if (/^map_coord_movement$/i.test(name)) {
+    return "Defines coordinate-triggered movement data used by the movement model.";
   }
   if (/^def_script_pointers$/i.test(name)) {
     return "Defines the map script-state pointer table.";
@@ -310,6 +350,7 @@ export function buildScriptAudit(
   const eventMacros = new Map(
     eventMacroSemantics.map((semantic) => [semantic.name.toLowerCase(), semantic]),
   );
+  const textCommandMacros = projectTextCommandMacros(files);
   const labels = directGlobalLabels(files);
   const setterLabels = scriptSetterLabels(files);
   const objectWrappers = objectWrapperLabels(files);
@@ -412,7 +453,7 @@ export function buildScriptAudit(
 
       const macroCall = macroCalls.get(lineNumber);
       if (macroCall) {
-        const semanticReason = semanticMacroReason(macroCall.name, eventMacros);
+        const semanticReason = semanticMacroReason(macroCall.name, eventMacros, textCommandMacros);
         if (semanticReason) {
           addConstruct(
             constructs,
@@ -469,7 +510,7 @@ export function buildScriptAudit(
       }
 
       if (head && macroDefinitions.has(lowerHead)) {
-        const semanticReason = semanticMacroReason(head, eventMacros);
+        const semanticReason = semanticMacroReason(head, eventMacros, textCommandMacros);
         if (semanticReason) {
           addConstruct(
             constructs,
