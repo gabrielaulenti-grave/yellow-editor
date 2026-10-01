@@ -22,6 +22,11 @@ export interface ProjectConstantCatalog {
   warnings: string[];
 }
 
+export interface ProjectRgbdsSourceFile {
+  path: string;
+  contents: string;
+}
+
 interface PendingDefinition {
   symbol: string;
   expression: string;
@@ -227,9 +232,9 @@ function sourcePathEligible(path: string): boolean {
   return /\.(?:asm|inc)$/i.test(path);
 }
 
-async function readProjectSources(
+export async function readProjectRgbdsSources(
   source: ProjectSource,
-): Promise<Array<{ path: string; contents: string }>> {
+): Promise<ProjectRgbdsSourceFile[]> {
   if (!source.listFiles) {
     throw new Error(
       "This project source cannot enumerate RGBDS files for constant analysis.",
@@ -239,7 +244,7 @@ async function readProjectSources(
     .filter(sourcePathEligible)
     .sort((left, right) => left.localeCompare(right));
 
-  const result = new Array<{ path: string; contents: string }>(paths.length);
+  const result = new Array<ProjectRgbdsSourceFile>(paths.length);
   let nextIndex = 0;
   const workers = Array.from({ length: Math.min(12, paths.length) }, async () => {
     while (nextIndex < paths.length) {
@@ -257,10 +262,9 @@ async function readProjectSources(
   return result;
 }
 
-export async function loadProjectConstantCatalog(
-  source: ProjectSource,
-): Promise<ProjectConstantCatalog> {
-  const files = await readProjectSources(source);
+export function projectConstantCatalogFromSources(
+  files: ProjectRgbdsSourceFile[],
+): ProjectConstantCatalog {
   const symbols = new Map<string, number>();
   const constants = new Map<string, ProjectNumericConstant>();
   const groups: ProjectConstantGroup[] = [];
@@ -380,4 +384,12 @@ export async function loadProjectConstantCatalog(
     groups: groups.filter((group) => group.constants.length > 0),
     warnings,
   };
+}
+
+export async function loadProjectConstantCatalog(
+  source: ProjectSource,
+): Promise<ProjectConstantCatalog> {
+  return projectConstantCatalogFromSources(
+    await readProjectRgbdsSources(source),
+  );
 }
