@@ -14,6 +14,7 @@ import type {
   ProjectMovementExactValue,
   ProjectMovementRange,
   ProjectMovementVocabulary,
+  ProjectSpriteMovementStatus,
   ProjectSource,
 } from "./types";
 
@@ -970,6 +971,94 @@ function deriveMovementConsumers(
     );
 }
 
+function deriveSpriteMovementStatuses(
+  files: ProjectRgbdsSourceFile[],
+  catalog: ProjectConstantCatalog,
+): ProjectSpriteMovementStatus[] {
+  const symbols = new Map(
+    catalog.constants.map((constant) => [constant.symbol, constant.value]),
+  );
+  const result: ProjectSpriteMovementStatus[] = [];
+
+  for (const file of files) {
+    if (!/\.(?:asm|inc)$/i.test(file.path) || !/MovementStatus/i.test(file.contents)) {
+      continue;
+    }
+    const lines = file.contents.split(/\r?\n/);
+    let currentRoutine = "";
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const clean = lines[index].split(";", 1)[0].trim();
+      const label = clean.match(/^([A-Za-z_][A-Za-z0-9_]*):{1,2}$/)?.[1];
+      if (label) {
+        currentRoutine = label;
+        continue;
+      }
+      if (!currentRoutine) continue;
+
+      const compare = clean.match(/^cp\s+([^\s;]+)\s*$/i);
+      if (compare) {
+        const value = evaluateRgbdsExpression(compare[1], symbols);
+        if (value === null) continue;
+
+        let branch: string | null = null;
+        for (
+          let probe = index + 1;
+          probe < Math.min(lines.length, index + 4);
+          probe += 1
+        ) {
+          const next = lines[probe].split(";", 1)[0].trim();
+          if (!next) continue;
+          branch = next.match(/^(?:jp|jr)\s+z\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1] ?? null;
+          break;
+        }
+        if (!branch) continue;
+        result.push({
+          value,
+          routine: branch,
+          sourcePath: file.path,
+        });
+        continue;
+      }
+
+      if (/^and\s+a\s*$/i.test(clean)) {
+        let branch: string | null = null;
+        for (
+          let probe = index + 1;
+          probe < Math.min(lines.length, index + 4);
+          probe += 1
+        ) {
+          const next = lines[probe].split(";", 1)[0].trim();
+          if (!next) continue;
+          branch = next.match(/^(?:jp|jr)\s+z\s*,\s*([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1] ?? null;
+          break;
+        }
+        if (branch) {
+          result.push({
+            value: 0,
+            routine: branch,
+            sourcePath: file.path,
+          });
+        }
+      }
+    }
+  }
+
+  return result
+    .filter((entry, index, entries) =>
+      entries.findIndex((candidate) =>
+        candidate.value === entry.value
+        && candidate.routine === entry.routine
+        && candidate.sourcePath === entry.sourcePath
+      ) === index
+    )
+    .sort((left, right) =>
+      left.value - right.value
+      || left.routine.localeCompare(right.routine)
+      || left.sourcePath.localeCompare(right.sourcePath)
+    );
+}
+
 export async function loadProjectMovementVocabulary(
   source: ProjectSource,
   sourceFilesInput?: ProjectRgbdsSourceFile[] | Promise<ProjectRgbdsSourceFile[]>,
@@ -1029,6 +1118,7 @@ export async function loadProjectMovementVocabulary(
     joypadExactValues: deriveJoypadExactValues(files, projectExactValues),
     exactValues: projectExactValues,
     consumers: deriveMovementConsumers(files, catalog),
+    spriteStatuses: deriveSpriteMovementStatuses(files, catalog),
     warnings,
   };
 }
