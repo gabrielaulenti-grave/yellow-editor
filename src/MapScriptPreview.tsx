@@ -452,6 +452,20 @@ function textScriptInsightText(insight: TextScriptInsight): string {
       return insight.bubble
         ? `Show ${titleCaseConstant(insight.bubble)} emotion bubble`
         : "Show emotion bubble";
+    case "control":
+      return insight.action === "auto-advance-dialogue"
+        ? "Auto-advance the next dialogue without waiting for a button press"
+        : "Restore normal wait-for-button dialogue behavior";
+    case "facing":
+      return `Set the player's scripted direction to ${titleCaseConstant(insight.direction).replace(/^Player Dir /i, "")}`;
+    case "battle-dialogue": {
+      const labels = [insight.playerWins, insight.playerLoses]
+        .filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index)
+        .map(titleCaseConstant);
+      return labels.length > 0
+        ? `Prepare battle-result dialogue: ${labels.join(" / ")}`
+        : "Prepare battle-result dialogue";
+    }
   }
 }
 
