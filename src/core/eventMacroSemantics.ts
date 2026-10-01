@@ -52,6 +52,10 @@ function semanticFromBody(
   let action: ProjectEventMacroAction | null = null;
   let zeroMeaning: ProjectEventZeroMeaning | undefined;
 
+  if (eventParameterIndexes.length > 1 && !multiMask) {
+    return null;
+  }
+
   if (eventParameterIndexes.length >= 2 && multiMask) {
     action = comparesMask ? "check-all" : "check-any";
     zeroMeaning = comparesMask ? "all-set" : "none-set";
