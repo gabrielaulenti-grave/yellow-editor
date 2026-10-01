@@ -47,6 +47,7 @@ export type MapScriptSemanticNode =
       pathLabel?: string;
       path: MapMovementStep[];
       alternatives: MapScriptMovementAlternative[];
+      guards?: string[];
       dynamic: boolean;
     })
   | (BaseNode & {
@@ -662,11 +663,15 @@ function nodesForSection(
         pathLabel: single?.pathLabel,
         path: single?.path ?? [],
         alternatives,
+        guards: customMovementConsumer.guards,
         dynamic: alternatives.length === 0
-          || alternatives.some((alternative) => alternative.path.length === 0),
-        description: alternatives.length > 1
-          ? "The selected project-defined movement path depends on earlier script conditions."
-          : "This movement vocabulary was derived from the loaded project.",
+          || alternatives.some((alternative) => alternative.path.length === 0)
+          || customMovementConsumer.guards.length > 0,
+        description: customMovementConsumer.guards.length > 0
+          ? "This project-defined movement only runs when its wrapper guard conditions are satisfied."
+          : alternatives.length > 1
+            ? "The selected project-defined movement path depends on earlier script conditions."
+            : "This movement vocabulary was derived from the loaded project.",
         source: sourceSpan(
           section,
           lines,
