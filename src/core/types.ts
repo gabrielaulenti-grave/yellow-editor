@@ -131,11 +131,31 @@ export interface ProjectMovementExactValue {
   sourcePath: string;
 }
 
+export type ProjectMovementCommandAction = "move" | "look" | "delay" | "end";
+
+export interface ProjectMovementCommandValue {
+  value: number;
+  symbol: string;
+  family: string;
+  action: ProjectMovementCommandAction;
+  direction?: ProjectMovementDirection;
+  sourcePath: string;
+}
+
+export interface ProjectMovementConsumer {
+  routine: string;
+  register: "hl" | "de";
+  family: string;
+  commands: ProjectMovementCommandValue[];
+  sourcePaths: string[];
+}
+
 export interface ProjectMovementVocabulary {
   npcRanges: ProjectMovementRange[];
   npcExactValues: ProjectMovementExactValue[];
   joypadExactValues: ProjectMovementExactValue[];
   exactValues: ProjectMovementExactValue[];
+  consumers: ProjectMovementConsumer[];
   warnings: string[];
 }
 
