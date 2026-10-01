@@ -42,6 +42,7 @@ import {
 } from "./scriptMacroEditing";
 import { loadProjectSemanticDomains } from "./semanticDomains";
 import { loadProjectMovementVocabulary } from "./movementVocabulary";
+import { readProjectRgbdsSources } from "./projectConstants";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -190,6 +191,7 @@ export async function createProjectSession(
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
   let mapIndexPromise: ReturnType<typeof parseMapIndex> | null = null;
   let scriptCatalogPromise: ReturnType<typeof loadScriptCatalog> | null = null;
+  let rgbdsSourceFilesPromise: ReturnType<typeof readProjectRgbdsSources> | null = null;
   let movementVocabularyPromise: ReturnType<typeof loadProjectMovementVocabulary> | null = null;
   let semanticDomainCatalogPromise: ReturnType<typeof loadProjectSemanticDomains> | null = null;
   let macroAnalysisPromise: ReturnType<typeof loadMacroAnalysis> | null = null;
@@ -344,9 +346,22 @@ export async function createProjectSession(
     return scriptCatalogPromise;
   }
 
+  function getRgbdsSourceFiles() {
+    if (!rgbdsSourceFilesPromise) {
+      rgbdsSourceFilesPromise = readProjectRgbdsSources(source).catch((error) => {
+        rgbdsSourceFilesPromise = null;
+        throw error;
+      });
+    }
+    return rgbdsSourceFilesPromise;
+  }
+
   function getMovementVocabulary() {
     if (!movementVocabularyPromise) {
-      movementVocabularyPromise = loadProjectMovementVocabulary(source).catch((error) => {
+      movementVocabularyPromise = loadProjectMovementVocabulary(
+        source,
+        getRgbdsSourceFiles(),
+      ).catch((error) => {
         movementVocabularyPromise = null;
         throw error;
       });
@@ -377,6 +392,7 @@ export async function createProjectSession(
       macroAnalysisPromise = loadMacroAnalysis(
         source,
         getSemanticDomainCatalog(),
+        getRgbdsSourceFiles(),
       ).catch((error) => {
         macroAnalysisPromise = null;
         throw error;
@@ -392,6 +408,7 @@ export async function createProjectSession(
 
   function resetScriptSourceAnalysis(): void {
     resetMacroAnalysis();
+    rgbdsSourceFilesPromise = null;
     movementVocabularyPromise = null;
   }
 
