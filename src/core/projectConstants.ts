@@ -25,6 +25,7 @@ export interface ProjectConstantCatalog {
 export interface ProjectRgbdsSourceFile {
   path: string;
   contents: string;
+  readError?: string;
 }
 
 interface PendingDefinition {
@@ -253,8 +254,12 @@ export async function readProjectRgbdsSources(
       const path = paths[index];
       try {
         result[index] = { path, contents: await source.readText(path) };
-      } catch {
-        result[index] = { path, contents: "" };
+      } catch (error) {
+        result[index] = {
+          path,
+          contents: "",
+          readError: String(error),
+        };
       }
     }
   });
@@ -269,7 +274,9 @@ export function projectConstantCatalogFromSources(
   const constants = new Map<string, ProjectNumericConstant>();
   const groups: ProjectConstantGroup[] = [];
   const pending: PendingDefinition[] = [];
-  const warnings: string[] = [];
+  const warnings = files
+    .filter((file) => file.readError)
+    .map((file) => `Could not inspect ${file.path}: ${file.readError}`);
 
   for (const file of files) {
     const lines = file.contents.split(/\r?\n/);
