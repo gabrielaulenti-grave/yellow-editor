@@ -113,8 +113,11 @@ function projectNumericMeaning(
     if (range) return { direction: range.direction };
   }
 
+  const exactSource = mode === "joypad"
+    ? vocabulary.joypadExactValues
+    : vocabulary.exactValues;
   const exactDirections = [...new Set(
-    vocabulary.exactValues
+    exactSource
       .filter((entry) => entry.value === value && entry.direction)
       .map((entry) => entry.direction),
   )];
