@@ -10,6 +10,7 @@ export type MapScriptCondition =
       type: "event-state";
       event: string;
       state: "set" | "clear";
+      afterCheck?: "set" | "reset";
     }
   | {
       type: "battle-result";
@@ -189,6 +190,11 @@ function eventCondition(
             type: "event-state",
             event: events[0],
             state: branch.flag === "z" ? "clear" : "set",
+            afterCheck: semantic.action === "check-set"
+              ? "set"
+              : semantic.action === "check-reset"
+                ? "reset"
+                : undefined,
           },
           branch,
         };
