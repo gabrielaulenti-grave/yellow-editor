@@ -52,6 +52,20 @@ export type TextScriptInsight =
   | {
       type: "emotion";
       bubble?: string;
+    }
+  | {
+      type: "control";
+      action: "auto-advance-dialogue" | "normal-dialogue-wait";
+    }
+  | {
+      type: "facing";
+      actor: "player";
+      direction: string;
+    }
+  | {
+      type: "battle-dialogue";
+      playerWins?: string;
+      playerLoses?: string;
     };
 
 interface SourceSection {
@@ -85,7 +99,7 @@ function sourceSections(contents: string): Map<string, SourceSection> {
 function recentRegisterValue(
   lines: string[],
   beforeIndex: number,
-  register: "a" | "c" | "hl",
+  register: "a" | "c" | "hl" | "de",
   maxBack = 8,
 ): string | null {
   const pattern = new RegExp(
@@ -163,6 +177,23 @@ function trainerHelperLabels(
   return result;
 }
 
+function printWrapperLabels(
+  sections: Map<string, SourceSection>,
+): Set<string> {
+  const result = new Set<string>();
+  for (const section of sections.values()) {
+    const clean = section.lines.map(withoutComment);
+    const hasTextPointer = clean.some((line) =>
+      /^ld\s+hl\s*,\s*[A-Za-z_.][A-Za-z0-9_.]*\b/i.test(line)
+    );
+    const prints = clean.some((line) =>
+      /^(?:call|jp)\s+PrintText\b/i.test(line)
+    );
+    if (hasTextPointer && prints) result.add(section.label);
+  }
+  return result;
+}
+
 function branchDescription(
   semantic: ProjectEventMacroSemantic,
   events: string[],
@@ -200,6 +231,7 @@ export function analyzeTextScript(
   const setters = setterLabels(sections);
   const objectWrappers = objectWrapperActions(sections);
   const trainerHelpers = trainerHelperLabels(sections);
+  const printWrappers = printWrapperLabels(sections);
   const eventMacros = new Map(
     eventMacroSemantics.map((semantic) => [
       semantic.name.toLowerCase(),
@@ -224,6 +256,38 @@ export function analyzeTextScript(
     if (/^call\s+PrintText\b/i.test(clean)) {
       const textLabel = recentRegisterValue(lines, index, "hl");
       if (textLabel) insights.push({ type: "dialogue", label: textLabel });
+      continue;
+    }
+
+    if (/^call\s+SaveEndBattleTextPointers\b/i.test(clean)) {
+      insights.push({
+        type: "battle-dialogue",
+        playerWins: recentRegisterValue(lines, index, "hl") ?? undefined,
+        playerLoses: recentRegisterValue(lines, index, "de") ?? undefined,
+      });
+      continue;
+    }
+
+    if (/^ld\s+\[wDoNotWaitForButtonPressAfterDisplayingText\]\s*,\s*a\s*$/i.test(clean)) {
+      const value = recentRegisterValue(lines, index, "a");
+      insights.push({
+        type: "control",
+        action: value === "0"
+          ? "normal-dialogue-wait"
+          : "auto-advance-dialogue",
+      });
+      continue;
+    }
+
+    if (/^ld\s+\[wPlayerMovingDirection\]\s*,\s*a\s*$/i.test(clean)) {
+      const direction = recentRegisterValue(lines, index, "a");
+      if (direction) {
+        insights.push({
+          type: "facing",
+          actor: "player",
+          direction,
+        });
+      }
       continue;
     }
 
@@ -315,6 +379,10 @@ export function analyzeTextScript(
     }
 
     const call = clean.match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1];
+    if (call && printWrappers.has(call)) {
+      insights.push({ type: "dialogue", label: call });
+      continue;
+    }
     if (call && objectWrappers.has(call)) {
       insights.push({
         type: "object",
