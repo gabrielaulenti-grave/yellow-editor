@@ -291,6 +291,32 @@ function movementSource(
     : globalMovementSource(sections, label);
 }
 
+function objectWrapperActions(
+  sections: Map<string, LabelSection>,
+): Map<string, "show" | "hide"> {
+  const result = new Map<string, "show" | "hide">();
+  for (const section of sections.values()) {
+    const lines = section.source.split(/\r?\n/).map(withoutComment);
+    const storeIndex = lines.findIndex((line) =>
+      /^ld\s+\[wToggleableObjectIndex\]\s*,\s*a\b/i.test(line)
+    );
+    if (storeIndex < 0) continue;
+
+    const actionLine = lines.slice(storeIndex + 1, storeIndex + 5)
+      .find((line) => /^predef\s+(?:ShowObject|HideObject)\b/i.test(line));
+    const action = actionLine?.match(/^predef\s+(ShowObject|HideObject)\b/i)?.[1];
+    if (!action) continue;
+
+    const overwritesA = lines.slice(1, storeIndex).some((line) =>
+      /^ld\s+a\s*,/i.test(line) || /^xor\s+a\b/i.test(line)
+    );
+    if (overwritesA) continue;
+
+    result.set(section.label, action.toLowerCase().startsWith("show") ? "show" : "hide");
+  }
+  return result;
+}
+
 function scriptStateSetterLabels(
   sections: Map<string, LabelSection>,
 ): Set<string> {
@@ -785,6 +811,24 @@ function nodesForSection(
       continue;
     }
 
+    const objectWrapperCall = clean.match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1];
+    const objectWrapperAction = objectWrapperCall
+      ? objectWrappers.get(objectWrapperCall)
+      : undefined;
+    if (objectWrapperCall && objectWrapperAction) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:${objectWrapperAction}-object-wrapper`,
+        type: "object",
+        kind: "object",
+        title: `${objectWrapperAction === "show" ? "Show" : "Hide"} character or object`,
+        action: objectWrapperAction,
+        object: recentRegisterValue(lines, index, "a", 6) ?? undefined,
+        description: `This action is performed through project helper ${objectWrapperCall}.`,
+        source: sourceSpan(section, lines, index, index, "inferred"),
+      });
+      continue;
+    }
+
     const objectAction = clean.match(/^predef\s+(ShowObject|HideObject)\b/i)?.[1];
     if (objectAction) {
       const action = objectAction.toLowerCase().startsWith("show") ? "show" : "hide";
@@ -839,6 +883,7 @@ export function parseMapScriptProgram(
   const labels = new Set<string>(pointerLabels);
   if (focusLabel && sections.has(focusLabel)) labels.add(focusLabel);
   const setterLabels = scriptStateSetterLabels(sections);
+  const objectWrappers = objectWrapperActions(sections);
 
   const states: MapScriptState[] = [...labels].map((label) => {
     const section = sections.get(label);
@@ -874,7 +919,9 @@ export function parseMapScriptProgram(
       nodes: nodesForSection(
         section,
         sections,
+        pointers,
         transitions,
+        objectWrappers,
         movementVocabulary,
       ),
       transitions,
