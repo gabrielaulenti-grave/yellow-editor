@@ -428,7 +428,7 @@ export async function createProjectSession(
     if (!/^scripts\/.+\.asm$/i.test(path)) {
       throw new Error(`Unsupported script path: ${path}`);
     }
-    resetMacroAnalysis();
+    resetScriptSourceAnalysis();
     const [sourceText, analysis] = await Promise.all([
       source.readText(path),
       getMacroAnalysis(),
@@ -446,7 +446,7 @@ export async function createProjectSession(
     if (!/^scripts\/.+\.asm$/i.test(path)) {
       throw new Error(`Unsupported script path: ${path}`);
     }
-    resetMacroAnalysis();
+    resetScriptSourceAnalysis();
     const [sourceText, analysis] = await Promise.all([
       source.readText(path),
       getMacroAnalysis(),
