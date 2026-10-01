@@ -97,7 +97,7 @@ function mergeAlternatives(
 export function movementLabelAlternativesAtCall(
   source: string,
   callIndex: number,
-  register: "de" = "de",
+  register: "de" | "hl" = "de",
 ): MovementLabelAlternative[] {
   const lines = source.split(/\r?\n/);
   if (callIndex <= 0 || callIndex >= lines.length) return [];
@@ -236,6 +236,24 @@ export function movementLabelAlternativesAtCall(
         playerMovementLabel: state.de,
         playerMovementValues: [],
         comparison: null,
+      }));
+      continue;
+    }
+
+    if (/^and\s+a\b/i.test(clean)) {
+      queue.push(next({
+        comparison: state.a
+          ? { left: state.a, right: "0" }
+          : null,
+      }));
+      continue;
+    }
+
+    if (/^and\s+a\b/i.test(clean)) {
+      queue.push(next({
+        comparison: state.a
+          ? { left: state.a, right: "0" }
+          : null,
       }));
       continue;
     }
