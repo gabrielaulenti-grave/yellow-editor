@@ -210,6 +210,21 @@ function nestedMutationSemantic(
 }
 
 
+export function eventArgumentsForSemantic(
+  semantic: ProjectEventMacroSemantic,
+  arguments_: string[],
+): string[] {
+  if (semantic.action === "set-many" || semantic.action === "reset-many") {
+    return arguments_
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  return semantic.eventParameterIndexes
+    .map((parameter) => arguments_[parameter - 1]?.trim())
+    .filter((value): value is string => Boolean(value));
+}
+
 export function deriveProjectEventMacroSemantics(
   files: ProjectRgbdsSourceFile[],
 ): ProjectEventMacroSemantic[] {
