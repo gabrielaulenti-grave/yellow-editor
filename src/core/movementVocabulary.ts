@@ -1,3 +1,4 @@
+import { movementLabelAlternativesAtCall } from "./mapScriptMovementAnalysis";
 import {
   evaluateRgbdsExpression,
   projectConstantCatalogFromSources,
@@ -7,6 +8,8 @@ import {
   type ProjectRgbdsSourceFile,
 } from "./projectConstants";
 import type {
+  ProjectMovementCommandValue,
+  ProjectMovementConsumer,
   ProjectMovementDirection,
   ProjectMovementExactValue,
   ProjectMovementRange,
@@ -33,6 +36,171 @@ function isChangeFacingSymbol(symbol: string): boolean {
   const upper = symbol.toUpperCase();
   return /(?:^|_)CHANGE(?:_|$)/.test(upper)
     && /(?:^|_)(?:FACING|FACE)(?:_|$)/.test(upper);
+}
+
+function movementCommandCandidate(
+  constant: ProjectConstantCatalog["constants"][number],
+): ProjectMovementCommandValue | null {
+  const upper = constant.symbol.toUpperCase();
+  const direction = directionFromSymbol(constant.symbol);
+
+  const directional = upper.match(
+    /^(.*)_(STEP|MOVE|WALK|SLIDE|HOP|LOOK|FACE|FACING|TURN)_(UP|DOWN|LEFT|RIGHT|NORTH|SOUTH|EAST|WEST)$/,
+  );
+  if (directional && direction) {
+    return {
+      value: constant.value,
+      symbol: constant.symbol,
+      family: directional[1].replace(/_+$/, ""),
+      action: /^(LOOK|FACE|FACING|TURN)$/.test(directional[2]) ? "look" : "move",
+      direction,
+      sourcePath: constant.sourcePath,
+    };
+  }
+
+  const terminal = upper.match(/^(.*)_(DELAY|WAIT|PAUSE|END|STOP|DONE|TERMINATOR)$/);
+  if (terminal) {
+    return {
+      value: constant.value,
+      symbol: constant.symbol,
+      family: terminal[1].replace(/_+$/, ""),
+      action: /^(DELAY|WAIT|PAUSE)$/.test(terminal[2]) ? "delay" : "end",
+      sourcePath: constant.sourcePath,
+    };
+  }
+
+  return null;
+}
+
+function dataTokensFromSection(lines: string[], startIndex = 1): string[] {
+  const tokens: string[] = [];
+  let sawData = false;
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const clean = lines[index].split(";", 1)[0].trim();
+    if (!clean) continue;
+    if (/^\.[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(clean)) {
+      if (sawData) continue;
+      continue;
+    }
+    const data = clean.match(/^db\s+([^,\s]+)/i);
+    if (data) {
+      sawData = true;
+      tokens.push(data[1]);
+      continue;
+    }
+    if (sawData) break;
+  }
+  return tokens;
+}
+
+function referencedDataTokens(
+  owner: SourceSection,
+  sections: Map<string, SourceSection>,
+  label: string,
+): string[] {
+  if (!label.startsWith(".")) {
+    const section = sections.get(label);
+    return section ? dataTokensFromSection(section.lines) : [];
+  }
+
+  const index = owner.lines.findIndex((line) =>
+    line.match(/^\s*(\.[A-Za-z_][A-Za-z0-9_.]*):{0,2}\s*(?:;.*)?$/)?.[1] === label
+  );
+  return index < 0 ? [] : dataTokensFromSection(owner.lines, index + 1);
+}
+
+function deriveMovementConsumers(
+  files: ProjectRgbdsSourceFile[],
+  catalog: ProjectConstantCatalog,
+): ProjectMovementConsumer[] {
+  const commandsBySymbol = new Map(
+    catalog.constants
+      .map(movementCommandCandidate)
+      .filter((entry): entry is ProjectMovementCommandValue => Boolean(entry))
+      .map((entry) => [entry.symbol, entry]),
+  );
+
+  interface Candidate {
+    routine: string;
+    register: "hl" | "de";
+    family: string;
+    commands: Map<string, ProjectMovementCommandValue>;
+    sourcePaths: Set<string>;
+    uses: number;
+  }
+
+  const candidates = new Map<string, Candidate>();
+
+  for (const file of files.filter((entry) => /^scripts\/.+\.asm$/i.test(entry.path))) {
+    const sectionList = globalSections(file);
+    const sections = new Map(sectionList.map((section) => [section.label, section]));
+
+    for (const owner of sectionList) {
+      const source = owner.lines.join("\n");
+      owner.lines.forEach((sourceLine, callIndex) => {
+        const routine = sourceLine.split(";", 1)[0].trim()
+          .match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1];
+        if (!routine) return;
+
+        for (const register of ["hl", "de"] as const) {
+          const alternatives = movementLabelAlternativesAtCall(
+            source,
+            callIndex,
+            register,
+          );
+          for (const alternative of alternatives) {
+            const tokens = referencedDataTokens(owner, sections, alternative.label);
+            if (tokens.length < 2) continue;
+
+            const commands = tokens
+              .map((token) => commandsBySymbol.get(token) ?? null);
+            if (commands.some((command) => !command)) continue;
+            const typed = commands as ProjectMovementCommandValue[];
+            const families = [...new Set(typed.map((command) => command.family))];
+            if (families.length !== 1) continue;
+            if (!typed.some((command) => command.action === "end")) continue;
+            if (!typed.some((command) =>
+              command.action === "move"
+              || command.action === "look"
+              || command.action === "delay"
+            )) continue;
+
+            const family = families[0];
+            const key = `${routine}\u0000${register}\u0000${family}`;
+            const candidate = candidates.get(key) ?? {
+              routine,
+              register,
+              family,
+              commands: new Map<string, ProjectMovementCommandValue>(),
+              sourcePaths: new Set<string>(),
+              uses: 0,
+            };
+            typed.forEach((command) => candidate.commands.set(command.symbol, command));
+            candidate.sourcePaths.add(file.path);
+            candidate.uses += 1;
+            candidates.set(key, candidate);
+          }
+        }
+      });
+    }
+  }
+
+  return [...candidates.values()]
+    .filter((candidate) => candidate.uses > 0)
+    .map((candidate) => ({
+      routine: candidate.routine,
+      register: candidate.register,
+      family: candidate.family,
+      commands: [...candidate.commands.values()].sort(
+        (left, right) => left.value - right.value || left.symbol.localeCompare(right.symbol),
+      ),
+      sourcePaths: [...candidate.sourcePaths].sort(),
+    }))
+    .sort((left, right) =>
+      left.routine.localeCompare(right.routine)
+      || left.register.localeCompare(right.register)
+      || left.family.localeCompare(right.family)
+    );
 }
 
 function movementGroupDirections(group: ProjectConstantGroup) {
@@ -406,6 +574,7 @@ export async function loadProjectMovementVocabulary(
     npcExactValues: deriveNpcExactValues(files, catalog),
     joypadExactValues: deriveJoypadExactValues(files, projectExactValues),
     exactValues: projectExactValues,
+    consumers: deriveMovementConsumers(files, catalog),
     warnings,
   };
 }
