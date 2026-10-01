@@ -651,7 +651,13 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
                 <code>{state.scriptConstant ?? state.label}</code>
               </summary>
               <div className="map-script-state-body">
-                {flow.length === 0 ? (
+                {state.external ? (
+                  <p className="empty-state">
+                    This state points to a shared project routine outside this map script.
+                    Yellow Editor keeps it in the state machine instead of dropping the entry,
+                    but does not invent local source for it.
+                  </p>
+                ) : flow.length === 0 ? (
                   <p className="empty-state">No semantic operations are recognized in this state yet. The original source remains available below.</p>
                 ) : (
                   <FlowList
