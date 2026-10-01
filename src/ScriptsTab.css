@@ -1,3 +1,107 @@
+
+.script-audit-panel {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.9rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 0.75rem;
+  background: var(--panel-bg, rgba(127, 127, 127, 0.04));
+}
+
+.script-audit-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.script-audit-heading h3,
+.script-audit-heading p {
+  margin-top: 0;
+}
+
+.script-audit-heading h3 {
+  margin-bottom: 0.25rem;
+}
+
+.script-audit-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.55rem;
+}
+
+.script-audit-metrics > div {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.24));
+  border-radius: 0.55rem;
+}
+
+.script-audit-metrics strong {
+  font-size: 1.1rem;
+}
+
+.script-audit-metrics small {
+  opacity: 0.7;
+}
+
+.script-audit-details {
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-color, rgba(127, 127, 127, 0.24));
+}
+
+.script-audit-details > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.script-audit-details ul {
+  margin: 0.55rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.script-audit-construct-list {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+  max-height: 18rem;
+  overflow: auto;
+}
+
+.script-audit-construct-list button {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.24));
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.script-audit-construct-list button:hover {
+  background: rgba(127, 127, 127, 0.08);
+}
+
+.script-audit-construct-list button > span {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.script-audit-construct-list small {
+  opacity: 0.68;
+}
+
+.script-audit-construct-list code {
+  max-width: 45%;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
 .script-browser {
   display: grid;
   grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr);
@@ -380,5 +484,17 @@
   .script-macro-edit-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 720px) {
+  .script-audit-heading,
+  .script-audit-construct-list button {
+    flex-direction: column;
+  }
+
+  .script-audit-construct-list code {
+    max-width: none;
+    text-align: left;
   }
 }
