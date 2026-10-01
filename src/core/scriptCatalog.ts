@@ -140,7 +140,8 @@ function routineCategory(
   const dispatcherLabel = `${groupStem(path)}_Script`;
   if (
     label === dispatcherLabel
-    || (/CallFunctionInTable/i.test(source) && /ScriptPointers/i.test(source))
+    || (/(?:CallFunctionInTable|ExecuteCurMapScriptInTable)/i.test(source)
+      && /ScriptPointers/i.test(source))
   ) {
     return "dispatcher";
   }
