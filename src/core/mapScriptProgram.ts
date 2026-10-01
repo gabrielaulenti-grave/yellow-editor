@@ -60,7 +60,7 @@ export type MapScriptSemanticNode =
     })
   | (BaseNode & {
       type: "event";
-      action: "check" | "set" | "reset";
+      action: "check" | "check-set" | "check-reset" | "set" | "reset";
       event: string;
     })
   | (BaseNode & {
@@ -469,21 +469,54 @@ function nodesForSection(
       }
     }
 
-    const event = clean.match(/^(CheckEvent|SetEvent|ResetEvent)\s+([A-Z][A-Z0-9_]*)\b/i);
+    const event = clean.match(
+      /^([A-Za-z_][A-Za-z0-9_]*Event[A-Za-z0-9_]*)\s+(EVENT_[A-Z0-9_]+)\b/i,
+    );
     if (event) {
-      const action = event[1].toLowerCase().startsWith("check")
-        ? "check"
-        : event[1].toLowerCase().startsWith("set") ? "set" : "reset";
-      nodes.push({
-        id: `${section.label}:${absoluteLine}:${action}-event`,
-        type: "event",
-        kind: action === "check" ? "condition" : "event",
-        title: action === "check" ? "Check event" : action === "set" ? "Remember that this happened" : "Clear event state",
-        action,
-        event: event[2],
-        source: sourceSpan(section, lines, index),
-      });
-      continue;
+      const macro = event[1].toLowerCase();
+      const action = macro.startsWith("checkandsetevent")
+        ? "check-set"
+        : macro.startsWith("checkandresetevent")
+          ? "check-reset"
+          : macro.startsWith("checkevent")
+            ? "check"
+            : macro.startsWith("setevent")
+              ? "set"
+              : macro.startsWith("resetevent")
+                ? "reset"
+                : null;
+      if (action) {
+        const checking = action === "check"
+          || action === "check-set"
+          || action === "check-reset";
+        const title = action === "check-set"
+          ? "Check event and remember it"
+          : action === "check-reset"
+            ? "Check event and clear it"
+            : action === "check"
+              ? "Check event"
+              : action === "set"
+                ? "Remember that this happened"
+                : "Clear event state";
+        nodes.push({
+          id: `${section.label}:${absoluteLine}:${action}-event`,
+          type: "event",
+          kind: checking ? "condition" : "event",
+          title,
+          action,
+          event: event[2],
+          source: sourceSpan(
+            section,
+            lines,
+            index,
+            index,
+            /^(?:CheckEvent|SetEvent|ResetEvent)$/i.test(event[1])
+              ? "exact"
+              : "inferred",
+          ),
+        });
+        continue;
+      }
     }
 
     if (/^call\s+StartSimulatingJoypadStates\b/i.test(clean)) {
