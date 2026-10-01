@@ -193,6 +193,9 @@ export function analyzeTextScript(
   const sections = sourceSections(contents);
   const section = sections.get(label);
   if (!section) return [];
+  if (!section.lines.some((line) => /^\s*text_asm\b/i.test(withoutComment(line)))) {
+    return [];
+  }
 
   const setters = setterLabels(sections);
   const objectWrappers = objectWrapperActions(sections);
