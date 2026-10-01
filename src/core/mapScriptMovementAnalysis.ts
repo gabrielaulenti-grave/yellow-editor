@@ -170,7 +170,7 @@ export function movementLabelAlternativesAtCall(
 
     const loadDe = clean.match(new RegExp(`^ld\\s+${register}\\s*,\\s*([A-Za-z_.][A-Za-z0-9_.]*)\\b`, "i"));
     if (loadDe) {
-      queue.push(next({ de: operandValue(loadDe[1]), comparison: null }));
+      queue.push(next({ de: operandValue(loadDe[1]) }));
       continue;
     }
 
@@ -179,7 +179,6 @@ export function movementLabelAlternativesAtCall(
       queue.push(next({
         hl: operandValue(loadHl[1]),
         joypadPointerIndex: loadHl[1] === "wSimulatedJoypadStatesEnd" ? 0 : null,
-        comparison: null,
       }));
       continue;
     }
@@ -188,7 +187,6 @@ export function movementLabelAlternativesAtCall(
     if (loadAFromVariable) {
       queue.push(next({
         a: operandValue(loadAFromVariable[1]),
-        comparison: null,
       }));
       continue;
     }
@@ -197,7 +195,6 @@ export function movementLabelAlternativesAtCall(
     if (loadAImmediate) {
       queue.push(next({
         a: operandValue(loadAImmediate[1]),
-        comparison: null,
       }));
       continue;
     }
@@ -212,7 +209,6 @@ export function movementLabelAlternativesAtCall(
       queue.push(next({
         playerMovementLabel: null,
         playerMovementValues: values,
-        comparison: null,
       }));
       continue;
     }
@@ -226,7 +222,6 @@ export function movementLabelAlternativesAtCall(
         playerMovementLabel: null,
         playerMovementValues: values,
         joypadPointerIndex: state.joypadPointerIndex + 1,
-        comparison: null,
       }));
       continue;
     }
@@ -236,15 +231,6 @@ export function movementLabelAlternativesAtCall(
         playerMovementLabel: state.de,
         playerMovementValues: [],
         comparison: null,
-      }));
-      continue;
-    }
-
-    if (/^and\s+a\b/i.test(clean)) {
-      queue.push(next({
-        comparison: state.a
-          ? { left: state.a, right: "0" }
-          : null,
       }));
       continue;
     }
@@ -301,7 +287,7 @@ export function movementLabelAlternativesAtCall(
     if (jump) {
       const target = targetIndex(labels, jump[1]);
       if (target === null || target <= state.pc) continue;
-      queue.push(next({ pc: target, comparison: null }));
+      queue.push(next({ pc: target }));
       continue;
     }
 
@@ -397,7 +383,7 @@ export function playerMovementAlternativesAtCall(
 
     const loadDe = clean.match(/^ld\s+de\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
     if (loadDe) {
-      queue.push(next({ de: operandValue(loadDe[1]), comparison: null }));
+      queue.push(next({ de: operandValue(loadDe[1]) }));
       continue;
     }
 
@@ -406,7 +392,6 @@ export function playerMovementAlternativesAtCall(
       queue.push(next({
         hl: operandValue(loadHl[1]),
         joypadPointerIndex: loadHl[1] === "wSimulatedJoypadStatesEnd" ? 0 : null,
-        comparison: null,
       }));
       continue;
     }
@@ -433,7 +418,6 @@ export function playerMovementAlternativesAtCall(
       queue.push(next({
         playerMovementLabel: null,
         playerMovementValues: values,
-        comparison: null,
       }));
       continue;
     }
@@ -447,7 +431,6 @@ export function playerMovementAlternativesAtCall(
         playerMovementLabel: null,
         playerMovementValues: values,
         joypadPointerIndex: state.joypadPointerIndex + 1,
-        comparison: null,
       }));
       continue;
     }
@@ -457,6 +440,15 @@ export function playerMovementAlternativesAtCall(
         playerMovementLabel: state.de,
         playerMovementValues: [],
         comparison: null,
+      }));
+      continue;
+    }
+
+    if (/^and\s+a\b/i.test(clean)) {
+      queue.push(next({
+        comparison: state.a
+          ? { left: state.a, right: "0" }
+          : null,
       }));
       continue;
     }
@@ -503,7 +495,7 @@ export function playerMovementAlternativesAtCall(
     if (jump) {
       const target = targetIndex(labels, jump[1]);
       if (target === null || target <= state.pc) continue;
-      queue.push(next({ pc: target, comparison: null }));
+      queue.push(next({ pc: target }));
       continue;
     }
 
