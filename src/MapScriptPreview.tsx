@@ -34,6 +34,7 @@ import {
   analyzeTextScript,
   type TextScriptInsight,
 } from "./core/textScriptAnalysis";
+import { analyzeSharedScriptRoutine } from "./core/sharedScriptAnalysis";
 import "./MapScriptPreview.css";
 
 export interface MapScriptPreviewReference {
@@ -912,6 +913,19 @@ export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
                         <p>
                           Resolved project source: <code>{externalRoutine.path}:{externalRoutine.startLine}</code>
                         </p>
+                        {(() => {
+                          const insights = analyzeSharedScriptRoutine(externalRoutine.source);
+                          return insights.length > 0 ? (
+                            <ol className="map-script-dialogue-logic">
+                              {insights.map((insight, index) => (
+                                <li key={`${index}:${insight.title}`}>
+                                  <strong>{insight.title}</strong>
+                                  {insight.detail ? <> — {insight.detail}</> : null}
+                                </li>
+                              ))}
+                            </ol>
+                          ) : null;
+                        })()}
                         <details className="map-script-source-detail">
                           <summary>View shared routine source</summary>
                           <pre className="trainer-script-source"><code>{externalRoutine.source}</code></pre>
