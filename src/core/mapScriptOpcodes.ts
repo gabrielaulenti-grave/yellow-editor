@@ -272,7 +272,9 @@ export function renderMovementStep(step: MapMovementStep): string {
           ? "Slide "
           : step.style === "walk"
             ? "Walk "
-            : ""}${arrows[step.direction]}`
+            : step.style === "step"
+              ? "Step "
+              : ""}${arrows[step.direction]}`
     : null;
   const base = step.operation === "delay"
     ? "Pause"
