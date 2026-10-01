@@ -113,10 +113,35 @@ export interface ScriptCatalog {
   routineCount: number;
 }
 
+export type ProjectMovementDirection = "up" | "down" | "left" | "right";
+
+export interface ProjectMovementRange {
+  minimum: number;
+  maximumExclusive: number | null;
+  symbol: string;
+  direction: ProjectMovementDirection;
+  sourcePath: string;
+}
+
+export interface ProjectMovementExactValue {
+  value: number;
+  symbol: string;
+  direction?: ProjectMovementDirection;
+  operation?: "change-facing";
+  sourcePath: string;
+}
+
+export interface ProjectMovementVocabulary {
+  npcRanges: ProjectMovementRange[];
+  exactValues: ProjectMovementExactValue[];
+  warnings: string[];
+}
+
 export interface ScriptDocument {
   path: string;
   source: string;
   routines: ScriptRoutineSummary[];
+  movementVocabulary?: ProjectMovementVocabulary;
 }
 
 export type MacroParameterKind =
