@@ -113,7 +113,15 @@ export interface ScriptCatalog {
   routineCount: number;
 }
 
-export type ProjectMovementDirection = "up" | "down" | "left" | "right";
+export type ProjectMovementDirection =
+  | "up"
+  | "down"
+  | "left"
+  | "right"
+  | "up-left"
+  | "up-right"
+  | "down-left"
+  | "down-right";
 
 export interface ProjectMovementRange {
   minimum: number;
