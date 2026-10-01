@@ -96,6 +96,15 @@ function projectNumericMeaning(
   }
 
   if (mode === "npc") {
+    const exactNpcDirections = [...new Set(
+      vocabulary.npcExactValues
+        .filter((entry) => entry.value === value && entry.direction)
+        .map((entry) => entry.direction),
+    )];
+    if (exactNpcDirections.length === 1) {
+      return { direction: exactNpcDirections[0] as MapMovementDirection };
+    }
+
     const range = vocabulary.npcRanges.find(
       (candidate) =>
         value >= candidate.minimum
