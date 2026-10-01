@@ -1,3 +1,4 @@
+import { eventArgumentsForSemantic } from "./eventMacroSemantics";
 import type { ProjectEventMacroSemantic } from "./types";
 import type {
   MapScriptSemanticNode,
@@ -176,11 +177,10 @@ function eventCondition(
     const semantic = eventMacros.get(invocation[1].toLowerCase());
     if (semantic?.action.startsWith("check") && semantic.zeroMeaning) {
       const arguments_ = invocation[2].split(",").map((value) => value.trim());
-      const events = semantic.eventParameterIndexes
-        .map((parameter) => arguments_[parameter - 1])
-        .filter((value): value is string =>
-          Boolean(value && /^EVENT_[A-Z0-9_]+$/i.test(value))
-        );
+      const events = eventArgumentsForSemantic(
+        semantic,
+        arguments_,
+      );
       const branch = conditionalBranch(lines[index + 1] ?? "", index + 1);
       if (!branch || !isZeroBranch(branch) || events.length === 0) return null;
 
