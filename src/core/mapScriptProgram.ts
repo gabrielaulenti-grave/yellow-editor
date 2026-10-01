@@ -396,6 +396,7 @@ function nodesForSection(
   section: LabelSection,
   sections: Map<string, LabelSection>,
   transitions: MapScriptStateTransition[],
+  objectWrappers: Map<string, "show" | "hide">,
   movementVocabulary?: ProjectMovementVocabulary,
 ): MapScriptSemanticNode[] {
   const lines = section.source.split(/\r?\n/);
@@ -919,7 +920,6 @@ export function parseMapScriptProgram(
       nodes: nodesForSection(
         section,
         sections,
-        pointers,
         transitions,
         objectWrappers,
         movementVocabulary,
