@@ -120,12 +120,30 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
   switch (node.type) {
     case "movement": {
       const path = node.path.map(renderMovementStep).join(" · ");
+      const conditionalPaths = node.alternatives.length > 1
+        ? node.alternatives.map((alternative, index) => {
+            const rendered = alternative.path.map(renderMovementStep).join(" · ");
+            const condition = alternative.conditions.length > 0
+              ? alternative.conditions.join(" AND ")
+              : `Alternative ${index + 1}`;
+            return {
+              label: `If ${condition}`,
+              value: rendered || titleCaseConstant(alternative.pathLabel),
+              path: Boolean(rendered),
+            };
+          })
+        : [];
       return [
         ...(node.actor === "character" && node.actorConstant
           ? [{ label: "Character", value: titleCaseConstant(node.actorConstant) }]
           : []),
-        ...(path ? [{ label: "Path", value: path, path: true }] : []),
-        ...(!path && node.pathLabel ? [{ label: "Movement", value: titleCaseConstant(node.pathLabel) }] : []),
+        ...conditionalPaths,
+        ...(conditionalPaths.length === 0 && path
+          ? [{ label: "Path", value: path, path: true }]
+          : []),
+        ...(conditionalPaths.length === 0 && !path && node.pathLabel
+          ? [{ label: "Movement", value: titleCaseConstant(node.pathLabel) }]
+          : []),
       ];
     }
     case "dialogue":
