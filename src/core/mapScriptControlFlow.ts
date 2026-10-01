@@ -25,6 +25,12 @@ export type MapScriptCondition =
       variable: string;
       flag: string;
       state: "set" | "clear";
+    }
+  | {
+      type: "routine-result";
+      routine: string;
+      result: "carry" | "no-carry";
+      argument?: string;
     };
 
 export type MapScriptBranchOutcome =
@@ -56,7 +62,7 @@ export type MapScriptFlowItem =
   | MapScriptIfBlock;
 
 interface ConditionalBranch {
-  flag: "z" | "nz";
+  flag: "z" | "nz" | "c" | "nc";
   outcome: MapScriptBranchOutcome;
   index: number;
 }
@@ -107,19 +113,19 @@ function sourceSpan(
 
 function conditionalBranch(line: string, index: number): ConditionalBranch | null {
   const clean = withoutComment(line);
-  const jump = clean.match(/^(?:jr|jp)\s+(z|nz)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
+  const jump = clean.match(/^(?:jr|jp)\s+(z|nz|c|nc)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
   if (jump) {
     return {
-      flag: jump[1].toLowerCase() as "z" | "nz",
+      flag: jump[1].toLowerCase() as ConditionalBranch["flag"],
       outcome: { type: "jump", target: jump[2] },
       index,
     };
   }
 
-  const conditionalReturn = clean.match(/^ret\s+(z|nz)\b/i);
+  const conditionalReturn = clean.match(/^ret\s+(z|nz|c|nc)\b/i);
   if (conditionalReturn) {
     return {
-      flag: conditionalReturn[1].toLowerCase() as "z" | "nz",
+      flag: conditionalReturn[1].toLowerCase() as ConditionalBranch["flag"],
       outcome: { type: "return" },
       index,
     };
@@ -128,11 +134,17 @@ function conditionalBranch(line: string, index: number): ConditionalBranch | nul
   return null;
 }
 
+function isZeroBranch(
+  branch: ConditionalBranch,
+): branch is ConditionalBranch & { flag: "z" | "nz" } {
+  return branch.flag === "z" || branch.flag === "nz";
+}
+
 function eventCondition(lines: string[], index: number): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
   const event = withoutComment(lines[index]).match(/^CheckEvent\s+([A-Z][A-Z0-9_]*)\s*$/i)?.[1];
   if (!event) return null;
   const branch = conditionalBranch(lines[index + 1] ?? "", index + 1);
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
   // CheckEvent leaves Z when the event is clear and NZ when it is set.
   return {
@@ -149,7 +161,7 @@ function battleResultCondition(lines: string[], index: number): { condition: Map
   if (!/^ld\s+a\s*,\s*\[wIsInBattle\]\s*$/i.test(withoutComment(lines[index]))) return null;
   if (!/^cp\s+LOST_BATTLE\s*$/i.test(withoutComment(lines[index + 1] ?? ""))) return null;
   const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
   return {
     condition: {
@@ -166,7 +178,7 @@ function variableComparisonCondition(lines: string[], index: number): { conditio
   const value = withoutComment(lines[index + 1] ?? "").match(/^cp\s+([^\s;]+)\s*$/i)?.[1];
   if (!value) return null;
   const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
   return {
     condition: {
@@ -195,7 +207,7 @@ function zeroTestCondition(lines: string[], index: number): { condition: MapScri
     if (/^ld\b/i.test(clean)) continue;
     return null;
   }
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
   return {
     condition: {
@@ -219,7 +231,7 @@ function flagCondition(lines: string[], index: number): { condition: MapScriptCo
   if (variable === "wStatusFlags5" && flag === "BIT_SCRIPTED_NPC_MOVEMENT") return null;
 
   const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
   return {
     condition: {
@@ -232,7 +244,39 @@ function flagCondition(lines: string[], index: number): { condition: MapScriptCo
   };
 }
 
+function routineResultCondition(
+  lines: string[],
+  index: number,
+): { condition: MapScriptCondition; branch: ConditionalBranch; startIndex: number } | null {
+  const first = withoutComment(lines[index]);
+  const load = first.match(
+    /^ld\s+(?:hl|de|bc|a)\s*,\s*([^\s;]+)\s*$/i,
+  );
+  const callIndex = load ? index + 1 : index;
+  const routine = withoutComment(lines[callIndex] ?? "").match(
+    /^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i,
+  )?.[1];
+  if (!routine) return null;
+
+  const branch = conditionalBranch(lines[callIndex + 1] ?? "", callIndex + 1);
+  if (!branch || (branch.flag !== "c" && branch.flag !== "nc")) return null;
+
+  return {
+    condition: {
+      type: "routine-result",
+      routine,
+      result: branch.flag === "c" ? "carry" : "no-carry",
+      argument: load?.[1],
+    },
+    branch,
+    startIndex: index,
+  };
+}
+
 function flowConditionAt(lines: string[], index: number): ParsedCondition | null {
+  const routineResult = routineResultCondition(lines, index);
+  if (routineResult) return routineResult;
+
   const event = eventCondition(lines, index);
   if (event) return { ...event, startIndex: index };
 
