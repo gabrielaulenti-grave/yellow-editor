@@ -96,18 +96,18 @@ function tokenize(expression: string): Token[] | null {
       continue;
     }
 
-    if ("+-*/%|&^~".includes(char)) {
-      tokens.push({ type: "operator", value: char });
-      index += 1;
-      continue;
-    }
-
     const literal = expression.slice(index).match(/^(?:\$[0-9A-Fa-f_]+|%[01_]+|&[0-7_]+|0x[0-9A-Fa-f_]+|\d[\d_]*)/);
     if (literal) {
       const value = numericLiteral(literal[0]);
       if (value === null) return null;
       tokens.push({ type: "number", value });
       index += literal[0].length;
+      continue;
+    }
+
+    if ("+-*/%|&^~".includes(char)) {
+      tokens.push({ type: "operator", value: char });
+      index += 1;
       continue;
     }
 
