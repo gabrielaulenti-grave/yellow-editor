@@ -102,6 +102,7 @@ export interface MapScriptState {
   scriptConstant: string | null;
   startLine: number;
   source: string;
+  external: boolean;
   nodes: MapScriptSemanticNode[];
   transitions: MapScriptStateTransition[];
   predecessorLabels: string[];
@@ -290,9 +291,43 @@ function movementSource(
     : globalMovementSource(sections, label);
 }
 
+function scriptStateSetterLabels(
+  sections: Map<string, LabelSection>,
+): Set<string> {
+  const result = new Set<string>();
+  for (const section of sections.values()) {
+    const lines = section.source.split(/\r?\n/).map(withoutComment);
+    const storesCurrentScript = lines.some((line) =>
+      /^ld\s+\[w[A-Za-z0-9_]*CurScript\]\s*,\s*a\b/i.test(line)
+      || /^ld\s+\[wCurMapScript\]\s*,\s*a\b/i.test(line)
+    );
+    if (!storesCurrentScript) continue;
+
+    const loadsDifferentA = lines.slice(1).some((line) =>
+      /^ld\s+a\s*,/i.test(line) || /^xor\s+a\b/i.test(line)
+    );
+    if (!loadsDifferentA) result.add(section.label);
+  }
+  return result;
+}
+
+function sectionTerminates(source: string): boolean {
+  const lines = source.split(/\r?\n/);
+  for (let index = lines.length - 1; index >= 1; index -= 1) {
+    const clean = withoutComment(lines[index]);
+    if (!clean || /^\.[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(clean)) continue;
+    if (/^(?:ret|reti)\b/i.test(clean)) return true;
+    if (/^(?:jp|jr)\s+(?!z\b|nz\b|c\b|nc\b)[A-Za-z_.][A-Za-z0-9_.]*\b/i.test(clean)) return true;
+    return false;
+  }
+  return false;
+}
+
 function transitionsForSection(
   section: LabelSection,
   pointers: Map<string, string>,
+  setterLabels: Set<string>,
+  nextStateLabel: string | null,
 ): MapScriptStateTransition[] {
   const lines = section.source.split(/\r?\n/);
   const transitions: MapScriptStateTransition[] = [];
@@ -300,16 +335,34 @@ function transitionsForSection(
     const constant = withoutComment(lines[index]).match(/^ld\s+a\s*,\s*(SCRIPT_[A-Z0-9_]+)\b/i)?.[1];
     if (!constant) continue;
     for (let next = index + 1; next <= Math.min(lines.length - 1, index + 4); next += 1) {
-      if (/^ld\s+\[w[A-Za-z0-9_]*CurScript\]\s*,\s*a\b/i.test(withoutComment(lines[next]))) {
+      const clean = withoutComment(lines[next]);
+      const directStore = /^ld\s+\[w[A-Za-z0-9_]*CurScript\]\s*,\s*a\b/i.test(clean)
+        || /^ld\s+\[wCurMapScript\]\s*,\s*a\b/i.test(clean);
+      const helperCall = clean.match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1];
+      if (directStore || (helperCall && setterLabels.has(helperCall))) {
         transitions.push({
           targetConstant: constant,
           targetLabel: pointers.get(constant) ?? null,
-          source: sourceSpan(section, lines, index, next),
+          source: sourceSpan(section, lines, index, next, directStore ? "exact" : "inferred"),
         });
         break;
       }
     }
   }
+
+  if (nextStateLabel && !sectionTerminates(section.source)) {
+    const targetConstant = [...pointers.entries()]
+      .find(([, label]) => label === nextStateLabel)?.[0];
+    if (targetConstant) {
+      const lastIndex = Math.max(1, lines.length - 1);
+      transitions.push({
+        targetConstant,
+        targetLabel: nextStateLabel,
+        source: sourceSpan(section, lines, lastIndex, lastIndex, "inferred"),
+      });
+    }
+  }
+
   return transitions;
 }
 
@@ -317,11 +370,11 @@ function nodesForSection(
   section: LabelSection,
   sections: Map<string, LabelSection>,
   pointers: Map<string, string>,
+  transitions: MapScriptStateTransition[],
   movementVocabulary?: ProjectMovementVocabulary,
 ): MapScriptSemanticNode[] {
   const lines = section.source.split(/\r?\n/);
   const nodes: MapScriptSemanticNode[] = [];
-  const transitions = transitionsForSection(section, pointers);
   const transitionStarts = new Map(transitions.map((transition) => [transition.source.lineStart, transition]));
 
   for (let index = 1; index < lines.length; index += 1) {
@@ -783,21 +836,53 @@ export function parseMapScriptProgram(
   const sections = new Map(sectionList.map((section) => [section.label, section]));
   const pointers = scriptPointers(source);
   const constantByLabel = new Map([...pointers.entries()].map(([constant, label]) => [label, constant]));
-  const labels = new Set<string>(pointers.values());
+  const pointerLabels = [...pointers.values()];
+  const labels = new Set<string>(pointerLabels);
   if (focusLabel && sections.has(focusLabel)) labels.add(focusLabel);
+  const setterLabels = scriptStateSetterLabels(sections);
 
-  const states: MapScriptState[] = [...labels]
-    .map((label) => sections.get(label))
-    .filter((section): section is LabelSection => Boolean(section))
-    .map((section) => ({
+  const states: MapScriptState[] = [...labels].map((label) => {
+    const section = sections.get(label);
+    if (!section) {
+      return {
+        label,
+        scriptConstant: constantByLabel.get(label) ?? null,
+        startLine: 0,
+        source: "",
+        external: true,
+        nodes: [],
+        transitions: [],
+        predecessorLabels: [],
+      };
+    }
+
+    const pointerIndex = pointerLabels.indexOf(label);
+    const nextStateLabel = pointerIndex >= 0
+      ? pointerLabels[pointerIndex + 1] ?? null
+      : null;
+    const transitions = transitionsForSection(
+      section,
+      pointers,
+      setterLabels,
+      nextStateLabel,
+    );
+    return {
       label: section.label,
       scriptConstant: constantByLabel.get(section.label) ?? null,
       startLine: section.startLine,
       source: section.source,
-      nodes: nodesForSection(section, sections, pointers, movementVocabulary),
-      transitions: transitionsForSection(section, pointers),
+      external: false,
+      nodes: nodesForSection(
+        section,
+        sections,
+        pointers,
+        transitions,
+        movementVocabulary,
+      ),
+      transitions,
       predecessorLabels: [],
-    }));
+    };
+  });
 
   const byLabel = new Map(states.map((state) => [state.label, state]));
   for (const state of states) {
