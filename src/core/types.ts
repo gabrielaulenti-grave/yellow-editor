@@ -120,6 +120,7 @@ export type ScriptAuditConstructKind =
   | "call"
   | "farcall"
   | "predef"
+  | "jp"
   | "instruction"
   | "directive";
 
