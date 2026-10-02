@@ -39,6 +39,8 @@ const DIRECT_SEMANTIC_CALLS = new Set([
   "EngageMapTrainer",
   "GiveItem",
   "GivePokemon",
+  "HasEnoughCoins",
+  "HasEnoughMoney",
   "InitBattleEnemyParameters",
   "IsItemInBag",
   "MoveSprite",
@@ -55,10 +57,13 @@ const DIRECT_SEMANTIC_CALLS = new Set([
 
 const DIRECT_SEMANTIC_PREDEFS = new Set([
   "EmotionBubble",
+  "DisplayElevatorFloorMenu",
   "DoInGameTradeDialogue",
+  "FlagActionPredef",
   "GetQuantityOfItemInBag",
   "HealParty",
   "HideObject",
+  "OaksAideScript",
   "ReplaceTileBlock",
   "ShowObject",
 ]);
