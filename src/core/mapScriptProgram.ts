@@ -116,10 +116,11 @@ export type MapScriptSemanticNode =
     })
   | (BaseNode & {
       type: "indexed-event";
-      action: "address" | "bit";
+      action: "address" | "bit" | "flag-action";
       baseEvent: string;
       relatedEvent?: string;
       destination?: string;
+      mode?: string;
     })
   | (BaseNode & {
       type: "object-puzzle";
@@ -831,6 +832,84 @@ function nodesForSection(
         });
         continue;
       }
+    }
+
+    if (/^call\s+EngageMapTrainer\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:engage-trainer`,
+        type: "opponent",
+        kind: "battle",
+        title: "Engage selected map trainer",
+        description: "Hand the current trainer interaction to the battle flow.",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+InitBattleEnemyParameters\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:init-battle`,
+        type: "opponent",
+        kind: "battle",
+        title: "Initialize battle encounter",
+        description: "Prepare the selected opponent and trainer-party state for battle.",
+        opponent: recentRegisterValue(lines, index, "a", 8) ?? undefined,
+        source: sourceSpan(section, lines, index, index, "inferred"),
+      });
+      continue;
+    }
+
+    if (/^call\s+TalkToTrainer\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:talk-trainer`,
+        type: "service",
+        kind: "battle",
+        title: "Run trainer interaction",
+        service: "trade",
+        description: "Use the selected trainer header for before-battle, battle, and post-battle behavior.",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+PlayCry\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:cry`,
+        type: "music",
+        kind: "music",
+        title: "Play Pokémon cry",
+        music: recentRegisterValue(lines, index, "a", 8) ?? undefined,
+        source: sourceSpan(section, lines, index, index, "inferred"),
+      });
+      continue;
+    }
+
+    if (/^predef\s+FlagActionPredef\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:indexed-flag-action`,
+        type: "indexed-event",
+        kind: "event",
+        title: "Apply indexed event action",
+        action: "flag-action",
+        baseEvent: recentRegisterValue(lines, index, "hl", 8) ?? "indexed event family",
+        mode: recentRegisterValue(lines, index, "b", 8) ?? undefined,
+        description: "Test, set, or clear the runtime-selected member of an indexed event family.",
+        source: sourceSpan(section, lines, index, index, "inferred"),
+      });
+      continue;
+    }
+
+    if (/^call\s+ForceBikeOrSurf\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:force-bike-surf`,
+        type: "service",
+        kind: "control",
+        title: "Force bike or surf movement mode",
+        service: "random",
+        description: "Apply the map's required bike/surf movement state before normal control continues.",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
     }
 
     if (/^call\s+GiveItem\b/i.test(clean)) {
