@@ -493,6 +493,20 @@ export interface ScriptSimpleActionCreateValues {
   frames?: number;
 }
 
+export interface ScriptEventConditionalCreateDocument {
+  path: string;
+  routineLabel: string;
+  sourceHash: string;
+  insertionLine: number;
+  eventOptions: ProjectSemanticDomainOption[];
+  availableActions: ScriptSimpleActionKind[];
+}
+
+export interface ScriptEventConditionalCreateValues {
+  event: string;
+  action: ScriptSimpleActionCreateValues;
+}
+
 export interface PokemonIndexEntry {
   internalId: number;
   constant: string | null;
@@ -1496,6 +1510,14 @@ export interface ProjectSession {
   createScriptSimpleAction(
     document: ScriptSimpleActionCreateDocument,
     values: ScriptSimpleActionCreateValues,
+  ): Promise<HistorySummary>;
+  getScriptEventConditionalCreateDocument(
+    path: string,
+    routineLabel: string,
+  ): Promise<ScriptEventConditionalCreateDocument>;
+  createScriptEventConditional(
+    document: ScriptEventConditionalCreateDocument,
+    values: ScriptEventConditionalCreateValues,
   ): Promise<HistorySummary>;
   getScriptDocument(path: string): Promise<ScriptDocument>;
   getMacroCatalog(): Promise<MacroCatalog>;
