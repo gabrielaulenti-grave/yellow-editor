@@ -581,3 +581,16 @@
     text-align: left;
   }
 }
+
+
+.script-round-trip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem;
+  margin: 0.65rem 0;
+}
+
+.script-round-trip-actions small {
+  opacity: 0.72;
+}
