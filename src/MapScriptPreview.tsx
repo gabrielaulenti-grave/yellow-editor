@@ -721,7 +721,7 @@ function ScriptNodeCard({
   const details = nodeDetails(node);
   const description = node.type === "wait" && node.reason ? node.reason : node.description;
   let editableMacroLine: number | null = null;
-  if (editableMacroLines && onEditMacroLine) {
+  if (node.source.confidence === "exact" && editableMacroLines && onEditMacroLine) {
     for (const line of editableMacroLines) {
       if (line >= node.source.lineStart && line <= node.source.lineEnd) {
         editableMacroLine = line;
