@@ -477,7 +477,10 @@ export interface ScriptSimpleActionCreateDocument {
   sourceHash: string;
   insertionLine: number;
   availableActions: ScriptSimpleActionKind[];
-  eventOptions: ProjectSemanticDomainOption[];
+  eventOptions: {
+    "set-event": ProjectSemanticDomainOption[];
+    "reset-event": ProjectSemanticDomainOption[];
+  };
 }
 
 export interface ScriptSimpleActionCreateValues {
