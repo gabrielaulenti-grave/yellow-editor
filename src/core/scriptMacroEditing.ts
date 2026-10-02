@@ -196,7 +196,13 @@ function editableDomainIds(
   const definition = definitionFor(analysis, call.name);
 
   const result: Array<{ index: number; domainIds: string[] }> = [];
+  const wrapperTargetLocked = ["callfar", "farjp", "predef_jump"].includes(
+    call.name.toLowerCase(),
+  );
   for (let index = 1; index <= argumentCount; index += 1) {
+    if (wrapperTargetLocked && index === 1) {
+      continue;
+    }
     const parameter = definition?.parameters[index - 1];
     const argument = call.arguments[index - 1];
     const domainIds = [...new Set([
@@ -352,6 +358,20 @@ export async function prepareScriptMacroCallWrite(
     const next = nextArguments[index];
     if (span.raw === next) continue;
     nextLine = nextLine.slice(0, span.start) + next + nextLine.slice(span.end);
+  }
+
+  const rewritten = parseInvocationLine(nextLine);
+  if (
+    !rewritten
+    || rewritten.macroName.toLowerCase() !== parsed.macroName.toLowerCase()
+    || rewritten.arguments.length !== nextArguments.length
+    || rewritten.arguments.some(
+      (argument, index) => argument.raw !== nextArguments[index],
+    )
+  ) {
+    throw new Error(
+      "The rewritten macro did not round-trip to the same invocation shape. Yellow Editor refused the save so the source cannot be structurally corrupted.",
+    );
   }
 
   return {
