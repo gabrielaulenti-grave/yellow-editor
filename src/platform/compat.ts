@@ -12,6 +12,8 @@ import type {
   PokemonEditSourceDocument,
   PokemonEditValues,
   ProjectSession,
+  ScriptSimpleActionCreateDocument,
+  ScriptSimpleActionCreateValues,
   TextWriteRequest,
   TrainerClassCreateValues,
   TrainerClassEditValues,
@@ -338,6 +340,26 @@ function itemCreateValuesArg(args: InvokeArgs | undefined): ItemCreateValues {
   return value as ItemCreateValues;
 }
 
+function scriptSimpleActionCreateDocumentArg(
+  args: InvokeArgs | undefined,
+): ScriptSimpleActionCreateDocument {
+  const value = args?.document;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing script action creation document.");
+  }
+  return value as ScriptSimpleActionCreateDocument;
+}
+
+function scriptSimpleActionCreateValuesArg(
+  args: InvokeArgs | undefined,
+): ScriptSimpleActionCreateValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing script action creation values.");
+  }
+  return value as ScriptSimpleActionCreateValues;
+}
+
 function textChangesArg(args: InvokeArgs | undefined): TextWriteRequest[] {
   const value = args?.changes;
   if (!Array.isArray(value)) {
@@ -562,6 +584,18 @@ export async function invoke<T>(
 
     case "run_script_round_trip_regression":
       return (await session.runScriptRoundTripRegression()) as T;
+
+    case "get_script_simple_action_create_document":
+      return (await session.getScriptSimpleActionCreateDocument(
+        stringArg(args, "path"),
+        stringArg(args, "routineLabel"),
+      )) as T;
+
+    case "create_script_simple_action":
+      return (await session.createScriptSimpleAction(
+        scriptSimpleActionCreateDocumentArg(args),
+        scriptSimpleActionCreateValuesArg(args),
+      )) as T;
 
     case "get_script_document":
       return (await session.getScriptDocument(
