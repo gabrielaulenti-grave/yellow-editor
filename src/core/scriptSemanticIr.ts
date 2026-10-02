@@ -1,4 +1,4 @@
-export const SCRIPT_SEMANTIC_IR_VERSION = "1.0";
+export const SCRIPT_SEMANTIC_IR_VERSION = "1.1";
 
 export type ScriptSemanticFamilyId =
   | "dialogue"
@@ -7,6 +7,8 @@ export type ScriptSemanticFamilyId =
   | "state-transition"
   | "movement"
   | "forced-movement"
+  | "wait"
+  | "scene-control"
   | "facing"
   | "object"
   | "map-edit"
@@ -37,6 +39,8 @@ export const SCRIPT_SEMANTIC_FAMILIES: readonly ScriptSemanticFamilyDefinition[]
   { id: "state-transition", label: "Script states", description: "Move between map script states and preserve intentional fall-through.", builderPriority: "core" },
   { id: "movement", label: "Character movement", description: "Run literal or project-derived NPC and player movement paths.", builderPriority: "core" },
   { id: "forced-movement", label: "Forced movement", description: "Temporarily drive player movement from coordinate, spinner, current, or gate logic.", builderPriority: "core" },
+  { id: "wait", label: "Wait and timing", description: "Pause a scene for a fixed or state-dependent duration before continuing.", builderPriority: "core" },
+  { id: "scene-control", label: "Scene controls", description: "Temporarily restrict input, auto-advance dialogue, or synchronize scripted scene state.", builderPriority: "advanced" },
   { id: "facing", label: "Facing", description: "Turn the player, NPCs, or sprite slots.", builderPriority: "core" },
   { id: "object", label: "Objects", description: "Show, hide, or otherwise stage map objects.", builderPriority: "core" },
   { id: "map-edit", label: "Map changes", description: "Replace loaded map blocks and apply persistent puzzle or door changes.", builderPriority: "core" },
