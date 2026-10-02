@@ -455,6 +455,10 @@ function textScriptInsightText(insight: TextScriptInsight): string {
       return insight.species
         ? `Play ${titleCaseConstant(insight.species)}'s cry`
         : "Play the selected Pokémon's cry";
+    case "pokedex":
+      return insight.species
+        ? `Show ${titleCaseConstant(insight.species)} in the Pokédex`
+        : "Show the selected Pokémon in the Pokédex";
     case "event":
       return `${titleCaseConstant(insight.action)}: ${insight.events.map(titleCaseConstant).join(" · ")}`;
     case "object":
