@@ -731,9 +731,22 @@ export function buildScriptAudit(
           fileInternalInvocations += 1;
           return;
         }
-        const semanticReason = compositeLabels.has(name)
-          ? "Project helper is composed entirely of semantic actions and understood control flow."
-          : kind === "predef" && DIRECT_SEMANTIC_PREDEFS.has(name)
+        if (compositeLabels.has(name)) {
+          addConstruct(
+            constructs,
+            "internal",
+            kind,
+            name,
+            "Project script-helper boundary; the helper body is audited separately and already resolves to semantic actions plus understood control flow.",
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
+        const semanticReason = kind === "predef" && DIRECT_SEMANTIC_PREDEFS.has(name)
             ? "Handled by the script semantic model."
             : kind === "farcall" && /^Music_/i.test(name)
               ? "Handled as project music playback."
@@ -827,6 +840,25 @@ export function buildScriptAudit(
             "macro",
             macroCall.name,
             `Project wrapper invokes engine-internal target ${wrappedTarget}.`,
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
+        if (
+          ["callfar", "farjp", "predef_jump"].includes(macroCall.name.toLowerCase())
+          && wrappedTarget
+          && compositeLabels.has(wrappedTarget)
+        ) {
+          addConstruct(
+            constructs,
+            "internal",
+            "macro",
+            macroCall.name,
+            `Project wrapper crosses into semantic script helper ${wrappedTarget}; the target body is audited independently.`,
             example,
           );
           internalLineCount += 1;
@@ -945,6 +977,25 @@ export function buildScriptAudit(
             "macro",
             head,
             `Project wrapper invokes engine-internal target ${firstArgument}.`,
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
+        if (
+          ["callfar", "farjp", "predef_jump"].includes(lowerHead)
+          && firstArgument
+          && compositeLabels.has(firstArgument)
+        ) {
+          addConstruct(
+            constructs,
+            "internal",
+            "macro",
+            head,
+            `Project wrapper crosses into semantic script helper ${firstArgument}; the target body is audited independently.`,
             example,
           );
           internalLineCount += 1;
