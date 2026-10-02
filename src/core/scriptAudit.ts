@@ -401,6 +401,29 @@ function nextExecutable(lines: string[], index: number): string {
   return "";
 }
 
+function semanticFamilyForTarget(name: string): string | undefined {
+  if (/DisplayTextID|Print.*Text|DisplayPokedex/i.test(name)) return "dialogue";
+  if (/^(?:GiveItem|IsItemInBag|RemoveItem|GetQuantityOfItemInBag)/i.test(name)) return "item";
+  if (/^(?:HasEnoughMoney|HasEnoughCoins|Has9990Coins|AddBCDPredef|SubBCDPredef|DivideBCDPredef3)$/i.test(name)) return "economy";
+  if (/^(?:GivePokemon|AddPartyMon|DisplayPartyMenu|MoveMon|RemovePokemon|LoadMonData|GetPartyMonName|WriteMonMoves)$/i.test(name)) return "party";
+  if (/^(?:CheckFightingMapTrainers|DisplayEnemyTrainerTextAndStartBattle|EndTrainerBattle|TalkToTrainer|EngageMapTrainer)$/i.test(name)) return "trainer";
+  if (/^(?:InitBattleEnemyParameters|SaveEndBattleTextPointers)$/i.test(name)) return "battle";
+  if (/^(?:MoveSprite|SetSpriteMovementBytesToFF)$/i.test(name)) return "movement";
+  if (/^(?:DecodeArrowMovementRLE|DecodeRLEList|StartSimulatingJoypadStates|ForceBikeOrSurf)$/i.test(name)) return "forced-movement";
+  if (/^SetSpriteFacingDirectionAndDelay$/i.test(name)) return "facing";
+  if (/^(?:ShowObject|HideObject)$/i.test(name)) return "object";
+  if (/^ReplaceTileBlock$/i.test(name)) return "map-edit";
+  if (/^(?:CheckBoulderCoords)$/i.test(name)) return "persistent-object-puzzle";
+  if (/^(?:IsPlayerOnDungeonWarp)$/i.test(name)) return "warp";
+  if (/^(?:FlagActionPredef)$/i.test(name)) return "indexed-event";
+  if (/^(?:HealParty)$/i.test(name)) return "recovery";
+  if (/^(?:PlayMusic|PlayDefaultMusic|PlayCry|PlayPikachuSoundClip|Music_)/i.test(name)) return "music";
+  if (/^(?:YesNoChoice|Random|ArePlayerCoordsInArray|CheckPikachuStatusCondition)$/i.test(name)) return "condition";
+  if (/^(?:DisplayElevatorFloorMenu|DoInGameTradeDialogue|OaksAideScript|DisplayNameRaterScreen|GiveFossilToCinnabarLab|SurfingPikachuMinigame|HallOfFamePC|SaveGameData|RemoveGuardDrink)$/i.test(name)) return "service";
+  if (/^(?:CallFunctionInTable|ExecuteCurMapScriptInTable)$/i.test(name)) return "state-transition";
+  return undefined;
+}
+
 function semanticCall(
   name: string,
   line: string,
@@ -534,6 +557,7 @@ interface ConstructAccumulator {
   name: string;
   kind: ScriptAuditConstructKind;
   status: ScriptAuditStatus;
+  familyId?: string;
   occurrences: number;
   paths: Set<string>;
   examples: ScriptAuditExample[];
@@ -547,11 +571,13 @@ function addConstruct(
   name: string,
   reason: string,
   example: ScriptAuditExample,
+  familyId?: string,
 ): string {
   const key = `${status}:${kind}:${name}`;
   const existing = constructs.get(key);
   if (existing) {
     existing.occurrences += 1;
+    if (!existing.familyId && familyId) existing.familyId = familyId;
     existing.paths.add(example.path);
     if (existing.examples.length < 4) existing.examples.push(example);
     return key;
@@ -560,6 +586,7 @@ function addConstruct(
     name,
     kind,
     status,
+    familyId,
     occurrences: 1,
     paths: new Set([example.path]),
     examples: [example],
@@ -714,6 +741,7 @@ export function buildScriptAudit(
             name,
             semanticReason,
             example,
+            semanticFamilyForTarget(name),
           );
           void key;
           semanticLineCount += 1;
@@ -798,6 +826,17 @@ export function buildScriptAudit(
             macroCall.name,
             semanticReason,
             example,
+            eventMacros.has(macroCall.name.toLowerCase())
+              ? "event"
+              : /^(?:EventFlagAddress|EventFlagBit)$/i.test(macroCall.name)
+                ? "indexed-event"
+                : /^(?:map_coord_movement)$/i.test(macroCall.name)
+                  ? "forced-movement"
+                  : /^(?:trainer|def_trainers)$/i.test(macroCall.name)
+                    ? "trainer"
+                    : /^(?:text|text_asm|text_end|text_far|text_ram|text_decimal|line|cont|para|page|next|prompt|done)$/i.test(macroCall.name)
+                      ? "dialogue"
+                      : undefined,
           );
           semanticLineCount += 1;
           fileSemantic += 1;
@@ -962,6 +1001,7 @@ export function buildScriptAudit(
       name: value.name,
       kind: value.kind,
       status: value.status,
+      familyId: value.familyId,
       occurrences: value.occurrences,
       paths: [...value.paths].sort(),
       examples: value.examples,
