@@ -12,6 +12,7 @@ import type {
   ScriptMacroCall,
   ScriptMacroCallDocument,
   ScriptMacroEditDocument,
+  ScriptRoundTripRegressionReport,
   ScriptRoutineCategory,
   ScriptRoutineSummary,
 } from "./core/types";
@@ -401,6 +402,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   const [audit, setAudit] = useState<ScriptAuditReport | null>(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState<string | null>(null);
+  const [roundTripReport, setRoundTripReport] = useState<ScriptRoundTripRegressionReport | null>(null);
+  const [roundTripLoading, setRoundTripLoading] = useState(false);
+  const [roundTripError, setRoundTripError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -482,6 +486,11 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
       cancelled = true;
     };
   }, [project?.storageKey]);
+
+  useEffect(() => {
+    setRoundTripReport(null);
+    setRoundTripError(null);
+  }, [project?.storageKey, refreshVersion]);
 
   useEffect(() => {
     if (!project) {
@@ -720,6 +729,22 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
     setSelectedRoutineLabel(label);
   }
 
+  async function runRoundTripRegression() {
+    setRoundTripLoading(true);
+    setRoundTripError(null);
+    try {
+      const report = await invoke<ScriptRoundTripRegressionReport>(
+        "run_script_round_trip_regression",
+      );
+      setRoundTripReport(report);
+    } catch (error) {
+      setRoundTripReport(null);
+      setRoundTripError(String(error));
+    } finally {
+      setRoundTripLoading(false);
+    }
+  }
+
   function selectAuditExample(path: string, line: number) {
     if (!catalog || !confirmDiscardMacroEdit()) return;
     const entry = catalog.entries.find((candidate) => candidate.paths.includes(path));
@@ -898,6 +923,94 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
               </div>
             </details>
 
+            <details className="script-audit-details" open>
+              <summary>
+                Guarded edit round-trip regression
+                {roundTripReport
+                  ? ` · ${roundTripReport.passedCaseCount}/${roundTripReport.testedCaseCount} edits passed`
+                  : ""}
+              </summary>
+              <p className="help-text">
+                Dry-runs representative domain-backed edits across the regression fixtures without
+                writing project files. Each candidate uses the production macro writer, reparses the
+                result, preserves semantic shape, and may not introduce new semantic validation errors.
+              </p>
+              <div className="script-round-trip-actions">
+                <button
+                  type="button"
+                  onClick={() => void runRoundTripRegression()}
+                  disabled={roundTripLoading || Boolean(activeMacroEdit)}
+                >
+                  {roundTripLoading ? "Running round-trip checks…" : "Run guarded edit checks"}
+                </button>
+                {activeMacroEdit && (
+                  <small>Finish or cancel the current macro edit before running regression checks.</small>
+                )}
+              </div>
+              {roundTripError && (
+                <div className="world-map-warning">
+                  <strong>Round-trip regression could not complete</strong>
+                  <p>{roundTripError}</p>
+                </div>
+              )}
+              {roundTripReport && (
+                <>
+                  <div className="script-audit-metrics">
+                    <div>
+                      <strong>{roundTripReport.testedFixtureCount}/{roundTripReport.fixtureCount}</strong>
+                      <small>fixtures with editable cases</small>
+                    </div>
+                    <div>
+                      <strong>{roundTripReport.testedCaseCount}</strong>
+                      <small>synthetic edits tested</small>
+                    </div>
+                    <div>
+                      <strong>{roundTripReport.passedCaseCount}</strong>
+                      <small>round trips passed</small>
+                    </div>
+                    <div>
+                      <strong>{roundTripReport.failedCaseCount}</strong>
+                      <small>round trips failed</small>
+                    </div>
+                  </div>
+                  <div className="script-regression-grid">
+                    {roundTripReport.fixtures.map((fixture) => (
+                      <div
+                        key={fixture.id}
+                        className={
+                          fixture.testedCaseCount > 0 && fixture.passed
+                            ? "script-regression-card passed"
+                            : "script-regression-card"
+                        }
+                      >
+                        <span>
+                          <strong>{fixture.label}</strong>
+                          <small>
+                            {fixture.testedCaseCount === 0
+                              ? "No domain-backed edit case"
+                              : fixture.passed
+                                ? `${fixture.passedCaseCount} passed`
+                                : `${fixture.failedCaseCount} failed`}
+                          </small>
+                        </span>
+                        <p>
+                          {fixture.candidateShapeCount} distinct editable parameter shape{fixture.candidateShapeCount === 1 ? "" : "s"} found.
+                        </p>
+                        {fixture.cases.some((entry) => !entry.passed) && (
+                          <small>
+                            First failure: {fixture.cases.find((entry) => !entry.passed)?.macroName}
+                            {" at "}
+                            {fixture.cases.find((entry) => !entry.passed)?.path}:
+                            {fixture.cases.find((entry) => !entry.passed)?.line}
+                          </small>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </details>
+
             <details className="script-audit-details">
               <summary>
                 Frozen semantic IR v{audit.irVersion} · {audit.semanticFamilies.length} gameplay families
@@ -955,6 +1068,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                     .filter((file) =>
                       file.unresolvedInvocationCount > 0
                       || file.structuralInvocationCount > 0
+                      || file.unboundSemanticInvocationCount > 0
                     )
                     .slice(0, 80)
                     .map((file) => (
@@ -966,7 +1080,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                         <span>
                           <strong>{labelTitle(file.path.replace(/^scripts\//i, "").replace(/\.asm$/i, ""))}</strong>
                           <small>
-                            {file.unresolvedInvocationCount} unresolved · {file.structuralInvocationCount} known awaiting semantic lift
+                            {file.unresolvedInvocationCount} unresolved · {file.structuralInvocationCount} known awaiting semantic lift · {file.unboundSemanticInvocationCount} unbound semantic
                           </small>
                         </span>
                         <code>{file.path}</code>
