@@ -113,7 +113,7 @@ export interface ScriptCatalog {
   routineCount: number;
 }
 
-export type ScriptAuditStatus = "semantic" | "structural" | "unresolved";
+export type ScriptAuditStatus = "semantic" | "structural" | "internal" | "unresolved";
 
 export type ScriptAuditConstructKind =
   | "macro"
@@ -144,23 +144,45 @@ export interface ScriptAuditFile {
   path: string;
   semanticLines: number;
   structuralLines: number;
+  internalLines: number;
   unresolvedLines: number;
   meaningfulLines: number;
   semanticInvocationCount: number;
   structuralInvocationCount: number;
+  internalInvocationCount: number;
   unresolvedInvocationCount: number;
   unresolvedKeys: string[];
   structuralInvocationKeys: string[];
 }
 
+export interface ScriptAuditReleaseReadiness {
+  ready: boolean;
+  blockerCount: number;
+  unresolvedConstructCount: number;
+  structuralConstructCount: number;
+  criteria: string[];
+}
+
+export interface ScriptAuditSemanticFamily {
+  id: string;
+  label: string;
+  description: string;
+  builderPriority: "core" | "advanced";
+}
+
 export interface ScriptAuditReport {
+  irVersion: string;
+  semanticFamilies: ScriptAuditSemanticFamily[];
+  releaseReadiness: ScriptAuditReleaseReadiness;
   fileCount: number;
   meaningfulLineCount: number;
   semanticLineCount: number;
   structuralLineCount: number;
+  internalLineCount: number;
   unresolvedLineCount: number;
   semanticInvocationCount: number;
   structuralInvocationCount: number;
+  internalInvocationCount: number;
   unresolvedInvocationCount: number;
   files: ScriptAuditFile[];
   constructs: ScriptAuditConstruct[];
