@@ -300,6 +300,7 @@ function compositeSemanticLabels(
           movementVocabulary,
           setterLabels,
           objectWrappers,
+          labels,
         );
         if (macroReason) {
           hasSemanticAction = true;
@@ -504,6 +505,7 @@ function wrapperMacroSemanticReason(
   movementVocabulary: ProjectMovementVocabulary,
   setterLabels: Set<string>,
   objectWrappers: Set<string>,
+  scriptLabels?: Set<string>,
 ): string | null {
   if (!target) return null;
   const lower = name.toLowerCase();
@@ -519,6 +521,10 @@ function wrapperMacroSemanticReason(
     || objectWrappers.has(target)
   ) {
     return `Project wrapper invokes semantic target ${target}.`;
+  }
+
+  if (scriptLabels?.has(target)) {
+    return `Project wrapper invokes script helper ${target}; the target body is audited independently.`;
   }
 
   return null;
@@ -782,6 +788,7 @@ export function buildScriptAudit(
           movementVocabulary,
           setterLabels,
           objectWrappers,
+          labels,
         );
         if (semanticReason) {
           addConstruct(
@@ -884,6 +891,7 @@ export function buildScriptAudit(
           movementVocabulary,
           setterLabels,
           objectWrappers,
+          labels,
         );
         if (semanticReason) {
           addConstruct(
