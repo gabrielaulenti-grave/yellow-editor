@@ -49,6 +49,10 @@ export type TextScriptInsight =
       species?: string;
     }
   | {
+      type: "pokedex";
+      species?: string;
+    }
+  | {
       type: "event";
       action: string;
       events: string[];
@@ -566,6 +570,14 @@ export function analyzeTextScript(
     if (/^call\s+PlayCry\b/i.test(clean)) {
       insights.push({
         type: "cry",
+        species: recentRegisterValue(lines, index, "a", 8) ?? undefined,
+      });
+      continue;
+    }
+
+    if (/^call\s+DisplayPokedex\b/i.test(clean)) {
+      insights.push({
+        type: "pokedex",
         species: recentRegisterValue(lines, index, "a", 8) ?? undefined,
       });
       continue;
