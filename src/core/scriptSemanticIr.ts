@@ -97,6 +97,7 @@ export const SCRIPT_ENGINE_INTERNAL_CALLS = new Set([
   "CopyScreenTileBufferToVRAM",
   "SetSpritePosition1",
   "SetSpritePosition2",
+  "SetSpriteMovementBytesToFF",
   "SpriteFunc_34a1",
   "GetSpritePosition2",
 ]);
