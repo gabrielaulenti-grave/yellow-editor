@@ -1,6 +1,7 @@
 import type { MacroAnalysis } from "./macroCatalog";
 import type { ProjectRgbdsSourceFile } from "./projectConstants";
 import {
+  SCRIPT_REGRESSION_FIXTURES,
   SCRIPT_SEMANTIC_FAMILIES,
   SCRIPT_SEMANTIC_IR_VERSION,
   isScriptEngineInternalCall,
@@ -34,6 +35,14 @@ const RGBDS_DIRECTIVES = new Set([
 
 const DIRECT_SEMANTIC_CALLS = new Set([
   "CallFunctionInTable",
+  "Random",
+  "LoadItemList",
+  "GetPartyMonName",
+  "GetMonName",
+  "EndTrainerBattle",
+  "DisplayEnemyTrainerTextAndStartBattle",
+  "CheckFightingMapTrainers",
+  "ArePlayerCoordsInArray",
   "CheckBoulderCoords",
   "ExecuteCurMapScriptInTable",
   "DecodeArrowMovementRLE",
@@ -732,6 +741,31 @@ export function buildScriptAudit(
     (construct) => construct.status === "structural",
   ).length;
   const blockerCount = unresolvedConstructCount + structuralConstructCount;
+  const auditByPath = new Map(auditFiles.map((file) => [file.path, file]));
+  const regressionFixtures = SCRIPT_REGRESSION_FIXTURES.map((fixture) => {
+    const present = fixture.paths
+      .map((path) => auditByPath.get(path))
+      .filter((file): file is ScriptAuditFile => Boolean(file));
+    const unresolved = present.reduce(
+      (sum, file) => sum + file.unresolvedInvocationCount,
+      0,
+    );
+    const structural = present.reduce(
+      (sum, file) => sum + file.structuralInvocationCount,
+      0,
+    );
+    return {
+      id: fixture.id,
+      label: fixture.label,
+      purpose: fixture.purpose,
+      paths: [...fixture.paths],
+      presentPaths: present.map((file) => file.path),
+      blockerCount: unresolved + structural,
+      unresolvedInvocationCount: unresolved,
+      structuralInvocationCount: structural,
+      passed: present.length > 0 && unresolved === 0 && structural === 0,
+    };
+  });
 
   return {
     irVersion: SCRIPT_SEMANTIC_IR_VERSION,
@@ -748,6 +782,7 @@ export function buildScriptAudit(
         "All builder actions target the frozen semantic IR rather than raw assembly.",
       ],
     },
+    regressionFixtures,
     fileCount: scriptFiles.length,
     meaningfulLineCount,
     semanticLineCount,
