@@ -174,6 +174,144 @@ function directGlobalLabels(files: ProjectRgbdsSourceFile[]): Set<string> {
   return result;
 }
 
+interface ScriptRoutineBody {
+  label: string;
+  path: string;
+  lines: string[];
+}
+
+function scriptRoutineBodies(files: ProjectRgbdsSourceFile[]): ScriptRoutineBody[] {
+  const result: ScriptRoutineBody[] = [];
+  for (const file of files.filter(isScriptFile)) {
+    const lines = file.contents.split(/\r?\n/);
+    let label: string | null = null;
+    let body: string[] = [];
+
+    const flush = () => {
+      if (!label) return;
+      result.push({ label, path: file.path, lines: body });
+    };
+
+    for (const sourceLine of lines) {
+      const clean = withoutComment(sourceLine);
+      const nextLabel = clean.match(/^([A-Za-z_][A-Za-z0-9_]*):{1,2}$/)?.[1];
+      if (nextLabel) {
+        flush();
+        label = nextLabel;
+        body = [];
+        continue;
+      }
+      if (label) body.push(sourceLine);
+    }
+    flush();
+  }
+  return result;
+}
+
+function directSemanticTarget(
+  name: string,
+  movementVocabulary: ProjectMovementVocabulary,
+  setterLabels: Set<string>,
+  objectWrappers: Set<string>,
+): boolean {
+  return DIRECT_SEMANTIC_CALLS.has(name)
+    || DIRECT_SEMANTIC_PREDEFS.has(name)
+    || /^RemoveItemByID(?:Bank[0-9A-F]+)?$/i.test(name)
+    || /DisplayTextID/i.test(name)
+    || /Print[A-Za-z0-9_]*Text/i.test(name)
+    || /^Music_/i.test(name)
+    || movementVocabulary.consumers.some((consumer) => consumer.routine === name)
+    || setterLabels.has(name)
+    || objectWrappers.has(name);
+}
+
+function compositeSemanticLabels(
+  files: ProjectRgbdsSourceFile[],
+  movementVocabulary: ProjectMovementVocabulary,
+  setterLabels: Set<string>,
+  objectWrappers: Set<string>,
+  eventMacros: Map<string, ProjectEventMacroSemantic>,
+  textCommandMacros: Set<string>,
+  macroDefinitions: Set<string>,
+): Set<string> {
+  const routines = scriptRoutineBodies(files);
+  const labels = new Set(routines.map((routine) => routine.label));
+  const resolved = new Set<string>();
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const routine of routines) {
+      if (resolved.has(routine.label)) continue;
+
+      let hasSemanticAction = false;
+      let blocked = false;
+
+      for (const sourceLine of routine.lines) {
+        const clean = withoutComment(sourceLine);
+        if (!clean || isLabel(clean)) continue;
+
+        const invocation = clean.match(
+          /^(call|farcall|predef)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+        );
+        if (invocation) {
+          const target = invocation[2];
+          if (target.startsWith(".")) continue;
+          if (isScriptEngineInternalCall(target)) continue;
+          if (
+            directSemanticTarget(target, movementVocabulary, setterLabels, objectWrappers)
+            || resolved.has(target)
+          ) {
+            hasSemanticAction = true;
+            continue;
+          }
+          if (labels.has(target)) {
+            blocked = true;
+            break;
+          }
+          blocked = true;
+          break;
+        }
+
+        const head = lineHead(clean);
+        const lowerHead = head.toLowerCase();
+        if (!head || CPU_INSTRUCTIONS.has(lowerHead) || RGBDS_DIRECTIVES.has(lowerHead)) {
+          continue;
+        }
+        if (!macroDefinitions.has(lowerHead)) continue;
+        if (isScriptEngineInternalMacro(head)) continue;
+
+        const firstArgument = clean.slice(head.length).trim().split(",")[0]?.trim();
+        const macroReason = semanticMacroReason(
+          head,
+          eventMacros,
+          textCommandMacros,
+        ) ?? wrapperMacroSemanticReason(
+          head,
+          firstArgument,
+          movementVocabulary,
+          setterLabels,
+          objectWrappers,
+        );
+        if (macroReason) {
+          hasSemanticAction = true;
+          continue;
+        }
+
+        blocked = true;
+        break;
+      }
+
+      if (!blocked && hasSemanticAction) {
+        resolved.add(routine.label);
+        changed = true;
+      }
+    }
+  }
+
+  return resolved;
+}
+
 function scriptSetterLabels(files: ProjectRgbdsSourceFile[]): Set<string> {
   const result = new Set<string>();
   for (const file of files) {
@@ -448,6 +586,15 @@ export function buildScriptAudit(
   const labels = directGlobalLabels(files);
   const setterLabels = scriptSetterLabels(files);
   const objectWrappers = objectWrapperLabels(files);
+  const compositeLabels = compositeSemanticLabels(
+    files,
+    movementVocabulary,
+    setterLabels,
+    objectWrappers,
+    eventMacros,
+    textCommandMacros,
+    macroDefinitions,
+  );
   const constructs = new Map<string, ConstructAccumulator>();
   const auditFiles: ScriptAuditFile[] = [];
 
@@ -499,6 +646,21 @@ export function buildScriptAudit(
       if (invocation) {
         const kind = invocation[1].toLowerCase() as "call" | "farcall" | "predef";
         const name = invocation[2];
+        if (name.startsWith(".")) {
+          addConstruct(
+            constructs,
+            "internal",
+            kind,
+            name,
+            "Routine-local control flow; the referenced local block is audited in place.",
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
         if (isScriptEngineInternalCall(name)) {
           addConstruct(
             constructs,
@@ -514,11 +676,13 @@ export function buildScriptAudit(
           fileInternalInvocations += 1;
           return;
         }
-        const semanticReason = kind === "predef" && DIRECT_SEMANTIC_PREDEFS.has(name)
-          ? "Handled by the script semantic model."
-          : kind === "farcall" && /^Music_/i.test(name)
-            ? "Handled as project music playback."
-            : semanticCall(
+        const semanticReason = compositeLabels.has(name)
+          ? "Project helper is composed entirely of semantic actions and understood control flow."
+          : kind === "predef" && DIRECT_SEMANTIC_PREDEFS.has(name)
+            ? "Handled by the script semantic model."
+            : kind === "farcall" && /^Music_/i.test(name)
+              ? "Handled as project music playback."
+              : semanticCall(
                 name,
                 clean,
                 lines,
