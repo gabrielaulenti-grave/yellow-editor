@@ -755,10 +755,10 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
             </p>
           </div>
           {audit && (
-            <span className={audit.unresolvedLineCount === 0 ? "editable-badge" : "read-only-badge"}>
-              {audit.unresolvedLineCount === 0
-                ? "Syntax fully classified"
-                : `${audit.unresolvedLineCount} unresolved line${audit.unresolvedLineCount === 1 ? "" : "s"}`}
+            <span className={audit.releaseReadiness.ready ? "editable-badge" : "read-only-badge"}>
+              {audit.releaseReadiness.ready
+                ? `Semantic IR v${audit.irVersion} release gate passed`
+                : `${audit.releaseReadiness.blockerCount} release blocker${audit.releaseReadiness.blockerCount === 1 ? "" : "s"}`}
             </span>
           )}
         </div>
@@ -803,10 +803,40 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                 <small>known, not yet lifted</small>
               </div>
               <div>
+                <strong>{audit.internalInvocationCount}</strong>
+                <small>explicit engine internals</small>
+              </div>
+              <div>
                 <strong>{audit.unresolvedInvocationCount}</strong>
                 <small>unresolved constructs</small>
               </div>
+              <div>
+                <strong>{audit.releaseReadiness.blockerCount}</strong>
+                <small>release blockers</small>
+              </div>
             </div>
+
+            <details className="script-audit-details">
+              <summary>
+                Frozen semantic IR v{audit.irVersion} · {audit.semanticFamilies.length} gameplay families
+              </summary>
+              <p className="help-text">
+                The parser, validator, and future script builder share this vocabulary. New
+                parser heuristics should only be added when a regression exposes behavior that
+                cannot be represented by one of these families.
+              </p>
+              <div className="script-semantic-family-grid">
+                {audit.semanticFamilies.map((family) => (
+                  <div key={family.id} className="script-semantic-family-card">
+                    <span>
+                      <strong>{family.label}</strong>
+                      <small>{family.builderPriority === "core" ? "Core builder" : "Advanced builder"}</small>
+                    </span>
+                    <p>{family.description}</p>
+                  </div>
+                ))}
+              </div>
+            </details>
 
             {audit.files.some((file) =>
               file.unresolvedInvocationCount > 0
@@ -823,8 +853,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                   ).length === 1 ? "" : "s"}
                 </summary>
                 <p className="help-text">
-                  Ordered by true unresolved constructs first, then by project routines/macros
-                  that are safe and understood structurally but still need a beginner-facing semantic lift.
+                  This is now the release-blocker queue: true unresolved constructs first, then
+                  project routines/macros that are understood structurally but still need a beginner-facing
+                  semantic lift. Explicit engine internals are tracked separately and do not block release.
                 </p>
                 <div className="script-audit-construct-list">
                   {audit.files
@@ -887,12 +918,47 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                   Known constructs awaiting semantic lift · {audit.constructs.filter((construct) => construct.status === "structural").length}
                 </summary>
                 <p className="help-text">
-                  These are safe, resolved project syntax or routines. Yellow Editor can preserve
-                  them, but has not yet assigned a beginner-facing gameplay action.
+                  These are resolved project syntax or routines, but they still encode behavior
+                  that has not been assigned to the frozen semantic IR. They remain release blockers until
+                  promoted or explicitly classified as engine internals.
                 </p>
                 <div className="script-audit-construct-list">
                   {audit.constructs
                     .filter((construct) => construct.status === "structural")
+                    .slice(0, 60)
+                    .map((construct) => {
+                      const example = construct.examples[0];
+                      return (
+                        <button
+                          type="button"
+                          key={construct.key}
+                          onClick={() => example && selectAuditExample(example.path, example.line)}
+                        >
+                          <span>
+                            <strong>{construct.name}</strong>
+                            <small>{construct.kind} · {construct.occurrences} occurrence{construct.occurrences === 1 ? "" : "s"}</small>
+                          </span>
+                          {example && <code>{example.path}:{example.line}</code>}
+                        </button>
+                      );
+                    })}
+                </div>
+              </details>
+            )}
+
+            {audit.constructs.some((construct) => construct.status === "internal") && (
+              <details className="script-audit-details">
+                <summary>
+                  Explicit engine internals · {audit.constructs.filter((construct) => construct.status === "internal").length}
+                </summary>
+                <p className="help-text">
+                  These helpers are understood and intentionally remain below the beginner-facing IR.
+                  Yellow Editor preserves them without requiring the script builder to expose renderer,
+                  audio, screen-buffer, or sprite-bookkeeping details.
+                </p>
+                <div className="script-audit-construct-list">
+                  {audit.constructs
+                    .filter((construct) => construct.status === "internal")
                     .slice(0, 60)
                     .map((construct) => {
                       const example = construct.examples[0];
