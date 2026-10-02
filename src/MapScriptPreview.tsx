@@ -161,6 +161,10 @@ function iconFor(kind: MapScriptOperationKind): string {
     case "wait": return "…";
     case "object": return "◉";
     case "recovery": return "+";
+    case "item": return "□";
+    case "economy": return "$";
+    case "party": return "●";
+    case "service": return "◎";
     case "control": return "⌘";
     case "flag": return "◇";
     case "screen": return "◐";
@@ -312,6 +316,19 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
         ...(node.destinationMap ? [{ label: "Destination map", value: titleCaseConstant(node.destinationMap) }] : []),
         ...(node.coordinates ? [{ label: "Warp coordinates", value: titleCaseConstant(node.coordinates) }] : []),
       ];
+    case "item":
+      return [
+        ...(node.item ? [{ label: "Item", value: titleCaseConstant(node.item) }] : []),
+        ...(node.quantity ? [{ label: "Quantity", value: node.quantity }] : []),
+        ...(node.species ? [{ label: "Pokémon", value: titleCaseConstant(node.species) }] : []),
+        ...(node.level ? [{ label: "Level", value: node.level }] : []),
+      ];
+    case "economy":
+      return [];
+    case "party":
+      return [];
+    case "service":
+      return [{ label: "Interaction", value: titleCaseConstant(node.service.replace(/-/g, "_")) }];
   }
 }
 
