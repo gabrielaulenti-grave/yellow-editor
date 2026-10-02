@@ -431,6 +431,7 @@ export interface ScriptMacroEditDocument {
   editableArgumentDomains: Array<{
     index: number;
     domainIds: string[];
+    allowedValues: string[];
   }>;
 }
 
