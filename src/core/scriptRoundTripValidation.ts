@@ -90,6 +90,31 @@ function semanticShapesAtLine(
     .sort();
 }
 
+function semanticLayoutFingerprint(program: MapScriptProgram): string[] {
+  return program.states
+    .flatMap((state) =>
+      state.nodes.map((node) => [
+        state.label,
+        String(node.source.lineStart),
+        String(node.source.lineEnd),
+        semanticShape(node),
+      ].join(":"))
+    )
+    .sort();
+}
+
+function topologyFingerprint(program: MapScriptProgram): string[] {
+  return program.states.map((state) => JSON.stringify({
+    label: state.label,
+    scriptConstant: state.scriptConstant,
+    external: state.external,
+    transitions: state.transitions.map((transition) => ({
+      targetConstant: transition.targetConstant,
+      targetLabel: transition.targetLabel,
+    })),
+  }));
+}
+
 function validationErrorFingerprint(
   issue: MapScriptValidationIssue,
 ): string {
@@ -141,6 +166,22 @@ export function validateScriptSemanticRoundTrip(
 
   const beforeShapes = semanticShapesAtLine(beforeProgram, line);
   const afterShapes = semanticShapesAtLine(afterProgram, line);
+  const beforeLayout = semanticLayoutFingerprint(beforeProgram);
+  const afterLayout = semanticLayoutFingerprint(afterProgram);
+  const beforeTopology = topologyFingerprint(beforeProgram);
+  const afterTopology = topologyFingerprint(afterProgram);
+
+  if (!arraysEqual(beforeTopology, afterTopology)) {
+    throw new Error(
+      "The edited source changed map-script states or transitions. Yellow Editor refused the save because guarded parameter edits may not alter control-flow topology.",
+    );
+  }
+
+  if (!arraysEqual(beforeLayout, afterLayout)) {
+    throw new Error(
+      "The edited source changed the semantic-node layout elsewhere in the script. Yellow Editor refused the save because a guarded parameter edit may change values, but not behavior classes or source structure.",
+    );
+  }
 
   if (beforeShapes.length > 0 && !arraysEqual(beforeShapes, afterShapes)) {
     throw new Error(
