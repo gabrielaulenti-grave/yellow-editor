@@ -238,6 +238,11 @@
   gap: 0.55rem;
 }
 
+.map-script-safe-edit-link {
+  margin-top: 0.55rem;
+  width: fit-content;
+}
+
 .map-script-source-detail {
   margin-top: 0.15rem;
   font-size: 0.8rem;
