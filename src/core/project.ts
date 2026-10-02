@@ -45,7 +45,9 @@ import {
   prepareScriptMacroCallWrite,
 } from "./scriptMacroEditing";
 import {
+  loadScriptEventConditionalCreateDocument,
   loadScriptSimpleActionCreateDocument,
+  prepareScriptEventConditionalWrite,
   prepareScriptSimpleActionWrite,
 } from "./scriptActionCreation";
 import {
@@ -87,6 +89,8 @@ import type {
   PokemonTmhmCompatibilityReference,
   ProjectSession,
   ProjectSource,
+  ScriptEventConditionalCreateDocument,
+  ScriptEventConditionalCreateValues,
   ScriptSimpleActionCreateDocument,
   ScriptSimpleActionCreateValues,
   TextWriteRequest,
@@ -571,6 +575,72 @@ export async function createProjectSession(
     return result;
   }
 
+  async function getScriptEventConditionalCreateDocument(
+    path: string,
+    routineLabel: string,
+  ): Promise<ScriptEventConditionalCreateDocument> {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    return loadScriptEventConditionalCreateDocument(
+      sourceText,
+      path,
+      routineLabel,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+  }
+
+  async function createScriptEventConditional(
+    document: ScriptEventConditionalCreateDocument,
+    values: ScriptEventConditionalCreateValues,
+  ) {
+    if (!/^scripts\/.+\.asm$/i.test(document.path)) {
+      throw new Error(`Unsupported script path: ${document.path}`);
+    }
+    resetScriptSourceAnalysis();
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(document.path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    const change = await prepareScriptEventConditionalWrite(
+      sourceText,
+      document,
+      values,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+    const result = await history.save(
+      `Add event condition to ${document.routineLabel}`,
+      [change],
+    );
+    invalidateNonTrainerReadModels([document.path]);
+    if (trainerCacheAffected([document.path])) {
+      await trainerCatalogCache?.clear();
+    }
+    return result;
+  }
+
   async function getScriptMacroEditDocument(path: string, line: number) {
     if (!/^scripts\/.+\.asm$/i.test(path)) {
       throw new Error(`Unsupported script path: ${path}`);
@@ -797,6 +867,8 @@ export async function createProjectSession(
     runScriptRoundTripRegression,
     getScriptSimpleActionCreateDocument,
     createScriptSimpleAction,
+    getScriptEventConditionalCreateDocument,
+    createScriptEventConditional,
     getScriptDocument,
     getMacroCatalog,
     getScriptMacroCalls,
