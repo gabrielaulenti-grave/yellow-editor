@@ -20,6 +20,10 @@ import {
   MapScriptPreview,
   type MapScriptPreviewReference,
 } from "./MapScriptPreview";
+import {
+  editableScriptMacroArguments,
+  scriptMacroHasEditableAlternative,
+} from "./core/scriptMacroEligibility";
 import { invoke } from "./platform/compat";
 import "./ScriptsTab.css";
 
@@ -94,6 +98,7 @@ function MacroCallForm({
   call,
   definition,
   domains,
+  catalog,
   editBlocked,
   onEditStateChange,
   onSaved,
@@ -101,6 +106,7 @@ function MacroCallForm({
   call: ScriptMacroCall;
   definition: MacroDefinitionSummary | null;
   domains: ProjectSemanticDomain[];
+  catalog: MacroCatalog | null;
   editBlocked: boolean;
   onEditStateChange(open: boolean, dirty: boolean): void;
   onSaved(): void;
@@ -132,9 +138,13 @@ function MacroCallForm({
         semanticDomains: argument.semanticDomains,
       }));
 
-  const hasSemanticCandidate = parameters.some(
-    (parameter) => parameter.semanticDomains.length > 0,
-  ) || call.arguments.some((argument) => argument.semanticDomains.length > 0);
+  const guardedArguments = catalog
+    ? editableScriptMacroArguments(catalog, call)
+    : [];
+  const hasSemanticCandidate = guardedArguments.some((entry) => {
+    const current = call.arguments[entry.index - 1]?.raw;
+    return entry.allowedValues.some((value) => value !== current);
+  });
 
   async function beginEdit() {
     onEditStateChange(true, false);
@@ -296,7 +306,11 @@ function MacroCallForm({
                     {!rawValue && (
                       <option value="">{parameter.required ? "Not supplied" : "Optional"}</option>
                     )}
-                    {semanticDomain.options.map((option) => (
+                    {semanticDomain.options
+                      .filter((option) =>
+                        !editableEntry || editableEntry.allowedValues.includes(option.value)
+                      )
+                      .map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label === option.value
                           ? option.value
@@ -661,14 +675,12 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   }, [document, macroCalls, selectedRoutine]);
 
   const editableMacroLines = useMemo(() => new Set(
-    selectedRoutineMacroCalls
-      .filter((call) => {
-        const definition = macroDefinitions.get(call.name.toLowerCase());
-        return call.arguments.some((argument) => argument.semanticDomains.length > 0)
-          || definition?.parameters.some((parameter) => parameter.semanticDomains.length > 0);
-      })
-      .map((call) => call.line),
-  ), [macroDefinitions, selectedRoutineMacroCalls]);
+    macroCatalog
+      ? selectedRoutineMacroCalls
+        .filter((call) => scriptMacroHasEditableAlternative(macroCatalog, call))
+        .map((call) => call.line)
+      : [],
+  ), [macroCatalog, selectedRoutineMacroCalls]);
 
   const previewReference = useMemo<MapScriptPreviewReference | null>(() => {
     if (!document || !selectedRoutineLabel) return null;
@@ -1510,6 +1522,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                             call={call}
                             definition={macroDefinitions.get(call.name.toLowerCase()) ?? null}
                             domains={macroCatalog?.domains ?? []}
+                            catalog={macroCatalog}
                             editBlocked={Boolean(
                               activeMacroEdit
                               && activeMacroEdit.key !== `${call.path}:${call.line}:${call.name}`,
