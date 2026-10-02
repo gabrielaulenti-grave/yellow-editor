@@ -297,6 +297,21 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
         ...(node.block ? [{ label: "Block", value: titleCaseConstant(node.block) }] : []),
         ...(node.x && node.y ? [{ label: "Map coordinate", value: `(${node.x}, ${node.y})` }] : []),
       ];
+    case "indexed-event":
+      return [
+        { label: "Base event", value: titleCaseConstant(node.baseEvent) },
+        ...(node.relatedEvent ? [{ label: "Related event", value: titleCaseConstant(node.relatedEvent) }] : []),
+        ...(node.destination ? [{ label: "Result", value: titleCaseConstant(node.destination) }] : []),
+      ];
+    case "object-puzzle":
+      return node.coordinates
+        ? [{ label: "Target coordinates", value: titleCaseConstant(node.coordinates) }]
+        : [];
+    case "warp":
+      return [
+        ...(node.destinationMap ? [{ label: "Destination map", value: titleCaseConstant(node.destinationMap) }] : []),
+        ...(node.coordinates ? [{ label: "Warp coordinates", value: titleCaseConstant(node.coordinates) }] : []),
+      ];
   }
 }
 
