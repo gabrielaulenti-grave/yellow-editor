@@ -95,6 +95,14 @@ export type TextScriptInsight =
       type: "battle-dialogue";
       playerWins?: string;
       playerLoses?: string;
+    }
+  | {
+      type: "economy";
+      action: "check-affordability" | "add" | "subtract" | "divide";
+    }
+  | {
+      type: "service";
+      action: "calculate-low-cost-admission" | "select-party-member" | "transfer-party-member";
     };
 
 interface SourceSection {
@@ -524,6 +532,41 @@ export function analyzeTextScript(
           break;
         }
       }
+      continue;
+    }
+
+    if (/^call\s+HasEnoughMoney\b/i.test(clean)) {
+      insights.push({ type: "economy", action: "check-affordability" });
+      continue;
+    }
+
+    const bcdEconomy = clean.match(
+      /^predef\s+(AddBCDPredef|SubBCDPredef|DivideBCDPredef3)\b/i,
+    )?.[1];
+    if (bcdEconomy) {
+      insights.push({
+        type: "economy",
+        action: bcdEconomy === "AddBCDPredef"
+          ? "add"
+          : bcdEconomy === "SubBCDPredef"
+            ? "subtract"
+            : "divide",
+      });
+      continue;
+    }
+
+    if (/^call\s+[A-Za-z0-9_]*CalculateLowCostAdmission\b/i.test(clean)) {
+      insights.push({ type: "service", action: "calculate-low-cost-admission" });
+      continue;
+    }
+
+    if (/^call\s+DisplayPartyMenu\b/i.test(clean)) {
+      insights.push({ type: "service", action: "select-party-member" });
+      continue;
+    }
+
+    if (/^call\s+(?:MoveMon|RemovePokemon)\b/i.test(clean)) {
+      insights.push({ type: "service", action: "transfer-party-member" });
       continue;
     }
 
