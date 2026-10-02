@@ -36,6 +36,13 @@ const RGBDS_DIRECTIVES = new Set([
 
 const DIRECT_SEMANTIC_CALLS = new Set([
   "CallFunctionInTable",
+  "CeruleanHideRocket",
+  "PewterJigglypuff",
+  "SurfingPikachuMinigame",
+  "SaveGameData",
+  "GiveFossilToCinnabarLab",
+  "DisplayNameRaterScreen",
+  "RemoveGuardDrink",
   "SchedulePikachuSpawnForAfterText",
   "RemovePokemon",
   "RemoveItemFromInventory",
@@ -93,6 +100,7 @@ const DIRECT_SEMANTIC_CALLS = new Set([
 ]);
 
 const DIRECT_SEMANTIC_PREDEFS = new Set([
+  "HallOfFamePC",
   "WriteMonMoves",
   "SubBCDPredef",
   "FindPathToPlayer",
