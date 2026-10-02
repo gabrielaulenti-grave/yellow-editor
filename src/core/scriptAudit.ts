@@ -5,6 +5,7 @@ import {
   SCRIPT_SEMANTIC_FAMILIES,
   SCRIPT_SEMANTIC_IR_VERSION,
   isScriptEngineInternalCall,
+  isScriptEngineInternalMacro,
 } from "./scriptSemanticIr";
 import type {
   ProjectEventMacroSemantic,
@@ -35,6 +36,9 @@ const RGBDS_DIRECTIVES = new Set([
 
 const DIRECT_SEMANTIC_CALLS = new Set([
   "CallFunctionInTable",
+  "PlayPikachuSoundClip",
+  "Has9990Coins",
+  "CheckPikachuStatusCondition",
   "Random",
   "LoadItemList",
   "GetPartyMonName",
@@ -313,6 +317,15 @@ function semanticMacroReason(
   if (/^dw_const$/i.test(name)) {
     return "Defines a typed project constant pointer.";
   }
+  if (/^(?:EventFlagAddress|EventFlagBit)$/i.test(name)) {
+    return "Addresses an indexed event family used by the indexed-event semantic model.";
+  }
+  if (/^(?:script_pokecenter_nurse|script_cable_club_receptionist)$/i.test(name)) {
+    return "Defines a standard reusable service interaction.";
+  }
+  if (/^(?:ldpikacry|ldpikaemotion)$/i.test(name)) {
+    return "Configures a Pikachu companion reaction used by the interaction model.";
+  }
   return null;
 }
 
@@ -530,6 +543,21 @@ export function buildScriptAudit(
 
       const macroCall = macroCalls.get(lineNumber);
       if (macroCall) {
+        if (isScriptEngineInternalMacro(macroCall.name)) {
+          addConstruct(
+            constructs,
+            "internal",
+            "macro",
+            macroCall.name,
+            "Source/data convenience macro; preserved exactly and not exposed as a gameplay action.",
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
         const wrappedTarget = macroCall.arguments[0]?.raw;
         if (
           ["callfar", "farjp", "predef_jump"].includes(macroCall.name.toLowerCase())
@@ -617,6 +645,21 @@ export function buildScriptAudit(
       }
 
       if (head && macroDefinitions.has(lowerHead)) {
+        if (isScriptEngineInternalMacro(head)) {
+          addConstruct(
+            constructs,
+            "internal",
+            "macro",
+            head,
+            "Source/data convenience macro; preserved exactly and not exposed as a gameplay action.",
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
         const firstArgument = clean.slice(head.length).trim().split(",")[0]?.trim();
         if (
           ["callfar", "farjp", "predef_jump"].includes(lowerHead)
