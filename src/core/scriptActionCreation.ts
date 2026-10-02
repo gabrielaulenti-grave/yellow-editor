@@ -266,6 +266,7 @@ export async function loadScriptSimpleActionCreateDocument(
     ...(setMacro ? ["set-event" as const] : []),
     ...(resetMacro ? ["reset-event" as const] : []),
     "wait",
+    "heal-party",
   ];
   return {
     path,
@@ -316,6 +317,9 @@ export async function prepareScriptSimpleActionWrite(
       `${insertion.indent}call DelayFrames`,
     );
     expectedShape = "wait";
+  } else if (values.action === "heal-party") {
+    generated.push(`${insertion.indent}predef HealParty`);
+    expectedShape = "recovery";
   } else {
     const event = values.event?.trim();
     if (!event) throw new Error("Choose an event flag.");
