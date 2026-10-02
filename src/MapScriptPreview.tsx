@@ -35,6 +35,7 @@ import {
   type TextScriptInsight,
 } from "./core/textScriptAnalysis";
 import { analyzeSharedScriptRoutine } from "./core/sharedScriptAnalysis";
+import { validateMapScriptProgram } from "./core/mapScriptValidation";
 import "./MapScriptPreview.css";
 
 export interface MapScriptPreviewReference {
@@ -962,7 +963,11 @@ export function MapScriptPreview({
     const dialoguePhases = parseResolvedScriptDialogueSummary(reference.routineSource ?? "");
     const battleHandoffs = mapScriptBattleHandoffs(program, reference.mapScriptSource);
     const resumeLabels = new Set(battleHandoffs.map((handoff) => handoff.resumeStateLabel));
-    return { states, dialoguePhases, battleHandoffs, resumeLabels };
+    const focusedLabels = new Set(states.map((state) => state.label));
+    const validationIssues = validateMapScriptProgram(program).filter(
+      (issue) => !issue.stateLabel || focusedLabels.has(issue.stateLabel),
+    );
+    return { states, dialoguePhases, battleHandoffs, resumeLabels, validationIssues };
   }, [
     reference.mapScriptSource,
     reference.routineLabel,
@@ -994,6 +999,28 @@ export function MapScriptPreview({
             : "Dialogue editable"}
         </span>
       </div>
+
+      {model.validationIssues.length > 0 && (
+        <div className="map-script-validation-panel">
+          <strong>Semantic validation</strong>
+          <p className="help-text">
+            Yellow Editor preserved this source, but the items below need attention before the same
+            semantic graph should be used for generated script output.
+          </p>
+          <ul>
+            {model.validationIssues.map((issue, index) => (
+              <li
+                key={`${issue.code}:${issue.stateLabel ?? "global"}:${issue.sourceLine ?? index}`}
+                className={`map-script-validation-${issue.severity}`}
+              >
+                <strong>{issue.severity === "error" ? "Error" : "Warning"}</strong>
+                <span>{issue.message}</span>
+                {issue.sourceLine && <code>line {issue.sourceLine}</code>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="map-script-state-list">
         {model.states.map((state, stateIndex) => {
