@@ -41,11 +41,11 @@ function safeRoutineInsertion(
 ): SafeRoutineInsertion {
   const lines = source.split(/\r?\n/);
   const startPattern = new RegExp(
-    \`^\\\\s*${escapeRegExp(routineLabel)}:{1,2}\\\\s*(?:;.*)?$\`,
+    `^\\\\s*${escapeRegExp(routineLabel)}:{1,2}\\\\s*(?:;.*)?$`,
   );
   const start = lines.findIndex((line) => startPattern.test(line));
   if (start < 0) {
-    throw new Error(\`Routine '${routineLabel}' was not found in this script file.\`);
+    throw new Error(`Routine '${routineLabel}' was not found in this script file.`);
   }
 
   let end = lines.length;
@@ -199,18 +199,18 @@ function validateGeneratedInsertion(
   for (const [label, shapes] of beforeShapes) {
     const nextShapes = afterShapes.get(label);
     if (!nextShapes) {
-      throw new Error(\`Generated source removed parsed state '${label}'.\`);
+      throw new Error(`Generated source removed parsed state '${label}'.`);
     }
     if (label === routineLabel) {
       const expected = [...shapes, expectedShape];
       if (!equalStrings(expected, nextShapes)) {
         throw new Error(
-          \`Generated source did not reparse as exactly one new ${expectedShape} action.\`,
+          `Generated source did not reparse as exactly one new ${expectedShape} action.`,
         );
       }
     } else if (!equalStrings(shapes, nextShapes)) {
       throw new Error(
-        \`Generated source changed unrelated semantic state '${label}'. Yellow Editor refused the insertion.\`,
+        `Generated source changed unrelated semantic state '${label}'. Yellow Editor refused the insertion.`,
       );
     }
   }
@@ -218,15 +218,15 @@ function validateGeneratedInsertion(
   const beforeErrors = new Set(
     validateMapScriptProgram(before)
       .filter((issue) => issue.severity === "error")
-      .map((issue) => \`${issue.code}:${issue.stateLabel ?? ""}\`),
+      .map((issue) => `${issue.code}:${issue.stateLabel ?? ""}`),
   );
   const introduced = validateMapScriptProgram(after)
     .filter((issue) => issue.severity === "error")
-    .map((issue) => \`${issue.code}:${issue.stateLabel ?? ""}\`)
+    .map((issue) => `${issue.code}:${issue.stateLabel ?? ""}`)
     .filter((fingerprint) => !beforeErrors.has(fingerprint));
   if (introduced.length > 0) {
     throw new Error(
-      \`Generated source introduced ${introduced.length} semantic validation error${introduced.length === 1 ? "" : "s"}.\`,
+      `Generated source introduced ${introduced.length} semantic validation error${introduced.length === 1 ? "" : "s"}.`,
     );
   }
 }
@@ -286,7 +286,7 @@ export async function prepareScriptSimpleActionWrite(
 ): Promise<TextWriteRequest> {
   if (await hashText(sourceText) !== document.sourceHash) {
     throw new Error(
-      \`${document.path} changed after the action form was loaded. Reload Scripts before adding the action.\`,
+      `${document.path} changed after the action form was loaded. Reload Scripts before adding the action.`,
     );
   }
   if (!document.availableActions.includes(values.action)) {
@@ -308,8 +308,8 @@ export async function prepareScriptSimpleActionWrite(
       throw new Error("Wait duration must be a whole number from 1 to 255 frames.");
     }
     generated.push(
-      \`${insertion.indent}ld c, ${frames}\`,
-      \`${insertion.indent}call DelayFrames\`,
+      `${insertion.indent}ld c, ${frames}`,
+      `${insertion.indent}call DelayFrames`,
     );
     expectedShape = "wait";
   } else {
@@ -322,8 +322,8 @@ export async function prepareScriptSimpleActionWrite(
         "The selected event is not in the project-derived domain for this event action.",
       );
     }
-    generated.push(\`${insertion.indent}${macro.name} ${event}\`);
-    expectedShape = \`event:${action}\`;
+    generated.push(`${insertion.indent}${macro.name} ${event}`);
+    expectedShape = `event:${action}`;
   }
 
   const lines = sourceText.split(/\r?\n/);
