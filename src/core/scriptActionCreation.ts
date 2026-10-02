@@ -41,7 +41,50 @@ function safeRoutineInsertion(
 ): SafeRoutineInsertion {
   const lines = source.split(/\r?\n/);
   const startPattern = new RegExp(
-    `^\\\\s*${escapeRegExp(routineLabel)}:{1,2}\\\\s*(?:;.*)?$`,
+    `^\\s*${escapeRegExp(routineLabel)}:{1,2}\\s*(?:;.*)?import { hashText } from "./history";
+import type { MacroAnalysis } from "./macroCatalog";
+import {
+  parseMapScriptProgram,
+  type MapScriptProgram,
+} from "./mapScriptProgram";
+import { validateMapScriptProgram } from "./mapScriptValidation";
+import { scriptSemanticNodeShape } from "./scriptRoundTripValidation";
+import type {
+  ProjectEventMacroSemantic,
+  ProjectMovementVocabulary,
+  ProjectSemanticDomainOption,
+  ScriptSimpleActionCreateDocument,
+  ScriptSimpleActionCreateValues,
+  TextWriteRequest,
+} from "./types";
+
+interface SafeRoutineInsertion {
+  insertionIndex: number;
+  insertionLine: number;
+  indent: string;
+}
+
+interface EventBuilderMacro {
+  name: string;
+  options: ProjectSemanticDomainOption[];
+}
+
+function withoutComment(line: string): string {
+  const index = line.indexOf(";");
+  return (index >= 0 ? line.slice(0, index) : line).trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
+}
+
+function safeRoutineInsertion(
+  source: string,
+  routineLabel: string,
+): SafeRoutineInsertion {
+  const lines = source.split(/\r?\n/);
+  const startPattern = new RegExp(
+,
   );
   const start = lines.findIndex((line) => startPattern.test(line));
   if (start < 0) {
