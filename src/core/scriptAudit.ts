@@ -986,6 +986,19 @@ export function buildScriptAudit(
     (construct) => construct.status === "structural",
   ).length;
   const blockerCount = unresolvedConstructCount + structuralConstructCount;
+  const externalTargetConstructCount = constructList.filter(
+    (construct) =>
+      construct.status === "structural"
+      && ["call", "farcall", "predef"].includes(construct.kind),
+  ).length;
+  const macroSemanticConstructCount = constructList.filter(
+    (construct) =>
+      construct.status === "structural"
+      && construct.kind === "macro",
+  ).length;
+  const unresolvedSyntaxConstructCount = constructList.filter(
+    (construct) => construct.status === "unresolved",
+  ).length;
   const auditByPath = new Map(auditFiles.map((file) => [file.path, file]));
   const regressionFixtures = SCRIPT_REGRESSION_FIXTURES.map((fixture) => {
     const present = fixture.paths
@@ -1020,6 +1033,9 @@ export function buildScriptAudit(
       blockerCount,
       unresolvedConstructCount,
       structuralConstructCount,
+      externalTargetConstructCount,
+      macroSemanticConstructCount,
+      unresolvedSyntaxConstructCount,
       criteria: [
         "Every scripts/*.asm source construct is classified.",
         "No gameplay-relevant invocation remains only structurally understood.",
