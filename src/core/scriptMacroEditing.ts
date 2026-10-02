@@ -357,6 +357,15 @@ export async function prepareScriptMacroCallWrite(
         `Argument ${index + 1} value '${next}' is not present in the inferred project domain. Reload Scripts if the project definitions recently changed.`,
       );
     }
+
+    const preservesEveryDomain = domainIds.every((domainId) =>
+      allowedValues(analysis, [domainId]).has(next)
+    );
+    if (!preservesEveryDomain) {
+      throw new Error(
+        `Argument ${index + 1} would change its proven semantic-domain signature. Yellow Editor refused the save so a parameter cannot silently change meaning.`,
+      );
+    }
   }
 
   let nextLine = bounds.text;
