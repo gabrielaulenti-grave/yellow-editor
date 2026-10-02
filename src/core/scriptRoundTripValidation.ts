@@ -10,6 +10,10 @@ import {
 } from "./scriptMacroEditing";
 import { SCRIPT_REGRESSION_FIXTURES } from "./scriptSemanticIr";
 import {
+  analyzeTextScript,
+  type TextScriptInsight,
+} from "./textScriptAnalysis";
+import {
   validateMapScriptProgram,
   type MapScriptValidationIssue,
 } from "./mapScriptValidation";
@@ -138,6 +142,57 @@ function arraysEqual(left: string[], right: string[]): boolean {
     && left.every((value, index) => value === right[index]);
 }
 
+function sourceLabelAtLine(source: string, line: number): string | null {
+  const lines = source.split(/\r?\n/);
+  for (let index = Math.min(line - 1, lines.length - 1); index >= 0; index -= 1) {
+    const label = lines[index].match(
+      /^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/,
+    )?.[1];
+    if (label) return label;
+  }
+  return null;
+}
+
+function textInsightShape(insight: TextScriptInsight): string {
+  switch (insight.type) {
+    case "dialogue": return "dialogue";
+    case "condition": return "condition";
+    case "choice": return `choice:${insight.choice}`;
+    case "give-item": return "give-item";
+    case "give-pokemon": return "give-pokemon";
+    case "inventory": return `inventory:${insight.action}`;
+    case "remove-item": return "remove-item";
+    case "trade": return "trade";
+    case "cry": return "cry";
+    case "pokedex": return "pokedex";
+    case "event": return `event:${insight.action}`;
+    case "object": return `object:${insight.action}`;
+    case "trainer": return "trainer";
+    case "battle": return "battle";
+    case "transition": return "transition";
+    case "wait": return "wait";
+    case "emotion": return "emotion";
+    case "control": return `control:${insight.action}`;
+    case "facing": return `facing:${insight.actor}`;
+    case "battle-dialogue": return "battle-dialogue";
+    case "economy": return `economy:${insight.action}`;
+    case "service": return `service:${insight.action}`;
+  }
+  const exhaustive: never = insight;
+  return exhaustive;
+}
+
+function textScriptShapes(
+  source: string,
+  line: number,
+  eventMacroSemantics: ProjectEventMacroSemantic[],
+): string[] {
+  const label = sourceLabelAtLine(source, line);
+  if (!label) return [];
+  return analyzeTextScript(source, label, eventMacroSemantics)
+    .map(textInsightShape);
+}
+
 export interface ScriptSemanticRoundTripResult {
   beforeShapes: string[];
   afterShapes: string[];
@@ -166,6 +221,16 @@ export function validateScriptSemanticRoundTrip(
 
   const beforeShapes = semanticShapesAtLine(beforeProgram, line);
   const afterShapes = semanticShapesAtLine(afterProgram, line);
+  const beforeTextShapes = textScriptShapes(
+    beforeSource,
+    line,
+    eventMacroSemantics,
+  );
+  const afterTextShapes = textScriptShapes(
+    afterSource,
+    line,
+    eventMacroSemantics,
+  );
   const beforeLayout = semanticLayoutFingerprint(beforeProgram);
   const afterLayout = semanticLayoutFingerprint(afterProgram);
   const beforeTopology = topologyFingerprint(beforeProgram);
@@ -186,6 +251,15 @@ export function validateScriptSemanticRoundTrip(
   if (beforeShapes.length > 0 && !arraysEqual(beforeShapes, afterShapes)) {
     throw new Error(
       `The edited source changed its semantic IR shape (${beforeShapes.join(", ")} → ${afterShapes.join(", ") || "no semantic node"}). Yellow Editor refused the save so a guarded edit cannot silently change behavior class.`,
+    );
+  }
+
+  if (
+    beforeTextShapes.length > 0
+    && !arraysEqual(beforeTextShapes, afterTextShapes)
+  ) {
+    throw new Error(
+      "The edited source changed the recognized executable text-script flow. Yellow Editor refused the save because guarded dialogue/service edits may change values, but not condition, reward, event, or service structure.",
     );
   }
 
