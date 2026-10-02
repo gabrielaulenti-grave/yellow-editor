@@ -142,6 +142,32 @@ export type MapScriptSemanticNode =
       type: "recovery";
     })
   | (BaseNode & {
+      type: "item";
+      action: "give-item" | "give-pokemon" | "check-item";
+      item?: string;
+      quantity?: string;
+      species?: string;
+      level?: string;
+    })
+  | (BaseNode & {
+      type: "economy";
+      action: "check-money" | "check-coins" | "check-coin-cap";
+    })
+  | (BaseNode & {
+      type: "party";
+      action: "select" | "read-name";
+    })
+  | (BaseNode & {
+      type: "service";
+      service:
+        | "pokedex"
+        | "elevator"
+        | "oaks-aide"
+        | "trade"
+        | "yes-no"
+        | "random";
+    })
+  | (BaseNode & {
       type: "control";
       control: "player-input" | "dialogue-auto-advance" | "held-input";
       value?: string;
@@ -221,7 +247,7 @@ function scriptPointers(source: string): Map<string, string> {
 function recentRegisterValue(
   lines: string[],
   beforeIndex: number,
-  register: "a" | "c" | "de" | "hl",
+  register: "a" | "b" | "c" | "de" | "hl",
   maxBack = 12,
 ): string | null {
   const pattern = new RegExp(`^ld\\s+${register}\\s*,\\s*([^\\s;]+)\\b`, "i");
@@ -805,6 +831,183 @@ function nodesForSection(
         });
         continue;
       }
+    }
+
+    if (/^call\s+GiveItem\b/i.test(clean)) {
+      const pair = recentLbBcPair(lines, index, 8);
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:give-item`,
+        type: "item",
+        kind: "item",
+        title: "Give item",
+        action: "give-item",
+        item: pair?.b,
+        quantity: pair?.c,
+        description: "Add this reward to the player's Bag; the caller may branch if the Bag is full.",
+        source: sourceSpan(section, lines, index, index, pair ? "inferred" : "exact"),
+      });
+      continue;
+    }
+
+    if (/^call\s+GivePokemon\b/i.test(clean)) {
+      const pair = recentLbBcPair(lines, index, 8);
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:give-pokemon`,
+        type: "item",
+        kind: "item",
+        title: "Give Pokémon",
+        action: "give-pokemon",
+        species: pair?.b,
+        level: pair?.c,
+        description: "Give the selected Pokémon to the player.",
+        source: sourceSpan(section, lines, index, index, pair ? "inferred" : "exact"),
+      });
+      continue;
+    }
+
+    if (/^call\s+IsItemInBag\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:check-item`,
+        type: "item",
+        kind: "condition",
+        title: "Check whether the player has an item",
+        action: "check-item",
+        item: recentRegisterValue(lines, index, "b", 6) ?? undefined,
+        source: sourceSpan(section, lines, index, index, "inferred"),
+      });
+      continue;
+    }
+
+    if (/^call\s+HasEnoughMoney\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:check-money`,
+        type: "economy",
+        kind: "economy",
+        title: "Check whether the player can afford the cost",
+        action: "check-money",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+HasEnoughCoins\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:check-coins`,
+        type: "economy",
+        kind: "economy",
+        title: "Check whether the player has enough coins",
+        action: "check-coins",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+Has9990Coins\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:check-coin-cap`,
+        type: "economy",
+        kind: "economy",
+        title: "Check whether the Coin Case is near its limit",
+        action: "check-coin-cap",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+DisplayPartyMenu\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:party-menu`,
+        type: "party",
+        kind: "party",
+        title: "Choose a party Pokémon",
+        action: "select",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+GetPartyMonName\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:party-name`,
+        type: "party",
+        kind: "party",
+        title: "Read the selected Pokémon's name",
+        action: "read-name",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+DisplayPokedex\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:pokedex`,
+        type: "service",
+        kind: "service",
+        title: "Show Pokédex entry",
+        service: "pokedex",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^predef\s+DisplayElevatorFloorMenu\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:elevator`,
+        type: "service",
+        kind: "service",
+        title: "Choose elevator destination",
+        service: "elevator",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^predef\s+OaksAideScript\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:oaks-aide`,
+        type: "service",
+        kind: "service",
+        title: "Run Oak's aide reward check",
+        service: "oaks-aide",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^predef\s+DoInGameTradeDialogue\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:trade`,
+        type: "service",
+        kind: "service",
+        title: "Run in-game trade interaction",
+        service: "trade",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+YesNoChoice\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:yes-no`,
+        type: "service",
+        kind: "condition",
+        title: "Ask the player to choose Yes or No",
+        service: "yes-no",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+Random\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:random`,
+        type: "service",
+        kind: "condition",
+        title: "Choose a random branch",
+        service: "random",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
     }
 
     if (/^call\s+StopAllMusic\b/i.test(clean)) {
