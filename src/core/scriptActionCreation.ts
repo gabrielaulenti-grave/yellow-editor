@@ -4,6 +4,10 @@ import {
   parseMapScriptProgram,
   type MapScriptProgram,
 } from "./mapScriptProgram";
+import {
+  structuredMapScriptFlow,
+  type MapScriptFlowItem,
+} from "./mapScriptControlFlow";
 import { validateMapScriptProgram } from "./mapScriptValidation";
 import { scriptSemanticNodeShape } from "./scriptRoundTripValidation";
 import type {
@@ -285,7 +289,7 @@ function validateGeneratedInsertion(
   beforeSource: string,
   afterSource: string,
   routineLabel: string,
-  expectedShape: string,
+  expectedShapes: string[],
   movementVocabulary: ProjectMovementVocabulary,
   eventMacroSemantics: ProjectEventMacroSemantic[],
 ): void {
@@ -324,10 +328,10 @@ function validateGeneratedInsertion(
       throw new Error(`Generated source removed parsed state '${label}'.`);
     }
     if (label === routineLabel) {
-      const expected = [...shapes, expectedShape];
+      const expected = [...shapes, ...expectedShapes];
       if (!equalStrings(expected, nextShapes)) {
         throw new Error(
-          `Generated source did not reparse as exactly one new ${expectedShape} action.`,
+          `Generated source did not reparse with exactly the expected semantic additions: ${expectedShapes.join(", ")}.`,
         );
       }
     } else if (!equalStrings(shapes, nextShapes)) {
@@ -430,10 +434,190 @@ export async function prepareScriptSimpleActionWrite(
     sourceText,
     contents,
     document.routineLabel,
-    generated.shape,
+    [generated.shape],
     movementVocabulary,
     eventMacroSemantics,
   );
+
+  return {
+    path: document.path,
+    contents,
+    expectedHash: document.sourceHash,
+  };
+}
+
+
+function generatedBranchLabels(source: string): {
+  actionLabel: string;
+  joinLabel: string;
+} {
+  for (let index = 1; index <= 9999; index += 1) {
+    const actionLabel = `.YellowEditorIf${index}`;
+    const joinLabel = `.YellowEditorJoin${index}`;
+    if (!source.includes(actionLabel) && !source.includes(joinLabel)) {
+      return { actionLabel, joinLabel };
+    }
+  }
+  throw new Error("Yellow Editor could not allocate unique local labels for this branch.");
+}
+
+function hasGeneratedConditional(
+  items: MapScriptFlowItem[],
+  sourceLine: number,
+  event: string,
+  actionShape: string,
+): boolean {
+  for (const item of items) {
+    if (item.type !== "if") continue;
+    if (
+      item.source.lineStart === sourceLine
+      && item.condition.type === "event-state"
+      && item.condition.event === event
+      && item.condition.state === "set"
+      && item.whenFalse.items.length === 0
+      && item.whenTrue.items.length === 1
+      && item.whenTrue.items[0].type === "node"
+      && scriptSemanticNodeShape(item.whenTrue.items[0].node) === actionShape
+    ) {
+      return true;
+    }
+    if (
+      hasGeneratedConditional(item.whenTrue.items, sourceLine, event, actionShape)
+      || hasGeneratedConditional(item.whenFalse.items, sourceLine, event, actionShape)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export async function loadScriptEventConditionalCreateDocument(
+  sourceText: string,
+  path: string,
+  routineLabel: string,
+  analysis: MacroAnalysis,
+  movementVocabulary: ProjectMovementVocabulary,
+  eventMacroSemantics: ProjectEventMacroSemantic[],
+): Promise<ScriptEventConditionalCreateDocument> {
+  const insertion = safeRoutineInsertion(sourceText, routineLabel);
+  const program = parseMapScriptProgram(
+    sourceText,
+    routineLabel,
+    movementVocabulary,
+    eventMacroSemantics,
+  );
+  const target = program.states.find((state) => state.label === routineLabel);
+  if (!target || target.external) {
+    throw new Error(
+      "This routine is not a directly parsed map-script state, so generated conditions remain read-only for now.",
+    );
+  }
+
+  const checkMacro = eventBuilderMacro("check", analysis, eventMacroSemantics);
+  if (!checkMacro) {
+    throw new Error(
+      "Yellow Editor could not prove a one-argument event-check macro and event domain for this project.",
+    );
+  }
+
+  return {
+    path,
+    routineLabel,
+    sourceHash: await hashText(sourceText),
+    insertionLine: insertion.insertionLine,
+    eventOptions: [...checkMacro.options],
+    availableActions: ["wait", "heal-party"],
+  };
+}
+
+export async function prepareScriptEventConditionalWrite(
+  sourceText: string,
+  document: ScriptEventConditionalCreateDocument,
+  values: ScriptEventConditionalCreateValues,
+  analysis: MacroAnalysis,
+  movementVocabulary: ProjectMovementVocabulary,
+  eventMacroSemantics: ProjectEventMacroSemantic[],
+): Promise<TextWriteRequest> {
+  if (await hashText(sourceText) !== document.sourceHash) {
+    throw new Error(
+      `${document.path} changed after the condition form was loaded. Reload Scripts before adding it.`,
+    );
+  }
+
+  const insertion = safeRoutineInsertion(sourceText, document.routineLabel);
+  if (insertion.insertionLine !== document.insertionLine) {
+    throw new Error(
+      "The routine insertion point changed. Reload Scripts before adding the condition.",
+    );
+  }
+
+  const event = values.event.trim();
+  if (!document.eventOptions.some((option) => option.value === event)) {
+    throw new Error("Choose an event from the project-derived condition domain.");
+  }
+  if (!document.availableActions.includes(values.action.action)) {
+    throw new Error("This Then action is not available for generated conditions yet.");
+  }
+
+  const checkMacro = eventBuilderMacro("check", analysis, eventMacroSemantics);
+  if (!checkMacro || !checkMacro.options.some((option) => option.value === event)) {
+    throw new Error(
+      "The selected event is no longer valid for the project's event-check macro. Reload Scripts.",
+    );
+  }
+
+  const action = generateSimpleAction(
+    insertion.indent,
+    values.action,
+    analysis,
+    eventMacroSemantics,
+  );
+  const labels = generatedBranchLabels(sourceText);
+  const generated = [
+    `${insertion.indent}${checkMacro.name} ${event}`,
+    `${insertion.indent}jr nz, ${labels.actionLabel}`,
+    `${insertion.indent}jr ${labels.joinLabel}`,
+    `${labels.actionLabel}:`,
+    ...action.lines,
+    `${labels.joinLabel}:`,
+  ];
+
+  const lines = sourceText.split(/\r?\n/);
+  lines.splice(insertion.insertionIndex, 0, ...generated);
+  const newline = sourceText.includes("\r\n") ? "\r\n" : "\n";
+  const contents = lines.join(newline);
+
+  validateGeneratedInsertion(
+    sourceText,
+    contents,
+    document.routineLabel,
+    ["event:check", action.shape],
+    movementVocabulary,
+    eventMacroSemantics,
+  );
+
+  const reparsed = parseMapScriptProgram(
+    contents,
+    document.routineLabel,
+    movementVocabulary,
+    eventMacroSemantics,
+  );
+  const target = reparsed.states.find(
+    (state) => state.label === document.routineLabel,
+  );
+  if (
+    !target
+    || !hasGeneratedConditional(
+      structuredMapScriptFlow(target, contents, eventMacroSemantics),
+      insertion.insertionLine,
+      event,
+      action.shape,
+    )
+  ) {
+    throw new Error(
+      "Generated source did not reparse as the intended If-event Then-action block. Yellow Editor refused the insertion.",
+    );
+  }
 
   return {
     path: document.path,
