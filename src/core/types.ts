@@ -454,6 +454,7 @@ export interface ScriptRoundTripRegressionFixture {
   testedCaseCount: number;
   passedCaseCount: number;
   failedCaseCount: number;
+  passed: boolean;
   cases: ScriptRoundTripRegressionCase[];
 }
 
