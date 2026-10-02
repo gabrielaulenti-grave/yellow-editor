@@ -170,10 +170,23 @@ export interface ScriptAuditSemanticFamily {
   builderPriority: "core" | "advanced";
 }
 
+export interface ScriptAuditRegressionFixture {
+  id: string;
+  label: string;
+  purpose: string;
+  paths: string[];
+  presentPaths: string[];
+  blockerCount: number;
+  unresolvedInvocationCount: number;
+  structuralInvocationCount: number;
+  passed: boolean;
+}
+
 export interface ScriptAuditReport {
   irVersion: string;
   semanticFamilies: ScriptAuditSemanticFamily[];
   releaseReadiness: ScriptAuditReleaseReadiness;
+  regressionFixtures: ScriptAuditRegressionFixture[];
   fileCount: number;
   meaningfulLineCount: number;
   semanticLineCount: number;
