@@ -12,6 +12,8 @@ import type {
   PokemonEditSourceDocument,
   PokemonEditValues,
   ProjectSession,
+  ScriptEventConditionalCreateDocument,
+  ScriptEventConditionalCreateValues,
   ScriptSimpleActionCreateDocument,
   ScriptSimpleActionCreateValues,
   TextWriteRequest,
@@ -340,6 +342,26 @@ function itemCreateValuesArg(args: InvokeArgs | undefined): ItemCreateValues {
   return value as ItemCreateValues;
 }
 
+function scriptEventConditionalCreateDocumentArg(
+  args: InvokeArgs | undefined,
+): ScriptEventConditionalCreateDocument {
+  const value = args?.document;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing script conditional creation document.");
+  }
+  return value as ScriptEventConditionalCreateDocument;
+}
+
+function scriptEventConditionalCreateValuesArg(
+  args: InvokeArgs | undefined,
+): ScriptEventConditionalCreateValues {
+  const value = args?.values;
+  if (!value || typeof value !== "object") {
+    throw new Error("Missing script conditional creation values.");
+  }
+  return value as ScriptEventConditionalCreateValues;
+}
+
 function scriptSimpleActionCreateDocumentArg(
   args: InvokeArgs | undefined,
 ): ScriptSimpleActionCreateDocument {
@@ -595,6 +617,18 @@ export async function invoke<T>(
       return (await session.createScriptSimpleAction(
         scriptSimpleActionCreateDocumentArg(args),
         scriptSimpleActionCreateValuesArg(args),
+      )) as T;
+
+    case "get_script_event_conditional_create_document":
+      return (await session.getScriptEventConditionalCreateDocument(
+        stringArg(args, "path"),
+        stringArg(args, "routineLabel"),
+      )) as T;
+
+    case "create_script_event_conditional":
+      return (await session.createScriptEventConditional(
+        scriptEventConditionalCreateDocumentArg(args),
+        scriptEventConditionalCreateValuesArg(args),
       )) as T;
 
     case "get_script_document":
