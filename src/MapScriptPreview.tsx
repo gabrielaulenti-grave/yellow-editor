@@ -1077,6 +1077,8 @@ export function MapScriptPreview({
                     previews={previews}
                     reference={reference}
                     state={state}
+                    editableMacroLines={editableMacroLines}
+                    onEditMacroLine={onEditMacroLine}
                   />
                 )}
               </div>
