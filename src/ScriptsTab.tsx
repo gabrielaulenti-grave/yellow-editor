@@ -890,6 +890,13 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                       <small>{family.builderPriority === "core" ? "Core builder" : "Advanced builder"}</small>
                     </span>
                     <p>{family.description}</p>
+                    <small>
+                      {audit.constructs
+                        .filter((construct) => construct.status === "semantic" && construct.familyId === family.id)
+                        .reduce((sum, construct) => sum + construct.occurrences, 0)} bound source invocation{audit.constructs
+                        .filter((construct) => construct.status === "semantic" && construct.familyId === family.id)
+                        .reduce((sum, construct) => sum + construct.occurrences, 0) === 1 ? "" : "s"}
+                    </small>
                   </div>
                 ))}
               </div>
