@@ -40,6 +40,8 @@ export interface ScriptNamedHelperSemantic {
 }
 
 export const SCRIPT_NAMED_HELPER_SEMANTICS: readonly ScriptNamedHelperSemantic[] = [
+  { name: "TextScriptEnd", family: "scene-control", title: "Finish text interaction", description: "Return from executable text logic to the text engine." },
+  { name: "Init", family: "service", title: "Restart game flow", description: "Restart the game flow after the Hall of Fame save sequence." },
   { name: "CeruleanHideRocket", family: "object", title: "Hide defeated Rocket", description: "Update the Cerulean Rocket object's visibility after the story event." },
   { name: "PewterJigglypuff", family: "service", title: "Run Jigglypuff interaction", description: "Run the Pewter Center Jigglypuff interaction." },
   { name: "SurfingPikachuMinigame", family: "service", title: "Start Surfing Pikachu minigame", description: "Enter the Surfing Pikachu minigame flow." },
