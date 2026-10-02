@@ -260,19 +260,16 @@ export async function loadScriptSimpleActionCreateDocument(
     ...(resetMacro ? ["reset-event" as const] : []),
     "wait",
   ];
-  const eventOptions = [...(setMacro?.options ?? []), ...(resetMacro?.options ?? [])]
-    .filter((option, index, entries) =>
-      entries.findIndex((candidate) => candidate.value === option.value) === index
-    )
-    .sort((left, right) => left.label.localeCompare(right.label));
-
   return {
     path,
     routineLabel,
     sourceHash: await hashText(sourceText),
     insertionLine: insertion.insertionLine,
     availableActions,
-    eventOptions,
+    eventOptions: {
+      "set-event": [...(setMacro?.options ?? [])],
+      "reset-event": [...(resetMacro?.options ?? [])],
+    },
   };
 }
 
