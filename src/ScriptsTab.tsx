@@ -547,6 +547,9 @@ function SimpleActionBuilder({
               {document.availableActions.includes("wait") && (
                 <option value="wait">Wait</option>
               )}
+              {document.availableActions.includes("heal-party") && (
+                <option value="heal-party">Heal the player's party</option>
+              )}
             </select>
           </label>
 
@@ -565,7 +568,7 @@ function SimpleActionBuilder({
                 }}
               />
             </label>
-          ) : (
+          ) : action === "set-event" || action === "reset-event" ? (
             <label>
               <span>Event</span>
               <select
@@ -585,6 +588,11 @@ function SimpleActionBuilder({
                 ))}
               </select>
             </label>
+          ) : (
+            <div className="script-simple-action-summary">
+              <strong>Heal the player's party</strong>
+              <small>Runs the project's standard full-party recovery routine.</small>
+            </div>
           )}
 
           <small>
@@ -606,7 +614,10 @@ function SimpleActionBuilder({
               type="button"
               className="primary-button"
               onClick={() => void save()}
-              disabled={saving || (action !== "wait" && !event)}
+              disabled={
+                saving
+                || ((action === "set-event" || action === "reset-event") && !event)
+              }
             >
               {saving ? "Validating…" : "Add verified action"}
             </button>
