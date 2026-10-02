@@ -306,6 +306,7 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
         { label: "Base event", value: titleCaseConstant(node.baseEvent) },
         ...(node.relatedEvent ? [{ label: "Related event", value: titleCaseConstant(node.relatedEvent) }] : []),
         ...(node.destination ? [{ label: "Result", value: titleCaseConstant(node.destination) }] : []),
+        ...(node.mode ? [{ label: "Action mode", value: titleCaseConstant(node.mode) }] : []),
       ];
     case "object-puzzle":
       return node.coordinates
