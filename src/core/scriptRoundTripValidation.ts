@@ -26,7 +26,7 @@ import type {
   ScriptRoundTripRegressionReport,
 } from "./types";
 
-function semanticShape(node: MapScriptSemanticNode): string {
+export function scriptSemanticNodeShape(node: MapScriptSemanticNode): string {
   switch (node.type) {
     case "movement":
       return `movement:${node.actor}:${node.dynamic ? "dynamic" : "literal"}`;
@@ -90,7 +90,7 @@ function semanticShapesAtLine(
     .filter((node) =>
       node.source.lineStart <= line && node.source.lineEnd >= line
     )
-    .map(semanticShape)
+    .map(scriptSemanticNodeShape)
     .sort();
 }
 
@@ -101,7 +101,7 @@ function semanticLayoutFingerprint(program: MapScriptProgram): string[] {
         state.label,
         String(node.source.lineStart),
         String(node.source.lineEnd),
-        semanticShape(node),
+        scriptSemanticNodeShape(node),
       ].join(":"))
     )
     .sort();
