@@ -56,6 +56,9 @@ export const SCRIPT_SEMANTIC_FAMILIES: readonly ScriptSemanticFamilyDefinition[]
 
 export const SCRIPT_ENGINE_INTERNAL_CALLS = new Set([
   "Bankswitch",
+  "ReloadMapData",
+  "LoadSmokeTileFourTimes",
+  "ShakeElevator",
   "GetSpritePosition1",
   "GBPalWhiteOutWithDelay3",
   "AddNTimes",
