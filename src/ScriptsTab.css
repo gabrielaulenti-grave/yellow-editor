@@ -138,6 +138,20 @@
   opacity: 0.68;
 }
 
+.script-regression-open {
+  justify-self: start;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 0.45rem;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.script-regression-open:hover {
+  background: rgba(127, 127, 127, 0.08);
+}
+
 .script-audit-construct-list button {
   display: flex;
   align-items: flex-start;
