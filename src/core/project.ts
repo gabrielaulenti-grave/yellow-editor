@@ -44,7 +44,10 @@ import {
   loadScriptMacroEditDocument,
   prepareScriptMacroCallWrite,
 } from "./scriptMacroEditing";
-import { validateScriptSemanticRoundTrip } from "./scriptRoundTripValidation";
+import {
+  runScriptRoundTripRegression as runScriptRoundTripRegressionAudit,
+  validateScriptSemanticRoundTrip,
+} from "./scriptRoundTripValidation";
 import { loadProjectSemanticDomains } from "./semanticDomains";
 import { loadProjectMovementVocabulary } from "./movementVocabulary";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
@@ -377,6 +380,26 @@ export async function createProjectSession(
     return scriptAuditPromise;
   }
 
+  async function runScriptRoundTripRegression() {
+    const [
+      files,
+      macroAnalysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      getRgbdsSourceFiles(),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    return runScriptRoundTripRegressionAudit(
+      files,
+      macroAnalysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+  }
+
   function getRgbdsSourceFiles() {
     if (!rgbdsSourceFilesPromise) {
       rgbdsSourceFilesPromise = readProjectRgbdsSources(source).catch((error) => {
@@ -699,6 +722,7 @@ export async function createProjectSession(
     getMapVisualization,
     getScriptCatalog,
     getScriptAudit,
+    runScriptRoundTripRegression,
     getScriptDocument,
     getMacroCatalog,
     getScriptMacroCalls,
