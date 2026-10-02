@@ -224,6 +224,8 @@ function semanticFamilyKind(family: ScriptSemanticFamilyId): MapScriptOperationK
     case "state-transition": return "transition";
     case "movement":
     case "forced-movement": return "movement";
+    case "wait": return "wait";
+    case "scene-control": return "control";
     case "facing": return "facing";
     case "object": return "object";
     case "map-edit":
