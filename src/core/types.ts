@@ -469,7 +469,11 @@ export interface ScriptRoundTripRegressionReport {
   fixtures: ScriptRoundTripRegressionFixture[];
 }
 
-export type ScriptSimpleActionKind = "set-event" | "reset-event" | "wait";
+export type ScriptSimpleActionKind =
+  | "set-event"
+  | "reset-event"
+  | "wait"
+  | "heal-party";
 
 export interface ScriptSimpleActionCreateDocument {
   path: string;
