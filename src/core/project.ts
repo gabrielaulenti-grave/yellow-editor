@@ -45,6 +45,10 @@ import {
   prepareScriptMacroCallWrite,
 } from "./scriptMacroEditing";
 import {
+  loadScriptSimpleActionCreateDocument,
+  prepareScriptSimpleActionWrite,
+} from "./scriptActionCreation";
+import {
   runScriptRoundTripRegression as runScriptRoundTripRegressionAudit,
   validateScriptSemanticRoundTrip,
 } from "./scriptRoundTripValidation";
@@ -83,6 +87,8 @@ import type {
   PokemonTmhmCompatibilityReference,
   ProjectSession,
   ProjectSource,
+  ScriptSimpleActionCreateDocument,
+  ScriptSimpleActionCreateValues,
   TextWriteRequest,
   TrainerCatalog,
   TrainerClassCreateValues,
@@ -499,6 +505,72 @@ export async function createProjectSession(
     return analysis.callsByScriptPath.get(path) ?? { path, calls: [] };
   }
 
+  async function getScriptSimpleActionCreateDocument(
+    path: string,
+    routineLabel: string,
+  ): Promise<ScriptSimpleActionCreateDocument> {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    return loadScriptSimpleActionCreateDocument(
+      sourceText,
+      path,
+      routineLabel,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+  }
+
+  async function createScriptSimpleAction(
+    document: ScriptSimpleActionCreateDocument,
+    values: ScriptSimpleActionCreateValues,
+  ) {
+    if (!/^scripts\/.+\.asm$/i.test(document.path)) {
+      throw new Error(`Unsupported script path: ${document.path}`);
+    }
+    resetScriptSourceAnalysis();
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(document.path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    const change = await prepareScriptSimpleActionWrite(
+      sourceText,
+      document,
+      values,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+    const result = await history.save(
+      `Add script action ${values.action} to ${document.routineLabel}`,
+      [change],
+    );
+    invalidateNonTrainerReadModels([document.path]);
+    if (trainerCacheAffected([document.path])) {
+      await trainerCatalogCache?.clear();
+    }
+    return result;
+  }
+
   async function getScriptMacroEditDocument(path: string, line: number) {
     if (!/^scripts\/.+\.asm$/i.test(path)) {
       throw new Error(`Unsupported script path: ${path}`);
@@ -723,6 +795,8 @@ export async function createProjectSession(
     getScriptCatalog,
     getScriptAudit,
     runScriptRoundTripRegression,
+    getScriptSimpleActionCreateDocument,
+    createScriptSimpleAction,
     getScriptDocument,
     getMacroCatalog,
     getScriptMacroCalls,
