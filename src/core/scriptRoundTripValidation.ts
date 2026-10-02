@@ -3,6 +3,12 @@ import {
   type MapScriptProgram,
   type MapScriptSemanticNode,
 } from "./mapScriptProgram";
+import type { MacroAnalysis } from "./macroCatalog";
+import {
+  loadScriptMacroEditDocument,
+  prepareScriptMacroCallWrite,
+} from "./scriptMacroEditing";
+import { SCRIPT_REGRESSION_FIXTURES } from "./scriptSemanticIr";
 import {
   validateMapScriptProgram,
   type MapScriptValidationIssue,
@@ -10,6 +16,10 @@ import {
 import type {
   ProjectEventMacroSemantic,
   ProjectMovementVocabulary,
+  ProjectRgbdsSourceFile,
+  ScriptRoundTripRegressionCase,
+  ScriptRoundTripRegressionFixture,
+  ScriptRoundTripRegressionReport,
 } from "./types";
 
 function semanticShape(node: MapScriptSemanticNode): string {
@@ -154,5 +164,167 @@ export function validateScriptSemanticRoundTrip(
     beforeShapes,
     afterShapes,
     newValidationErrors,
+  };
+}
+
+
+const MAX_CASES_PER_FIXTURE = 12;
+
+function alternateDomainValue(
+  analysis: MacroAnalysis,
+  domainIds: string[],
+  current: string,
+): string | null {
+  if (domainIds.length === 0) return null;
+  const domains = domainIds
+    .map((domainId) => analysis.catalog.domains.find((domain) => domain.id === domainId))
+    .filter((domain): domain is NonNullable<typeof domain> => Boolean(domain));
+  if (domains.length !== domainIds.length || domains.length === 0) return null;
+
+  return domains[0].options
+    .map((option) => option.value)
+    .find((value) =>
+      value !== current
+      && domains.every((domain) =>
+        domain.options.some((option) => option.value === value)
+      )
+    ) ?? null;
+}
+
+export async function runScriptRoundTripRegression(
+  files: ProjectRgbdsSourceFile[],
+  analysis: MacroAnalysis,
+  movementVocabulary: ProjectMovementVocabulary,
+  eventMacroSemantics: ProjectEventMacroSemantic[],
+): Promise<ScriptRoundTripRegressionReport> {
+  const filesByPath = new Map(files.map((file) => [file.path, file]));
+  const fixtures: ScriptRoundTripRegressionFixture[] = [];
+
+  for (const fixture of SCRIPT_REGRESSION_FIXTURES) {
+    const cases: ScriptRoundTripRegressionCase[] = [];
+    const testedShapes = new Set<string>();
+    const candidateShapes = new Set<string>();
+
+    for (const path of fixture.paths) {
+      if (cases.length >= MAX_CASES_PER_FIXTURE) break;
+      const sourceFile = filesByPath.get(path);
+      if (!sourceFile || sourceFile.readError) continue;
+      const calls = analysis.callsByScriptPath.get(path)?.calls ?? [];
+
+      for (const call of calls) {
+        if (cases.length >= MAX_CASES_PER_FIXTURE) break;
+
+        let editDocument;
+        try {
+          editDocument = await loadScriptMacroEditDocument(
+            sourceFile.contents,
+            path,
+            call.line,
+            analysis,
+          );
+        } catch {
+          continue;
+        }
+
+        for (const editable of editDocument.editableArgumentDomains) {
+          if (cases.length >= MAX_CASES_PER_FIXTURE) break;
+          const current = editDocument.arguments[editable.index - 1];
+          const next = alternateDomainValue(
+            analysis,
+            editable.domainIds,
+            current,
+          );
+          if (!next) continue;
+
+          const shapeKey = [
+            call.name.toLowerCase(),
+            String(editable.index),
+            [...editable.domainIds].sort().join("|"),
+          ].join(":");
+          candidateShapes.add(shapeKey);
+          if (testedShapes.has(shapeKey)) continue;
+          testedShapes.add(shapeKey);
+
+          const nextArguments = [...editDocument.arguments];
+          nextArguments[editable.index - 1] = next;
+          const resultCase: ScriptRoundTripRegressionCase = {
+            path,
+            line: call.line,
+            macroName: call.name,
+            argumentIndex: editable.index,
+            previousValue: current,
+            nextValue: next,
+            passed: false,
+            beforeShapes: [],
+            afterShapes: [],
+          };
+
+          try {
+            const write = await prepareScriptMacroCallWrite(
+              sourceFile.contents,
+              path,
+              call.line,
+              call.name,
+              editDocument.sourceHash,
+              nextArguments,
+              analysis,
+            );
+            const validation = validateScriptSemanticRoundTrip(
+              sourceFile.contents,
+              write.contents,
+              call.line,
+              movementVocabulary,
+              eventMacroSemantics,
+            );
+            resultCase.passed = true;
+            resultCase.beforeShapes = validation.beforeShapes;
+            resultCase.afterShapes = validation.afterShapes;
+          } catch (error) {
+            resultCase.error = String(error);
+          }
+
+          cases.push(resultCase);
+        }
+      }
+    }
+
+    const passedCaseCount = cases.filter((entry) => entry.passed).length;
+    const failedCaseCount = cases.length - passedCaseCount;
+    fixtures.push({
+      id: fixture.id,
+      label: fixture.label,
+      candidateShapeCount: candidateShapes.size,
+      testedCaseCount: cases.length,
+      passedCaseCount,
+      failedCaseCount,
+      passed: cases.length > 0 && failedCaseCount === 0,
+      cases,
+    });
+  }
+
+  const testedCaseCount = fixtures.reduce(
+    (sum, fixture) => sum + fixture.testedCaseCount,
+    0,
+  );
+  const passedCaseCount = fixtures.reduce(
+    (sum, fixture) => sum + fixture.passedCaseCount,
+    0,
+  );
+  const failedCaseCount = fixtures.reduce(
+    (sum, fixture) => sum + fixture.failedCaseCount,
+    0,
+  );
+  const testedFixtureCount = fixtures.filter(
+    (fixture) => fixture.testedCaseCount > 0,
+  ).length;
+
+  return {
+    fixtureCount: fixtures.length,
+    testedFixtureCount,
+    testedCaseCount,
+    passedCaseCount,
+    failedCaseCount,
+    passed: testedCaseCount > 0 && failedCaseCount === 0,
+    fixtures,
   };
 }
