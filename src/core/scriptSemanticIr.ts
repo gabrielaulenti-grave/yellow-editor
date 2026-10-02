@@ -32,6 +32,58 @@ export interface ScriptSemanticFamilyDefinition {
   builderPriority: "core" | "advanced";
 }
 
+export interface ScriptNamedHelperSemantic {
+  name: string;
+  family: ScriptSemanticFamilyId;
+  title: string;
+  description: string;
+}
+
+export const SCRIPT_NAMED_HELPER_SEMANTICS: readonly ScriptNamedHelperSemantic[] = [
+  { name: "CeruleanHideRocket", family: "object", title: "Hide defeated Rocket", description: "Update the Cerulean Rocket object's visibility after the story event." },
+  { name: "PewterJigglypuff", family: "service", title: "Run Jigglypuff interaction", description: "Run the Pewter Center Jigglypuff interaction." },
+  { name: "SurfingPikachuMinigame", family: "service", title: "Start Surfing Pikachu minigame", description: "Enter the Surfing Pikachu minigame flow." },
+  { name: "SaveGameData", family: "service", title: "Save game data", description: "Persist the current game state." },
+  { name: "GiveFossilToCinnabarLab", family: "service", title: "Submit fossil for revival", description: "Hand a fossil to the Cinnabar Lab revival service." },
+  { name: "DisplayNameRaterScreen", family: "service", title: "Open Name Rater", description: "Open the Pokémon nickname service." },
+  { name: "RemoveGuardDrink", family: "item", title: "Give drink to Saffron guard", description: "Consume the qualifying drink and unlock the shared Saffron guard state." },
+  { name: "SchedulePikachuSpawnForAfterText", family: "object", title: "Schedule Pikachu appearance", description: "Arrange for Pikachu's overworld sprite to appear after dialogue." },
+  { name: "RemovePokemon", family: "party", title: "Remove selected Pokémon", description: "Remove the selected Pokémon from the current party/service slot." },
+  { name: "RemoveItemFromInventory", family: "item", title: "Remove item from inventory", description: "Consume or remove an item from the player's inventory." },
+  { name: "PrintText_NoCreatingTextBox", family: "dialogue", title: "Show dialogue in existing text box", description: "Print text without creating a new dialogue box." },
+  { name: "MoveMon", family: "party", title: "Move Pokémon data", description: "Move a Pokémon between party/service storage structures." },
+  { name: "LoadMonData", family: "party", title: "Load selected Pokémon data", description: "Load the selected Pokémon's data for a service interaction." },
+  { name: "EnablePikachuOverworldSpriteDrawing", family: "object", title: "Show Pikachu overworld sprite", description: "Enable Pikachu's follower sprite rendering." },
+  { name: "DisablePikachuOverworldSpriteDrawing", family: "object", title: "Hide Pikachu overworld sprite", description: "Disable Pikachu's follower sprite rendering." },
+  { name: "DisplayTextBoxID", family: "dialogue", title: "Display text box", description: "Display a standard text/menu box." },
+  { name: "DisableWaitingAfterTextDisplay", family: "dialogue", title: "Auto-advance dialogue", description: "Do not wait for a button press after the next dialogue." },
+  { name: "CountSetBits", family: "condition", title: "Count set flags", description: "Count enabled bits for a later threshold condition." },
+  { name: "CheckPikachuFollowingPlayer", family: "condition", title: "Check whether Pikachu is following", description: "Branch according to Pikachu's follower state." },
+  { name: "AddPartyMon", family: "party", title: "Add Pokémon to party", description: "Add the prepared Pokémon to the player's party." },
+  { name: "PlayPikachuSoundClip", family: "music", title: "Play Pikachu reaction sound", description: "Play the selected Pikachu voice/reaction clip." },
+  { name: "CheckPikachuStatusCondition", family: "condition", title: "Check Pikachu status", description: "Branch on Pikachu's current status condition." },
+  { name: "LoadItemList", family: "service", title: "Load menu choices", description: "Prepare a project-defined item/destination list for a menu." },
+  { name: "GetMonName", family: "party", title: "Read Pokémon name", description: "Load a Pokémon name for dialogue or service output." },
+  { name: "EndTrainerBattle", family: "trainer", title: "Resolve trainer battle", description: "Apply the standard post-battle trainer state." },
+  { name: "DisplayEnemyTrainerTextAndStartBattle", family: "trainer", title: "Start trainer battle", description: "Show trainer encounter text and begin the selected battle." },
+  { name: "CheckFightingMapTrainers", family: "trainer", title: "Check nearby trainers", description: "Run the standard map-trainer sight/engagement check." },
+  { name: "ArePlayerCoordsInArray", family: "condition", title: "Check player coordinates", description: "Branch according to whether the player's coordinates match a scripted trigger table." },
+  { name: "HallOfFamePC", family: "service", title: "Register Hall of Fame", description: "Run Hall of Fame registration and championship persistence." },
+  { name: "WriteMonMoves", family: "party", title: "Write Pokémon moves", description: "Apply the selected move set to a Pokémon." },
+  { name: "SubBCDPredef", family: "economy", title: "Subtract currency value", description: "Subtract a packed-BCD money/currency value." },
+  { name: "FindPathToPlayer", family: "movement", title: "Find path to player", description: "Generate an NPC path toward the player's current position." },
+  { name: "DivideBCDPredef3", family: "economy", title: "Divide currency value", description: "Perform packed-BCD division for service pricing or resource calculation." },
+  { name: "DisplayDexRating", family: "service", title: "Show Pokédex rating", description: "Display Oak's Pokédex completion evaluation." },
+  { name: "CalcPositionOfPlayerRelativeToNPC", family: "movement", title: "Calculate player-relative path", description: "Calculate player/NPC relative positioning for scripted movement." },
+  { name: "AddBCDPredef", family: "economy", title: "Add currency value", description: "Add a packed-BCD money/currency value." },
+  { name: "EmotionBubble", family: "service", title: "Show emotion bubble", description: "Display a scripted reaction bubble over a character." },
+  { name: "GetQuantityOfItemInBag", family: "item", title: "Read item quantity", description: "Read how many of the selected item the player has." },
+] as const;
+
+export function namedScriptHelperSemantic(name: string): ScriptNamedHelperSemantic | null {
+  return SCRIPT_NAMED_HELPER_SEMANTICS.find((helper) => helper.name === name) ?? null;
+}
+
 export const SCRIPT_SEMANTIC_FAMILIES: readonly ScriptSemanticFamilyDefinition[] = [
   { id: "dialogue", label: "Dialogue", description: "Show text and control dialogue progression.", builderPriority: "core" },
   { id: "condition", label: "Conditions", description: "Branch on comparisons, flags, menu choices, battle results, and other script state.", builderPriority: "core" },
