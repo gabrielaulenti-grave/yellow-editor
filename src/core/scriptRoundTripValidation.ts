@@ -170,27 +170,6 @@ export function validateScriptSemanticRoundTrip(
 
 const MAX_CASES_PER_FIXTURE = 12;
 
-function alternateDomainValue(
-  analysis: MacroAnalysis,
-  domainIds: string[],
-  current: string,
-): string | null {
-  if (domainIds.length === 0) return null;
-  const domains = domainIds
-    .map((domainId) => analysis.catalog.domains.find((domain) => domain.id === domainId))
-    .filter((domain): domain is NonNullable<typeof domain> => Boolean(domain));
-  if (domains.length !== domainIds.length || domains.length === 0) return null;
-
-  return domains[0].options
-    .map((option) => option.value)
-    .find((value) =>
-      value !== current
-      && domains.every((domain) =>
-        domain.options.some((option) => option.value === value)
-      )
-    ) ?? null;
-}
-
 export async function runScriptRoundTripRegression(
   files: ProjectRgbdsSourceFile[],
   analysis: MacroAnalysis,
@@ -229,11 +208,9 @@ export async function runScriptRoundTripRegression(
         for (const editable of editDocument.editableArgumentDomains) {
           if (cases.length >= MAX_CASES_PER_FIXTURE) break;
           const current = editDocument.arguments[editable.index - 1];
-          const next = alternateDomainValue(
-            analysis,
-            editable.domainIds,
-            current,
-          );
+          const next = editable.allowedValues.find(
+            (value) => value !== current,
+          ) ?? null;
           if (!next) continue;
 
           const shapeKey = [
