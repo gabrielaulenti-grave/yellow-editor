@@ -740,11 +740,6 @@ export function buildScriptAudit(
             fileUnboundSemanticInvocations += 1;
             unboundSemanticKeys.add(key);
           }
-          if (!macroFamilyId) {
-            unboundSemanticInvocationCount += 1;
-            fileUnboundSemanticInvocations += 1;
-            unboundSemanticKeys.add(key);
-          }
           semanticLineCount += 1;
           fileSemantic += 1;
           semanticInvocationCount += 1;
@@ -854,6 +849,11 @@ export function buildScriptAudit(
             example,
             macroFamilyId,
           );
+          if (!macroFamilyId) {
+            unboundSemanticInvocationCount += 1;
+            fileUnboundSemanticInvocations += 1;
+            unboundSemanticKeys.add(key);
+          }
           semanticLineCount += 1;
           fileSemantic += 1;
           semanticInvocationCount += 1;
