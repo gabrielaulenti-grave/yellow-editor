@@ -274,6 +274,34 @@ function printWrapperLabels(
   return result;
 }
 
+function readableOperand(value: string): string {
+  const bare = value.replace(/^\[|\]$/g, "");
+  if (/^w[A-Z]/.test(bare)) {
+    return bare
+      .slice(1)
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/_/g, " ")
+      .toLowerCase();
+  }
+  return bare.replace(/_/g, " ").toLowerCase();
+}
+
+function comparisonDescription(
+  left: string,
+  right: string,
+  flag: string,
+): string {
+  const lhs = readableOperand(left);
+  const rhs = readableOperand(right);
+  switch (flag.toLowerCase()) {
+    case "z": return `${lhs} equals ${rhs}`;
+    case "nz": return `${lhs} does not equal ${rhs}`;
+    case "c": return `${lhs} is below ${rhs}`;
+    case "nc": return `${lhs} is at least ${rhs}`;
+    default: return `${lhs} compared with ${rhs} returns ${flag.toUpperCase()}`;
+  }
+}
+
 function branchDescription(
   semantic: ProjectEventMacroSemantic,
   events: string[],
@@ -405,6 +433,35 @@ export function analyzeTextScript(
           continue;
         }
       }
+    }
+
+    const comparison = clean.match(/^cp\s+([^\s;]+)\s*$/i);
+    if (comparison) {
+      const left = recentRegisterValue(lines, index, "a", 6);
+      if (left) {
+        for (
+          let probe = index + 1;
+          probe <= Math.min(lines.length - 1, index + 4);
+          probe += 1
+        ) {
+          const next = withoutComment(lines[probe]);
+          if (!next) continue;
+          const branch = next.match(
+            /^(?:jr|jp)\s+(z|nz|c|nc)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+          );
+          if (branch) {
+            insights.push({
+              type: "condition",
+              description: comparisonDescription(left, comparison[1], branch[1]),
+              branchTarget: branch[2],
+            });
+            break;
+          }
+          if (/^ldh?\s+/i.test(next)) continue;
+          break;
+        }
+      }
+      continue;
     }
 
     if (/^call\s+YesNoChoice\b/i.test(clean)) {
