@@ -843,9 +843,18 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                     </span>
                     <p>{fixture.purpose}</p>
                     {fixture.presentPaths.length > 0 && !fixture.passed && (
-                      <small>
-                        {fixture.unresolvedInvocationCount} unresolved · {fixture.structuralInvocationCount} awaiting semantic lift
-                      </small>
+                      <>
+                        <small>
+                          {fixture.unresolvedInvocationCount} unresolved · {fixture.structuralInvocationCount} awaiting semantic lift
+                        </small>
+                        <button
+                          type="button"
+                          className="script-regression-open"
+                          onClick={() => selectAuditExample(fixture.presentPaths[0], 1)}
+                        >
+                          Review fixture
+                        </button>
+                      </>
                     )}
                   </div>
                 ))}
