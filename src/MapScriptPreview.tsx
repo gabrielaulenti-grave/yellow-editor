@@ -330,6 +330,11 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
       return [];
     case "service":
       return [{ label: "Interaction", value: titleCaseConstant(node.service.replace(/-/g, "_")) }];
+    case "semantic-helper":
+      return [
+        { label: "IR family", value: titleCaseConstant(node.family.replace(/-/g, "_")) },
+        { label: "Project helper", value: node.helper },
+      ];
   }
 }
 
