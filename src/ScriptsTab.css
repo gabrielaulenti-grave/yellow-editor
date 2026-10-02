@@ -434,6 +434,7 @@
 }
 
 .script-macro-call-card {
+  scroll-margin-top: 1rem;
   display: grid;
   gap: 0.75rem;
   padding: 0.8rem;
