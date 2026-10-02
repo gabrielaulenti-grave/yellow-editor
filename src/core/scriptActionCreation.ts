@@ -10,6 +10,8 @@ import type {
   ProjectEventMacroSemantic,
   ProjectMovementVocabulary,
   ProjectSemanticDomainOption,
+  ScriptEventConditionalCreateDocument,
+  ScriptEventConditionalCreateValues,
   ScriptSimpleActionCreateDocument,
   ScriptSimpleActionCreateValues,
   TextWriteRequest,
@@ -136,13 +138,14 @@ function safeRoutineInsertion(
 }
 
 function eventBuilderMacro(
-  action: "set" | "reset",
+  action: "set" | "reset" | "check",
   analysis: MacroAnalysis,
   eventMacroSemantics: ProjectEventMacroSemantic[],
 ): EventBuilderMacro | null {
   const semantic = eventMacroSemantics.find((candidate) =>
     candidate.action === action
     && candidate.eventParameterIndexes.length === 1
+    && (action !== "check" || candidate.zeroMeaning === "event-clear")
   );
   if (!semantic) return null;
 
@@ -183,6 +186,75 @@ function eventBuilderMacro(
   return options.length > 0
     ? { name: semantic.name, options }
     : null;
+}
+
+interface GeneratedSimpleAction {
+  lines: string[];
+  shape: string;
+}
+
+function availableSimpleActions(
+  analysis: MacroAnalysis,
+  eventMacroSemantics: ProjectEventMacroSemantic[],
+): {
+  actions: ScriptSimpleActionCreateDocument["availableActions"];
+  setMacro: EventBuilderMacro | null;
+  resetMacro: EventBuilderMacro | null;
+} {
+  const setMacro = eventBuilderMacro("set", analysis, eventMacroSemantics);
+  const resetMacro = eventBuilderMacro("reset", analysis, eventMacroSemantics);
+  return {
+    actions: [
+      ...(setMacro ? ["set-event" as const] : []),
+      ...(resetMacro ? ["reset-event" as const] : []),
+      "wait",
+      "heal-party",
+    ],
+    setMacro,
+    resetMacro,
+  };
+}
+
+function generateSimpleAction(
+  indent: string,
+  values: ScriptSimpleActionCreateValues,
+  analysis: MacroAnalysis,
+  eventMacroSemantics: ProjectEventMacroSemantic[],
+): GeneratedSimpleAction {
+  if (values.action === "wait") {
+    const frames = values.frames;
+    if (!Number.isInteger(frames) || (frames ?? 0) < 1 || (frames ?? 0) > 255) {
+      throw new Error("Wait duration must be a whole number from 1 to 255 frames.");
+    }
+    return {
+      lines: [
+        `${indent}ld c, ${frames}`,
+        `${indent}call DelayFrames`,
+      ],
+      shape: "wait",
+    };
+  }
+
+  if (values.action === "heal-party") {
+    return {
+      lines: [`${indent}predef HealParty`],
+      shape: "recovery",
+    };
+  }
+
+  const event = values.event?.trim();
+  if (!event) throw new Error("Choose an event flag.");
+  const action = values.action === "set-event" ? "set" : "reset";
+  const macro = eventBuilderMacro(action, analysis, eventMacroSemantics);
+  if (!macro || !macro.options.some((option) => option.value === event)) {
+    throw new Error(
+      "The selected event is not in the project-derived domain for this event action.",
+    );
+  }
+  return {
+    lines: [`${indent}${macro.name} ${event}`],
+    shape: `event:${action}`,
+  };
 }
 
 function stateShapeMap(program: MapScriptProgram): Map<string, string[]> {
@@ -303,14 +375,8 @@ export async function loadScriptSimpleActionCreateDocument(
     );
   }
 
-  const setMacro = eventBuilderMacro("set", analysis, eventMacroSemantics);
-  const resetMacro = eventBuilderMacro("reset", analysis, eventMacroSemantics);
-  const availableActions: ScriptSimpleActionCreateDocument["availableActions"] = [
-    ...(setMacro ? ["set-event" as const] : []),
-    ...(resetMacro ? ["reset-event" as const] : []),
-    "wait",
-    "heal-party",
-  ];
+  const { actions: availableActions, setMacro, resetMacro } =
+    availableSimpleActions(analysis, eventMacroSemantics);
   return {
     path,
     routineLabel,
@@ -348,37 +414,15 @@ export async function prepareScriptSimpleActionWrite(
     );
   }
 
-  const generated: string[] = [];
-  let expectedShape: string;
-  if (values.action === "wait") {
-    const frames = values.frames;
-    if (!Number.isInteger(frames) || (frames ?? 0) < 1 || (frames ?? 0) > 255) {
-      throw new Error("Wait duration must be a whole number from 1 to 255 frames.");
-    }
-    generated.push(
-      `${insertion.indent}ld c, ${frames}`,
-      `${insertion.indent}call DelayFrames`,
-    );
-    expectedShape = "wait";
-  } else if (values.action === "heal-party") {
-    generated.push(`${insertion.indent}predef HealParty`);
-    expectedShape = "recovery";
-  } else {
-    const event = values.event?.trim();
-    if (!event) throw new Error("Choose an event flag.");
-    const action = values.action === "set-event" ? "set" : "reset";
-    const macro = eventBuilderMacro(action, analysis, eventMacroSemantics);
-    if (!macro || !macro.options.some((option) => option.value === event)) {
-      throw new Error(
-        "The selected event is not in the project-derived domain for this event action.",
-      );
-    }
-    generated.push(`${insertion.indent}${macro.name} ${event}`);
-    expectedShape = `event:${action}`;
-  }
+  const generated = generateSimpleAction(
+    insertion.indent,
+    values,
+    analysis,
+    eventMacroSemantics,
+  );
 
   const lines = sourceText.split(/\r?\n/);
-  lines.splice(insertion.insertionIndex, 0, ...generated);
+  lines.splice(insertion.insertionIndex, 0, ...generated.lines);
   const newline = sourceText.includes("\r\n") ? "\r\n" : "\n";
   const contents = lines.join(newline);
 
@@ -386,7 +430,7 @@ export async function prepareScriptSimpleActionWrite(
     sourceText,
     contents,
     document.routineLabel,
-    expectedShape,
+    generated.shape,
     movementVocabulary,
     eventMacroSemantics,
   );
