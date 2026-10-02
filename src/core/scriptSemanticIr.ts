@@ -121,6 +121,8 @@ export const SCRIPT_ENGINE_INTERNAL_MACROS = new Set([
   "dbmapcoord",
   "dwcoord",
   "def_text_pointers",
+  "dw_const",
+  "def_script_pointers",
   "vc_patch",
 ]);
 
