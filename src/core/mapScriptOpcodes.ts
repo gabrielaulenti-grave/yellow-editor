@@ -12,6 +12,10 @@ export type MapScriptOperationKind =
   | "wait"
   | "object"
   | "recovery"
+  | "item"
+  | "economy"
+  | "party"
+  | "service"
   | "control"
   | "flag"
   | "screen"
@@ -61,6 +65,11 @@ export const MAP_SCRIPT_OPCODES: MapScriptOpcodeDefinition[] = [
   { id: "play-music", kind: "music", title: "Play music", beginnerDescription: "Change the currently playing music.", patterns: [/^call\s+PlayMusic\b/i, /^farcall\s+Music_/i] },
   { id: "default-music", kind: "music", title: "Return to map music", beginnerDescription: "Resume the map's normal music.", patterns: [/^call\s+PlayDefaultMusic\b/i] },
   { id: "heal-party", kind: "recovery", title: "Heal the player's party", beginnerDescription: "Restore the player's Pokémon.", patterns: [/^predef\s+HealParty\b/i] },
+  { id: "give-item", kind: "item", title: "Give item", beginnerDescription: "Add an item reward to the player's Bag.", patterns: [/^call\s+GiveItem\b/i] },
+  { id: "give-pokemon", kind: "item", title: "Give Pokémon", beginnerDescription: "Add a Pokémon reward to the player's party or storage.", patterns: [/^call\s+GivePokemon\b/i] },
+  { id: "money-check", kind: "economy", title: "Check money", beginnerDescription: "Branch according to whether the player can afford a cost.", patterns: [/^call\s+HasEnoughMoney\b/i, /^call\s+HasEnoughCoins\b/i, /^call\s+Has9990Coins\b/i] },
+  { id: "party-menu", kind: "party", title: "Choose a party Pokémon", beginnerDescription: "Open the party menu so the player can choose a Pokémon.", patterns: [/^call\s+DisplayPartyMenu\b/i] },
+  { id: "service-menu", kind: "service", title: "Run service interaction", beginnerDescription: "Open a reusable service/menu interaction.", patterns: [/^predef\s+(?:DisplayElevatorFloorMenu|OaksAideScript|DoInGameTradeDialogue)\b/i] },
 ];
 
 export function findMapScriptOpcode(line: string): MapScriptOpcodeDefinition | null {
