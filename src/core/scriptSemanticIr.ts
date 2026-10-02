@@ -191,6 +191,7 @@ export interface ScriptRegressionFixtureDefinition {
   label: string;
   paths: readonly string[];
   purpose: string;
+  requiredFamilies: readonly ScriptSemanticFamilyId[];
 }
 
 export const SCRIPT_REGRESSION_FIXTURES: readonly ScriptRegressionFixtureDefinition[] = [
@@ -199,36 +200,42 @@ export const SCRIPT_REGRESSION_FIXTURES: readonly ScriptRegressionFixtureDefinit
     label: "Oak's Lab",
     paths: ["scripts/OaksLab.asm"],
     purpose: "Starter choice, rival battle, gifts, state transitions, and multi-stage story flow.",
+    requiredFamilies: ["dialogue", "movement", "battle", "item", "party"],
   },
   {
     id: "bills-house",
     label: "Bill's House",
     paths: ["scripts/BillsHouse.asm"],
     purpose: "Conditional dialogue, object staging, movement, and service-style state progression.",
+    requiredFamilies: ["dialogue", "movement", "object"],
   },
   {
     id: "mt-moon-b2f",
     label: "Mt. Moon B2F",
     paths: ["scripts/MtMoonB2F.asm"],
     purpose: "Dense state machine, fossil choice, special battle staging, and project-derived movement.",
+    requiredFamilies: ["movement", "item", "trainer", "event"],
   },
   {
     id: "daycare",
     label: "Daycare",
     paths: ["scripts/Daycare.asm"],
     purpose: "Party selection, service menus, money, level calculations, and resumable interaction flow.",
+    requiredFamilies: ["dialogue", "party", "economy"],
   },
   {
     id: "cinnabar-gym",
     label: "Cinnabar Gym",
     paths: ["scripts/CinnabarGym.asm"],
     purpose: "Indexed event addressing and persistent gate state.",
+    requiredFamilies: ["indexed-event", "trainer", "item"],
   },
   {
     id: "safari-zone-gate",
     label: "Safari Zone Gate",
     paths: ["scripts/SafariZoneGate.asm", "scripts/SafariZoneGate_2.asm"],
     purpose: "Admission, currency, session resources, timers, and entrance/exit state.",
+    requiredFamilies: ["economy", "forced-movement", "event"],
   },
   {
     id: "seafoam",
@@ -241,18 +248,21 @@ export const SCRIPT_REGRESSION_FIXTURES: readonly ScriptRegressionFixtureDefinit
       "scripts/SeafoamIslandsB4F.asm",
     ],
     purpose: "Persistent Strength boulders, holes, dungeon warps, and forced-current movement.",
+    requiredFamilies: ["persistent-object-puzzle", "warp", "object", "forced-movement"],
   },
   {
     id: "route-23",
     label: "Route 23",
     paths: ["scripts/Route23.asm"],
     purpose: "Indexed badge-gate events, generated guard movement, and persistent sequential checkpoints.",
+    requiredFamilies: ["indexed-event", "forced-movement", "condition"],
   },
   {
     id: "hall-of-fame",
     label: "Hall of Fame",
     paths: ["scripts/HallOfFame.asm"],
     purpose: "Championship persistence, save flow, event resets, and semantic tail-call restart behavior.",
+    requiredFamilies: ["service", "event"],
   },
   {
     id: "victory-road",
@@ -263,11 +273,13 @@ export const SCRIPT_REGRESSION_FIXTURES: readonly ScriptRegressionFixtureDefinit
       "scripts/VictoryRoad3F.asm",
     ],
     purpose: "Strength switches, cross-floor boulders, persistent block changes, and special encounters.",
+    requiredFamilies: ["persistent-object-puzzle", "map-edit", "object", "trainer"],
   },
   {
     id: "silph-11f",
     label: "Silph Co. 11F",
     paths: ["scripts/SilphCo11F.asm", "scripts/SilphCo11F_2.asm"],
     purpose: "Large staged encounter state machine, boss battle, object cleanup, and coordinate-dependent movement.",
+    requiredFamilies: ["trainer", "battle", "object", "movement"],
   },
 ] as const;
