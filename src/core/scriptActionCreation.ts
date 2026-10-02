@@ -107,6 +107,13 @@ function eventBuilderMacro(
   const definition = analysis.catalog.macros.find(
     (candidate) => candidate.name.toLowerCase() === semantic.name.toLowerCase(),
   );
+  if (
+    !definition
+    || parameterIndex !== 1
+    || definition.parameters.length !== 1
+  ) {
+    return null;
+  }
   const domainIds = new Set(
     definition?.parameters[parameterIndex - 1]?.semanticDomains
       .map((domain) => domain.domainId) ?? [],
