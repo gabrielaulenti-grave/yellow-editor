@@ -99,6 +99,23 @@ export function isScriptEngineInternalCall(name: string): boolean {
     || /^CopyVideoData/i.test(name);
 }
 
+export const SCRIPT_ENGINE_INTERNAL_MACROS = new Set([
+  "lb",
+  "coord",
+  "bccoord",
+  "decoord",
+  "hlcoord",
+  "dbcoord",
+  "dbmapcoord",
+  "dwcoord",
+  "def_text_pointers",
+  "vc_patch",
+]);
+
+export function isScriptEngineInternalMacro(name: string): boolean {
+  return SCRIPT_ENGINE_INTERNAL_MACROS.has(name.toLowerCase());
+}
+
 
 export interface ScriptRegressionFixtureDefinition {
   id: string;
