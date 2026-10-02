@@ -814,6 +814,18 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                 <strong>{audit.releaseReadiness.blockerCount}</strong>
                 <small>release blockers</small>
               </div>
+              <div>
+                <strong>{audit.releaseReadiness.externalTargetConstructCount}</strong>
+                <small>external targets to classify</small>
+              </div>
+              <div>
+                <strong>{audit.releaseReadiness.macroSemanticConstructCount}</strong>
+                <small>macros awaiting semantics</small>
+              </div>
+              <div>
+                <strong>{audit.releaseReadiness.unresolvedSyntaxConstructCount}</strong>
+                <small>unresolved syntax families</small>
+              </div>
             </div>
 
             <details className="script-audit-details" open>
@@ -960,7 +972,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
             {audit.constructs.some((construct) => construct.status === "structural") && (
               <details className="script-audit-details">
                 <summary>
-                  Known constructs awaiting semantic lift · {audit.constructs.filter((construct) => construct.status === "structural").length}
+                  Release blockers awaiting semantic lift · {audit.constructs.filter((construct) => construct.status === "structural").length}
                 </summary>
                 <p className="help-text">
                   These are resolved project syntax or routines, but they still encode behavior
