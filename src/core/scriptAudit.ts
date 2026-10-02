@@ -1,5 +1,10 @@
 import type { MacroAnalysis } from "./macroCatalog";
 import type { ProjectRgbdsSourceFile } from "./projectConstants";
+import {
+  SCRIPT_SEMANTIC_FAMILIES,
+  SCRIPT_SEMANTIC_IR_VERSION,
+  isScriptEngineInternalCall,
+} from "./scriptSemanticIr";
 import type {
   ProjectEventMacroSemantic,
   ProjectMovementVocabulary,
@@ -404,9 +409,11 @@ export function buildScriptAudit(
   let meaningfulLineCount = 0;
   let semanticLineCount = 0;
   let structuralLineCount = 0;
+  let internalLineCount = 0;
   let unresolvedLineCount = 0;
   let semanticInvocationCount = 0;
   let structuralInvocationCount = 0;
+  let internalInvocationCount = 0;
   let unresolvedInvocationCount = 0;
 
   for (const file of scriptFiles) {
@@ -418,9 +425,11 @@ export function buildScriptAudit(
 
     let fileSemantic = 0;
     let fileStructural = 0;
+    let fileInternal = 0;
     let fileUnresolved = 0;
     let fileSemanticInvocations = 0;
     let fileStructuralInvocations = 0;
+    let fileInternalInvocations = 0;
     let fileUnresolvedInvocations = 0;
     const unresolvedKeys = new Set<string>();
     const structuralInvocationKeys = new Set<string>();
@@ -445,6 +454,21 @@ export function buildScriptAudit(
       if (invocation) {
         const kind = invocation[1].toLowerCase() as "call" | "farcall" | "predef";
         const name = invocation[2];
+        if (isScriptEngineInternalCall(name)) {
+          addConstruct(
+            constructs,
+            "internal",
+            kind,
+            name,
+            "Resolved engine presentation/bookkeeping helper; preserved as an advanced internal rather than exposed as gameplay logic.",
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
         const semanticReason = kind === "predef" && DIRECT_SEMANTIC_PREDEFS.has(name)
           ? "Handled by the script semantic model."
           : kind === "farcall" && /^Music_/i.test(name)
@@ -497,6 +521,26 @@ export function buildScriptAudit(
 
       const macroCall = macroCalls.get(lineNumber);
       if (macroCall) {
+        const wrappedTarget = macroCall.arguments[0]?.raw;
+        if (
+          ["callfar", "farjp", "predef_jump"].includes(macroCall.name.toLowerCase())
+          && wrappedTarget
+          && isScriptEngineInternalCall(wrappedTarget)
+        ) {
+          addConstruct(
+            constructs,
+            "internal",
+            "macro",
+            macroCall.name,
+            `Project wrapper invokes engine-internal target ${wrappedTarget}.`,
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
         const semanticReason = semanticMacroReason(
           macroCall.name,
           eventMacros,
@@ -565,6 +609,25 @@ export function buildScriptAudit(
 
       if (head && macroDefinitions.has(lowerHead)) {
         const firstArgument = clean.slice(head.length).trim().split(",")[0]?.trim();
+        if (
+          ["callfar", "farjp", "predef_jump"].includes(lowerHead)
+          && firstArgument
+          && isScriptEngineInternalCall(firstArgument)
+        ) {
+          addConstruct(
+            constructs,
+            "internal",
+            "macro",
+            head,
+            `Project wrapper invokes engine-internal target ${firstArgument}.`,
+            example,
+          );
+          internalLineCount += 1;
+          fileInternal += 1;
+          internalInvocationCount += 1;
+          fileInternalInvocations += 1;
+          return;
+        }
         const semanticReason = semanticMacroReason(
           head,
           eventMacros,
@@ -627,10 +690,12 @@ export function buildScriptAudit(
       path: file.path,
       semanticLines: fileSemantic,
       structuralLines: fileStructural,
+      internalLines: fileInternal,
       unresolvedLines: fileUnresolved,
-      meaningfulLines: fileSemantic + fileStructural + fileUnresolved,
+      meaningfulLines: fileSemantic + fileStructural + fileInternal + fileUnresolved,
       semanticInvocationCount: fileSemanticInvocations,
       structuralInvocationCount: fileStructuralInvocations,
+      internalInvocationCount: fileInternalInvocations,
       unresolvedInvocationCount: fileUnresolvedInvocations,
       unresolvedKeys: [...unresolvedKeys],
       structuralInvocationKeys: [...structuralInvocationKeys],
@@ -653,20 +718,45 @@ export function buildScriptAudit(
         unresolved: 0,
         structural: 1,
         semantic: 2,
+        internal: 3,
       };
       return statusOrder[left.status] - statusOrder[right.status]
         || right.occurrences - left.occurrences
         || left.name.localeCompare(right.name);
     });
 
+  const unresolvedConstructCount = constructList.filter(
+    (construct) => construct.status === "unresolved",
+  ).length;
+  const structuralConstructCount = constructList.filter(
+    (construct) => construct.status === "structural",
+  ).length;
+  const blockerCount = unresolvedConstructCount + structuralConstructCount;
+
   return {
+    irVersion: SCRIPT_SEMANTIC_IR_VERSION,
+    semanticFamilies: SCRIPT_SEMANTIC_FAMILIES.map((family) => ({ ...family })),
+    releaseReadiness: {
+      ready: blockerCount === 0,
+      blockerCount,
+      unresolvedConstructCount,
+      structuralConstructCount,
+      criteria: [
+        "Every scripts/*.asm source construct is classified.",
+        "No gameplay-relevant invocation remains only structurally understood.",
+        "Low-level engine presentation and bookkeeping is explicitly classified as internal.",
+        "All builder actions target the frozen semantic IR rather than raw assembly.",
+      ],
+    },
     fileCount: scriptFiles.length,
     meaningfulLineCount,
     semanticLineCount,
     structuralLineCount,
+    internalLineCount,
     unresolvedLineCount,
     semanticInvocationCount,
     structuralInvocationCount,
+    internalInvocationCount,
     unresolvedInvocationCount,
     files: auditFiles.sort((left, right) =>
       right.unresolvedInvocationCount - left.unresolvedInvocationCount
