@@ -243,6 +243,18 @@ export const SCRIPT_REGRESSION_FIXTURES: readonly ScriptRegressionFixtureDefinit
     purpose: "Persistent Strength boulders, holes, dungeon warps, and forced-current movement.",
   },
   {
+    id: "route-23",
+    label: "Route 23",
+    paths: ["scripts/Route23.asm"],
+    purpose: "Indexed badge-gate events, generated guard movement, and persistent sequential checkpoints.",
+  },
+  {
+    id: "hall-of-fame",
+    label: "Hall of Fame",
+    paths: ["scripts/HallOfFame.asm"],
+    purpose: "Championship persistence, save flow, event resets, and semantic tail-call restart behavior.",
+  },
+  {
     id: "victory-road",
     label: "Victory Road",
     paths: [
