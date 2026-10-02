@@ -439,6 +439,65 @@ export function analyzeTextScript(
       }
     }
 
+    const bitTest = clean.match(/^bit\s+([^,\s]+)\s*,\s*a\s*$/i);
+    if (bitTest) {
+      const source = recentRegisterValue(lines, index, "a", 6);
+      if (source) {
+        for (
+          let probe = index + 1;
+          probe <= Math.min(lines.length - 1, index + 4);
+          probe += 1
+        ) {
+          const next = withoutComment(lines[probe]);
+          if (!next) continue;
+          const branch = next.match(
+            /^(?:jr|jp)\s+(z|nz)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+          );
+          if (branch) {
+            const set = branch[1].toLowerCase() === "nz";
+            insights.push({
+              type: "condition",
+              description: `${readableOperand(bitTest[1])} is ${set ? "set" : "clear"} in ${readableOperand(source)}`,
+              branchTarget: branch[2],
+            });
+            break;
+          }
+          if (/^ldh?\s+/i.test(next)) continue;
+          break;
+        }
+      }
+      continue;
+    }
+
+    if (/^(?:and|or)\s+a\s*$/i.test(clean)) {
+      const source = recentRegisterValue(lines, index, "a", 6);
+      if (source) {
+        for (
+          let probe = index + 1;
+          probe <= Math.min(lines.length - 1, index + 4);
+          probe += 1
+        ) {
+          const next = withoutComment(lines[probe]);
+          if (!next) continue;
+          const branch = next.match(
+            /^(?:jr|jp)\s+(z|nz)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+          );
+          if (branch) {
+            const zero = branch[1].toLowerCase() === "z";
+            insights.push({
+              type: "condition",
+              description: `${readableOperand(source)} is ${zero ? "zero" : "nonzero"}`,
+              branchTarget: branch[2],
+            });
+            break;
+          }
+          if (/^ldh?\s+/i.test(next)) continue;
+          break;
+        }
+      }
+      continue;
+    }
+
     const comparison = clean.match(/^cp\s+([^\s;]+)\s*$/i);
     if (comparison) {
       const left = recentRegisterValue(lines, index, "a", 6);
