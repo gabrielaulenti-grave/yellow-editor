@@ -13,10 +13,10 @@ import {
   validateMapScriptProgram,
   type MapScriptValidationIssue,
 } from "./mapScriptValidation";
+import type { ProjectRgbdsSourceFile } from "./projectConstants";
 import type {
   ProjectEventMacroSemantic,
   ProjectMovementVocabulary,
-  ProjectRgbdsSourceFile,
   ScriptRoundTripRegressionCase,
   ScriptRoundTripRegressionFixture,
   ScriptRoundTripRegressionReport,
