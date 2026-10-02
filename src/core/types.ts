@@ -134,6 +134,7 @@ export interface ScriptAuditConstruct {
   name: string;
   kind: ScriptAuditConstructKind;
   status: ScriptAuditStatus;
+  familyId?: string;
   occurrences: number;
   paths: string[];
   examples: ScriptAuditExample[];
