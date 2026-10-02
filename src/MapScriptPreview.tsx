@@ -50,6 +50,8 @@ export interface MapScriptPreviewReference {
 
 interface MapScriptPreviewProps {
   reference: MapScriptPreviewReference;
+  editableMacroLines?: ReadonlySet<number>;
+  onEditMacroLine?(line: number): void;
 }
 
 interface NodeDialoguePreview {
@@ -703,6 +705,8 @@ function ScriptNodeCard({
   dialoguePreview,
   reference,
   state,
+  editableMacroLines,
+  onEditMacroLine,
   nested = false,
 }: {
   node: MapScriptSemanticNode;
@@ -710,10 +714,21 @@ function ScriptNodeCard({
   dialoguePreview?: NodeDialoguePreview;
   reference: MapScriptPreviewReference;
   state: MapScriptState;
+  editableMacroLines?: ReadonlySet<number>;
+  onEditMacroLine?(line: number): void;
   nested?: boolean;
 }) {
   const details = nodeDetails(node);
   const description = node.type === "wait" && node.reason ? node.reason : node.description;
+  let editableMacroLine: number | null = null;
+  if (editableMacroLines && onEditMacroLine) {
+    for (const line of editableMacroLines) {
+      if (line >= node.source.lineStart && line <= node.source.lineEnd) {
+        editableMacroLine = line;
+        break;
+      }
+    }
+  }
   return (
     <li className={`map-script-step map-script-step-${node.kind}${nested ? " nested" : ""}`}>
       <span className="map-script-step-number">{index + 1}</span>
@@ -752,6 +767,15 @@ function ScriptNodeCard({
             <code>{detail.value}</code>
           </span>
         ))}
+        {editableMacroLine !== null && (
+          <button
+            type="button"
+            className="map-script-safe-edit-link"
+            onClick={() => onEditMacroLine?.(editableMacroLine as number)}
+          >
+            Edit safe parameters
+          </button>
+        )}
         <details className="map-script-source-detail">
           <summary>Source lines {node.source.lineStart}{node.source.lineEnd !== node.source.lineStart ? `–${node.source.lineEnd}` : ""}</summary>
           <pre className="trainer-script-source"><code>{node.source.raw}</code></pre>
@@ -766,6 +790,8 @@ interface FlowListProps {
   previews: Map<string, NodeDialoguePreview>;
   reference: MapScriptPreviewReference;
   state: MapScriptState;
+  editableMacroLines?: ReadonlySet<number>;
+  onEditMacroLine?(line: number): void;
   nested?: boolean;
 }
 
@@ -774,11 +800,15 @@ function BranchBody({
   previews,
   reference,
   state,
+  editableMacroLines,
+  onEditMacroLine,
 }: {
   branch: MapScriptFlowBranch;
   previews: Map<string, NodeDialoguePreview>;
   reference: MapScriptPreviewReference;
   state: MapScriptState;
+  editableMacroLines?: ReadonlySet<number>;
+  onEditMacroLine?(line: number): void;
 }) {
   const showOutcome = branch.outcome.type !== "continue" || branch.items.length === 0;
   return (
@@ -789,6 +819,8 @@ function BranchBody({
           previews={previews}
           reference={reference}
           state={state}
+          editableMacroLines={editableMacroLines}
+          onEditMacroLine={onEditMacroLine}
           nested
         />
       )}
@@ -814,6 +846,8 @@ function IfBlockCard({
   previews,
   reference,
   state,
+  editableMacroLines,
+  onEditMacroLine,
   nested = false,
 }: {
   block: MapScriptIfBlock;
@@ -821,6 +855,8 @@ function IfBlockCard({
   previews: Map<string, NodeDialoguePreview>;
   reference: MapScriptPreviewReference;
   state: MapScriptState;
+  editableMacroLines?: ReadonlySet<number>;
+  onEditMacroLine?(line: number): void;
   nested?: boolean;
 }) {
   return (
@@ -839,6 +875,8 @@ function IfBlockCard({
               previews={previews}
               reference={reference}
               state={state}
+              editableMacroLines={editableMacroLines}
+              onEditMacroLine={onEditMacroLine}
             />
           </div>
           <div className="map-script-branch">
@@ -848,6 +886,8 @@ function IfBlockCard({
               previews={previews}
               reference={reference}
               state={state}
+              editableMacroLines={editableMacroLines}
+              onEditMacroLine={onEditMacroLine}
             />
           </div>
         </div>
@@ -860,7 +900,15 @@ function IfBlockCard({
   );
 }
 
-function FlowList({ items, previews, reference, state, nested = false }: FlowListProps) {
+function FlowList({
+  items,
+  previews,
+  reference,
+  state,
+  editableMacroLines,
+  onEditMacroLine,
+  nested = false,
+}: FlowListProps) {
   return (
     <ol className={nested ? "map-script-branch-step-list" : "map-script-step-list"}>
       {items.map((item, index) => item.type === "if" ? (
@@ -870,6 +918,8 @@ function FlowList({ items, previews, reference, state, nested = false }: FlowLis
           previews={previews}
           reference={reference}
           state={state}
+          editableMacroLines={editableMacroLines}
+          onEditMacroLine={onEditMacroLine}
           nested={nested}
           key={item.id}
         />
@@ -881,6 +931,8 @@ function FlowList({ items, previews, reference, state, nested = false }: FlowLis
           dialoguePreview={previews.get(item.node.id)}
           reference={reference}
           state={state}
+          editableMacroLines={editableMacroLines}
+          onEditMacroLine={onEditMacroLine}
           nested={nested}
         />
       ))}
@@ -894,7 +946,11 @@ function stateRole(state: MapScriptState, focusLabel: string, index: number, foc
   return "Next state";
 }
 
-export function MapScriptPreview({ reference }: MapScriptPreviewProps) {
+export function MapScriptPreview({
+  reference,
+  editableMacroLines,
+  onEditMacroLine,
+}: MapScriptPreviewProps) {
   const model = useMemo(() => {
     const program = parseMapScriptProgram(
       reference.mapScriptSource,
