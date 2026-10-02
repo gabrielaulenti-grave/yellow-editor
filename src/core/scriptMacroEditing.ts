@@ -1,5 +1,6 @@
 import { hashText } from "./history";
 import type { MacroAnalysis } from "./macroCatalog";
+import { editableScriptMacroArguments } from "./scriptMacroEligibility";
 import type {
   ScriptMacroEditDocument,
   TextWriteRequest,
@@ -179,52 +180,6 @@ function callFor(
   ) ?? null;
 }
 
-function definitionFor(analysis: MacroAnalysis, macroName: string) {
-  return analysis.catalog.macros.find(
-    (definition) => definition.name.toLowerCase() === macroName.toLowerCase(),
-  ) ?? null;
-}
-
-function editableDomainIds(
-  analysis: MacroAnalysis,
-  path: string,
-  line: number,
-  argumentCount: number,
-): Array<{ index: number; domainIds: string[] }> {
-  const call = callFor(analysis, path, line);
-  if (!call) return [];
-  const definition = definitionFor(analysis, call.name);
-
-  const result: Array<{ index: number; domainIds: string[] }> = [];
-  const wrapperTargetLocked = ["callfar", "farjp", "predef_jump"].includes(
-    call.name.toLowerCase(),
-  );
-  for (let index = 1; index <= argumentCount; index += 1) {
-    if (wrapperTargetLocked && index === 1) {
-      continue;
-    }
-    const parameter = definition?.parameters[index - 1];
-    const argument = call.arguments[index - 1];
-    const domainIds = [...new Set([
-      ...(parameter?.semanticDomains.map((domain) => domain.domainId) ?? []),
-      ...(argument?.semanticDomains.map((domain) => domain.domainId) ?? []),
-    ])].filter((domainId) => {
-      const domain = analysis.catalog.domains.find(
-        (candidate) => candidate.id === domainId,
-      );
-      return Boolean(
-        domain
-        && argument
-        && domain.options.some((option) => option.value === argument.raw),
-      );
-    });
-    if (domainIds.length > 0) {
-      result.push({ index, domainIds });
-    }
-  }
-  return result;
-}
-
 function verifyAnalysisMatchesLine(
   analysis: MacroAnalysis,
   path: string,
@@ -269,11 +224,15 @@ export async function loadScriptMacroEditDocument(
   }
 
   verifyAnalysisMatchesLine(analysis, path, line, parsed);
-  const editableArgumentDomains = editableDomainIds(
-    analysis,
-    path,
-    line,
-    parsed.arguments.length,
+  const call = callFor(analysis, path, line);
+  if (!call) {
+    throw new Error(
+      "Yellow Editor no longer recognizes this source line as the same project macro call. Reload Scripts before editing it.",
+    );
+  }
+  const editableArgumentDomains = editableScriptMacroArguments(
+    analysis.catalog,
+    call,
   );
 
   return {
@@ -285,22 +244,6 @@ export async function loadScriptMacroEditDocument(
     arguments: parsed.arguments.map((argument) => argument.raw),
     editableArgumentDomains,
   };
-}
-
-function allowedValues(
-  analysis: MacroAnalysis,
-  domainIds: string[],
-): Set<string> {
-  const values = new Set<string>();
-  for (const domainId of domainIds) {
-    const domain = analysis.catalog.domains.find(
-      (candidate) => candidate.id === domainId,
-    );
-    for (const option of domain?.options ?? []) {
-      values.add(option.value);
-    }
-  }
-  return values;
 }
 
 export async function prepareScriptMacroCallWrite(
@@ -335,9 +278,15 @@ export async function prepareScriptMacroCallWrite(
     );
   }
 
+  const analyzedCall = callFor(analysis, path, line);
+  if (!analyzedCall) {
+    throw new Error(
+      "Yellow Editor no longer recognizes this source line as the same project macro call. Reload Scripts before saving it.",
+    );
+  }
   const editable = new Map(
-    editableDomainIds(analysis, path, line, parsed.arguments.length)
-      .map((entry) => [entry.index, entry.domainIds] as const),
+    editableScriptMacroArguments(analysis.catalog, analyzedCall)
+      .map((entry) => [entry.index, entry] as const),
   );
 
   for (let index = 0; index < nextArguments.length; index += 1) {
@@ -345,25 +294,16 @@ export async function prepareScriptMacroCallWrite(
     const next = nextArguments[index];
     if (previous === next) continue;
 
-    const domainIds = editable.get(index + 1);
-    if (!domainIds || domainIds.length === 0) {
+    const editableEntry = editable.get(index + 1);
+    if (!editableEntry) {
       throw new Error(
         `Argument ${index + 1} does not have a proven project semantic domain, so Yellow Editor will not rewrite it yet.`,
       );
     }
 
-    if (!allowedValues(analysis, domainIds).has(next)) {
+    if (!editableEntry.allowedValues.includes(next)) {
       throw new Error(
-        `Argument ${index + 1} value '${next}' is not present in the inferred project domain. Reload Scripts if the project definitions recently changed.`,
-      );
-    }
-
-    const preservesEveryDomain = domainIds.every((domainId) =>
-      allowedValues(analysis, [domainId]).has(next)
-    );
-    if (!preservesEveryDomain) {
-      throw new Error(
-        `Argument ${index + 1} would change its proven semantic-domain signature. Yellow Editor refused the save so a parameter cannot silently change meaning.`,
+        `Argument ${index + 1} value '${next}' would leave its proven semantic-domain intersection. Yellow Editor refused the save so the parameter cannot silently change meaning.`,
       );
     }
   }
