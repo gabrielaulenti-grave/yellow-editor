@@ -184,6 +184,8 @@ export interface ScriptAuditRegressionFixture {
   purpose: string;
   paths: string[];
   presentPaths: string[];
+  requiredFamilies: string[];
+  missingFamilies: string[];
   blockerCount: number;
   unresolvedInvocationCount: number;
   structuralInvocationCount: number;
