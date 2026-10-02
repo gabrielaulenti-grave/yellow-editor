@@ -1264,7 +1264,7 @@ function nodesForSection(
       continue;
     }
 
-    if (/^call\s+StartSimulatingJoypadStates\b/i.test(clean)) {
+    if (/^(?:call|jp)\s+StartSimulatingJoypadStates\b/i.test(clean)) {
       const symbolicAlternatives = playerMovementAlternativesAtCall(
         section.source,
         index,
@@ -1604,7 +1604,7 @@ function nodesForSection(
       continue;
     }
 
-    if (/^call\s+PrintText\b/i.test(clean)) {
+    if (/^(?:call|jp)\s+PrintText\b/i.test(clean)) {
       nodes.push({
         id: `${section.label}:${absoluteLine}:dialogue`,
         type: "dialogue",
@@ -1771,7 +1771,7 @@ function nodesForSection(
     }
 
     const semanticHelperCall = clean.match(
-      /^(?:call|farcall|predef(?:_jump)?)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_][A-Za-z0-9_]*)\b/i,
+      /^(?:call|farcall|predef(?:_jump)?|jp)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_][A-Za-z0-9_]*)\b/i,
     );
     const semanticHelper = semanticHelperCall
       ? namedScriptHelperSemantic(semanticHelperCall[1])
