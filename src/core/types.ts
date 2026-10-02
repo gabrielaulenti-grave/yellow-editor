@@ -165,6 +165,7 @@ export interface ScriptAuditReleaseReadiness {
   externalTargetConstructCount: number;
   macroSemanticConstructCount: number;
   unresolvedSyntaxConstructCount: number;
+  unboundSemanticConstructCount: number;
   criteria: string[];
 }
 
