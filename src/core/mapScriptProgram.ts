@@ -239,6 +239,8 @@ function semanticFamilyKind(family: ScriptSemanticFamilyId): MapScriptOperationK
     case "music": return "music";
     case "screen": return "screen";
   }
+  const exhaustive: never = family;
+  return exhaustive;
 }
 
 function withoutComment(line: string): string {
