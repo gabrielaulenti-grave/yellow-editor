@@ -208,9 +208,16 @@ function editableDomainIds(
     const domainIds = [...new Set([
       ...(parameter?.semanticDomains.map((domain) => domain.domainId) ?? []),
       ...(argument?.semanticDomains.map((domain) => domain.domainId) ?? []),
-    ])].filter((domainId) =>
-      analysis.catalog.domains.some((domain) => domain.id === domainId),
-    );
+    ])].filter((domainId) => {
+      const domain = analysis.catalog.domains.find(
+        (candidate) => candidate.id === domainId,
+      );
+      return Boolean(
+        domain
+        && argument
+        && domain.options.some((option) => option.value === argument.raw),
+      );
+    });
     if (domainIds.length > 0) {
       result.push({ index, domainIds });
     }
