@@ -70,6 +70,38 @@
   overflow: auto;
 }
 
+.script-semantic-family-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.script-semantic-family-card {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.24));
+  border-radius: 0.55rem;
+}
+
+.script-semantic-family-card > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.script-semantic-family-card small {
+  opacity: 0.68;
+}
+
+.script-semantic-family-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.82;
+}
+
 .script-audit-construct-list button {
   display: flex;
   align-items: flex-start;
