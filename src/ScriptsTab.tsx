@@ -190,7 +190,7 @@ function MacroCallForm({
       setEditDocument(null);
       setDraftArguments([]);
       onEditStateChange(false, false);
-      setNotice("Saved to project history.");
+      setNotice("Saved after semantic round-trip validation.");
       onSaved();
     } catch (error) {
       setEditError(String(error));
@@ -939,7 +939,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
               <summary>
                 Guarded edit round-trip regression
                 {roundTripReport
-                  ? ` · ${roundTripReport.passedCaseCount}/${roundTripReport.testedCaseCount} edits passed`
+                  ? ` · ${roundTripReport.passedCaseCount}/${roundTripReport.testedCaseCount} edits passed${roundTripReport.passed ? " · PASS" : ""}`
                   : ""}
               </summary>
               <p className="help-text">
@@ -1008,14 +1008,19 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                         <p>
                           {fixture.candidateShapeCount} distinct editable parameter shape{fixture.candidateShapeCount === 1 ? "" : "s"} found.
                         </p>
-                        {fixture.cases.some((entry) => !entry.passed) && (
-                          <small>
-                            First failure: {fixture.cases.find((entry) => !entry.passed)?.macroName}
-                            {" at "}
-                            {fixture.cases.find((entry) => !entry.passed)?.path}:
-                            {fixture.cases.find((entry) => !entry.passed)?.line}
-                          </small>
-                        )}
+                        {fixture.cases.some((entry) => !entry.passed) && (() => {
+                          const failure = fixture.cases.find((entry) => !entry.passed);
+                          return failure ? (
+                            <>
+                              <small>
+                                First failure: {failure.macroName} at {failure.path}:{failure.line}
+                              </small>
+                              {failure.error && (
+                                <small className="script-macro-evidence">{failure.error}</small>
+                              )}
+                            </>
+                          ) : null;
+                        })()}
                       </div>
                     ))}
                   </div>
