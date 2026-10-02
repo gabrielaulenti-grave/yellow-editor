@@ -717,28 +717,14 @@ export function buildScriptAudit(
           return;
         }
 
-        if (labels.has(name) || name.startsWith(".")) {
-          addConstruct(
-            constructs,
-            "semantic",
-            kind,
-            name,
-            "Project-defined helper call; its target routine body is audited independently and contributes its own semantic/internal blockers.",
-            example,
-          );
-          semanticLineCount += 1;
-          fileSemantic += 1;
-          semanticInvocationCount += 1;
-          fileSemanticInvocations += 1;
-          return;
-        }
-
         const key = addConstruct(
           constructs,
           "structural",
           kind,
           name,
-          "Invocation syntax is understood, but the target is external to the audited script corpus and does not yet have a semantic handler.",
+          labels.has(name)
+            ? "Project helper is resolved, but its body still contains gameplay behavior that has not been promoted into the semantic IR."
+            : "Invocation syntax is understood, but the target is external to the audited script corpus and does not yet have a semantic handler.",
           example,
         );
         structuralLineCount += 1;
