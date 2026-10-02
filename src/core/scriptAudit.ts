@@ -1156,6 +1156,7 @@ export function buildScriptAudit(
     structuralInvocationCount,
     internalInvocationCount,
     unresolvedInvocationCount,
+    unboundSemanticInvocationCount,
     files: auditFiles.sort((left, right) =>
       right.unresolvedInvocationCount - left.unresolvedInvocationCount
       || right.structuralInvocationCount - left.structuralInvocationCount
