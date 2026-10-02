@@ -367,6 +367,14 @@ export interface ProjectSemanticDomainCatalog {
   warnings: string[];
 }
 
+export type MacroParameterSourceRole =
+  | "value"
+  | "symbol-definition"
+  | "routine-target"
+  | "structural-reference"
+  | "computed-symbol"
+  | "assembly-control";
+
 export interface MacroParameterSummary {
   index: number;
   displayName: string;
@@ -376,6 +384,9 @@ export interface MacroParameterSummary {
   examples: string[];
   evidence: string[];
   semanticDomains: SemanticDomainMatch[];
+  sourceRole?: MacroParameterSourceRole;
+  preserveAddressDivisors?: number[];
+  preserveRemainders?: number[];
 }
 
 export interface MacroDefinitionSummary {
@@ -386,6 +397,7 @@ export interface MacroDefinitionSummary {
   parameters: MacroParameterSummary[];
   callCount: number;
   nestedMacros: string[];
+  byteExpressions?: Array<{ destination: string; expression: string }>;
 }
 
 export interface MacroCatalog {
@@ -397,6 +409,8 @@ export interface MacroCatalog {
   warnings: string[];
   domains: ProjectSemanticDomain[];
   domainWarnings: string[];
+  numericConstants?: Record<string, number>;
+  labelSignatures?: Record<string, string>;
 }
 
 export interface ScriptMacroArgument {
@@ -453,6 +467,7 @@ export interface ScriptRoundTripRegressionFixture {
   id: string;
   label: string;
   candidateShapeCount: number;
+  readOnlyArgumentCount: number;
   testedCaseCount: number;
   passedCaseCount: number;
   refusedCaseCount: number;
@@ -465,6 +480,7 @@ export interface ScriptRoundTripRegressionReport {
   fixtureCount: number;
   testedFixtureCount: number;
   testedCaseCount: number;
+  readOnlyArgumentCount: number;
   passedCaseCount: number;
   refusedCaseCount: number;
   failedCaseCount: number;

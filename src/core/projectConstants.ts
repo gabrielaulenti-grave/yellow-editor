@@ -317,19 +317,32 @@ export function projectConstantCatalogFromSources(
         return;
       }
 
-      const constLine = line.match(/^const\s+([A-Za-z_][A-Za-z0-9_.]*)\b/i);
+      const adjustment = line.match(/^(const_skip|const_next)(?:\s+(.+))?$/i);
+      if (adjustment && activeGroup) {
+        const amount = evaluateRgbdsExpression(adjustment[2] ?? "1", symbols);
+        if (amount === null) {
+          activeGroup = null;
+          warnings.push(`${file.path}:${lineNumber} uses a constant offset that could not be evaluated.`);
+        } else {
+          currentValue = adjustment[1].toLowerCase() === "const_next"
+            ? amount : currentValue + amount * currentStep;
+        }
+        return;
+      }
+
+      const constLine = line.match(/^(const|const_export|shift_const)\s+([A-Za-z_][A-Za-z0-9_.]*)\b/i);
       if (constLine && activeGroup) {
-        const symbol = constLine[1];
+        const symbol = constLine[2];
         const constant: ProjectNumericConstant = {
           symbol,
-          value: currentValue,
+          value: constLine[1].toLowerCase() === "shift_const" ? 2 ** currentValue : currentValue,
           sourcePath: file.path,
           line: lineNumber,
           groupId: activeGroup.id,
         };
         if (!constants.has(symbol)) {
           constants.set(symbol, constant);
-          symbols.set(symbol, currentValue);
+          symbols.set(symbol, constant.value);
           activeGroup.constants.push(constant);
         }
         currentValue += currentStep;

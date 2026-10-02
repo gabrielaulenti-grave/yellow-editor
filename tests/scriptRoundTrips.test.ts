@@ -16,6 +16,9 @@ import {
 import { parseMapScriptProgram } from "../src/core/mapScriptProgram";
 import { structuredMapScriptFlow } from "../src/core/mapScriptControlFlow";
 import { prepareTrainerRewardWrite } from "../src/core/trainerRewardEditing";
+import { editableScriptMacroArguments } from "../src/core/scriptMacroEligibility";
+import { analyzeTextScript } from "../src/core/textScriptAnalysis";
+import { projectConstantCatalogFromSources } from "../src/core/projectConstants";
 import type { ProjectEventMacroSemantic, ProjectMovementVocabulary } from "../src/core/types";
 
 const movement: ProjectMovementVocabulary = {
@@ -36,6 +39,7 @@ const path = "scripts/OaksLab.asm";
 async function analysisFor(contents: string) {
   const files = [
     { path: "macros/events.asm", contents: macros },
+    { path: "constants/events.asm", contents: "DEF EVENT_ALPHA EQU 0\nDEF EVENT_BETA EQU 1\n" },
     { path: "scripts/DomainExamples.asm", contents: events.map((event) => `\t${event.name} EVENT_ALPHA`).join("\n") },
     { path, contents },
   ];
@@ -215,15 +219,139 @@ test("regression sweep covers late call sites and distinguishes behavior refusal
   assert.equal(report.fixtures[0].candidateShapeCount, 1);
 });
 
-test("regression report records state-table safety refusals separately from broken round trips", async () => {
+test("declaration arguments stay read-only before a save is offered", async () => {
   const source = "Table:\n\tdw_const Target, SCRIPT_TARGET\nTarget:\n\tMarkEvent EVENT_ALPHA\n\tret\nOther:\n\tret\n";
   const { files } = await analysisFor(source);
   const definitions = { path: "macros/tables.asm", contents: "MACRO dw_const\n\tdw \\1\n\tDEF \\2 EQU 0\nENDM\n" };
   const withTable = await loadMacroAnalysis({} as never, { domains, warnings: [] }, [...files, definitions]);
   const report = await runScriptRoundTripRegression([...files, definitions], withTable, movement, events);
   assert.equal(report.passedCaseCount, 1);
-  assert.ok(report.refusedCaseCount > 0);
+  assert.equal(report.refusedCaseCount, 0);
+  assert.equal(report.readOnlyArgumentCount, 2);
   assert.equal(report.failedCaseCount, 0);
   assert.equal(report.passed, true);
-  assert.ok(report.fixtures[0].cases.find((entry) => entry.macroName === "dw_const")?.refused);
+  assert.ok(!report.fixtures[0].cases.some((entry) => entry.macroName === "dw_const"));
+  const doc = await loadScriptMacroEditDocument(source, path, 2, withTable);
+  assert.equal(doc.editableArgumentDomains.length, 0);
+  const unchanged = await prepareScriptMacroCallWrite(source, path, 2, "dw_const", doc.sourceHash, doc.arguments, withTable);
+  assert.equal(unchanged.contents, source);
+  assert.doesNotThrow(() => validate(source, unchanged.contents, "dw_const"));
+  await assert.rejects(prepareScriptMacroCallWrite(source, path, 2, "dw_const", doc.sourceHash, ["Other", "SCRIPT_TARGET"], withTable), /structural edit/);
+});
+
+test("repeated dialogue, event checks, and battles keep every source occurrence", () => {
+  const source = "Talk:\n\ttext_asm\n\tTestEvent EVENT_ALPHA\n\tTestEvent EVENT_BETA\n\tcall InitBattleEnemyParameters\n\tcall InitBattleEnemyParameters\n.one:\n\ttext_far _First\n\ttext_end\n.two:\n\ttext_far _Second\n\ttext_end\n";
+  const next = source.replace("_First", "_Second");
+  const before = analyzeTextScript(source, "Talk", events);
+  const after = analyzeTextScript(next, "Talk", events);
+  assert.equal(before.filter((insight) => insight.type === "battle").length, 2);
+  assert.equal(after.filter((insight) => insight.type === "dialogue").length, 2);
+  assert.doesNotThrow(() => validate(source, next, "text_far _First"));
+  const nextEvents = source.replace("TestEvent EVENT_ALPHA", "TestEvent EVENT_BETA");
+  assert.equal(analyzeTextScript(nextEvents, "Talk", events).filter((insight) => insight.type === "event").length, 2);
+  assert.doesNotThrow(() => validate(source, nextEvents, "TestEvent EVENT_ALPHA"));
+});
+
+test("renamed direct and banked dispatch wrappers derive a routine-target role", async () => {
+  const source = "Target:\n\tInvoke HelperOne\n\tAcrossBank HelperOne\n\tret\nHelperOne:\n\tret\nHelperTwo:\n\tret\n";
+  const { files } = await analysisFor(source);
+  const definitions = { path: "macros/dispatch.asm", contents: "MACRO Invoke\n\tcall \\1\nENDM\nMACRO AcrossBank\n\tld b, BANK(\\1)\n\tld hl, \\1\n\tcall Dispatch\nENDM\n" };
+  const analysis = await loadMacroAnalysis({} as never, { domains, warnings: [] }, [...files, definitions]);
+  for (const name of ["Invoke", "AcrossBank"]) {
+    assert.equal(analysis.catalog.macros.find((macro) => macro.name === name)?.parameters[0].sourceRole, "routine-target");
+    const call = analysis.callsByScriptPath.get(path)!.calls.find((call) => call.name === name)!;
+    assert.equal(editableScriptMacroArguments(analysis.catalog, call).length, 0);
+  }
+});
+
+test("reused register addresses permit new bits only within the original address group", async () => {
+  const source = "Target:\n\tPinnedBit EVENT_A\n\tret\n";
+  const files = [
+    { path, contents: source },
+    { path: "macros/bits.asm", contents: "MACRO PinnedBit\n\tDEF event_byte = (\\1) / 8\n\tbit (\\1) % 8, [hl]\nENDM\n" },
+    { path: "constants/events.asm", contents: "DEF EVENT_A EQU 9\nDEF EVENT_B EQU 10\nDEF EVENT_OTHER EQU 25\n" },
+  ];
+  const catalog = { domains: [{ ...domains[0], options: ["EVENT_A", "EVENT_B", "EVENT_OTHER"].map((value) => ({ value, label: value })) }], warnings: [] };
+  const analysis = await loadMacroAnalysis({} as never, catalog, files);
+  const doc = await loadScriptMacroEditDocument(source, path, 2, analysis);
+  assert.deepEqual(doc.editableArgumentDomains[0].allowedValues, ["EVENT_A", "EVENT_B"]);
+  await assert.doesNotReject(prepareScriptMacroCallWrite(source, path, 2, "PinnedBit", doc.sourceHash, ["EVENT_B"], analysis));
+  await assert.rejects(prepareScriptMacroCallWrite(source, path, 2, "PinnedBit", doc.sourceHash, ["EVENT_OTHER"], analysis), /domain intersection/);
+});
+
+test("constant enumeration honors skipped slots, explicit offsets, and steps", () => {
+  const catalog = projectConstantCatalogFromSources([{ path: "constants/events.asm", contents: "const_def 1, 2\nconst EVENT_A\nconst_skip 2\nconst EVENT_B\nconst_next $20\nconst EVENT_C\nconst_skip\nconst_export EVENT_D\nconst_def 3\nshift_const MASK\n" }]);
+  const values = Object.fromEntries(catalog.constants.map((entry) => [entry.symbol, entry.value]));
+  assert.deepEqual(values, { EVENT_A: 1, EVENT_B: 7, EVENT_C: 32, EVENT_D: 36, MASK: 8 });
+});
+
+test("trainer event alternatives preserve the assembler's required bit position", async () => {
+  const source = "Target:\n\tTrainerFlag EVENT_A\n\tret\n";
+  const files = [{ path, contents: source },
+    { path: "macros/trainers.asm", contents: "MACRO TrainerFlag\n\tDEF _ev_bit = \\1 % 8\n\tASSERT _ev_bit == CURRENT_TRAINER_BIT\n\tdw wEventFlags + (\\1 - CURRENT_TRAINER_BIT) / 8\nENDM\n" },
+    { path: "constants/events.asm", contents: "const_def 1\nconst EVENT_A\nconst_skip 7\nconst EVENT_B\nconst EVENT_OTHER\n" }];
+  const catalog = { domains: [{ ...domains[0], options: ["EVENT_A", "EVENT_B", "EVENT_OTHER"].map((value) => ({ value, label: value })) }], warnings: [] };
+  const analysis = await loadMacroAnalysis({} as never, catalog, files);
+  const doc = await loadScriptMacroEditDocument(source, path, 2, analysis);
+  assert.deepEqual(doc.editableArgumentDomains[0].allowedValues, ["EVENT_A", "EVENT_B"]);
+  await assert.rejects(prepareScriptMacroCallWrite(source, path, 2, "TrainerFlag", doc.sourceHash, ["EVENT_OTHER"], analysis), /domain intersection/);
+});
+
+test("relative byte operands refuse overflow and preserve their address base", async () => {
+  const source = "Target:\n\tRelativeBit a, EVENT_A, EVENT_BASE\n\tRelativeBit a, EVENT_A\n\tret\n";
+  const files = [{ path, contents: source },
+    { path: "macros/bits.asm", contents: "MACRO RelativeBit\n\tIF _NARG > 2\n\tld \\1, ((\\3) % 8) + ((\\2) - (\\3))\n\tELSE\n\tld \\1, (\\2) % 8\n\tENDC\nENDM\n" },
+    { path: "constants/events.asm", contents: "DEF EVENT_BASE EQU 8\nDEF EVENT_A EQU 9\nDEF EVENT_B EQU 263\nDEF EVENT_OTHER EQU 264\n" }];
+  const catalog = { domains: [{ ...domains[0], options: ["EVENT_BASE", "EVENT_A", "EVENT_B", "EVENT_OTHER"].map((value) => ({ value, label: value })) }], warnings: [] };
+  const analysis = await loadMacroAnalysis({} as never, catalog, files);
+  const doc = await loadScriptMacroEditDocument(source, path, 2, analysis);
+  assert.deepEqual(doc.editableArgumentDomains.find((entry) => entry.index === 2)?.allowedValues, ["EVENT_BASE", "EVENT_A", "EVENT_B"]);
+  assert.ok(!doc.editableArgumentDomains.some((entry) => entry.index === 3));
+  await assert.rejects(prepareScriptMacroCallWrite(source, path, 2, "RelativeBit", doc.sourceHash, ["a", "EVENT_OTHER", "EVENT_BASE"], analysis), /domain intersection/);
+  const optional = await loadScriptMacroEditDocument(source, path, 3, analysis);
+  assert.ok(optional.editableArgumentDomains.find((entry) => entry.index === 2)?.allowedValues.includes("EVENT_OTHER"));
+});
+
+test("simultaneous argument changes are checked against the final emitted byte", async () => {
+  const source = "Target:\n\tCombined EVENT_A, EVENT_A\n\tret\n";
+  const files = [{ path, contents: source },
+    { path: "macros/bits.asm", contents: "MACRO Combined\n\tld a, ((\\1) % 256) + ((\\2) % 256)\nENDM\n" },
+    { path: "constants/events.asm", contents: "DEF EVENT_A EQU 10\nDEF EVENT_B EQU 200\n" }];
+  const catalog = { domains: [{ ...domains[0], options: ["EVENT_A", "EVENT_B"].map((value) => ({ value, label: value })) }], warnings: [] };
+  const analysis = await loadMacroAnalysis({} as never, catalog, files);
+  const doc = await loadScriptMacroEditDocument(source, path, 2, analysis);
+  await assert.doesNotReject(prepareScriptMacroCallWrite(source, path, 2, "Combined", doc.sourceHash, ["EVENT_B", "EVENT_A"], analysis));
+  await assert.rejects(prepareScriptMacroCallWrite(source, path, 2, "Combined", doc.sourceHash, ["EVENT_B", "EVENT_B"], analysis), /together.*byte range/);
+});
+
+test("nested wrappers inherit emitted byte constraints", async () => {
+  const source = "Target:\n\tWrapped EVENT_A, EVENT_A\n\tret\n";
+  const files = [{ path, contents: source },
+    { path: "macros/bits.asm", contents: "MACRO Inner\n\tld a, ((\\1) % 256) + ((\\2) % 256)\nENDM\nMACRO Wrapped\n\tInner \\2, \\1\nENDM\n" },
+    { path: "constants/events.asm", contents: "DEF EVENT_A EQU 10\nDEF EVENT_B EQU 200\n" }];
+  const catalog = { domains: [{ ...domains[0], options: ["EVENT_A", "EVENT_B"].map((value) => ({ value, label: value })) }], warnings: [] };
+  const analysis = await loadMacroAnalysis({} as never, catalog, files);
+  const doc = await loadScriptMacroEditDocument(source, path, 2, analysis);
+  await assert.doesNotReject(prepareScriptMacroCallWrite(source, path, 2, "Wrapped", doc.sourceHash, ["EVENT_B", "EVENT_A"], analysis));
+  await assert.rejects(prepareScriptMacroCallWrite(source, path, 2, "Wrapped", doc.sourceHash, ["EVENT_B", "EVENT_B"], analysis), /together.*byte range/);
+});
+
+test("dialogue pointer alternatives exclude executable helpers", async () => {
+  const source = "Target:\n\tTextPointer TextA\n\tret\nTextA:\n\ttext_start\n\ttext_end\nTextB:\n\ttext_start\n\ttext_end\nTextHelper:\n\tInvokeHelper\n";
+  const files = [{ path, contents: source }, { path: "macros/text.asm", contents: "MACRO TextPointer\n\tdw \\1\nENDM\nMACRO text_start\n\tdb 0\nENDM\nMACRO InvokeHelper\n\tld a, 1\n\tret\nENDM\n" }];
+  const catalog = { domains: [{ id: "text", label: "Text", kind: "label-family" as const, sourcePath: null, options: ["TextA", "TextB", "TextHelper"].map((value) => ({ value, label: value })) }], warnings: [] };
+  const analysis = await loadMacroAnalysis({} as never, catalog, files);
+  const doc = await loadScriptMacroEditDocument(source, path, 2, analysis);
+  assert.deepEqual(doc.editableArgumentDomains[0].allowedValues, ["TextA", "TextB"]);
+  await assert.rejects(prepareScriptMacroCallWrite(source, path, 2, "TextPointer", doc.sourceHash, ["TextHelper"], analysis), /domain intersection/);
+});
+
+test("event builders exclude unresolved count symbols from the selector and writer", async () => {
+  const { files } = await analysisFor(routine);
+  files.push({ path: "constants/count.asm", contents: "DEF NUM_EVENTS EQU const_value\n" });
+  const extended = [{ ...domains[0], options: [...domains[0].options, { value: "NUM_EVENTS", label: "NUM_EVENTS" }] }];
+  const analysis = await loadMacroAnalysis({} as never, { domains: extended, warnings: [] }, files);
+  const doc = await loadScriptSimpleActionCreateDocument(routine, path, "Target", analysis, movement, events);
+  assert.ok(!doc.eventOptions["set-event"].some((option) => option.value === "NUM_EVENTS"));
+  await assert.rejects(prepareScriptSimpleActionWrite(routine, doc, { action: "set-event", event: "NUM_EVENTS" }, analysis, movement, events));
 });

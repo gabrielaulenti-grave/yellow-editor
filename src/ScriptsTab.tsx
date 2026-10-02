@@ -25,6 +25,7 @@ import {
 import {
   editableScriptMacroArguments,
   scriptMacroHasEditableAlternative,
+  scriptMacroReadOnlyReason,
 } from "./core/scriptMacroEligibility";
 import { invoke } from "./platform/compat";
 import "./ScriptsTab.css";
@@ -138,6 +139,7 @@ function MacroCallForm({
         examples: [argument.raw],
         evidence: [],
         semanticDomains: argument.semanticDomains,
+        sourceRole: "value" as const,
       }));
 
   const guardedArguments = catalog
@@ -253,6 +255,7 @@ function MacroCallForm({
             const editableEntry = editDocument?.editableArgumentDomains.find(
               (entry) => entry.index === parameter.index,
             ) ?? null;
+            const readOnlyReason = scriptMacroReadOnlyReason(parameter);
             const editableMatch = editableEntry
               ? semanticMatches.find((match) => editableEntry.domainIds.includes(match.domainId)) ?? null
               : null;
@@ -328,7 +331,10 @@ function MacroCallForm({
                     aria-label={`${call.name} ${parameter.displayName}`}
                   />
                 )}
-                {editDocument && !editable && semanticDomain && (
+                {readOnlyReason && (
+                  <small className="script-macro-evidence">Read-only: {readOnlyReason}</small>
+                )}
+                {editDocument && !editable && semanticDomain && !readOnlyReason && (
                   <small className="script-macro-evidence">
                     Read-only in this phase: the backend did not confirm this parameter as safely rewritable.
                   </small>
@@ -1172,7 +1178,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
               <p className="help-text">
                 Dry-runs every domain-backed parameter position across the regression fixtures without
                 writing project files. Each candidate uses the production macro writer, reparses the
-                result, preserves semantic shape and neighboring source bytes, and may not introduce
+                result, samples up to three alternative values, preserves semantic shape and neighboring source bytes, and may not introduce
                 new semantic validation errors. Edits that change behavior or topology are reported
                 separately as safety refusals.
               </p>
@@ -1203,7 +1209,11 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                     </div>
                     <div>
                       <strong>{roundTripReport.testedCaseCount}</strong>
-                      <small>synthetic edits tested</small>
+                      <small>value edits tested</small>
+                    </div>
+                    <div>
+                      <strong>{roundTripReport.readOnlyArgumentCount}</strong>
+                      <small>structural arguments kept read-only</small>
                     </div>
                     <div>
                       <strong>{roundTripReport.passedCaseCount}</strong>

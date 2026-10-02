@@ -152,6 +152,16 @@ export class ScriptRoundTripGuardError extends Error {
   }
 }
 
+export function scriptRoundTripAlternatives(values: string[], current: string): string[] {
+  const alternatives = [...new Set(values)].filter((value) => value !== current);
+  if (alternatives.length === 0) return [];
+  return [...new Set([
+    alternatives[0],
+    alternatives[Math.floor(alternatives.length / 2)],
+    alternatives[alternatives.length - 1],
+  ])];
+}
+
 function sourceNeighbors(source: string, line: number): [string, string] {
   if (!Number.isInteger(line) || line < 1) {
     throw new RangeError("The edited source line must be a positive integer.");
@@ -327,6 +337,7 @@ export async function runScriptRoundTripRegression(
   for (const fixture of SCRIPT_REGRESSION_FIXTURES) {
     const cases: ScriptRoundTripRegressionCase[] = [];
     const candidateShapes = new Set<string>();
+    let readOnlyArgumentCount = 0;
 
     for (const path of fixture.paths) {
       const sourceFile = filesByPath.get(path);
@@ -334,6 +345,11 @@ export async function runScriptRoundTripRegression(
       const calls = analysis.callsByScriptPath.get(path)?.calls ?? [];
 
       for (const call of calls) {
+        const definition = analysis.catalog.macros.find((macro) => macro.name.toLowerCase() === call.name.toLowerCase());
+        readOnlyArgumentCount += call.arguments.filter((argument) => {
+          const role = definition?.parameters[argument.index - 1]?.sourceRole;
+          return role && role !== "value";
+        }).length;
         let editDocument;
         try {
           editDocument = await loadScriptMacroEditDocument(
@@ -348,10 +364,8 @@ export async function runScriptRoundTripRegression(
 
         for (const editable of editDocument.editableArgumentDomains) {
           const current = editDocument.arguments[editable.index - 1];
-          const next = editable.allowedValues.find(
-            (value) => value !== current,
-          ) ?? null;
-          if (!next) continue;
+          const alternatives = scriptRoundTripAlternatives(editable.allowedValues, current);
+          if (alternatives.length === 0) continue;
 
           const shapeKey = [
             call.name.toLowerCase(),
@@ -360,47 +374,50 @@ export async function runScriptRoundTripRegression(
           ].join(":");
           candidateShapes.add(shapeKey);
 
-          const nextArguments = [...editDocument.arguments];
-          nextArguments[editable.index - 1] = next;
-          const resultCase: ScriptRoundTripRegressionCase = {
-            path,
-            line: call.line,
-            macroName: call.name,
-            argumentIndex: editable.index,
-            previousValue: current,
-            nextValue: next,
-            passed: false,
-            beforeShapes: [],
-            afterShapes: [],
-          };
-
-          try {
-            const write = await prepareScriptMacroCallWrite(
-              sourceFile.contents,
+          for (const next of alternatives) {
+            const nextArguments = [...editDocument.arguments];
+            nextArguments[editable.index - 1] = next;
+            const resultCase: ScriptRoundTripRegressionCase = {
               path,
-              call.line,
-              call.name,
-              editDocument.sourceHash,
-              nextArguments,
-              analysis,
-            );
-            const validation = validateScriptSemanticRoundTrip(
-              sourceFile.contents,
-              write.contents,
-              call.line,
-              movementVocabulary,
-              eventMacroSemantics,
-            );
-            resultCase.passed = true;
-            resultCase.beforeShapes = validation.beforeShapes;
-            resultCase.afterShapes = validation.afterShapes;
-          } catch (error) {
-            resultCase.error = String(error);
-            resultCase.refused = error instanceof ScriptRoundTripGuardError
-              && error.reason === "semantic-contract";
-          }
+              line: call.line,
+              macroName: call.name,
+              argumentIndex: editable.index,
+              previousValue: current,
+              nextValue: next,
+              passed: false,
+              beforeShapes: [],
+              afterShapes: [],
+            };
 
-          cases.push(resultCase);
+            try {
+              const write = await prepareScriptMacroCallWrite(
+                sourceFile.contents,
+                path,
+                call.line,
+                call.name,
+                editDocument.sourceHash,
+                nextArguments,
+                analysis,
+              );
+              const validation = validateScriptSemanticRoundTrip(
+                sourceFile.contents,
+                write.contents,
+                call.line,
+                movementVocabulary,
+                eventMacroSemantics,
+              );
+              resultCase.passed = true;
+              resultCase.beforeShapes = validation.beforeShapes;
+              resultCase.afterShapes = validation.afterShapes;
+            } catch (error) {
+              resultCase.error = String(error);
+              resultCase.refused = error instanceof ScriptRoundTripGuardError
+                && error.reason === "semantic-contract";
+            }
+
+            cases.push(resultCase);
+            if (cases.length % 32 === 0) await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          }
         }
       }
     }
@@ -412,6 +429,7 @@ export async function runScriptRoundTripRegression(
       id: fixture.id,
       label: fixture.label,
       candidateShapeCount: candidateShapes.size,
+      readOnlyArgumentCount,
       testedCaseCount: cases.length,
       passedCaseCount,
       refusedCaseCount,
@@ -425,6 +443,7 @@ export async function runScriptRoundTripRegression(
     (sum, fixture) => sum + fixture.testedCaseCount,
     0,
   );
+  const readOnlyArgumentCount = fixtures.reduce((sum, fixture) => sum + fixture.readOnlyArgumentCount, 0);
   const passedCaseCount = fixtures.reduce(
     (sum, fixture) => sum + fixture.passedCaseCount,
     0,
@@ -445,6 +464,7 @@ export async function runScriptRoundTripRegression(
     fixtureCount: fixtures.length,
     testedFixtureCount,
     testedCaseCount,
+    readOnlyArgumentCount,
     passedCaseCount,
     refusedCaseCount,
     failedCaseCount,

@@ -729,11 +729,7 @@ export function analyzeTextScript(
     }
 
     if (call === "EngageMapTrainer" || call === "InitBattleEnemyParameters") {
-      if (!insights.some((insight) =>
-        insight.type === "battle" && insight.routine === call
-      )) {
-        insights.push({ type: "battle", routine: call });
-      }
+      insights.push({ type: "battle", routine: call });
       continue;
     }
 
@@ -785,9 +781,8 @@ export function analyzeTextScript(
     }
   }
 
-  return insights.filter((insight, index, entries) =>
-    entries.findIndex((candidate) =>
-      JSON.stringify(candidate) === JSON.stringify(insight)
-    ) === index
-  );
+  // Two identical instructions are still two source occurrences. Value-based
+  // deduplication made safe operand edits look like deleted operations and hid
+  // repeated actions in conditional paths.
+  return insights;
 }

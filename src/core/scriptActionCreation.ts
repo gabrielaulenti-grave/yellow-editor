@@ -166,6 +166,9 @@ function eventBuilderMacro(
     .filter((option, index, entries) =>
       entries.findIndex((candidate) => candidate.value === option.value) === index
     )
+    .filter((option) => !analysis.catalog.numericConstants
+      || Number.isInteger(analysis.catalog.numericConstants[option.value])
+      && analysis.catalog.numericConstants[option.value] >= 0)
     .sort((left, right) => left.label.localeCompare(right.label));
 
   return options.length > 0 ? { name: semantic.name, options } : null;

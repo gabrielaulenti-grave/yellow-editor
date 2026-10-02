@@ -1,6 +1,6 @@
 import { hashText } from "./history";
 import type { MacroAnalysis } from "./macroCatalog";
-import { editableScriptMacroArguments } from "./scriptMacroEligibility";
+import { editableScriptMacroArguments, scriptMacroReadOnlyReason, scriptMacroByteExpressionsValid } from "./scriptMacroEligibility";
 import type {
   ScriptMacroEditDocument,
   TextWriteRequest,
@@ -296,8 +296,11 @@ export async function prepareScriptMacroCallWrite(
 
     const editableEntry = editable.get(index + 1);
     if (!editableEntry) {
+      const parameter = analysis.catalog.macros.find((definition) => definition.name.toLowerCase() === macroName.toLowerCase())?.parameters[index];
+      const reason = scriptMacroReadOnlyReason(parameter);
       throw new Error(
-        `Argument ${index + 1} does not have a proven project semantic domain, so Yellow Editor will not rewrite it yet.`,
+        reason ? `Argument ${index + 1} is read-only: ${reason}`
+          : `Argument ${index + 1} does not have a proven project semantic domain, so Yellow Editor will not rewrite it yet.`,
       );
     }
 
@@ -306,6 +309,11 @@ export async function prepareScriptMacroCallWrite(
         `Argument ${index + 1} value '${next}' would leave its proven semantic-domain intersection. Yellow Editor refused the save so the parameter cannot silently change meaning.`,
       );
     }
+  }
+
+  if (nextArguments.some((value, index) => value !== parsed.arguments[index].raw)
+    && !scriptMacroByteExpressionsValid(analysis.catalog, analyzedCall, nextArguments)) {
+    throw new Error("These arguments together exceed the macro's emitted byte range. Yellow Editor refused the save to prevent operand truncation.");
   }
 
   let nextLine = bounds.text;

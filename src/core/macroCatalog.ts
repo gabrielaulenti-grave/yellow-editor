@@ -1,9 +1,10 @@
-import type { ProjectRgbdsSourceFile } from "./projectConstants";
+import { projectConstantCatalogFromSources, type ProjectRgbdsSourceFile } from "./projectConstants";
 import type {
   MacroCatalog,
   MacroDefinitionSummary,
   MacroInferenceConfidence,
   MacroParameterKind,
+  MacroParameterSourceRole,
   MacroParameterSummary,
   ProjectSemanticDomain,
   ProjectSemanticDomainCatalog,
@@ -23,6 +24,10 @@ interface MacroDefinitionInternal {
   parameterCount: number;
   usageHints: Map<number, MacroParameterKind[]>;
   producedSymbols: Map<number, "label" | "constant">;
+  sourceRoles: Map<number, MacroParameterSourceRole>;
+  addressDivisors: Map<number, number[]>;
+  remainders: Map<number, number[]>;
+  byteExpressions: Array<{ destination: string; expression: string }>;
   nestedBindings: Array<{
     parentParameter: number;
     macroName: string;
@@ -173,6 +178,11 @@ function parseDefinitions(file: ProjectRgbdsSourceFile): MacroDefinitionInternal
     let parameterCount = 0;
     const usageHints = new Map<number, MacroParameterKind[]>();
     const producedSymbols = new Map<number, "label" | "constant">();
+    const sourceRoles = new Map<number, MacroParameterSourceRole>();
+    const addressDivisors = new Map<number, number[]>();
+    const remainders = new Map<number, number[]>();
+    const cleanBody = body.map(withoutComment);
+    const hasDispatch = cleanBody.some((line) => /^(?:call|jp|jr|rst)\b/i.test(line));
 
     for (const sourceLine of body) {
       const bodyLine = withoutComment(sourceLine);
@@ -187,6 +197,17 @@ function parseDefinitions(file: ProjectRgbdsSourceFile): MacroDefinitionInternal
         const localIndex = parameter - shift;
         const token = "\\" + String(localIndex);
         const escaped = escapeRegex(token);
+        if (new RegExp(`^(?:call|jp|jr)\\s+(?:(?:z|nz|c|nc)\\s*,\\s*)?${escaped}(?:\\s|$)`, "i").test(bodyLine)) {
+          sourceRoles.set(parameter, "routine-target");
+        } else if (new RegExp(`${escaped}[A-Za-z_]`).test(bodyLine)) {
+          sourceRoles.set(parameter, "computed-symbol");
+        } else if (
+          hasDispatch
+          && new RegExp(`\\bBANK\\(\\s*${escaped}\\s*\\)`, "i").test(bodyLine)
+          && cleanBody.some((line) => new RegExp(`^ld\\s+(?:hl|de|bc)\\s*,\\s*${escaped}\\s*$`, "i").test(line))
+        ) {
+          sourceRoles.set(parameter, "routine-target");
+        }
         if (new RegExp("^\\s*" + escaped + ":{1,2}(?:\\s|$)").test(bodyLine)) {
           producedSymbols.set(parameter, "label");
         } else if (
@@ -204,6 +225,39 @@ function parseDefinitions(file: ProjectRgbdsSourceFile): MacroDefinitionInternal
       }
     }
 
+    for (let parameter = 1; parameter <= parameterCount; parameter += 1) {
+      const escaped = escapeRegex("\\" + String(parameter));
+      const uses = cleanBody.filter((line) => new RegExp(escaped).test(line));
+      for (const use of uses) {
+        const declaration = use.match(new RegExp(`^DEF\\s+([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*\\(?\\s*${escaped}\\s*\\)?\\s*%\\s*(\\d+)\\s*$`, "i"));
+        if (declaration && cleanBody.some((line) => new RegExp(`^ASSERT\\s+${escapeRegex(declaration[1])}\\s*==`, "i").test(line))) {
+          remainders.set(parameter, [...new Set([...(remainders.get(parameter) ?? []), Number(declaration[2])])]);
+        }
+      }
+      if (!sourceRoles.has(parameter) && uses.length > 0
+        && uses.every((line) => /^(?:DEF|REDEF|IF|ELIF|ASSERT|FOR|REPT)\b/i.test(line))) {
+        sourceRoles.set(parameter, "assembly-control");
+      }
+      // A register-held address is an input contract when the macro only emits
+      // a bit operation and does not load that register itself. Preserve the
+      // address group while allowing a different bit in the same group.
+      for (const register of ["hl", "de", "bc"]) {
+        if (cleanBody.some((line) => new RegExp(`^ld\\s+${register}\\s*,`, "i").test(line))) continue;
+        const operations = uses.filter((line) => new RegExp(`^(?:bit|set|res)\\b.*\\[${register}\\]`, "i").test(line));
+        for (const operation of operations) {
+          const divisor = operation.match(new RegExp(`${escaped}\\s*\\)?\\s*%\\s*(\\d+)`))?.[1];
+          if (divisor && Number(divisor) > 0) {
+            addressDivisors.set(parameter, [...new Set([...(addressDivisors.get(parameter) ?? []), Number(divisor)])]);
+          }
+        }
+      }
+      if (!sourceRoles.has(parameter)
+        && uses.some((line) => new RegExp(`${escaped}\\s*\\)?\\s*%\\s*\\d+`).test(line)
+          && new RegExp(`-\\s*\\(?\\s*${escaped}`).test(line))) {
+        sourceRoles.set(parameter, "assembly-control");
+      }
+    }
+
     result.push({
       name: start[1],
       path: file.path,
@@ -213,6 +267,14 @@ function parseDefinitions(file: ProjectRgbdsSourceFile): MacroDefinitionInternal
       parameterCount,
       usageHints,
       producedSymbols,
+      sourceRoles,
+      addressDivisors,
+      remainders,
+      byteExpressions: cleanBody.flatMap((line) => {
+        const match = line.match(/^ld\s+([abcdehl]|\\[1-9])\s*,\s*(.+)$/i);
+        return match && match[2].includes("%") && parameterReferences(match[2], 0).length > 1
+          ? [{ destination: match[1], expression: match[2] }] : [];
+      }),
       nestedBindings: [],
     });
     index = end;
@@ -718,12 +780,26 @@ function summarizeParameters(
     const nestedKinds: MacroParameterKind[] = [];
     const nestedEvidence: string[] = [];
     const nestedDomains: SemanticDomainMatch[] = [];
+    let sourceRole: MacroParameterSourceRole = definition.producedSymbols.has(index)
+      ? "symbol-definition"
+      : definition.sourceRoles.get(index) ?? "value";
+    if (sourceRole === "value" && definition.producedSymbols.size > 0
+      && definition.usageHints.get(index)?.includes("expression")) {
+      sourceRole = "structural-reference";
+    }
+    const preserveAddressDivisors = new Set(definition.addressDivisors.get(index) ?? []);
+    const preserveRemainders = new Set(definition.remainders.get(index) ?? []);
 
     for (const binding of definition.nestedBindings.filter(
       (candidate) => candidate.parentParameter === index,
     )) {
       const child = summaries.get(binding.macroName.toLowerCase());
       const parameter = child?.parameters[binding.childParameter - 1];
+      if (sourceRole === "value" && parameter?.sourceRole && parameter.sourceRole !== "value") {
+        sourceRole = parameter.sourceRole;
+      }
+      for (const divisor of parameter?.preserveAddressDivisors ?? []) preserveAddressDivisors.add(divisor);
+      for (const divisor of parameter?.preserveRemainders ?? []) preserveRemainders.add(divisor);
       if (parameter && parameter.inferredKind !== "unknown") {
         nestedKinds.push(parameter.inferredKind);
         nestedEvidence.push(
@@ -750,6 +826,7 @@ function summarizeParameters(
     }
     if (hints.length > 0) evidence.push("inferred from RGBDS instruction context");
     evidence.push(...nestedEvidence);
+    if (sourceRole !== "value") evidence.push(`project macro uses this argument as ${sourceRole}`);
     const semanticDomains = mergeSemanticDomains(
       inferSemanticDomains(slot, semanticCatalog),
       nestedDomains,
@@ -764,6 +841,9 @@ function summarizeParameters(
       examples: slot.values,
       evidence,
       semanticDomains,
+      sourceRole,
+      preserveAddressDivisors: [...preserveAddressDivisors],
+      preserveRemainders: [...preserveRemainders],
     });
   }
 
@@ -788,6 +868,7 @@ function buildSummaries(
       parameters: [],
       callCount: callCounts.get(definition.name.toLowerCase()) ?? 0,
       nestedMacros: [...new Set(definition.nestedBindings.map((binding) => binding.macroName))],
+      byteExpressions: definition.byteExpressions,
     });
   }
 
@@ -802,6 +883,25 @@ function buildSummaries(
         summaries,
         semanticCatalog,
       );
+      const expressions = [...definition.byteExpressions];
+      let shift = 0;
+      for (const sourceLine of definition.body) {
+        const line = withoutComment(sourceLine);
+        const count = shiftCount(line);
+        if (count !== null) { shift += count; continue; }
+        const invocation = line.match(/^([A-Za-z_][A-Za-z0-9_#@.]*)\b(?:\s+(.*))?$/);
+        const child = invocation ? summaries.get(invocation[1].toLowerCase()) : undefined;
+        if (!child?.byteExpressions?.length) continue;
+        const values = splitArguments(invocation?.[2] ?? "").map((value) => value.replace(/\\([1-9])/g, (_, index) => `\\${Number(index) + shift}`));
+        for (const expression of child.byteExpressions) {
+          if ([...expression.expression.matchAll(/\\([1-9])/g)].some((match) => values[Number(match[1]) - 1] === undefined)) continue;
+          expressions.push({
+            destination: expression.destination.replace(/\\([1-9])/g, (_, index) => values[Number(index) - 1] ?? ""),
+            expression: expression.expression.replace(/\\([1-9])/g, (_, index) => `(${values[Number(index) - 1]})`),
+          });
+        }
+      }
+      summary.byteExpressions = expressions.filter((expression, index) => expressions.findIndex((candidate) => candidate.destination === expression.destination && candidate.expression === expression.expression) === index);
     }
   }
 
@@ -810,6 +910,43 @@ function buildSummaries(
       || left.path.localeCompare(right.path)
       || left.startLine - right.startLine,
   );
+}
+
+function labelSignatures(files: ProjectRgbdsSourceFile[], definitions: Map<string, MacroDefinitionInternal>): Record<string, string> {
+  const signatures: Record<string, string> = {};
+  const cpuInstruction = /^(?:ldh?|call|jp|jr|ret[i]?|rst|push|pop|bit|set|res|inc|dec|xor|and|or|cp|nop|halt|stop|di|ei|add|adc|sub|sbc|rlca|rrca|rla|rra|rl|rr|sla|sra|srl|swap|daa|cpl|scf|ccf)\b/i;
+  function containsInstructions(line: string, seen = new Set<string>()): boolean {
+    if (cpuInstruction.test(line)) return true;
+    const opcode = line.match(/^([A-Za-z_][A-Za-z0-9_#@.]*)\b/)?.[1].toLowerCase();
+    const macro = opcode ? definitions.get(opcode) : undefined;
+    if (!macro || seen.has(macro.name)) return false;
+    const nextSeen = new Set([...seen, macro.name]);
+    return macro.body.some((line) => containsInstructions(withoutComment(line), nextSeen));
+  }
+  for (const file of files) {
+    const lines = file.contents.split(/\r?\n/);
+    const starts = lines.flatMap((line, index) => {
+      const label = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/)?.[1];
+      return label ? [{ label, index }] : [];
+    });
+    for (let index = starts.length - 1; index >= 0; index--) {
+      const entry = starts[index];
+      const code = lines.slice(entry.index + 1, starts[index + 1]?.index ?? lines.length)
+        .map(withoutComment).filter((line) => line && !/^\.[\w.]+:{0,2}$/.test(line));
+      let signature = "unknown";
+      if (code.length === 0) signature = signatures[starts[index + 1]?.label] ?? "unknown";
+      else if (code.some((line) => containsInstructions(line))) signature = "executable";
+      else {
+        const opcode = code[0].match(/^([A-Za-z_][A-Za-z0-9_#@.]*)\b/)?.[1].toLowerCase();
+        const macro = opcode ? definitions.get(opcode) : null;
+        if (macro) signature = `macro-data:${macro.path}`;
+        else if (/^db\s+"/.test(code[0])) signature = "string-data";
+        else if (/^(?:db|dw|dl)\b/i.test(code[0])) signature = `data:${opcode}`;
+      }
+      signatures[entry.label] = signatures[entry.label] && signatures[entry.label] !== signature ? "unknown" : signature;
+    }
+  }
+  return signatures;
 }
 
 export async function loadMacroAnalysis(
@@ -953,6 +1090,9 @@ export async function loadMacroAnalysis(
       warnings,
       domains: semanticCatalog.domains,
       domainWarnings: semanticCatalog.warnings,
+      numericConstants: Object.fromEntries(projectConstantCatalogFromSources(readableFiles).constants
+        .map((constant) => [constant.symbol, constant.value])),
+      labelSignatures: labelSignatures(readableFiles, byName),
     },
     callsByScriptPath,
   };

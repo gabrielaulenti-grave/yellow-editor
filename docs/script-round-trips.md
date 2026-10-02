@@ -7,12 +7,15 @@ npm ci
 npm run test:scripts
 ```
 
-The desktop CI workflow runs this suite and the pinned disassembly sweeps before
-building the app. The focused suite checks guarded
+The desktop CI workflow runs this suite, pinned disassembly sweeps, complete ROM
+builds, and assembled CPU probes before building the app. The focused suite checks guarded
 macro edits, trainer reward writes, simple action insertion, and event conditionals.
 Cases include stale snapshots, invalid values, state-table retargeting, helper
 routines outside the state table, blank arguments, quoted separators, nested
-expressions, LF/CRLF/mixed line endings, and files without a final newline.
+expressions, LF/CRLF/mixed line endings, and files without a final newline. It also
+checks source-derived argument roles, event-address/bit constraints, emitted-byte
+bounds (including nested wrappers and simultaneous edits), and dialogue/code
+pointer separation.
 
 To dry-run the production writers against local disassembly checkouts:
 
@@ -21,27 +24,62 @@ npm run test:scripts -- /path/to/pokeyellow /path/to/pokered
 ```
 
 The sweep uses project-derived macro/domain, event, and movement analysis. Across
-the 11 script fixtures, it tries one alternative at **every** eligible macro
+the 11 script fixtures, it tries up to three alternatives at **every** eligible macro
 parameter position, including repeated calls and companion files. It also tests
 all available simple actions and conditional actions in every routine that proves
-one straight-line insertion point. It never writes the disassembly.
+one straight-line insertion point. It also saves unchanged single-line calls,
+including read-only declarations, and verifies byte identity and IR preservation.
+It never writes the disassembly.
 
 Results distinguish successful edits, semantic-contract refusals, and unexpected
 failures. Changing a behavior family or state topology is a refusal; corruption
 of neighboring bytes is a failure. Refusals do not imply that the attempted edit
 is supported. Domain membership alone cannot prove that an arbitrary routine
-target has the same behavior.
+target has the same behavior. Symbol declarations, structural pointers, routine
+targets, computed symbols, and assembly-control parameters remain read-only in
+the generic value editor, with an explanation in the form. Value choices preserve
+proven reused-address groups, assertion remainders, and emitted-byte bounds.
+Unresolved numeric family values are excluded. Constant enumeration honors
+`const_skip`, `const_next`, step sizes, and shifted/exported constants.
 
 ## Validated source revisions
 
 The October 2, 2026 sweep used:
 
-| Source | Commit | Macro round trips | Semantic refusals | Builder round trips | Unexpected failures |
-| --- | --- | ---: | ---: | ---: | ---: |
-| `pret/pokeyellow` | `e89ead154b9968aa50eed9328ff2b38b6c194382` | 542 | 395 | 282 | 0 |
-| `pret/pokered` | `d2704a63c26f9ba046ade877445216b3de0519a4` | 505 | 331 | 144 | 0 |
+| Source | Commit | Unchanged saves | Macro value edits | Semantic refusals | Builder round trips | Unexpected failures |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| `pret/pokeyellow` | `e89ead154b9968aa50eed9328ff2b38b6c194382` | 1004 | 1158 | 0 | 282 | 0 |
+| `pret/pokered` | `d2704a63c26f9ba046ade877445216b3de0519a4` | 925 | 1110 | 0 | 144 | 0 |
 
-This validates parsing and rewriting, not assembled-ROM execution. Each macro
-position uses one alternate value; this is not an exhaustive enumeration of all
-values or combinations. Arbitrary assembly and routines with ambiguous insertion
+574 Yellow and 475 Red/Blue structural arguments are kept read-only; these are
+reported separately and are not counted as successful value edits. Hall of Fame
+has no eligible macro value edit in this phase and remains covered by unchanged
+saves and generated-action checks.
+
+## Assembly and CPU validation
+
+With native RGBDS v1.0.4, a C compiler, GNU Make, and a checkout of binjgb at
+`8abd0d38d5bf109d7c280b27d815a8b53168adde`:
+
+```sh
+npm run test:scripts:rom -- /path/to/rgbds /path/to/binjgb /path/to/pokeyellow /path/to/pokered
+```
+
+This runner copies the source projects to temporary directories, builds vanilla
+baselines, and assembles/links three edited macro variants per game. Each variant
+changes every eligible fixture call using first/middle/last alternatives: 326
+Yellow calls and 310 Red/Blue calls per variant. A fourth edited ROM per game
+contains six generated insertions covering wait, heal, event set/reset, and
+conditional wait/heal. Operand truncation warnings fail the check. The source
+checkouts remain untouched and temporary ROMs are removed.
+
+48 isolated assembled ROM probes execute on the app's pinned binjgb CPU. They use
+the projects' real event macros and `DelayFrames` loop to verify event set/reset,
+both conditional outcomes, 1/7/255 delay iterations, return to the expected
+endpoint, and all 512 neighboring event bytes. Only the lower-level `DelayFrame`
+frame source is stubbed with an iteration counter.
+
+The checks cover sampled values and combinations, not every possible edit.
+The CPU probes do not validate real VBlank timing, healing internals, or complete
+gameplay/story behavior. Arbitrary assembly and routines with ambiguous insertion
 points remain outside the generated-action writer's supported scope.
