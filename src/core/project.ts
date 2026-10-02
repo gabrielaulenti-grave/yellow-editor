@@ -817,6 +817,15 @@ export async function createProjectSession(
       itemConstant,
       quantity,
     ) => {
+      const [
+        beforeSource,
+        movementVocabulary,
+        eventMacroSemantics,
+      ] = await Promise.all([
+        source.readText(path),
+        getMovementVocabulary(),
+        getEventMacroSemantics(),
+      ]);
       const change = await prepareTrainerRewardWrite(
         source,
         path,
@@ -824,6 +833,15 @@ export async function createProjectSession(
         itemConstant,
         quantity,
       );
+      if (/^scripts\/.+\.asm$/i.test(path)) {
+        validateScriptSemanticRoundTrip(
+          beforeSource,
+          change.contents,
+          sourceLine,
+          movementVocabulary,
+          eventMacroSemantics,
+        );
+      }
       const result = await history.save(`Edit trainer reward ${itemConstant}`, [
         { ...change, expectedHash },
       ]);
