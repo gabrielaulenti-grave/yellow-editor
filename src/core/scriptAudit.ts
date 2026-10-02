@@ -252,7 +252,17 @@ function compositeSemanticLabels(
     for (const routine of routines) {
       if (resolved.has(routine.label)) continue;
 
-      let hasSemanticAction = false;
+      const cleanRoutine = routine.lines.map(withoutComment);
+      const touchesServiceEconomyState = cleanRoutine.some((line) =>
+        /\b(?:wPlayerMoney|wPriceTemp|hMoney|hDivideBCD|wSafariSteps|wNumSafariBalls)\b/.test(line)
+      );
+      const dynamicallyPositionsSprite = cleanRoutine.some((line) =>
+        /\b(?:hSpriteScreen[XY]Coord|hSpriteMap[XY]Coord)\b/.test(line)
+      ) && cleanRoutine.some((line) =>
+        /^call\s+SetSpritePosition1\b/i.test(line)
+      );
+
+      let hasSemanticAction = touchesServiceEconomyState || dynamicallyPositionsSprite;
       let blocked = false;
 
       for (const sourceLine of routine.lines) {
