@@ -36,6 +36,21 @@ const RGBDS_DIRECTIVES = new Set([
 
 const DIRECT_SEMANTIC_CALLS = new Set([
   "CallFunctionInTable",
+  "SchedulePikachuSpawnForAfterText",
+  "RemovePokemon",
+  "RemoveItemFromInventory",
+  "PrintText_NoCreatingTextBox",
+  "MoveMon",
+  "LoadMonData",
+  "EnablePikachuOverworldSpriteDrawing",
+  "DisplayTextBoxID",
+  "DisplayPartyMenu",
+  "DisableWaitingAfterTextDisplay",
+  "DisablePikachuOverworldSpriteDrawing",
+  "DelayFrame",
+  "CountSetBits",
+  "CheckPikachuFollowingPlayer",
+  "AddPartyMon",
   "PlayPikachuSoundClip",
   "Has9990Coins",
   "CheckPikachuStatusCondition",
@@ -78,6 +93,13 @@ const DIRECT_SEMANTIC_CALLS = new Set([
 ]);
 
 const DIRECT_SEMANTIC_PREDEFS = new Set([
+  "WriteMonMoves",
+  "SubBCDPredef",
+  "FindPathToPlayer",
+  "DivideBCDPredef3",
+  "DisplayDexRating",
+  "CalcPositionOfPlayerRelativeToNPC",
+  "AddBCDPredef",
   "EmotionBubble",
   "DisplayElevatorFloorMenu",
   "DoInGameTradeDialogue",
@@ -245,6 +267,7 @@ function semanticCall(
     DIRECT_SEMANTIC_CALLS.has(name)
     || /^RemoveItemByID(?:Bank[0-9A-F]+)?$/i.test(name)
     || /DisplayTextID/i.test(name)
+    || /Print[A-Za-z0-9_]*Text/i.test(name)
     || movementVocabulary.consumers.some((consumer) => consumer.routine === name)
     || setterLabels.has(name)
     || objectWrappers.has(name)
