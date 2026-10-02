@@ -499,6 +499,39 @@ function semanticMacroReason(
   return null;
 }
 
+function semanticFamilyForMacroInvocation(
+  name: string,
+  target: string | undefined,
+  eventMacros: Map<string, ProjectEventMacroSemantic>,
+  textCommandMacros: Set<string>,
+  movementVocabulary: ProjectMovementVocabulary,
+  setterLabels: Set<string>,
+  objectWrappers: Set<string>,
+): string | undefined {
+  const lower = name.toLowerCase();
+  if (eventMacros.has(lower)) return "event";
+  if (TEXT_SEMANTIC_MACROS.has(lower) || textCommandMacros.has(lower)) return "dialogue";
+  if (/^(?:EventFlagAddress|EventFlagBit)$/i.test(name)) return "indexed-event";
+  if (/^map_coord_movement$/i.test(name)) return "forced-movement";
+  if (/^(?:trainer|def_trainers)$/i.test(name)) return "trainer";
+  if (/^(?:script_pokecenter_nurse|script_cable_club_receptionist)$/i.test(name)) return "service";
+  if (/^(?:ldpikacry|ldpikaemotion)$/i.test(name)) return "service";
+
+  if (["callfar", "farjp", "predef_jump"].includes(lower) && target) {
+    return namedScriptHelperSemantic(target)?.family
+      ?? semanticFamilyForTarget(target)
+      ?? (movementVocabulary.consumers.some((consumer) => consumer.routine === target)
+        ? "movement"
+        : setterLabels.has(target)
+          ? "state-transition"
+          : objectWrappers.has(target)
+            ? "object"
+            : undefined);
+  }
+
+  return undefined;
+}
+
 function wrapperMacroSemanticReason(
   name: string,
   target: string | undefined,
@@ -815,31 +848,15 @@ export function buildScriptAudit(
           labels,
         );
         if (semanticReason) {
-          const macroFamilyId = eventMacros.has(macroCall.name.toLowerCase())
-            ? "event"
-            : /^(?:EventFlagAddress|EventFlagBit)$/i.test(macroCall.name)
-              ? "indexed-event"
-              : /^(?:map_coord_movement)$/i.test(macroCall.name)
-                ? "forced-movement"
-                : /^(?:trainer|def_trainers)$/i.test(macroCall.name)
-                  ? "trainer"
-                  : /^(?:text|text_asm|text_end|text_far|text_ram|text_decimal|line|cont|para|page|next|prompt|done)$/i.test(macroCall.name)
-                    ? "dialogue"
-                    : /^(?:script_pokecenter_nurse|script_cable_club_receptionist)$/i.test(macroCall.name)
-                      ? "service"
-                      : /^(?:ldpikacry|ldpikaemotion)$/i.test(macroCall.name)
-                        ? "service"
-                        : wrappedTarget
-                          ? namedScriptHelperSemantic(wrappedTarget)?.family
-                            ?? semanticFamilyForTarget(wrappedTarget)
-                            ?? (movementVocabulary.consumers.some((consumer) => consumer.routine === wrappedTarget)
-                              ? "movement"
-                              : setterLabels.has(wrappedTarget)
-                                ? "state-transition"
-                                : objectWrappers.has(wrappedTarget)
-                                  ? "object"
-                                  : undefined)
-                          : undefined;
+          const macroFamilyId = semanticFamilyForMacroInvocation(
+            macroCall.name,
+            wrappedTarget,
+            eventMacros,
+            textCommandMacros,
+            movementVocabulary,
+            setterLabels,
+            objectWrappers,
+          );
           const key = addConstruct(
             constructs,
             "semantic",
@@ -949,14 +966,29 @@ export function buildScriptAudit(
           labels,
         );
         if (semanticReason) {
-          addConstruct(
+          const macroFamilyId = semanticFamilyForMacroInvocation(
+            head,
+            firstArgument,
+            eventMacros,
+            textCommandMacros,
+            movementVocabulary,
+            setterLabels,
+            objectWrappers,
+          );
+          const key = addConstruct(
             constructs,
             "semantic",
             "macro",
             head,
             semanticReason,
             example,
+            macroFamilyId,
           );
+          if (!macroFamilyId) {
+            unboundSemanticInvocationCount += 1;
+            fileUnboundSemanticInvocations += 1;
+            unboundSemanticKeys.add(key);
+          }
           semanticLineCount += 1;
           fileSemantic += 1;
           semanticInvocationCount += 1;
