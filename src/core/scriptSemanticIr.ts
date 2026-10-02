@@ -55,7 +55,13 @@ export const SCRIPT_SEMANTIC_FAMILIES: readonly ScriptSemanticFamilyDefinition[]
 ] as const;
 
 export const SCRIPT_ENGINE_INTERNAL_CALLS = new Set([
+  "Bankswitch",
+  "BankswitchCommon",
+  "BankswitchHome",
+  "ClearSprites",
   "CopyData",
+  "DebugPressedOrHeldB",
+  "EnableAutoTextBoxDrawing",
   "FillMemory",
   "UpdateSprites",
   "WaitForSoundToFinish",
@@ -70,8 +76,14 @@ export const SCRIPT_ENGINE_INTERNAL_CALLS = new Set([
   "SaveScreenTilesToBuffer2",
   "LoadScreenTilesFromBuffer1",
   "LoadScreenTilesFromBuffer2",
+  "LoadGBPal",
+  "LoadGymLeaderAndCityName",
+  "LoadPlayerSpriteGraphics",
   "ReloadTilesetTilePatterns",
   "RestoreScreenTilesAndReloadTilePatterns",
+  "Serial_TryEstablishingExternallyClockedConnection",
+  "SetMapTextPointer",
+  "WaitForTextScrollButtonPress",
   "CopyScreenTileBufferToVRAM",
   "SetSpritePosition1",
   "SetSpritePosition2",
@@ -86,3 +98,78 @@ export function isScriptEngineInternalCall(name: string): boolean {
     || /^WriteOAM/i.test(name)
     || /^CopyVideoData/i.test(name);
 }
+
+
+export interface ScriptRegressionFixtureDefinition {
+  id: string;
+  label: string;
+  paths: readonly string[];
+  purpose: string;
+}
+
+export const SCRIPT_REGRESSION_FIXTURES: readonly ScriptRegressionFixtureDefinition[] = [
+  {
+    id: "oaks-lab",
+    label: "Oak's Lab",
+    paths: ["scripts/OaksLab.asm"],
+    purpose: "Starter choice, rival battle, gifts, state transitions, and multi-stage story flow.",
+  },
+  {
+    id: "bills-house",
+    label: "Bill's House",
+    paths: ["scripts/BillsHouse.asm"],
+    purpose: "Conditional dialogue, object staging, movement, and service-style state progression.",
+  },
+  {
+    id: "mt-moon-b2f",
+    label: "Mt. Moon B2F",
+    paths: ["scripts/MtMoonB2F.asm"],
+    purpose: "Dense state machine, fossil choice, special battle staging, and project-derived movement.",
+  },
+  {
+    id: "daycare",
+    label: "Daycare",
+    paths: ["scripts/Daycare.asm"],
+    purpose: "Party selection, service menus, money, level calculations, and resumable interaction flow.",
+  },
+  {
+    id: "cinnabar-gym",
+    label: "Cinnabar Gym",
+    paths: ["scripts/CinnabarGym.asm"],
+    purpose: "Indexed event addressing and persistent gate state.",
+  },
+  {
+    id: "safari-zone-gate",
+    label: "Safari Zone Gate",
+    paths: ["scripts/SafariZoneGate.asm", "scripts/SafariZoneGate_2.asm"],
+    purpose: "Admission, currency, session resources, timers, and entrance/exit state.",
+  },
+  {
+    id: "seafoam",
+    label: "Seafoam Islands",
+    paths: [
+      "scripts/SeafoamIslands1F.asm",
+      "scripts/SeafoamIslandsB1F.asm",
+      "scripts/SeafoamIslandsB2F.asm",
+      "scripts/SeafoamIslandsB3F.asm",
+      "scripts/SeafoamIslandsB4F.asm",
+    ],
+    purpose: "Persistent Strength boulders, holes, dungeon warps, and forced-current movement.",
+  },
+  {
+    id: "victory-road",
+    label: "Victory Road",
+    paths: [
+      "scripts/VictoryRoad1F.asm",
+      "scripts/VictoryRoad2F.asm",
+      "scripts/VictoryRoad3F.asm",
+    ],
+    purpose: "Strength switches, cross-floor boulders, persistent block changes, and special encounters.",
+  },
+  {
+    id: "silph-11f",
+    label: "Silph Co. 11F",
+    paths: ["scripts/SilphCo11F.asm", "scripts/SilphCo11F_2.asm"],
+    purpose: "Large staged encounter state machine, boss battle, object cleanup, and coordinate-dependent movement.",
+  },
+] as const;
