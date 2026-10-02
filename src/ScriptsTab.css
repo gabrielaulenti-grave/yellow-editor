@@ -594,3 +594,31 @@
 .script-round-trip-actions small {
   opacity: 0.72;
 }
+
+
+.script-simple-action-builder {
+  display: grid;
+  gap: 0.7rem;
+  margin-top: 0.85rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.28));
+  border-radius: 0.65rem;
+  background: rgba(127, 127, 127, 0.035);
+}
+
+.script-simple-action-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.65rem;
+  align-items: end;
+}
+
+.script-simple-action-form > label {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.script-simple-action-form > small,
+.script-simple-action-form > .script-macro-edit-actions {
+  grid-column: 1 / -1;
+}
