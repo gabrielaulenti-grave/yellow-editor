@@ -560,6 +560,9 @@ export async function invoke<T>(
     case "get_script_audit":
       return (await session.getScriptAudit()) as T;
 
+    case "run_script_round_trip_regression":
+      return (await session.runScriptRoundTripRegression()) as T;
+
     case "get_script_document":
       return (await session.getScriptDocument(
         stringArg(args, "path"),
