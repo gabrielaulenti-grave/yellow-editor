@@ -142,6 +142,34 @@ function arraysEqual(left: string[], right: string[]): boolean {
     && left.every((value, index) => value === right[index]);
 }
 
+export class ScriptRoundTripGuardError extends Error {
+  constructor(
+    message: string,
+    readonly reason: "semantic-contract" | "source-preservation" = "semantic-contract",
+  ) {
+    super(message);
+    this.name = "ScriptRoundTripGuardError";
+  }
+}
+
+function sourceNeighbors(source: string, line: number): [string, string] {
+  if (!Number.isInteger(line) || line < 1) {
+    throw new RangeError("The edited source line must be a positive integer.");
+  }
+  let start = 0;
+  for (let index = 1; index < line; index += 1) {
+    const newline = source.indexOf("\n", start);
+    if (newline < 0) {
+      throw new RangeError("The edited source line is outside the file.");
+    }
+    start = newline + 1;
+  }
+  const newline = source.indexOf("\n", start);
+  const end = newline < 0 ? source.length
+    : newline > start && source[newline - 1] === "\r" ? newline - 1 : newline;
+  return [source.slice(0, start), source.slice(end)];
+}
+
 function sourceLabelAtLine(source: string, line: number): string | null {
   const lines = source.split(/\r?\n/);
   for (let index = Math.min(line - 1, lines.length - 1); index >= 0; index -= 1) {
@@ -206,15 +234,22 @@ export function validateScriptSemanticRoundTrip(
   movementVocabulary: ProjectMovementVocabulary,
   eventMacroSemantics: ProjectEventMacroSemantic[],
 ): ScriptSemanticRoundTripResult {
+  if (!arraysEqual(sourceNeighbors(beforeSource, line), sourceNeighbors(afterSource, line))) {
+    throw new ScriptRoundTripGuardError(
+      "The edited source changed neighboring bytes or line endings. Yellow Editor refused the save because a guarded parameter edit may only replace values on its source line.",
+      "source-preservation",
+    );
+  }
+  const focusLabel = sourceLabelAtLine(beforeSource, line) ?? undefined;
   const beforeProgram = parseMapScriptProgram(
     beforeSource,
-    undefined,
+    focusLabel,
     movementVocabulary,
     eventMacroSemantics,
   );
   const afterProgram = parseMapScriptProgram(
     afterSource,
-    undefined,
+    focusLabel,
     movementVocabulary,
     eventMacroSemantics,
   );
@@ -237,28 +272,25 @@ export function validateScriptSemanticRoundTrip(
   const afterTopology = topologyFingerprint(afterProgram);
 
   if (!arraysEqual(beforeTopology, afterTopology)) {
-    throw new Error(
+    throw new ScriptRoundTripGuardError(
       "The edited source changed map-script states or transitions. Yellow Editor refused the save because guarded parameter edits may not alter control-flow topology.",
     );
   }
 
   if (!arraysEqual(beforeLayout, afterLayout)) {
-    throw new Error(
-      "The edited source changed the semantic-node layout elsewhere in the script. Yellow Editor refused the save because a guarded parameter edit may change values, but not behavior classes or source structure.",
+    throw new ScriptRoundTripGuardError(
+      "The edited source changed the script's semantic-node layout. Yellow Editor refused the save because a guarded parameter edit may change values, but not behavior classes or source structure.",
     );
   }
 
-  if (beforeShapes.length > 0 && !arraysEqual(beforeShapes, afterShapes)) {
-    throw new Error(
+  if (!arraysEqual(beforeShapes, afterShapes)) {
+    throw new ScriptRoundTripGuardError(
       `The edited source changed its semantic IR shape (${beforeShapes.join(", ")} → ${afterShapes.join(", ") || "no semantic node"}). Yellow Editor refused the save so a guarded edit cannot silently change behavior class.`,
     );
   }
 
-  if (
-    beforeTextShapes.length > 0
-    && !arraysEqual(beforeTextShapes, afterTextShapes)
-  ) {
-    throw new Error(
+  if (!arraysEqual(beforeTextShapes, afterTextShapes)) {
+    throw new ScriptRoundTripGuardError(
       "The edited source changed the recognized executable text-script flow. Yellow Editor refused the save because guarded dialogue/service edits may change values, but not condition, reward, event, or service structure.",
     );
   }
@@ -270,7 +302,7 @@ export function validateScriptSemanticRoundTrip(
   );
 
   if (newValidationErrors.length > 0) {
-    throw new Error(
+    throw new ScriptRoundTripGuardError(
       `The edited script introduced ${newValidationErrors.length} new semantic validation error${newValidationErrors.length === 1 ? "" : "s"}. Yellow Editor refused the save.`,
     );
   }
@@ -283,8 +315,6 @@ export function validateScriptSemanticRoundTrip(
 }
 
 
-const MAX_CASES_PER_FIXTURE = 12;
-
 export async function runScriptRoundTripRegression(
   files: ProjectRgbdsSourceFile[],
   analysis: MacroAnalysis,
@@ -296,18 +326,14 @@ export async function runScriptRoundTripRegression(
 
   for (const fixture of SCRIPT_REGRESSION_FIXTURES) {
     const cases: ScriptRoundTripRegressionCase[] = [];
-    const testedShapes = new Set<string>();
     const candidateShapes = new Set<string>();
 
     for (const path of fixture.paths) {
-      if (cases.length >= MAX_CASES_PER_FIXTURE) break;
       const sourceFile = filesByPath.get(path);
       if (!sourceFile || sourceFile.readError) continue;
       const calls = analysis.callsByScriptPath.get(path)?.calls ?? [];
 
       for (const call of calls) {
-        if (cases.length >= MAX_CASES_PER_FIXTURE) break;
-
         let editDocument;
         try {
           editDocument = await loadScriptMacroEditDocument(
@@ -321,7 +347,6 @@ export async function runScriptRoundTripRegression(
         }
 
         for (const editable of editDocument.editableArgumentDomains) {
-          if (cases.length >= MAX_CASES_PER_FIXTURE) break;
           const current = editDocument.arguments[editable.index - 1];
           const next = editable.allowedValues.find(
             (value) => value !== current,
@@ -334,8 +359,6 @@ export async function runScriptRoundTripRegression(
             [...editable.domainIds].sort().join("|"),
           ].join(":");
           candidateShapes.add(shapeKey);
-          if (testedShapes.has(shapeKey)) continue;
-          testedShapes.add(shapeKey);
 
           const nextArguments = [...editDocument.arguments];
           nextArguments[editable.index - 1] = next;
@@ -373,6 +396,8 @@ export async function runScriptRoundTripRegression(
             resultCase.afterShapes = validation.afterShapes;
           } catch (error) {
             resultCase.error = String(error);
+            resultCase.refused = error instanceof ScriptRoundTripGuardError
+              && error.reason === "semantic-contract";
           }
 
           cases.push(resultCase);
@@ -381,13 +406,15 @@ export async function runScriptRoundTripRegression(
     }
 
     const passedCaseCount = cases.filter((entry) => entry.passed).length;
-    const failedCaseCount = cases.length - passedCaseCount;
+    const refusedCaseCount = cases.filter((entry) => entry.refused).length;
+    const failedCaseCount = cases.length - passedCaseCount - refusedCaseCount;
     fixtures.push({
       id: fixture.id,
       label: fixture.label,
       candidateShapeCount: candidateShapes.size,
       testedCaseCount: cases.length,
       passedCaseCount,
+      refusedCaseCount,
       failedCaseCount,
       passed: cases.length > 0 && failedCaseCount === 0,
       cases,
@@ -406,6 +433,10 @@ export async function runScriptRoundTripRegression(
     (sum, fixture) => sum + fixture.failedCaseCount,
     0,
   );
+  const refusedCaseCount = fixtures.reduce(
+    (sum, fixture) => sum + fixture.refusedCaseCount,
+    0,
+  );
   const testedFixtureCount = fixtures.filter(
     (fixture) => fixture.testedCaseCount > 0,
   ).length;
@@ -415,6 +446,7 @@ export async function runScriptRoundTripRegression(
     testedFixtureCount,
     testedCaseCount,
     passedCaseCount,
+    refusedCaseCount,
     failedCaseCount,
     passed: testedCaseCount > 0 && failedCaseCount === 0,
     fixtures,

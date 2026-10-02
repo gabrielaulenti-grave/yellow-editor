@@ -1170,9 +1170,11 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                   : ""}
               </summary>
               <p className="help-text">
-                Dry-runs representative domain-backed edits across the regression fixtures without
+                Dry-runs every domain-backed parameter position across the regression fixtures without
                 writing project files. Each candidate uses the production macro writer, reparses the
-                result, preserves semantic shape, and may not introduce new semantic validation errors.
+                result, preserves semantic shape and neighboring source bytes, and may not introduce
+                new semantic validation errors. Edits that change behavior or topology are reported
+                separately as safety refusals.
               </p>
               <div className="script-round-trip-actions">
                 <button
@@ -1208,6 +1210,10 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                       <small>round trips passed</small>
                     </div>
                     <div>
+                      <strong>{roundTripReport.refusedCaseCount}</strong>
+                      <small>safety refusals</small>
+                    </div>
+                    <div>
                       <strong>{roundTripReport.failedCaseCount}</strong>
                       <small>round trips failed</small>
                     </div>
@@ -1228,15 +1234,15 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                             {fixture.testedCaseCount === 0
                               ? "No domain-backed edit case"
                               : fixture.passed
-                                ? `${fixture.passedCaseCount} passed`
+                                ? `${fixture.passedCaseCount} passed · ${fixture.refusedCaseCount} refused`
                                 : `${fixture.failedCaseCount} failed`}
                           </small>
                         </span>
                         <p>
                           {fixture.candidateShapeCount} distinct editable parameter shape{fixture.candidateShapeCount === 1 ? "" : "s"} found.
                         </p>
-                        {fixture.cases.some((entry) => !entry.passed) && (() => {
-                          const failure = fixture.cases.find((entry) => !entry.passed);
+                        {fixture.cases.some((entry) => !entry.passed && !entry.refused) && (() => {
+                          const failure = fixture.cases.find((entry) => !entry.passed && !entry.refused);
                           return failure ? (
                             <>
                               <small>

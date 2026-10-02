@@ -443,6 +443,7 @@ export interface ScriptRoundTripRegressionCase {
   previousValue: string;
   nextValue: string;
   passed: boolean;
+  refused?: boolean;
   error?: string;
   beforeShapes: string[];
   afterShapes: string[];
@@ -454,6 +455,7 @@ export interface ScriptRoundTripRegressionFixture {
   candidateShapeCount: number;
   testedCaseCount: number;
   passedCaseCount: number;
+  refusedCaseCount: number;
   failedCaseCount: number;
   passed: boolean;
   cases: ScriptRoundTripRegressionCase[];
@@ -464,6 +466,7 @@ export interface ScriptRoundTripRegressionReport {
   testedFixtureCount: number;
   testedCaseCount: number;
   passedCaseCount: number;
+  refusedCaseCount: number;
   failedCaseCount: number;
   passed: boolean;
   fixtures: ScriptRoundTripRegressionFixture[];

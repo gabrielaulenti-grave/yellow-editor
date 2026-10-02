@@ -32,47 +32,18 @@ interface EventBuilderMacro {
   options: ProjectSemanticDomainOption[];
 }
 
-function withoutComment(line: string): string {
-  const index = line.indexOf(";");
-  return (index >= 0 ? line.slice(0, index) : line).trim();
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^$()|[\]\\]/g, "\\$&");
-}
-
-function safeRoutineInsertion(
+function insertGeneratedLines(
   source: string,
-  routineLabel: string,
-): SafeRoutineInsertion {
-  const lines = source.split(/\r?\n/);
-  const startPattern = new RegExp(
-    `^\\s*${escapeRegExp(routineLabel)}:{1,2}\\s*(?:;.*)?import { hashText } from "./history";
-import type { MacroAnalysis } from "./macroCatalog";
-import {
-  parseMapScriptProgram,
-  type MapScriptProgram,
-} from "./mapScriptProgram";
-import { validateMapScriptProgram } from "./mapScriptValidation";
-import { scriptSemanticNodeShape } from "./scriptRoundTripValidation";
-import type {
-  ProjectEventMacroSemantic,
-  ProjectMovementVocabulary,
-  ProjectSemanticDomainOption,
-  ScriptSimpleActionCreateDocument,
-  ScriptSimpleActionCreateValues,
-  TextWriteRequest,
-} from "./types";
-
-interface SafeRoutineInsertion {
-  insertionIndex: number;
-  insertionLine: number;
-  indent: string;
-}
-
-interface EventBuilderMacro {
-  name: string;
-  options: ProjectSemanticDomainOption[];
+  insertion: SafeRoutineInsertion,
+  generated: string[],
+): string {
+  let offset = 0;
+  for (let index = 0; index < insertion.insertionIndex; index += 1) {
+    offset = source.indexOf("\n", offset) + 1;
+  }
+  const end = source.indexOf("\n", offset);
+  const newline = end > offset && source[end - 1] === "\r" ? "\r\n" : "\n";
+  return source.slice(0, offset) + generated.join(newline) + newline + source.slice(offset);
 }
 
 function withoutComment(line: string): string {
@@ -90,7 +61,7 @@ function safeRoutineInsertion(
 ): SafeRoutineInsertion {
   const lines = source.split(/\r?\n/);
   const startPattern = new RegExp(
-,
+    `^\\s*${escapeRegExp(routineLabel)}:{1,2}\\s*(?:;.*)?$`,
   );
   const start = lines.findIndex((line) => startPattern.test(line));
   if (start < 0) {
@@ -160,8 +131,18 @@ function eventBuilderMacro(
   if (
     !definition
     || parameterIndex !== 1
-    || definition.parameters.length !== 1
+    || definition.parameters.length < 1
+    || definition.parameters.slice(1).some((parameter) => parameter.required)
   ) {
+    return null;
+  }
+  // Some event checks have an optional flag-output mode. Only emit the default
+  // one-argument form when the project actually uses it.
+  if (definition.parameters.length > 1 && ![...analysis.callsByScriptPath.values()]
+    .some((document) => document.calls.some((call) =>
+      call.name.toLowerCase() === semantic.name.toLowerCase()
+      && call.arguments.length === 1
+    ))) {
     return null;
   }
   const domainIds = new Set(
@@ -187,9 +168,7 @@ function eventBuilderMacro(
     )
     .sort((left, right) => left.label.localeCompare(right.label));
 
-  return options.length > 0
-    ? { name: semantic.name, options }
-    : null;
+  return options.length > 0 ? { name: semantic.name, options } : null;
 }
 
 interface GeneratedSimpleAction {
@@ -425,10 +404,7 @@ export async function prepareScriptSimpleActionWrite(
     eventMacroSemantics,
   );
 
-  const lines = sourceText.split(/\r?\n/);
-  lines.splice(insertion.insertionIndex, 0, ...generated.lines);
-  const newline = sourceText.includes("\r\n") ? "\r\n" : "\n";
-  const contents = lines.join(newline);
+  const contents = insertGeneratedLines(sourceText, insertion, generated.lines);
 
   validateGeneratedInsertion(
     sourceText,
@@ -582,10 +558,7 @@ export async function prepareScriptEventConditionalWrite(
     `${labels.joinLabel}:`,
   ];
 
-  const lines = sourceText.split(/\r?\n/);
-  lines.splice(insertion.insertionIndex, 0, ...generated);
-  const newline = sourceText.includes("\r\n") ? "\r\n" : "\n";
-  const contents = lines.join(newline);
+  const contents = insertGeneratedLines(sourceText, insertion, generated);
 
   validateGeneratedInsertion(
     sourceText,
