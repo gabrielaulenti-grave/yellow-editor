@@ -153,8 +153,10 @@ export interface ScriptAuditFile {
   structuralInvocationCount: number;
   internalInvocationCount: number;
   unresolvedInvocationCount: number;
+  unboundSemanticInvocationCount: number;
   unresolvedKeys: string[];
   structuralInvocationKeys: string[];
+  unboundSemanticKeys: string[];
 }
 
 export interface ScriptAuditReleaseReadiness {
@@ -185,6 +187,7 @@ export interface ScriptAuditRegressionFixture {
   blockerCount: number;
   unresolvedInvocationCount: number;
   structuralInvocationCount: number;
+  unboundSemanticInvocationCount: number;
   passed: boolean;
 }
 
