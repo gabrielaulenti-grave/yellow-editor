@@ -411,6 +411,15 @@ function MacroCallForm({
   );
 }
 
+function simpleActionEventOptions(
+  document: ScriptSimpleActionCreateDocument,
+  action: ScriptSimpleActionCreateValues["action"],
+) {
+  if (action === "set-event") return document.eventOptions["set-event"];
+  if (action === "reset-event") return document.eventOptions["reset-event"];
+  return [];
+}
+
 function SimpleActionBuilder({
   path,
   routineLabel,
@@ -455,7 +464,7 @@ function SimpleActionBuilder({
       setDocument(next);
       const preferred = next.availableActions[0] ?? "wait";
       setAction(preferred);
-      setEvent(next.eventOptions[0]?.value ?? "");
+      setEvent(simpleActionEventOptions(next, preferred)[0]?.value ?? "");
       setFrames(30);
     } catch (nextError) {
       onEditStateChange(false, false);
@@ -523,6 +532,9 @@ function SimpleActionBuilder({
               onChange={(change) => {
                 const next = change.target.value as ScriptSimpleActionCreateValues["action"];
                 setAction(next);
+                if (document) {
+                  setEvent(simpleActionEventOptions(document, next)[0]?.value ?? "");
+                }
                 onEditStateChange(true, true);
               }}
             >
@@ -564,7 +576,7 @@ function SimpleActionBuilder({
                   onEditStateChange(true, true);
                 }}
               >
-                {document.eventOptions.map((option) => (
+                {simpleActionEventOptions(document, action).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label === option.value
                       ? option.value
