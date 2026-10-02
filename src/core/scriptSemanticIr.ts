@@ -56,7 +56,7 @@ export const SCRIPT_NAMED_HELPER_SEMANTICS: readonly ScriptNamedHelperSemantic[]
   { name: "EnablePikachuOverworldSpriteDrawing", family: "object", title: "Show Pikachu overworld sprite", description: "Enable Pikachu's follower sprite rendering." },
   { name: "DisablePikachuOverworldSpriteDrawing", family: "object", title: "Hide Pikachu overworld sprite", description: "Disable Pikachu's follower sprite rendering." },
   { name: "DisplayTextBoxID", family: "dialogue", title: "Display text box", description: "Display a standard text/menu box." },
-  { name: "DisableWaitingAfterTextDisplay", family: "dialogue", title: "Auto-advance dialogue", description: "Do not wait for a button press after the next dialogue." },
+  { name: "DisableWaitingAfterTextDisplay", family: "scene-control", title: "Auto-advance dialogue", description: "Do not wait for a button press after the next dialogue." },
   { name: "CountSetBits", family: "condition", title: "Count set flags", description: "Count enabled bits for a later threshold condition." },
   { name: "CheckPikachuFollowingPlayer", family: "condition", title: "Check whether Pikachu is following", description: "Branch according to Pikachu's follower state." },
   { name: "AddPartyMon", family: "party", title: "Add Pokémon to party", description: "Add the prepared Pokémon to the player's party." },
