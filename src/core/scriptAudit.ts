@@ -419,6 +419,8 @@ function semanticFamilyForTarget(name: string): string | undefined {
   if (/^(?:CheckFightingMapTrainers|DisplayEnemyTrainerTextAndStartBattle|EndTrainerBattle|TalkToTrainer|EngageMapTrainer)$/i.test(name)) return "trainer";
   if (/^(?:InitBattleEnemyParameters|SaveEndBattleTextPointers)$/i.test(name)) return "battle";
   if (/^(?:MoveSprite|SetSpriteMovementBytesToFF)$/i.test(name)) return "movement";
+  if (/^(?:Delay3|DelayFrames|DelayFrame)$/i.test(name)) return "wait";
+  if (/^(?:DisableWaitingAfterTextDisplay)$/i.test(name)) return "scene-control";
   if (/^(?:DecodeArrowMovementRLE|DecodeRLEList|StartSimulatingJoypadStates|ForceBikeOrSurf)$/i.test(name)) return "forced-movement";
   if (/^SetSpriteFacingDirectionAndDelay$/i.test(name)) return "facing";
   if (/^(?:ShowObject|HideObject)$/i.test(name)) return "object";
