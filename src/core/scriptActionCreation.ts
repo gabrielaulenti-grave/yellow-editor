@@ -73,7 +73,7 @@ function safeRoutineInsertion(
     executable.push({ index, clean });
   }
 
-  const final = executable.at(-1);
+  const final = executable[executable.length - 1];
   if (!final || !/^ret\s*$/i.test(final.clean)) {
     throw new Error(
       "This routine does not end in one unconditional ret, so generated actions remain read-only for now.",
