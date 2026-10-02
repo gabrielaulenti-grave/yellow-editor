@@ -816,6 +816,42 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
               </div>
             </div>
 
+            <details className="script-audit-details" open>
+              <summary>
+                Regression fixtures · {audit.regressionFixtures.filter((fixture) => fixture.passed).length}/{audit.regressionFixtures.filter((fixture) => fixture.presentPaths.length > 0).length} passing
+              </summary>
+              <p className="help-text">
+                These representative vanilla scripts are permanent guardrails for the semantic model.
+                A fixture fails whenever one of its present source files contains an unresolved or
+                structurally understood gameplay invocation.
+              </p>
+              <div className="script-regression-grid">
+                {audit.regressionFixtures.map((fixture) => (
+                  <div
+                    key={fixture.id}
+                    className={fixture.passed ? "script-regression-card passed" : "script-regression-card"}
+                  >
+                    <span>
+                      <strong>{fixture.label}</strong>
+                      <small>
+                        {fixture.presentPaths.length === 0
+                          ? "Not present in this project"
+                          : fixture.passed
+                            ? "Pass"
+                            : `${fixture.blockerCount} blocker${fixture.blockerCount === 1 ? "" : "s"}`}
+                      </small>
+                    </span>
+                    <p>{fixture.purpose}</p>
+                    {fixture.presentPaths.length > 0 && !fixture.passed && (
+                      <small>
+                        {fixture.unresolvedInvocationCount} unresolved · {fixture.structuralInvocationCount} awaiting semantic lift
+                      </small>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </details>
+
             <details className="script-audit-details">
               <summary>
                 Frozen semantic IR v{audit.irVersion} · {audit.semanticFamilies.length} gameplay families
