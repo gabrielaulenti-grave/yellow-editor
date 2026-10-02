@@ -469,6 +469,23 @@ export interface ScriptRoundTripRegressionReport {
   fixtures: ScriptRoundTripRegressionFixture[];
 }
 
+export type ScriptSimpleActionKind = "set-event" | "reset-event" | "wait";
+
+export interface ScriptSimpleActionCreateDocument {
+  path: string;
+  routineLabel: string;
+  sourceHash: string;
+  insertionLine: number;
+  availableActions: ScriptSimpleActionKind[];
+  eventOptions: ProjectSemanticDomainOption[];
+}
+
+export interface ScriptSimpleActionCreateValues {
+  action: ScriptSimpleActionKind;
+  event?: string;
+  frames?: number;
+}
+
 export interface PokemonIndexEntry {
   internalId: number;
   constant: string | null;
@@ -1465,6 +1482,14 @@ export interface ProjectSession {
   getScriptCatalog(): Promise<ScriptCatalog>;
   getScriptAudit(): Promise<ScriptAuditReport>;
   runScriptRoundTripRegression(): Promise<ScriptRoundTripRegressionReport>;
+  getScriptSimpleActionCreateDocument(
+    path: string,
+    routineLabel: string,
+  ): Promise<ScriptSimpleActionCreateDocument>;
+  createScriptSimpleAction(
+    document: ScriptSimpleActionCreateDocument,
+    values: ScriptSimpleActionCreateValues,
+  ): Promise<HistorySummary>;
   getScriptDocument(path: string): Promise<ScriptDocument>;
   getMacroCatalog(): Promise<MacroCatalog>;
   getScriptMacroCalls(path: string): Promise<ScriptMacroCallDocument>;
