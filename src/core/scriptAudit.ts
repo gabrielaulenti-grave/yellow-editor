@@ -34,6 +34,7 @@ const DIRECT_SEMANTIC_CALLS = new Set([
   "DecodeRLEList",
   "Delay3",
   "DelayFrames",
+  "DisplayPokedex",
   "DisplayTextID",
   "EngageMapTrainer",
   "GiveItem",
