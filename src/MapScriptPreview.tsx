@@ -488,6 +488,20 @@ function textScriptInsightText(insight: TextScriptInsight): string {
         : "Initialize battle enemy parameters";
     case "transition":
       return `Advance map script to ${titleCaseConstant(insight.scriptConstant)}`;
+    case "economy":
+      return insight.action === "check-affordability"
+        ? "Check whether the player can afford the current price"
+        : insight.action === "add"
+          ? "Add a BCD currency amount"
+          : insight.action === "subtract"
+            ? "Subtract the charged currency amount"
+            : "Calculate a BCD quotient for the service";
+    case "service":
+      return insight.action === "calculate-low-cost-admission"
+        ? "Calculate discounted Safari admission from the player's remaining money"
+        : insight.action === "select-party-member"
+          ? "Ask the player to choose a party member"
+          : "Transfer the selected party member for this service";
     case "wait":
       return insight.frames ? `Wait ${insight.frames} frames` : "Wait";
     case "emotion":
