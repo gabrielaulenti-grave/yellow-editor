@@ -29,6 +29,7 @@ const RGBDS_DIRECTIVES = new Set([
 
 const DIRECT_SEMANTIC_CALLS = new Set([
   "CallFunctionInTable",
+  "CheckBoulderCoords",
   "ExecuteCurMapScriptInTable",
   "DecodeArrowMovementRLE",
   "DecodeRLEList",
@@ -43,6 +44,7 @@ const DIRECT_SEMANTIC_CALLS = new Set([
   "HasEnoughMoney",
   "InitBattleEnemyParameters",
   "IsItemInBag",
+  "IsPlayerOnDungeonWarp",
   "MoveSprite",
   "PlayCry",
   "PlayDefaultMusic",
@@ -50,7 +52,9 @@ const DIRECT_SEMANTIC_CALLS = new Set([
   "PrintText",
   "SaveEndBattleTextPointers",
   "SetSpriteFacingDirectionAndDelay",
+  "SetSpriteMovementBytesToFF",
   "StartSimulatingJoypadStates",
+  "ForceBikeOrSurf",
   "TalkToTrainer",
   "YesNoChoice",
 ]);
