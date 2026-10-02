@@ -434,6 +434,39 @@ export interface ScriptMacroEditDocument {
   }>;
 }
 
+export interface ScriptRoundTripRegressionCase {
+  path: string;
+  line: number;
+  macroName: string;
+  argumentIndex: number;
+  previousValue: string;
+  nextValue: string;
+  passed: boolean;
+  error?: string;
+  beforeShapes: string[];
+  afterShapes: string[];
+}
+
+export interface ScriptRoundTripRegressionFixture {
+  id: string;
+  label: string;
+  candidateShapeCount: number;
+  testedCaseCount: number;
+  passedCaseCount: number;
+  failedCaseCount: number;
+  cases: ScriptRoundTripRegressionCase[];
+}
+
+export interface ScriptRoundTripRegressionReport {
+  fixtureCount: number;
+  testedFixtureCount: number;
+  testedCaseCount: number;
+  passedCaseCount: number;
+  failedCaseCount: number;
+  passed: boolean;
+  fixtures: ScriptRoundTripRegressionFixture[];
+}
+
 export interface PokemonIndexEntry {
   internalId: number;
   constant: string | null;
@@ -1429,6 +1462,7 @@ export interface ProjectSession {
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
   getScriptCatalog(): Promise<ScriptCatalog>;
   getScriptAudit(): Promise<ScriptAuditReport>;
+  runScriptRoundTripRegression(): Promise<ScriptRoundTripRegressionReport>;
   getScriptDocument(path: string): Promise<ScriptDocument>;
   getMacroCatalog(): Promise<MacroCatalog>;
   getScriptMacroCalls(path: string): Promise<ScriptMacroCallDocument>;
