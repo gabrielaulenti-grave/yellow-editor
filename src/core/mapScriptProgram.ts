@@ -148,7 +148,7 @@ export type MapScriptSemanticNode =
     })
   | (BaseNode & {
       type: "item";
-      action: "give-item" | "give-pokemon" | "check-item";
+      action: "give-item" | "give-pokemon" | "check-item" | "remove-item";
       item?: string;
       quantity?: string;
       species?: string;
@@ -973,6 +973,25 @@ function nodesForSection(
         level: pair?.c,
         description: "Give the selected Pokémon to the player.",
         source: sourceSpan(section, lines, index, index, pair ? "inferred" : "exact"),
+      });
+      continue;
+    }
+
+    if (/^(?:call|farcall)\s+RemoveItemByID(?:Bank[0-9A-F]+)?\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:remove-item`,
+        type: "item",
+        kind: "item",
+        title: "Remove item",
+        action: "remove-item",
+        item: loadedValueBeforeStore(
+          lines,
+          index,
+          /^ldh?\s+\[hItemToRemoveID\]\s*,\s*a\b/i,
+          8,
+        ) ?? undefined,
+        description: "Consume the selected item from the player's inventory.",
+        source: sourceSpan(section, lines, index, index, "inferred"),
       });
       continue;
     }
