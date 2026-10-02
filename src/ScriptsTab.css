@@ -102,6 +102,42 @@
   opacity: 0.82;
 }
 
+.script-regression-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.script-regression-card {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.24));
+  border-radius: 0.55rem;
+}
+
+.script-regression-card.passed {
+  border-color: color-mix(in srgb, currentColor 36%, transparent);
+}
+
+.script-regression-card > span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+}
+
+.script-regression-card p {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.82;
+}
+
+.script-regression-card small {
+  opacity: 0.68;
+}
+
 .script-audit-construct-list button {
   display: flex;
   align-items: flex-start;
