@@ -1161,6 +1161,59 @@ function nodesForSection(
       continue;
     }
 
+    if (/^predef\s+FindPathToPlayer\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:path-to-player`,
+        type: "movement",
+        kind: "movement",
+        title: "Calculate a path to the player",
+        actor: "character",
+        path: [],
+        alternatives: [],
+        dynamic: true,
+        description: "Generate a movement path from the selected character's current position to the player.",
+        source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    const helperCall = clean.match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1];
+    const helperSection = helperCall ? sections.get(helperCall) : undefined;
+    if (
+      helperCall
+      && helperSection
+      && /call\s+SetSpritePosition1\b/i.test(helperSection.source)
+      && /hSprite(?:Screen|Map)[XY]Coord\b/.test(helperSection.source)
+      && !/call\s+MoveSprite\b/i.test(helperSection.source)
+    ) {
+      const helperLines = helperSection.source.split(/\r?\n/);
+      const setPositionIndex = helperLines.findIndex((line) =>
+        /^\s*call\s+SetSpritePosition1\b/i.test(withoutComment(line))
+      );
+      const actor = setPositionIndex >= 0
+        ? loadedValueBeforeStore(
+            helperLines,
+            setPositionIndex,
+            /^ld\s+\[wSpriteIndex\]\s*,\s*a\b/i,
+            16,
+          )
+        : null;
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:dynamic-character-position`,
+        type: "movement",
+        kind: "movement",
+        title: "Position character for scripted scene",
+        actor: "character",
+        actorConstant: actor ?? undefined,
+        path: [],
+        alternatives: [],
+        dynamic: true,
+        description: "Choose the character's starting position dynamically from the player's current location before the scene continues.",
+        source: sourceSpan(section, lines, index, index, "inferred"),
+      });
+      continue;
+    }
+
     if (/^call\s+StartSimulatingJoypadStates\b/i.test(clean)) {
       const symbolicAlternatives = playerMovementAlternativesAtCall(
         section.source,
