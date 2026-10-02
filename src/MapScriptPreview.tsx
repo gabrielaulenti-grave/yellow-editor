@@ -988,7 +988,11 @@ export function MapScriptPreview({
           <h5>Event flow</h5>
           <p className="help-text">Yellow Editor follows script states, shows and edits resolved dialogue, and nests recognized branch actions directly inside beginner-friendly If / Then / Otherwise blocks.</p>
         </div>
-        <span className="editable-badge">Dialogue editable</span>
+        <span className="editable-badge">
+          {editableMacroLines && editableMacroLines.size > 0
+            ? "Dialogue + safe parameters editable"
+            : "Dialogue editable"}
+        </span>
       </div>
 
       <div className="map-script-state-list">
