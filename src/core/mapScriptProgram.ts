@@ -5,6 +5,10 @@ import {
 } from "./mapScriptMovementAnalysis";
 import type { MapMovementStep, MapScriptOperationKind } from "./mapScriptOpcodes";
 import { eventArgumentsForSemantic } from "./eventMacroSemantics";
+import {
+  namedScriptHelperSemantic,
+  type ScriptSemanticFamilyId,
+} from "./scriptSemanticIr";
 import type {
   ProjectEventMacroSemantic,
   ProjectMovementVocabulary,
@@ -160,15 +164,12 @@ export type MapScriptSemanticNode =
     })
   | (BaseNode & {
       type: "service";
-      service:
-        | "pokedex"
-        | "elevator"
-        | "oaks-aide"
-        | "trade"
-        | "trainer-interaction"
-        | "forced-travel"
-        | "yes-no"
-        | "random";
+      service: string;
+    })
+  | (BaseNode & {
+      type: "semantic-helper";
+      helper: string;
+      family: ScriptSemanticFamilyId;
     })
   | (BaseNode & {
       type: "control";
@@ -212,6 +213,32 @@ interface LabelSection {
   label: string;
   startLine: number;
   source: string;
+}
+
+function semanticFamilyKind(family: ScriptSemanticFamilyId): MapScriptOperationKind {
+  switch (family) {
+    case "dialogue": return "dialogue";
+    case "condition": return "condition";
+    case "event":
+    case "indexed-event": return "event";
+    case "state-transition": return "transition";
+    case "movement":
+    case "forced-movement": return "movement";
+    case "facing": return "facing";
+    case "object": return "object";
+    case "map-edit":
+    case "warp":
+    case "persistent-object-puzzle": return "map";
+    case "battle":
+    case "trainer": return "battle";
+    case "item": return "item";
+    case "service": return "service";
+    case "economy": return "economy";
+    case "party": return "party";
+    case "recovery": return "recovery";
+    case "music": return "music";
+    case "screen": return "screen";
+  }
 }
 
 function withoutComment(line: string): string {
@@ -1716,6 +1743,26 @@ function nodesForSection(
         kind: "recovery",
         title: "Heal the player's party",
         source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    const semanticHelperCall = clean.match(
+      /^(?:call|farcall|predef(?:_jump)?)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_][A-Za-z0-9_]*)\b/i,
+    );
+    const semanticHelper = semanticHelperCall
+      ? namedScriptHelperSemantic(semanticHelperCall[1])
+      : null;
+    if (semanticHelper) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:helper:${semanticHelper.name}`,
+        type: "semantic-helper",
+        kind: semanticFamilyKind(semanticHelper.family),
+        title: semanticHelper.title,
+        description: semanticHelper.description,
+        helper: semanticHelper.name,
+        family: semanticHelper.family,
+        source: sourceSpan(section, lines, index, index, "inferred"),
       });
       continue;
     }
