@@ -13,6 +13,8 @@ import type {
   ScriptMacroCallDocument,
   ScriptMacroEditDocument,
   ScriptRoundTripRegressionReport,
+  ScriptSimpleActionCreateDocument,
+  ScriptSimpleActionCreateValues,
   ScriptRoutineCategory,
   ScriptRoutineSummary,
 } from "./core/types";
@@ -409,6 +411,208 @@ function MacroCallForm({
   );
 }
 
+function SimpleActionBuilder({
+  path,
+  routineLabel,
+  editBlocked,
+  onEditStateChange,
+  onSaved,
+}: {
+  path: string;
+  routineLabel: string;
+  editBlocked: boolean;
+  onEditStateChange(open: boolean, dirty: boolean): void;
+  onSaved(): void;
+}) {
+  const [document, setDocument] = useState<ScriptSimpleActionCreateDocument | null>(null);
+  const [action, setAction] = useState<ScriptSimpleActionCreateValues["action"]>("wait");
+  const [event, setEvent] = useState("");
+  const [frames, setFrames] = useState(30);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDocument(null);
+    setError(null);
+    setNotice(null);
+    setAction("wait");
+    setEvent("");
+    setFrames(30);
+  }, [path, routineLabel]);
+
+  async function begin() {
+    onEditStateChange(true, false);
+    setLoading(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const next = await invoke<ScriptSimpleActionCreateDocument>(
+        "get_script_simple_action_create_document",
+        { path, routineLabel },
+      );
+      setDocument(next);
+      const preferred = next.availableActions[0] ?? "wait";
+      setAction(preferred);
+      setEvent(next.eventOptions[0]?.value ?? "");
+      setFrames(30);
+    } catch (nextError) {
+      onEditStateChange(false, false);
+      setError(String(nextError));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function save() {
+    if (!document) return;
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const values: ScriptSimpleActionCreateValues = action === "wait"
+        ? { action, frames }
+        : { action, event };
+      const history = await invoke<HistorySummary>("create_script_simple_action", {
+        document,
+        values,
+      });
+      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", {
+        detail: history,
+      }));
+      setDocument(null);
+      onEditStateChange(false, false);
+      setNotice("Added after semantic generation and reparse validation.");
+      onSaved();
+    } catch (nextError) {
+      setError(String(nextError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="script-simple-action-builder">
+      <div className="script-macro-inspector-heading">
+        <div>
+          <h5>Add a simple action</h5>
+          <p className="help-text">
+            Available only when Yellow Editor can prove this state has one straight-line exit.
+            Generated source must reparse as exactly one new semantic action.
+          </p>
+        </div>
+        {!document && (
+          <button
+            type="button"
+            onClick={() => void begin()}
+            disabled={loading || editBlocked}
+          >
+            {loading ? "Checking insertion point…" : "Add action"}
+          </button>
+        )}
+      </div>
+
+      {document && (
+        <div className="script-simple-action-form">
+          <label>
+            <span>Action</span>
+            <select
+              value={action}
+              disabled={saving}
+              onChange={(change) => {
+                const next = change.target.value as ScriptSimpleActionCreateValues["action"];
+                setAction(next);
+                onEditStateChange(true, true);
+              }}
+            >
+              {document.availableActions.includes("set-event") && (
+                <option value="set-event">Remember an event</option>
+              )}
+              {document.availableActions.includes("reset-event") && (
+                <option value="reset-event">Clear an event</option>
+              )}
+              {document.availableActions.includes("wait") && (
+                <option value="wait">Wait</option>
+              )}
+            </select>
+          </label>
+
+          {action === "wait" ? (
+            <label>
+              <span>Frames</span>
+              <input
+                type="number"
+                min={1}
+                max={255}
+                value={frames}
+                disabled={saving}
+                onChange={(change) => {
+                  setFrames(Number(change.target.value));
+                  onEditStateChange(true, true);
+                }}
+              />
+            </label>
+          ) : (
+            <label>
+              <span>Event</span>
+              <select
+                value={event}
+                disabled={saving}
+                onChange={(change) => {
+                  setEvent(change.target.value);
+                  onEditStateChange(true, true);
+                }}
+              >
+                {document.eventOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label === option.value
+                      ? option.value
+                      : `${option.label} — ${option.value}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <small>
+            New action will be inserted before the final return at line {document.insertionLine}.
+          </small>
+          <div className="script-macro-edit-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setDocument(null);
+                setError(null);
+                onEditStateChange(false, false);
+              }}
+              disabled={saving}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() => void save()}
+              disabled={saving || (action !== "wait" && !event)}
+            >
+              {saving ? "Validating…" : "Add verified action"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="world-map-warning script-macro-edit-message">
+          <strong>Action creation unavailable</strong>
+          <p>{error}</p>
+        </div>
+      )}
+      {notice && <p className="help-text script-macro-edit-message">{notice}</p>}
+    </section>
+  );
+}
+
 export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   const [catalog, setCatalog] = useState<ScriptCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -712,7 +916,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
     if (!activeMacroEdit) return true;
     if (
       activeMacroEdit.dirty
-      && !window.confirm("Discard the unsaved macro parameter changes?")
+      && !window.confirm("Discard the unsaved script changes?")
     ) {
       return false;
     }
@@ -1481,6 +1685,28 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                           const button = target?.querySelector("button");
                           if (button instanceof HTMLButtonElement) button.focus();
                         }}
+                      />
+
+                      <SimpleActionBuilder
+                        path={document.path}
+                        routineLabel={selectedRoutine.label}
+                        editBlocked={Boolean(
+                          activeMacroEdit
+                          && activeMacroEdit.key !== `builder:${document.path}:${selectedRoutine.label}`,
+                        )}
+                        onEditStateChange={(open, dirty) => {
+                          const key = `builder:${document.path}:${selectedRoutine.label}`;
+                          setActiveMacroEdit((current) => {
+                            if (!open) {
+                              return current?.key === key ? null : current;
+                            }
+                            if (current && current.key !== key) {
+                              return current;
+                            }
+                            return { key, dirty };
+                          });
+                        }}
+                        onSaved={() => setRefreshVersion((value) => value + 1)}
                       />
 
                       <section className="script-macro-inspector">
