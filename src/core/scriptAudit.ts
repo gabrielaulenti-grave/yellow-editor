@@ -6,6 +6,7 @@ import {
   SCRIPT_SEMANTIC_IR_VERSION,
   isScriptEngineInternalCall,
   isScriptEngineInternalMacro,
+  namedScriptHelperSemantic,
 } from "./scriptSemanticIr";
 import type {
   ProjectEventMacroSemantic,
@@ -222,7 +223,8 @@ function directSemanticTarget(
   setterLabels: Set<string>,
   objectWrappers: Set<string>,
 ): boolean {
-  return DIRECT_SEMANTIC_CALLS.has(name)
+  return Boolean(namedScriptHelperSemantic(name))
+    || DIRECT_SEMANTIC_CALLS.has(name)
     || DIRECT_SEMANTIC_PREDEFS.has(name)
     || /^RemoveItemByID(?:Bank[0-9A-F]+)?$/i.test(name)
     || /DisplayTextID/i.test(name)
@@ -446,7 +448,8 @@ function semanticCall(
   objectWrappers: Set<string>,
 ): string | null {
   if (
-    DIRECT_SEMANTIC_CALLS.has(name)
+    namedScriptHelperSemantic(name)
+    || DIRECT_SEMANTIC_CALLS.has(name)
     || /^RemoveItemByID(?:Bank[0-9A-F]+)?$/i.test(name)
     || /DisplayTextID/i.test(name)
     || /Print[A-Za-z0-9_]*Text/i.test(name)
@@ -547,7 +550,8 @@ function wrapperMacroSemanticReason(
   if (!["callfar", "farjp", "predef_jump"].includes(lower)) return null;
 
   if (
-    DIRECT_SEMANTIC_CALLS.has(target)
+    namedScriptHelperSemantic(target)
+    || DIRECT_SEMANTIC_CALLS.has(target)
     || DIRECT_SEMANTIC_PREDEFS.has(target)
     || /^RemoveItemByID(?:Bank[0-9A-F]+)?$/i.test(target)
     || /^Music_/i.test(target)
