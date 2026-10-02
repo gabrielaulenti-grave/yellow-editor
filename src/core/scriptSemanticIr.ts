@@ -93,6 +93,7 @@ export const SCRIPT_ENGINE_INTERNAL_CALLS = new Set([
   "CopyScreenTileBufferToVRAM",
   "SetSpritePosition1",
   "SetSpritePosition2",
+  "SpriteFunc_34a1",
   "GetSpritePosition2",
 ]);
 
@@ -102,7 +103,8 @@ export function isScriptEngineInternalCall(name: string): boolean {
     || /^Schedule(?:East|West|North|South)/i.test(name)
     || /^LoadSmokeTile/i.test(name)
     || /^WriteOAM/i.test(name)
-    || /^CopyVideoData/i.test(name);
+    || /^CopyVideoData/i.test(name)
+    || /ConvertBCDtoNumber$/i.test(name);
 }
 
 export const SCRIPT_ENGINE_INTERNAL_MACROS = new Set([
