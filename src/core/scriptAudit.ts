@@ -234,7 +234,7 @@ function compositeSemanticLabels(
         if (!clean || isLabel(clean)) continue;
 
         const invocation = clean.match(
-          /^(call|farcall|predef)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+          /^(call|farcall|predef|jp)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
         );
         if (invocation) {
           const target = invocation[2];
@@ -663,7 +663,7 @@ export function buildScriptAudit(
         /^(call|farcall|predef)\s+(?:(?:z|nz|c|nc)\s*,\s*)?([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
       );
       if (invocation) {
-        const kind = invocation[1].toLowerCase() as "call" | "farcall" | "predef";
+        const kind = invocation[1].toLowerCase() as "call" | "farcall" | "predef" | "jp";
         const name = invocation[2];
         if (name.startsWith(".")) {
           addConstruct(
