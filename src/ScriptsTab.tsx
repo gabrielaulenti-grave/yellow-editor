@@ -824,6 +824,10 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                 <small>unresolved constructs</small>
               </div>
               <div>
+                <strong>{audit.unboundSemanticInvocationCount}</strong>
+                <small>semantic invocations without IR family</small>
+              </div>
+              <div>
                 <strong>{audit.releaseReadiness.blockerCount}</strong>
                 <small>release blockers</small>
               </div>
@@ -847,8 +851,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
               </summary>
               <p className="help-text">
                 These representative vanilla scripts are permanent guardrails for the semantic model.
-                A fixture fails whenever one of its present source files contains an unresolved or
-                structurally understood gameplay invocation.
+                A fixture fails whenever one of its present source files contains unresolved behavior,
+                a structurally understood gameplay invocation, or a semantic invocation that is not
+                bound to a frozen IR family.
               </p>
               <div className="script-regression-grid">
                 {audit.regressionFixtures.map((fixture) => (
@@ -870,7 +875,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                     {fixture.presentPaths.length > 0 && !fixture.passed && (
                       <>
                         <small>
-                          {fixture.unresolvedInvocationCount} unresolved · {fixture.structuralInvocationCount} awaiting semantic lift
+                          {fixture.unresolvedInvocationCount} unresolved · {fixture.structuralInvocationCount} awaiting semantic lift · {fixture.unboundSemanticInvocationCount} unbound semantic
                         </small>
                         <button
                           type="button"
@@ -918,21 +923,25 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
             {audit.files.some((file) =>
               file.unresolvedInvocationCount > 0
               || file.structuralInvocationCount > 0
+              || file.unboundSemanticInvocationCount > 0
             ) && (
               <details className="script-audit-details" open>
                 <summary>
                   Map-by-map review queue · {audit.files.filter((file) =>
                     file.unresolvedInvocationCount > 0
                     || file.structuralInvocationCount > 0
+                    || file.unboundSemanticInvocationCount > 0
                   ).length} file{audit.files.filter((file) =>
                     file.unresolvedInvocationCount > 0
                     || file.structuralInvocationCount > 0
+                    || file.unboundSemanticInvocationCount > 0
                   ).length === 1 ? "" : "s"}
                 </summary>
                 <p className="help-text">
                   This is now the release-blocker queue: true unresolved constructs first, then
                   project routines/macros that are understood structurally but still need a beginner-facing
-                  semantic lift. Explicit engine internals are tracked separately and do not block release.
+                  semantic lift, plus any semantic source construct that still lacks a frozen IR-family binding.
+                  Explicit engine internals are tracked separately and do not block release.
                 </p>
                 <div className="script-audit-construct-list">
                   {audit.files
@@ -969,6 +978,40 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                   {audit.constructs
                     .filter((construct) => construct.status === "unresolved")
                     .slice(0, 40)
+                    .map((construct) => {
+                      const example = construct.examples[0];
+                      return (
+                        <button
+                          type="button"
+                          key={construct.key}
+                          onClick={() => example && selectAuditExample(example.path, example.line)}
+                        >
+                          <span>
+                            <strong>{construct.name}</strong>
+                            <small>{construct.kind} · {construct.occurrences} occurrence{construct.occurrences === 1 ? "" : "s"}</small>
+                          </span>
+                          {example && <code>{example.path}:{example.line}</code>}
+                        </button>
+                      );
+                    })}
+                </div>
+              </details>
+            )}
+
+            {audit.constructs.some((construct) => construct.status === "semantic" && !construct.familyId) && (
+              <details className="script-audit-details" open>
+                <summary>
+                  Semantic IR binding gaps · {audit.constructs.filter((construct) => construct.status === "semantic" && !construct.familyId).length}
+                </summary>
+                <p className="help-text">
+                  These constructs are understood semantically but have not yet been assigned to one
+                  of IR v{audit.irVersion}'s frozen families. They remain release blockers because the
+                  builder and validator would not have a canonical node type to target.
+                </p>
+                <div className="script-audit-construct-list">
+                  {audit.constructs
+                    .filter((construct) => construct.status === "semantic" && !construct.familyId)
+                    .slice(0, 60)
                     .map((construct) => {
                       const example = construct.examples[0];
                       return (
