@@ -1162,17 +1162,36 @@ export function buildScriptAudit(
       (sum, file) => sum + file.unboundSemanticInvocationCount,
       0,
     );
+    const presentPaths = new Set(present.map((file) => file.path));
+    const seenFamilies = new Set(
+      constructList
+        .filter((construct) =>
+          construct.status === "semantic"
+          && construct.familyId
+          && construct.paths.some((path) => presentPaths.has(path))
+        )
+        .map((construct) => construct.familyId!),
+    );
+    const missingFamilies = fixture.requiredFamilies.filter(
+      (family) => !seenFamilies.has(family),
+    );
     return {
       id: fixture.id,
       label: fixture.label,
       purpose: fixture.purpose,
       paths: [...fixture.paths],
       presentPaths: present.map((file) => file.path),
-      blockerCount: unresolved + structural + unbound,
+      requiredFamilies: [...fixture.requiredFamilies],
+      missingFamilies,
+      blockerCount: unresolved + structural + unbound + missingFamilies.length,
       unresolvedInvocationCount: unresolved,
       structuralInvocationCount: structural,
       unboundSemanticInvocationCount: unbound,
-      passed: present.length > 0 && unresolved === 0 && structural === 0 && unbound === 0,
+      passed: present.length > 0
+        && unresolved === 0
+        && structural === 0
+        && unbound === 0
+        && missingFamilies.length === 0,
     };
   });
 
