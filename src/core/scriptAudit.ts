@@ -626,6 +626,7 @@ export function buildScriptAudit(
   let structuralInvocationCount = 0;
   let internalInvocationCount = 0;
   let unresolvedInvocationCount = 0;
+  let unboundSemanticInvocationCount = 0;
 
   for (const file of scriptFiles) {
     const lines = file.contents.split(/\r?\n/);
@@ -642,8 +643,10 @@ export function buildScriptAudit(
     let fileStructuralInvocations = 0;
     let fileInternalInvocations = 0;
     let fileUnresolvedInvocations = 0;
+    let fileUnboundSemanticInvocations = 0;
     const unresolvedKeys = new Set<string>();
     const structuralInvocationKeys = new Set<string>();
+    const unboundSemanticKeys = new Set<string>();
 
     lines.forEach((sourceLine, index) => {
       const lineNumber = index + 1;
@@ -712,6 +715,17 @@ export function buildScriptAudit(
               );
 
         if (semanticReason) {
+          const familyId = namedScriptHelperSemantic(name)?.family
+            ?? semanticFamilyForTarget(name)
+            ?? (movementVocabulary.consumers.some((consumer) => consumer.routine === name)
+              ? "movement"
+              : setterLabels.has(name)
+                ? "state-transition"
+                : objectWrappers.has(name)
+                  ? "object"
+                  : semanticReason.includes("carry/no-carry")
+                    ? "condition"
+                    : undefined);
           const key = addConstruct(
             constructs,
             "semantic",
@@ -719,9 +733,18 @@ export function buildScriptAudit(
             name,
             semanticReason,
             example,
-            semanticFamilyForTarget(name),
+            familyId,
           );
-          void key;
+          if (!familyId) {
+            unboundSemanticInvocationCount += 1;
+            fileUnboundSemanticInvocations += 1;
+            unboundSemanticKeys.add(key);
+          }
+          if (!macroFamilyId) {
+            unboundSemanticInvocationCount += 1;
+            fileUnboundSemanticInvocations += 1;
+            unboundSemanticKeys.add(key);
+          }
           semanticLineCount += 1;
           fileSemantic += 1;
           semanticInvocationCount += 1;
@@ -797,24 +820,39 @@ export function buildScriptAudit(
           labels,
         );
         if (semanticReason) {
-          addConstruct(
+          const macroFamilyId = eventMacros.has(macroCall.name.toLowerCase())
+            ? "event"
+            : /^(?:EventFlagAddress|EventFlagBit)$/i.test(macroCall.name)
+              ? "indexed-event"
+              : /^(?:map_coord_movement)$/i.test(macroCall.name)
+                ? "forced-movement"
+                : /^(?:trainer|def_trainers)$/i.test(macroCall.name)
+                  ? "trainer"
+                  : /^(?:text|text_asm|text_end|text_far|text_ram|text_decimal|line|cont|para|page|next|prompt|done)$/i.test(macroCall.name)
+                    ? "dialogue"
+                    : /^(?:script_pokecenter_nurse|script_cable_club_receptionist)$/i.test(macroCall.name)
+                      ? "service"
+                      : /^(?:ldpikacry|ldpikaemotion)$/i.test(macroCall.name)
+                        ? "service"
+                        : wrappedTarget
+                          ? namedScriptHelperSemantic(wrappedTarget)?.family
+                            ?? semanticFamilyForTarget(wrappedTarget)
+                            ?? (movementVocabulary.consumers.some((consumer) => consumer.routine === wrappedTarget)
+                              ? "movement"
+                              : setterLabels.has(wrappedTarget)
+                                ? "state-transition"
+                                : objectWrappers.has(wrappedTarget)
+                                  ? "object"
+                                  : undefined)
+                          : undefined;
+          const key = addConstruct(
             constructs,
             "semantic",
             "macro",
             macroCall.name,
             semanticReason,
             example,
-            eventMacros.has(macroCall.name.toLowerCase())
-              ? "event"
-              : /^(?:EventFlagAddress|EventFlagBit)$/i.test(macroCall.name)
-                ? "indexed-event"
-                : /^(?:map_coord_movement)$/i.test(macroCall.name)
-                  ? "forced-movement"
-                  : /^(?:trainer|def_trainers)$/i.test(macroCall.name)
-                    ? "trainer"
-                    : /^(?:text|text_asm|text_end|text_far|text_ram|text_decimal|line|cont|para|page|next|prompt|done)$/i.test(macroCall.name)
-                      ? "dialogue"
-                      : undefined,
+            macroFamilyId,
           );
           semanticLineCount += 1;
           fileSemantic += 1;
@@ -968,8 +1006,10 @@ export function buildScriptAudit(
       structuralInvocationCount: fileStructuralInvocations,
       internalInvocationCount: fileInternalInvocations,
       unresolvedInvocationCount: fileUnresolvedInvocations,
+      unboundSemanticInvocationCount: fileUnboundSemanticInvocations,
       unresolvedKeys: [...unresolvedKeys],
       structuralInvocationKeys: [...structuralInvocationKeys],
+      unboundSemanticKeys: [...unboundSemanticKeys],
     });
   }
 
@@ -1003,7 +1043,12 @@ export function buildScriptAudit(
   const structuralConstructCount = constructList.filter(
     (construct) => construct.status === "structural",
   ).length;
-  const blockerCount = unresolvedConstructCount + structuralConstructCount;
+  const unboundSemanticConstructCount = constructList.filter(
+    (construct) => construct.status === "semantic" && !construct.familyId,
+  ).length;
+  const blockerCount = unresolvedConstructCount
+    + structuralConstructCount
+    + unboundSemanticConstructCount;
   const externalTargetConstructCount = constructList.filter(
     (construct) =>
       construct.status === "structural"
@@ -1030,16 +1075,21 @@ export function buildScriptAudit(
       (sum, file) => sum + file.structuralInvocationCount,
       0,
     );
+    const unbound = present.reduce(
+      (sum, file) => sum + file.unboundSemanticInvocationCount,
+      0,
+    );
     return {
       id: fixture.id,
       label: fixture.label,
       purpose: fixture.purpose,
       paths: [...fixture.paths],
       presentPaths: present.map((file) => file.path),
-      blockerCount: unresolved + structural,
+      blockerCount: unresolved + structural + unbound,
       unresolvedInvocationCount: unresolved,
       structuralInvocationCount: structural,
-      passed: present.length > 0 && unresolved === 0 && structural === 0,
+      unboundSemanticInvocationCount: unbound,
+      passed: present.length > 0 && unresolved === 0 && structural === 0 && unbound === 0,
     };
   });
 
@@ -1054,10 +1104,12 @@ export function buildScriptAudit(
       externalTargetConstructCount,
       macroSemanticConstructCount,
       unresolvedSyntaxConstructCount,
+      unboundSemanticConstructCount,
       criteria: [
         "Every scripts/*.asm source construct is classified.",
         "No gameplay-relevant invocation remains only structurally understood.",
         "Low-level engine presentation and bookkeeping is explicitly classified as internal.",
+        "Every semantic source construct is bound to a frozen IR family.",
         "All builder actions target the frozen semantic IR rather than raw assembly.",
       ],
     },
