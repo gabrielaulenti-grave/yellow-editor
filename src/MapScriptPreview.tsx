@@ -774,7 +774,7 @@ function ScriptNodeCard({
             className="map-script-safe-edit-link"
             onClick={() => onEditMacroLine?.(editableMacroLine as number)}
           >
-            Edit safe parameters
+            Edit guarded parameters
           </button>
         )}
         <details className="map-script-source-detail">
@@ -995,7 +995,7 @@ export function MapScriptPreview({
         </div>
         <span className="editable-badge">
           {editableMacroLines && editableMacroLines.size > 0
-            ? "Dialogue + safe parameters editable"
+            ? "Dialogue + round-trip-guarded parameters editable"
             : "Dialogue editable"}
         </span>
       </div>
