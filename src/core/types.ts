@@ -206,6 +206,7 @@ export interface ScriptAuditReport {
   structuralInvocationCount: number;
   internalInvocationCount: number;
   unresolvedInvocationCount: number;
+  unboundSemanticInvocationCount: number;
   files: ScriptAuditFile[];
   constructs: ScriptAuditConstruct[];
   warnings: string[];
