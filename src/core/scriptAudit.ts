@@ -545,15 +545,28 @@ export function buildScriptAudit(
           return;
         }
 
-        const reason = labels.has(name)
-          ? "Project routine is resolved, but Yellow Editor has not promoted its gameplay meaning yet."
-          : "Invocation syntax is understood, but the target does not yet have a semantic handler.";
+        if (labels.has(name) || name.startsWith(".")) {
+          addConstruct(
+            constructs,
+            "semantic",
+            kind,
+            name,
+            "Project-defined helper call; its target routine body is audited independently and contributes its own semantic/internal blockers.",
+            example,
+          );
+          semanticLineCount += 1;
+          fileSemantic += 1;
+          semanticInvocationCount += 1;
+          fileSemanticInvocations += 1;
+          return;
+        }
+
         const key = addConstruct(
           constructs,
           "structural",
           kind,
           name,
-          reason,
+          "Invocation syntax is understood, but the target is external to the audited script corpus and does not yet have a semantic handler.",
           example,
         );
         structuralLineCount += 1;
