@@ -877,6 +877,13 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                         <small>
                           {fixture.unresolvedInvocationCount} unresolved · {fixture.structuralInvocationCount} awaiting semantic lift · {fixture.unboundSemanticInvocationCount} unbound semantic
                         </small>
+                        {fixture.missingFamilies.length > 0 && (
+                          <small>
+                            Missing expected IR: {fixture.missingFamilies.map((family) =>
+                              audit.semanticFamilies.find((candidate) => candidate.id === family)?.label ?? family
+                            ).join(" · ")}
+                          </small>
+                        )}
                         <button
                           type="button"
                           className="script-regression-open"
