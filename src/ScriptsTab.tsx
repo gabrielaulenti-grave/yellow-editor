@@ -193,7 +193,10 @@ function MacroCallForm({
     : false;
 
   return (
-    <article className="script-macro-call-card">
+    <article
+      className="script-macro-call-card"
+      id={`script-macro-call-${call.line}`}
+    >
       <div className="script-macro-call-heading">
         <div>
           <strong>{call.name}</strong>
@@ -647,6 +650,16 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
       (call) => call.line >= selectedRoutine.startLine && call.line < nextStart,
     );
   }, [document, macroCalls, selectedRoutine]);
+
+  const editableMacroLines = useMemo(() => new Set(
+    selectedRoutineMacroCalls
+      .filter((call) => {
+        const definition = macroDefinitions.get(call.name.toLowerCase());
+        return call.arguments.some((argument) => argument.semanticDomains.length > 0)
+          || definition?.parameters.some((parameter) => parameter.semanticDomains.length > 0);
+      })
+      .map((call) => call.line),
+  ), [macroDefinitions, selectedRoutineMacroCalls]);
 
   const previewReference = useMemo<MapScriptPreviewReference | null>(() => {
     if (!document || !selectedRoutineLabel) return null;
@@ -1276,7 +1289,18 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                         </span>
                       </div>
 
-                      <MapScriptPreview reference={previewReference} />
+                      <MapScriptPreview
+                        reference={previewReference}
+                        editableMacroLines={editableMacroLines}
+                        onEditMacroLine={(line) => {
+                          const target = window.document.getElementById(
+                            `script-macro-call-${line}`,
+                          );
+                          target?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          const button = target?.querySelector("button");
+                          if (button instanceof HTMLButtonElement) button.focus();
+                        }}
+                      />
 
                       <section className="script-macro-inspector">
                         <div className="script-macro-inspector-heading">
