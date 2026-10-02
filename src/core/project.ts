@@ -44,6 +44,7 @@ import {
   loadScriptMacroEditDocument,
   prepareScriptMacroCallWrite,
 } from "./scriptMacroEditing";
+import { validateScriptSemanticRoundTrip } from "./scriptRoundTripValidation";
 import { loadProjectSemanticDomains } from "./semanticDomains";
 import { loadProjectMovementVocabulary } from "./movementVocabulary";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
@@ -498,9 +499,16 @@ export async function createProjectSession(
       throw new Error(`Unsupported script path: ${path}`);
     }
     resetScriptSourceAnalysis();
-    const [sourceText, analysis] = await Promise.all([
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
       source.readText(path),
       getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
     ]);
     const change = await prepareScriptMacroCallWrite(
       sourceText,
@@ -510,6 +518,13 @@ export async function createProjectSession(
       expectedHash,
       arguments_,
       analysis,
+    );
+    validateScriptSemanticRoundTrip(
+      sourceText,
+      change.contents,
+      line,
+      movementVocabulary,
+      eventMacroSemantics,
     );
     const result = await history.save(
       `Edit script macro ${macroName} at ${path}:${line}`,
