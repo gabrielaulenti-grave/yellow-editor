@@ -115,6 +115,24 @@ export type MapScriptSemanticNode =
       y?: string;
     })
   | (BaseNode & {
+      type: "indexed-event";
+      action: "address" | "bit";
+      baseEvent: string;
+      relatedEvent?: string;
+      destination?: string;
+    })
+  | (BaseNode & {
+      type: "object-puzzle";
+      action: "check-boulder-target";
+      coordinates?: string;
+    })
+  | (BaseNode & {
+      type: "warp";
+      action: "dungeon-warp-check";
+      destinationMap?: string;
+      coordinates?: string;
+    })
+  | (BaseNode & {
       type: "facing";
       actor?: string;
       facing?: string;
@@ -596,11 +614,45 @@ function nodesForSection(
       /^([A-Za-z_][A-Za-z0-9_#@.]*)\s+(.+)$/,
     );
     if (macroInvocation) {
-      const semantic = eventMacros.get(macroInvocation[1].toLowerCase());
+      const macroName = macroInvocation[1];
+      const macroArguments = macroInvocation[2]
+        .split(",")
+        .map((value) => value.trim());
+
+      if (/^EventFlagAddress$/i.test(macroName) && macroArguments.length >= 2) {
+        nodes.push({
+          id: `${section.label}:${absoluteLine}:indexed-event-address`,
+          type: "indexed-event",
+          kind: "event",
+          title: "Address indexed event state",
+          action: "address",
+          destination: macroArguments[0],
+          baseEvent: macroArguments[1],
+          description: "Prepare the event byte containing a runtime-selected member of this event family.",
+          source: sourceSpan(section, lines, index),
+        });
+        continue;
+      }
+
+      if (/^EventFlagBit$/i.test(macroName) && macroArguments.length >= 2) {
+        nodes.push({
+          id: `${section.label}:${absoluteLine}:indexed-event-bit`,
+          type: "indexed-event",
+          kind: "condition",
+          title: "Calculate indexed event bit",
+          action: "bit",
+          destination: macroArguments[0],
+          baseEvent: macroArguments[1],
+          relatedEvent: macroArguments[2],
+          description: "Calculate the bit/index for a member of a persistent event family.",
+          source: sourceSpan(section, lines, index),
+        });
+        continue;
+      }
+
+      const semantic = eventMacros.get(macroName.toLowerCase());
       if (semantic) {
-        const arguments_ = macroInvocation[2]
-          .split(",")
-          .map((value) => value.trim());
+        const arguments_ = macroArguments;
         const events = eventArgumentsForSemantic(
           semantic,
           arguments_,
@@ -787,6 +839,40 @@ function nodesForSection(
         title: "Fade screen back in",
         action: "fade-in",
         source: sourceSpan(section, lines, index),
+      });
+      continue;
+    }
+
+    if (/^call\s+CheckBoulderCoords\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:check-boulder-target`,
+        type: "object-puzzle",
+        kind: "condition",
+        title: "Check pushed boulder destination",
+        action: "check-boulder-target",
+        coordinates: recentRegisterValue(lines, index, "hl", 6) ?? undefined,
+        description: "Match the boulder that was just pushed against this puzzle's switch or hole coordinates.",
+        source: sourceSpan(section, lines, index, index, "inferred"),
+      });
+      continue;
+    }
+
+    if (/^(?:call|jp)\s+IsPlayerOnDungeonWarp\b/i.test(clean)) {
+      nodes.push({
+        id: `${section.label}:${absoluteLine}:dungeon-warp`,
+        type: "warp",
+        kind: "map",
+        title: "Check dungeon warp or fall hole",
+        action: "dungeon-warp-check",
+        destinationMap: loadedValueBeforeStore(
+          lines,
+          index,
+          /^ld\s+\[wDungeonWarpDestinationMap\]\s*,\s*a\b/i,
+          14,
+        ) ?? undefined,
+        coordinates: recentRegisterValue(lines, index, "hl", 8) ?? undefined,
+        description: "If the player is standing on one of these dungeon-warp coordinates, transition to the configured destination map.",
+        source: sourceSpan(section, lines, index, index, "inferred"),
       });
       continue;
     }
