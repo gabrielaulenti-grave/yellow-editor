@@ -165,6 +165,8 @@ export type MapScriptSemanticNode =
         | "elevator"
         | "oaks-aide"
         | "trade"
+        | "trainer-interaction"
+        | "forced-travel"
         | "yes-no"
         | "random";
     })
@@ -865,7 +867,7 @@ function nodesForSection(
         type: "service",
         kind: "battle",
         title: "Run trainer interaction",
-        service: "trade",
+        service: "trainer-interaction",
         description: "Use the selected trainer header for before-battle, battle, and post-battle behavior.",
         source: sourceSpan(section, lines, index),
       });
@@ -905,7 +907,7 @@ function nodesForSection(
         type: "service",
         kind: "control",
         title: "Force bike or surf movement mode",
-        service: "random",
+        service: "forced-travel",
         description: "Apply the map's required bike/surf movement state before normal control continues.",
         source: sourceSpan(section, lines, index),
       });
