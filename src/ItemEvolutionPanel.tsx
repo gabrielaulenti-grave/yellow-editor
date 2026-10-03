@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import type {
   ItemData,
   ItemEvolutionEditData,
@@ -83,7 +84,7 @@ export function ItemEvolutionPanel({
               </div>
               <label className="editor-field">
                 <span>Evolution Item</span>
-                <select
+                <SearchableSelect
                   value={reference.itemConstant}
                   disabled={busy}
                   onChange={(event) => {
@@ -101,7 +102,7 @@ export function ItemEvolutionPanel({
                       {itemLabel(items, constant)}
                     </option>
                   ))}
-                </select>
+                </SearchableSelect>
               </label>
             </div>
           ))}

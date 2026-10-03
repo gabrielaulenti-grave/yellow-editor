@@ -622,3 +622,9 @@
 .script-simple-action-form > .script-macro-edit-actions {
   grid-column: 1 / -1;
 }
+
+.script-routine-list > input[type="search"] {
+  width: 100%;
+  min-width: 0;
+  padding: 0.45rem;
+}

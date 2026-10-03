@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useRef, useState } from "react";
 import type { PokemonEditDocument } from "./core/types";
 import type { PokemonDraft } from "./editor/pokemonForm";
@@ -179,11 +180,11 @@ export function PokemonSpritePanel({
         <div className="palette-editor">
           <label className="editor-field">
             <span>Sprite Pair</span>
-            <select value={draft.spriteChoiceId} disabled={disabled} onChange={(event) => onSpriteChoiceChange(event.target.value)}>
+            <SearchableSelect value={draft.spriteChoiceId} disabled={disabled} onChange={(event) => onSpriteChoiceChange(event.target.value)}>
               {document.options.spriteChoices.map((choice) => (
                 <option key={choice.id} value={choice.id}>{choice.label}</option>
               ))}
-            </select>
+            </SearchableSelect>
           </label>
           {selectedSprite && (
             <p className="help-text">
@@ -196,11 +197,11 @@ export function PokemonSpritePanel({
 
           <label className="editor-field">
             <span>Palette Mapping</span>
-            <select value={draft.paletteConstant} disabled={disabled} onChange={(event) => onPaletteConstantChange(event.target.value)}>
+            <SearchableSelect value={draft.paletteConstant} disabled={disabled} onChange={(event) => onPaletteConstantChange(event.target.value)}>
               {document.options.paletteChoices.map((choice) => (
                 <option key={choice.constant} value={choice.constant}>{choice.constant}</option>
               ))}
-            </select>
+            </SearchableSelect>
           </label>
 
           <p className="shared-warning">

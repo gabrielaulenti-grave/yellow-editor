@@ -83,3 +83,71 @@ The checks cover sampled values and combinations, not every possible edit.
 The CPU probes do not validate real VBlank timing, healing internals, or complete
 gameplay/story behavior. Arbitrary assembly and routines with ambiguous insertion
 points remain outside the generated-action writer's supported scope.
+
+## Cross-script event dependencies
+
+A reset can preserve every source byte and emit the correct CPU operation while
+creating an invalid combination of game flags. For example, Route 22 checks
+`EVENT_ROUTE22_RIVAL_WANTS_BATTLE`, locks player controls at its trigger coordinates,
+then selects an encounter using `EVENT_1ST_ROUTE22_RIVAL_BATTLE` or
+`EVENT_2ND_ROUTE22_RIVAL_BATTLE`. Clearing the first selector alone before the first
+encounter leaves the enabling flag set, so the default dispatcher repeatedly
+returns with controls locked and no rival movement started.
+
+`EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE` records completion and is a different flag.
+Replaying an encounter requires its complete setup, including the pending and
+enabling flags, visible rival object, and script state. Clearing a completion
+flag alone does not rearm the encounter.
+
+The generated-action form and macro forms now show source-derived warnings for
+the bounded pattern of an enabling event check, state writes, event-selected
+branches, and a return when none is selected. Warnings identify the source routine
+and related flags. They do not infer dependencies from Pokémon names, change
+other flags automatically, or prove all story-state combinations safe. The action
+button says **Add action**, because source/reparse validation cannot guarantee
+complete gameplay behavior.
+
+22 additional assembled CPU regressions exercise the real Route 22 dispatcher,
+coordinate checks, and production-generated resets at both trigger coordinates.
+Yellow uses its actual Route 1 routine; Red uses a supported straight-line helper
+because its original Route 1 routine ends in a tail jump. Cases cover normal first
+and second encounters, the reported inconsistent pending-flag reset, cancellation
+with both flags cleared, the separate completion flag, and an off-trigger position.
+They verify all event bytes, input lock, saved coordinates, facing setup, and
+encounter selection over five dispatcher calls. Encounter handoffs are stubbed
+with markers; rival movement and battles are outside these focused probes.
+
+The runner now executes 70 assembled CPU probes in total. Undoing a source edit
+and rebuilding does not restore event bits already changed in a save; testing the
+normal encounter again requires a save from before the reset ran or explicit
+restoration of its setup.
+
+## Dialogue leaves and search
+
+A dialogue wrapper may contain event checks, rewards, local jumps, and banked
+calls. Text editing resolves concrete quoted-text leaves through literal calls,
+tail/local jumps, `text_far`, and `ld hl` pointers in the source or its companion
+script. Local labels use their full global scope, including colonless `.text`
+labels. Unknown assembly remains read-only, and wrapper code is never rewritten
+by the dialogue editor. Multiple editable leaves always offer a path picker,
+including when an interaction already has a preview. Duplicate previews do not
+identify a unique branch.
+
+Ordinary text saves replace only changed quoted payloads. Text-flow commands,
+runtime inserts, terminators, comments, spacing, neighboring labels, and mixed
+line endings remain unchanged; stale file hashes refuse the save. Structural
+Pokédex edits remain a separate supported operation. Focused tests cover local
+scope collisions, calls/jumps, cycles, ambiguity, stale saves, and byte-preserving
+rewrites. Source sweeps additionally save/edit/reparse all six real Route 1 leaves
+in each game (all four reward branches, the ledge NPC, and the sign). The edited
+ROM variants include those dialogue changes while keeping wrapper sources intact.
+These checks establish text/source safety and assembly compatibility; actual
+on-screen presentation and full gameplay remain manual ROM validation.
+
+Controlled dropdowns with more than 20 options now expose search across displayed
+names and source constants. Filtering retains the current selection and never
+changes a draft by itself. The Scripts browser and dialogue path picker also
+support searches ignoring case, underscores, and CamelCase spacing. Routine search
+covers every companion file for the selected map and expands matching categories,
+so searching `rival` on Route 22 shows its related routines together with their
+source paths.

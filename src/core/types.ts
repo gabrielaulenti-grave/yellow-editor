@@ -411,6 +411,16 @@ export interface MacroCatalog {
   domainWarnings: string[];
   numericConstants?: Record<string, number>;
   labelSignatures?: Record<string, string>;
+  eventBranchDependencies?: ScriptEventBranchDependency[];
+}
+
+export interface ScriptEventBranchDependency {
+  path: string;
+  routine: string;
+  line: number;
+  guardEvent: string;
+  branchEvents: string[];
+  writtenSymbols: string[];
 }
 
 export interface ScriptMacroArgument {
@@ -500,6 +510,7 @@ export interface ScriptSimpleActionCreateDocument {
   sourceHash: string;
   insertionLine: number;
   availableActions: ScriptSimpleActionKind[];
+  eventBranchDependencies?: ScriptEventBranchDependency[];
   eventOptions: {
     "set-event": ProjectSemanticDomainOption[];
     "reset-event": ProjectSemanticDomainOption[];

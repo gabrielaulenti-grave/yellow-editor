@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useState } from "react";
 import type {
   HistorySummary,
@@ -295,7 +296,7 @@ function RewardEditor({ reward }: { reward: TrainerInteractionReward }) {
                 </p>
                 <label className="trainer-reward-field">
                   <span>Item</span>
-                  <select
+                  <SearchableSelect
                     value={itemConstant}
                     disabled={busy}
                     onChange={(event) => setItemConstant(event.target.value)}
@@ -321,7 +322,7 @@ function RewardEditor({ reward }: { reward: TrainerInteractionReward }) {
                         ))}
                       </optgroup>
                     )}
-                  </select>
+                  </SearchableSelect>
                 </label>
                 <label className="trainer-reward-field">
                   <span>Quantity</span>
@@ -590,10 +591,10 @@ function PartyBrowser({
                   <div className="trainer-party-settings">
                     <label className="editor-field">
                       <span>Party encoding</span>
-                      <select value={draft.partyFormat} disabled={busy} onChange={(event) => onUpdateFormat(event.target.value as TrainerPartyEntry["partyFormat"])}>
+                      <SearchableSelect value={draft.partyFormat} disabled={busy} onChange={(event) => onUpdateFormat(event.target.value as TrainerPartyEntry["partyFormat"])}>
                         <option value="shared-level">Shared level</option>
                         <option value="individual-levels">Individual levels</option>
-                      </select>
+                      </SearchableSelect>
                     </label>
                     <p className="help-text">Shared-level parties store one level for the whole team. Switching to individual levels allows each slot to differ.</p>
                   </div>
@@ -610,9 +611,9 @@ function PartyBrowser({
                             <tr key={index}>
                               <td>{index + 1}</td>
                               <td>
-                                <select value={pokemon.speciesConstant} disabled={busy} onChange={(event) => onUpdatePokemon(index, "speciesConstant", event.target.value)}>
+                                <SearchableSelect value={pokemon.speciesConstant} disabled={busy} onChange={(event) => onUpdatePokemon(index, "speciesConstant", event.target.value)}>
                                   {species.map((entry) => <option key={entry.internalId} value={entry.constant ?? ""}>{entry.displayName} — {entry.constant}</option>)}
-                                </select>
+                                </SearchableSelect>
                               </td>
                               <td className={levelError ? "field-invalid" : ""}>
                                 <input type="number" min={1} max={100} step={1} value={pokemon.level} disabled={busy} aria-invalid={levelError ? "true" : "false"} title={levelError ?? undefined} onChange={(event) => onUpdatePokemon(index, "level", event.target.value)} />
@@ -660,9 +661,9 @@ function PartyBrowser({
                         return (
                           <tr key={`${move.sourceKey}:${index}`} className={error ? "field-invalid" : ""}>
                             <td>{move.scope === "class" ? "Class-wide" : "This party"}</td>
-                            <td><select value={move.pokemonIndex} disabled={busy || classWide} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "pokemonIndex", event.target.value)}>{Array.from({ length: Math.max(draft.pokemon.length, classWide ? 5 : 0) }, (_item, pokemonIndex) => <option key={pokemonIndex} value={pokemonIndex + 1}>#{pokemonIndex + 1}</option>)}</select></td>
-                            <td><select value={move.moveSlot} disabled={busy || move.sourceKind !== "yellow-party"} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "moveSlot", event.target.value)}>{[1, 2, 3, 4].map((slot) => <option key={slot} value={slot}>Slot {slot}</option>)}</select></td>
-                            <td><select value={move.moveConstant} disabled={busy} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "moveConstant", event.target.value)}>{moves.map((entry) => <option key={entry.id} value={entry.constant}>{entry.name} — {entry.constant}</option>)}</select></td>
+                            <td><SearchableSelect value={move.pokemonIndex} disabled={busy || classWide} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "pokemonIndex", event.target.value)}>{Array.from({ length: Math.max(draft.pokemon.length, classWide ? 5 : 0) }, (_item, pokemonIndex) => <option key={pokemonIndex} value={pokemonIndex + 1}>#{pokemonIndex + 1}</option>)}</SearchableSelect></td>
+                            <td><SearchableSelect value={move.moveSlot} disabled={busy || move.sourceKind !== "yellow-party"} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "moveSlot", event.target.value)}>{[1, 2, 3, 4].map((slot) => <option key={slot} value={slot}>Slot {slot}</option>)}</SearchableSelect></td>
+                            <td><SearchableSelect value={move.moveConstant} disabled={busy} aria-invalid={error ? "true" : "false"} title={error ?? undefined} onChange={(event) => onUpdateSpecialMove(index, "moveConstant", event.target.value)}>{moves.map((entry) => <option key={entry.id} value={entry.constant}>{entry.name} — {entry.constant}</option>)}</SearchableSelect></td>
                             <td>{move.sourceKind === "yellow-party" ? <button className="small-button danger-action" disabled={busy} onClick={() => onRemoveSpecialMove(index)}>Remove</button> : <code>{move.sourceKey}</code>}</td>
                           </tr>
                         );
@@ -873,7 +874,7 @@ function ClassBrowser({
 
                 <label className="trainer-reward-field">
                   <span>Battle portrait</span>
-                  <select
+                  <SearchableSelect
                     value={classDraft?.picLabel ?? ""}
                     disabled={busy || !classDraft}
                     onChange={(event) => onUpdateClassField("picLabel", event.target.value)}
@@ -883,7 +884,7 @@ function ClassBrowser({
                         {entry.name} — {entry.picLabel}
                       </option>
                     ))}
-                  </select>
+                  </SearchableSelect>
                   <small>Reuses an existing trainer sprite. The preview below refreshes after saving.</small>
                 </label>
 
@@ -903,7 +904,7 @@ function ClassBrowser({
 
                 <label className="trainer-reward-field">
                   <span>AI routine</span>
-                  <select
+                  <SearchableSelect
                     value={classDraft?.aiRoutine ?? ""}
                     disabled={busy || !classDraft}
                     onChange={(event) => onUpdateClassField("aiRoutine", event.target.value)}
@@ -911,7 +912,7 @@ function ClassBrowser({
                     {aiRoutines.map((routine) => (
                       <option key={routine} value={routine}>{routine}</option>
                     ))}
-                  </select>
+                  </SearchableSelect>
                   <small>Choose from AI routines already used by this project.</small>
                 </label>
 

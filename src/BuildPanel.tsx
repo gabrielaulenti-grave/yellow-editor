@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useState } from "react";
 import type {
   BuildArtifact,
@@ -354,7 +355,7 @@ export function BuildPanel({
 
         <div className="build-actions">
           {environment && environment.targets.length > 1 && (
-            <select
+            <SearchableSelect
               value={target ?? ""}
               disabled={busy}
               onChange={(event) => setTarget(event.target.value as BuildTarget)}
@@ -365,7 +366,7 @@ export function BuildPanel({
                   {targetLabel(candidate)}
                 </option>
               ))}
-            </select>
+            </SearchableSelect>
           )}
 
           <button

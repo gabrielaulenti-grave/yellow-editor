@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useState } from "react";
 import {
   effectiveBallRandomCeiling,
@@ -226,7 +227,7 @@ export function CatchFormulaPanel({
             <div className="field-grid two-column-fields">
               <label className="editor-field">
                 <span>Pokémon</span>
-                <select
+                <SearchableSelect
                   value={profileId ?? ""}
                   onChange={(event) => setProfileId(Number.parseInt(event.target.value, 10))}
                 >
@@ -235,7 +236,7 @@ export function CatchFormulaPanel({
                       {profile.displayName} — catch rate {profile.catchRate}
                     </option>
                   ))}
-                </select>
+                </SearchableSelect>
               </label>
               <ReadonlyField
                 label="Base Catch Rate"
@@ -254,14 +255,14 @@ export function CatchFormulaPanel({
               </label>
               <label className="editor-field">
                 <span>Status</span>
-                <select
+                <SearchableSelect
                   value={status}
                   onChange={(event) => setStatus(event.target.value as Gen1CatchStatus)}
                 >
                   <option value="none">No status</option>
                   <option value="minor">Burn / Poison / Paralysis</option>
                   <option value="major">Sleep / Freeze</option>
-                </select>
+                </SearchableSelect>
               </label>
               <label className="editor-field catch-hp-slider">
                 <span>Current HP — {currentHp} / {maxHp}</span>
@@ -275,7 +276,7 @@ export function CatchFormulaPanel({
               </label>
               <label className="editor-field">
                 <span>Safari Catch Rate</span>
-                <select
+                <SearchableSelect
                   value={safariAdjustment}
                   onChange={(event) =>
                     setSafariAdjustment(event.target.value as SafariCatchAdjustment)}
@@ -283,7 +284,7 @@ export function CatchFormulaPanel({
                   <option value="none">Base rate</option>
                   <option value="bait">After one bait — halve rate</option>
                   <option value="rock">After one rock — double rate, cap 255</option>
-                </select>
+                </SearchableSelect>
               </label>
             </div>
 

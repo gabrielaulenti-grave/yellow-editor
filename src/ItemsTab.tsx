@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { AddItemWizard } from "./AddItemWizard";
 import { ItemEvolutionPanel } from "./ItemEvolutionPanel";
 import { DeepItemRoutinePanel } from "./DeepItemRoutinePanel";
@@ -393,7 +394,7 @@ export function ItemsTab({
                         <>
                           <label className="editor-field">
                             <span>Assigned Move</span>
-                            <select
+                            <SearchableSelect
                               value={tmMoveDraft ?? selectedItem.moveConstant ?? ""}
                               disabled={editBusy || compatibilityLoading || !tmEditDocument}
                               onChange={(event) => onTmMoveChange(event.target.value)}
@@ -403,7 +404,7 @@ export function ItemsTab({
                                   {move.name} — {move.constant}
                                 </option>
                               ))}
-                            </select>
+                            </SearchableSelect>
                           </label>
                           <ReadonlyField
                             label="Move Constant"
