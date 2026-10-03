@@ -151,3 +151,23 @@ support searches ignoring case, underscores, and CamelCase spacing. Routine sear
 covers every companion file for the selected map and expands matching categories,
 so searching `rival` on Route 22 shows its related routines together with their
 source paths.
+
+## Script editor layout checks
+
+The Scripts workspace appears before its project coverage, regression readouts,
+macro counts, and analysis warnings. Narrow script flows stop consuming horizontal
+space at each nested condition; Then/Otherwise headings and enclosing condition
+outlines retain the branch structure. Container queries also handle narrow panes
+on otherwise wide desktop screens, and limit indentation when deeper branches
+run out of room.
+
+```sh
+npm exec playwright -- install chromium
+npm run test:scripts:layout
+```
+
+The browser check renders the actual components with eight nested conditions. It
+checks content widths and horizontal overflow at 320, 375, 430, 768, and 1280 px,
+plus a 400 px desktop pane, and verifies that diagnostic sections follow the
+workspace. Desktop CI installs Chromium and runs this check alongside the script
+regressions.

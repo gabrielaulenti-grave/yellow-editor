@@ -31,6 +31,12 @@ jobs:
       - name: Check script round trips
         run: npm run test:scripts
 
+      - name: Install layout-check browser
+        run: npm exec playwright -- install --with-deps chromium
+
+      - name: Check script editor layouts
+        run: npm run test:scripts:layout
+
       - name: Checkout Yellow script fixtures
         uses: actions/checkout@v6
         with:

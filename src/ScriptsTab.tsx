@@ -1061,12 +1061,368 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
         <div>
           <h2>Scripts</h2>
           <p>
-            One workspace for map events, trainer-trigger scripts, dialogue flow,
-            movement, battles, event flags, and the source that connects them.
+            Find a map or routine to edit its dialogue, events, movement, and battles.
           </p>
         </div>
         <span className="read-only-badge">Guarded structured editing</span>
       </div>
+
+      <div className="script-browser">
+        <aside className="script-browser-sidebar">
+          <input
+            className="full-width-input"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search maps, files, or routines…"
+          />
+          {catalogError && (
+            <div className="world-map-warning">
+              <strong>Script index unavailable</strong>
+              <p>{catalogError}</p>
+            </div>
+          )}
+
+          {catalogLoading && <p role="status">Indexing scripts…</p>}
+
+          <div className="script-group-list">
+            {filteredEntries.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                className={entry.id === selectedGroupId ? "active" : ""}
+                onClick={() => selectEntry(entry)}
+              >
+                <strong>{entry.displayName}</strong>
+                <small>
+                  {entry.paths.length} file{entry.paths.length === 1 ? "" : "s"}
+                  {" · "}
+                  {entry.routines.filter((routine) => routine.category === "event-state").length > 0
+                    ? `${entry.routines.filter((routine) => routine.category === "event-state").length} event state${entry.routines.filter((routine) => routine.category === "event-state").length === 1 ? "" : "s"}`
+                    : `${entry.routines.length} categorized label${entry.routines.length === 1 ? "" : "s"}`}
+                </small>
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        <div className="script-browser-details">
+          {selectedEntry ? (
+            <>
+              <div className="script-workspace-heading">
+                <div>
+                  <h3>{selectedEntry.displayName}</h3>
+                  <p className="help-text">
+                    Companion files such as <code>_2.asm</code> stay grouped with
+                    the same map while preserving their exact source paths.
+                  </p>
+                </div>
+              </div>
+
+              <div className="script-source-tabs" aria-label="Script source files">
+                {selectedEntry.paths.map((path) => (
+                  <button
+                    key={path}
+                    type="button"
+                    className={path === selectedPath ? "active" : ""}
+                    onClick={() => selectPath(path)}
+                  >
+                    {path.split("/").pop()}
+                  </button>
+                ))}
+              </div>
+
+              <div className="script-workspace-grid">
+                <aside className="script-routine-list">
+                  <strong>Script structure</strong>
+                  <input type="search" aria-label="Search routines in all companion files"
+                    placeholder="Search routines in all files…" value={routineSearch}
+                    onChange={(event) => setRoutineSearch(event.target.value)} />
+                  <p className="help-text script-routine-list-help">
+                    Event states stay prominent. Supporting dialogue, movement,
+                    helpers, and data are grouped separately so they remain
+                    available without competing with the map state machine.
+                  </p>
+
+                  {categorizedRoutines.length === 0 ? (
+                    <p className="empty-state">
+                      {routineSearch.trim() ? "No routines match in this map’s files." : "No categorized script labels were detected in this file."}
+                    </p>
+                  ) : (
+                    categorizedRoutines.map(({ category, routines }) => {
+                      const selectedInCategory = routines.some(
+                        (routine) => routine.label === selectedRoutineLabel && routine.path === selectedPath,
+                      );
+                      const buttons = (
+                        <div className="script-routine-category-buttons">
+                          {routines.map((routine) => (
+                            <button
+                              key={routineKey(routine)}
+                              type="button"
+                              className={routine.label === selectedRoutineLabel && routine.path === selectedPath ? "active" : ""}
+                              onClick={() => selectRoutine(routine.label, routine.path)}
+                            >
+                              <span>{labelTitle(routine.label)}</span>
+                              <code>{routine.label}</code>
+                              <small>
+                                {routine.path.split("/").pop()}:{routine.startLine}
+                                {" · "}
+                                {routine.recognizedOperationCount} recognized operation
+                                {routine.recognizedOperationCount === 1 ? "" : "s"}
+                              </small>
+                            </button>
+                          ))}
+                        </div>
+                      );
+
+                      if (category === "event-state" || category === "dispatcher") {
+                        return (
+                          <section
+                            className="script-routine-category"
+                            key={category}
+                          >
+                            <div className="script-routine-category-heading">
+                              <strong>{categoryLabel(category)}</strong>
+                              <small>{routines.length}</small>
+                            </div>
+                            {buttons}
+                          </section>
+                        );
+                      }
+
+                      return (
+                        <details
+                          className="script-routine-category script-routine-category-collapsible"
+                          key={`${category}:${selectedInCategory ? "selected" : "idle"}`}
+                          open={Boolean(routineSearch.trim()) || selectedInCategory || undefined}
+                        >
+                          <summary>
+                            <span>{categoryLabel(category)}</span>
+                            <small>{routines.length}</small>
+                          </summary>
+                          {buttons}
+                        </details>
+                      );
+                    })
+                  )}
+                </aside>
+
+                <div className="script-routine-details">
+                  {documentLoading && (
+                    <div className="world-map-loading" aria-live="polite">
+                      <strong>Reading script source…</strong>
+                    </div>
+                  )}
+
+                  {documentError && !documentLoading && (
+                    <div className="world-map-warning">
+                      <strong>Script unavailable</strong>
+                      <p>{documentError}</p>
+                    </div>
+                  )}
+
+                  {document && !documentLoading && selectedRoutine && previewReference && (
+                    <>
+                      <div className="script-routine-heading">
+                        <div>
+                          <h4>{labelTitle(selectedRoutine.label)}</h4>
+                          <code>{document.path}:{selectedRoutine.startLine}</code>
+                        </div>
+                        <span>
+                          {categoryLabel(selectedRoutine.category)}
+                          {selectedRoutine.operationKinds.length > 0
+                            ? ` · ${selectedRoutine.operationKinds.join(" · ")}`
+                            : ""}
+                        </span>
+                      </div>
+
+                      <MapScriptPreview
+                        reference={previewReference}
+                        editableMacroLines={editableMacroLines}
+                        onEditMacroLine={(line) => {
+                          const target = window.document.getElementById(
+                            `script-macro-call-${line}`,
+                          );
+                          target?.scrollIntoView({ behavior: "smooth", block: "center" });
+                          const button = target?.querySelector("button");
+                          if (button instanceof HTMLButtonElement) button.focus();
+                        }}
+                      />
+
+                      <SimpleActionBuilder
+                        path={document.path}
+                        routineLabel={selectedRoutine.label}
+                        editBlocked={Boolean(
+                          activeMacroEdit
+                          && activeMacroEdit.key !== `builder:${document.path}:${selectedRoutine.label}`,
+                        )}
+                        onEditStateChange={(open, dirty) => {
+                          const key = `builder:${document.path}:${selectedRoutine.label}`;
+                          setActiveMacroEdit((current) => {
+                            if (!open) {
+                              return current?.key === key ? null : current;
+                            }
+                            if (current && current.key !== key) {
+                              return current;
+                            }
+                            return { key, dirty };
+                          });
+                        }}
+                        onSaved={() => setRefreshVersion((value) => value + 1)}
+                      />
+
+                      <section className="script-macro-inspector">
+                        <div className="script-macro-inspector-heading">
+                          <div>
+                            <h5>Project-derived macro forms</h5>
+                            <p className="help-text">
+                              These fields are generated from RGBDS macros found in the loaded
+                              project. Proven semantic parameters can now be rewritten safely
+                              without a built-in Pokémon macro list.
+                            </p>
+                          </div>
+                          {selectedRoutineMacroCalls.length > 0 && (
+                            <span className="read-only-badge">
+                              {selectedRoutineMacroCalls.length} macro call
+                              {selectedRoutineMacroCalls.length === 1 ? "" : "s"}
+                            </span>
+                          )}
+                        </div>
+
+                        {macroCallsLoading && (
+                          <div className="world-map-loading" aria-live="polite">
+                            <strong>Resolving project macro calls…</strong>
+                          </div>
+                        )}
+
+                        {macroCallsError && !macroCallsLoading && (
+                          <div className="world-map-warning">
+                            <strong>Macro calls unavailable</strong>
+                            <p>{macroCallsError}</p>
+                          </div>
+                        )}
+
+                        {!macroCallsLoading && !macroCallsError && selectedRoutineMacroCalls.length === 0 && (
+                          <p className="empty-state">
+                            No project-defined macro calls were detected in this routine.
+                            Direct RGBDS assembly remains visible in the semantic preview above.
+                          </p>
+                        )}
+
+                        {!macroCallsLoading && selectedRoutineMacroCalls.map((call) => (
+                          <MacroCallForm
+                            key={`${call.path}:${call.line}:${call.name}`}
+                            call={call}
+                            definition={macroDefinitions.get(call.name.toLowerCase()) ?? null}
+                            domains={macroCatalog?.domains ?? []}
+                            catalog={macroCatalog}
+                            editBlocked={Boolean(
+                              activeMacroEdit
+                              && activeMacroEdit.key !== `${call.path}:${call.line}:${call.name}`,
+                            )}
+                            onEditStateChange={(open, dirty) => {
+                              const key = `${call.path}:${call.line}:${call.name}`;
+                              setActiveMacroEdit((current) => {
+                                if (!open) {
+                                  return current?.key === key ? null : current;
+                                }
+                                if (current && current.key !== key) {
+                                  return current;
+                                }
+                                return { key, dirty };
+                              });
+                            }}
+                            onSaved={() => setRefreshVersion((value) => value + 1)}
+                          />
+                        ))}
+                      </section>
+
+                      <details className="trainer-full-script script-source-detail">
+                        <summary>Advanced: view complete source file</summary>
+                        <pre className="trainer-script-source">
+                          <code>{document.source}</code>
+                        </pre>
+                      </details>
+                    </>
+                  )}
+
+                  {document && !documentLoading && !selectedRoutine && (
+                    <>
+                      <p className="empty-state">
+                        Choose a routine to inspect its event flow. The complete source remains available below.
+                      </p>
+                      <details className="trainer-full-script script-source-detail" open>
+                        <summary>View complete source file</summary>
+                        <pre className="trainer-script-source">
+                          <code>{document.source}</code>
+                        </pre>
+                      </details>
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          ) : !catalogLoading && (
+            <p className="empty-state">No script files were found in this project.</p>
+          )}
+        </div>
+      </div>
+      <section className="script-index-diagnostics" aria-label="Script index and macro analysis">
+        <h3>Script index and macro analysis</h3>
+        <p className="browser-count">
+          {catalogLoading
+            ? "Indexing scripts…"
+            : catalog
+              ? `${catalog.fileCount} files · ${catalog.routineCount} executable routines`
+              : "Scripts unavailable"}
+        </p>
+        <p className="browser-count script-macro-count">
+          {macroCatalogLoading
+            ? "Learning project macros…"
+            : macroCatalog
+              ? `${macroCatalog.definitionCount} project macros · ${macroCatalog.callCount} calls analyzed · ${macroCatalog.domains.length} semantic domains`
+              : "Macro model unavailable"}
+        </p>
+
+        {macroCatalogError && (
+          <div className="world-map-warning">
+            <strong>Project macro model unavailable</strong>
+            <p>{macroCatalogError}</p>
+          </div>
+        )}
+
+        {macroCatalog && macroCatalog.domainWarnings.length > 0 && (
+          <details className="script-macro-warnings">
+            <summary>
+              {macroCatalog.domainWarnings.length} semantic-domain warning
+              {macroCatalog.domainWarnings.length === 1 ? "" : "s"}
+            </summary>
+            <ul>
+              {macroCatalog.domainWarnings.map((warning, index) => (
+                <li key={`domain:${index}:${warning}`}>{warning}</li>
+              ))}
+            </ul>
+          </details>
+        )}
+
+        {macroCatalog && macroCatalog.warnings.length > 0 && (
+          <details className="script-macro-warnings">
+            <summary>
+              {macroCatalog.warnings.length} macro analysis warning
+              {macroCatalog.warnings.length === 1 ? "" : "s"}
+            </summary>
+            <ul>
+              {macroCatalog.warnings.slice(0, 20).map((warning, index) => (
+                <li key={`${index}:${warning}`}>{warning}</li>
+              ))}
+            </ul>
+            {macroCatalog.warnings.length > 20 && (
+              <p className="help-text">
+                {macroCatalog.warnings.length - 20} additional warnings are not shown here.
+              </p>
+            )}
+          </details>
+        )}
+      </section>
 
       <section className="script-audit-panel">
         <div className="script-audit-heading">
@@ -1534,359 +1890,6 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
           </>
         )}
       </section>
-
-      <div className="script-browser">
-        <aside className="script-browser-sidebar">
-          <input
-            className="full-width-input"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search maps, files, or routines…"
-          />
-          <p className="browser-count">
-            {catalogLoading
-              ? "Indexing scripts…"
-              : catalog
-                ? `${catalog.fileCount} files · ${catalog.routineCount} executable routines`
-                : "Scripts unavailable"}
-          </p>
-          <p className="browser-count script-macro-count">
-            {macroCatalogLoading
-              ? "Learning project macros…"
-              : macroCatalog
-                ? `${macroCatalog.definitionCount} project macros · ${macroCatalog.callCount} calls analyzed · ${macroCatalog.domains.length} semantic domains`
-                : "Macro model unavailable"}
-          </p>
-
-          {catalogError && (
-            <div className="world-map-warning">
-              <strong>Script index unavailable</strong>
-              <p>{catalogError}</p>
-            </div>
-          )}
-
-          {macroCatalogError && (
-            <div className="world-map-warning">
-              <strong>Project macro model unavailable</strong>
-              <p>{macroCatalogError}</p>
-            </div>
-          )}
-
-          {macroCatalog && macroCatalog.domainWarnings.length > 0 && (
-            <details className="script-macro-warnings">
-              <summary>
-                {macroCatalog.domainWarnings.length} semantic-domain warning
-                {macroCatalog.domainWarnings.length === 1 ? "" : "s"}
-              </summary>
-              <ul>
-                {macroCatalog.domainWarnings.map((warning, index) => (
-                  <li key={`domain:${index}:${warning}`}>{warning}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-
-          {macroCatalog && macroCatalog.warnings.length > 0 && (
-            <details className="script-macro-warnings">
-              <summary>
-                {macroCatalog.warnings.length} macro analysis warning
-                {macroCatalog.warnings.length === 1 ? "" : "s"}
-              </summary>
-              <ul>
-                {macroCatalog.warnings.slice(0, 20).map((warning, index) => (
-                  <li key={`${index}:${warning}`}>{warning}</li>
-                ))}
-              </ul>
-              {macroCatalog.warnings.length > 20 && (
-                <p className="help-text">
-                  {macroCatalog.warnings.length - 20} additional warnings are not shown here.
-                </p>
-              )}
-            </details>
-          )}
-
-          <div className="script-group-list">
-            {filteredEntries.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                className={entry.id === selectedGroupId ? "active" : ""}
-                onClick={() => selectEntry(entry)}
-              >
-                <strong>{entry.displayName}</strong>
-                <small>
-                  {entry.paths.length} file{entry.paths.length === 1 ? "" : "s"}
-                  {" · "}
-                  {entry.routines.filter((routine) => routine.category === "event-state").length > 0
-                    ? `${entry.routines.filter((routine) => routine.category === "event-state").length} event state${entry.routines.filter((routine) => routine.category === "event-state").length === 1 ? "" : "s"}`
-                    : `${entry.routines.length} categorized label${entry.routines.length === 1 ? "" : "s"}`}
-                </small>
-              </button>
-            ))}
-          </div>
-        </aside>
-
-        <div className="script-browser-details">
-          {selectedEntry ? (
-            <>
-              <div className="script-workspace-heading">
-                <div>
-                  <h3>{selectedEntry.displayName}</h3>
-                  <p className="help-text">
-                    Companion files such as <code>_2.asm</code> stay grouped with
-                    the same map while preserving their exact source paths.
-                  </p>
-                </div>
-              </div>
-
-              <div className="script-source-tabs" aria-label="Script source files">
-                {selectedEntry.paths.map((path) => (
-                  <button
-                    key={path}
-                    type="button"
-                    className={path === selectedPath ? "active" : ""}
-                    onClick={() => selectPath(path)}
-                  >
-                    {path.split("/").pop()}
-                  </button>
-                ))}
-              </div>
-
-              <div className="script-workspace-grid">
-                <aside className="script-routine-list">
-                  <strong>Script structure</strong>
-                  <input type="search" aria-label="Search routines in all companion files"
-                    placeholder="Search routines in all files…" value={routineSearch}
-                    onChange={(event) => setRoutineSearch(event.target.value)} />
-                  <p className="help-text script-routine-list-help">
-                    Event states stay prominent. Supporting dialogue, movement,
-                    helpers, and data are grouped separately so they remain
-                    available without competing with the map state machine.
-                  </p>
-
-                  {categorizedRoutines.length === 0 ? (
-                    <p className="empty-state">
-                      {routineSearch.trim() ? "No routines match in this map’s files." : "No categorized script labels were detected in this file."}
-                    </p>
-                  ) : (
-                    categorizedRoutines.map(({ category, routines }) => {
-                      const selectedInCategory = routines.some(
-                        (routine) => routine.label === selectedRoutineLabel && routine.path === selectedPath,
-                      );
-                      const buttons = (
-                        <div className="script-routine-category-buttons">
-                          {routines.map((routine) => (
-                            <button
-                              key={routineKey(routine)}
-                              type="button"
-                              className={routine.label === selectedRoutineLabel && routine.path === selectedPath ? "active" : ""}
-                              onClick={() => selectRoutine(routine.label, routine.path)}
-                            >
-                              <span>{labelTitle(routine.label)}</span>
-                              <code>{routine.label}</code>
-                              <small>
-                                {routine.path.split("/").pop()}:{routine.startLine}
-                                {" · "}
-                                {routine.recognizedOperationCount} recognized operation
-                                {routine.recognizedOperationCount === 1 ? "" : "s"}
-                              </small>
-                            </button>
-                          ))}
-                        </div>
-                      );
-
-                      if (category === "event-state" || category === "dispatcher") {
-                        return (
-                          <section
-                            className="script-routine-category"
-                            key={category}
-                          >
-                            <div className="script-routine-category-heading">
-                              <strong>{categoryLabel(category)}</strong>
-                              <small>{routines.length}</small>
-                            </div>
-                            {buttons}
-                          </section>
-                        );
-                      }
-
-                      return (
-                        <details
-                          className="script-routine-category script-routine-category-collapsible"
-                          key={`${category}:${selectedInCategory ? "selected" : "idle"}`}
-                          open={Boolean(routineSearch.trim()) || selectedInCategory || undefined}
-                        >
-                          <summary>
-                            <span>{categoryLabel(category)}</span>
-                            <small>{routines.length}</small>
-                          </summary>
-                          {buttons}
-                        </details>
-                      );
-                    })
-                  )}
-                </aside>
-
-                <div className="script-routine-details">
-                  {documentLoading && (
-                    <div className="world-map-loading" aria-live="polite">
-                      <strong>Reading script source…</strong>
-                    </div>
-                  )}
-
-                  {documentError && !documentLoading && (
-                    <div className="world-map-warning">
-                      <strong>Script unavailable</strong>
-                      <p>{documentError}</p>
-                    </div>
-                  )}
-
-                  {document && !documentLoading && selectedRoutine && previewReference && (
-                    <>
-                      <div className="script-routine-heading">
-                        <div>
-                          <h4>{labelTitle(selectedRoutine.label)}</h4>
-                          <code>{document.path}:{selectedRoutine.startLine}</code>
-                        </div>
-                        <span>
-                          {categoryLabel(selectedRoutine.category)}
-                          {selectedRoutine.operationKinds.length > 0
-                            ? ` · ${selectedRoutine.operationKinds.join(" · ")}`
-                            : ""}
-                        </span>
-                      </div>
-
-                      <MapScriptPreview
-                        reference={previewReference}
-                        editableMacroLines={editableMacroLines}
-                        onEditMacroLine={(line) => {
-                          const target = window.document.getElementById(
-                            `script-macro-call-${line}`,
-                          );
-                          target?.scrollIntoView({ behavior: "smooth", block: "center" });
-                          const button = target?.querySelector("button");
-                          if (button instanceof HTMLButtonElement) button.focus();
-                        }}
-                      />
-
-                      <SimpleActionBuilder
-                        path={document.path}
-                        routineLabel={selectedRoutine.label}
-                        editBlocked={Boolean(
-                          activeMacroEdit
-                          && activeMacroEdit.key !== `builder:${document.path}:${selectedRoutine.label}`,
-                        )}
-                        onEditStateChange={(open, dirty) => {
-                          const key = `builder:${document.path}:${selectedRoutine.label}`;
-                          setActiveMacroEdit((current) => {
-                            if (!open) {
-                              return current?.key === key ? null : current;
-                            }
-                            if (current && current.key !== key) {
-                              return current;
-                            }
-                            return { key, dirty };
-                          });
-                        }}
-                        onSaved={() => setRefreshVersion((value) => value + 1)}
-                      />
-
-                      <section className="script-macro-inspector">
-                        <div className="script-macro-inspector-heading">
-                          <div>
-                            <h5>Project-derived macro forms</h5>
-                            <p className="help-text">
-                              These fields are generated from RGBDS macros found in the loaded
-                              project. Proven semantic parameters can now be rewritten safely
-                              without a built-in Pokémon macro list.
-                            </p>
-                          </div>
-                          {selectedRoutineMacroCalls.length > 0 && (
-                            <span className="read-only-badge">
-                              {selectedRoutineMacroCalls.length} macro call
-                              {selectedRoutineMacroCalls.length === 1 ? "" : "s"}
-                            </span>
-                          )}
-                        </div>
-
-                        {macroCallsLoading && (
-                          <div className="world-map-loading" aria-live="polite">
-                            <strong>Resolving project macro calls…</strong>
-                          </div>
-                        )}
-
-                        {macroCallsError && !macroCallsLoading && (
-                          <div className="world-map-warning">
-                            <strong>Macro calls unavailable</strong>
-                            <p>{macroCallsError}</p>
-                          </div>
-                        )}
-
-                        {!macroCallsLoading && !macroCallsError && selectedRoutineMacroCalls.length === 0 && (
-                          <p className="empty-state">
-                            No project-defined macro calls were detected in this routine.
-                            Direct RGBDS assembly remains visible in the semantic preview above.
-                          </p>
-                        )}
-
-                        {!macroCallsLoading && selectedRoutineMacroCalls.map((call) => (
-                          <MacroCallForm
-                            key={`${call.path}:${call.line}:${call.name}`}
-                            call={call}
-                            definition={macroDefinitions.get(call.name.toLowerCase()) ?? null}
-                            domains={macroCatalog?.domains ?? []}
-                            catalog={macroCatalog}
-                            editBlocked={Boolean(
-                              activeMacroEdit
-                              && activeMacroEdit.key !== `${call.path}:${call.line}:${call.name}`,
-                            )}
-                            onEditStateChange={(open, dirty) => {
-                              const key = `${call.path}:${call.line}:${call.name}`;
-                              setActiveMacroEdit((current) => {
-                                if (!open) {
-                                  return current?.key === key ? null : current;
-                                }
-                                if (current && current.key !== key) {
-                                  return current;
-                                }
-                                return { key, dirty };
-                              });
-                            }}
-                            onSaved={() => setRefreshVersion((value) => value + 1)}
-                          />
-                        ))}
-                      </section>
-
-                      <details className="trainer-full-script script-source-detail">
-                        <summary>Advanced: view complete source file</summary>
-                        <pre className="trainer-script-source">
-                          <code>{document.source}</code>
-                        </pre>
-                      </details>
-                    </>
-                  )}
-
-                  {document && !documentLoading && !selectedRoutine && (
-                    <>
-                      <p className="empty-state">
-                        Choose a routine to inspect its event flow. The complete source remains available below.
-                      </p>
-                      <details className="trainer-full-script script-source-detail" open>
-                        <summary>View complete source file</summary>
-                        <pre className="trainer-script-source">
-                          <code>{document.source}</code>
-                        </pre>
-                      </details>
-                    </>
-                  )}
-                </div>
-              </div>
-            </>
-          ) : !catalogLoading && (
-            <p className="empty-state">No script files were found in this project.</p>
-          )}
-        </div>
-      </div>
     </section>
   );
 }
