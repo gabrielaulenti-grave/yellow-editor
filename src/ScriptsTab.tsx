@@ -1,3 +1,5 @@
+import { matchesSearch } from "./editor/search";
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useState } from "react";
 import type {
   MacroCatalog,
@@ -309,7 +311,7 @@ function MacroCallForm({
                   </small>
                 </span>
                 {semanticDomain ? (
-                  <select
+                  <SearchableSelect
                     value={rawValue}
                     disabled={!editable || saving}
                     onChange={(event) => {
@@ -343,7 +345,7 @@ function MacroCallForm({
                           : `${option.label} — ${option.value}`}
                       </option>
                     ))}
-                  </select>
+                  </SearchableSelect>
                 ) : (
                   <input
                     value={rawValue}
@@ -559,7 +561,7 @@ function SimpleActionBuilder({
         <div className="script-simple-action-form">
           <label>
             <span>Action</span>
-            <select
+            <SearchableSelect
               value={action}
               disabled={saving}
               onChange={(change) => {
@@ -583,7 +585,7 @@ function SimpleActionBuilder({
               {document.availableActions.includes("heal-party") && (
                 <option value="heal-party">Heal the player's party</option>
               )}
-            </select>
+            </SearchableSelect>
           </label>
 
           {action === "wait" ? (
@@ -604,7 +606,7 @@ function SimpleActionBuilder({
           ) : action === "set-event" || action === "reset-event" ? (
             <label>
               <span>Event</span>
-              <select
+              <SearchableSelect
                 value={event}
                 disabled={saving}
                 onChange={(change) => {
@@ -619,7 +621,7 @@ function SimpleActionBuilder({
                       : `${option.label} — ${option.value}`}
                   </option>
                 ))}
-              </select>
+              </SearchableSelect>
             </label>
           ) : (
             <div className="script-simple-action-summary">
@@ -686,6 +688,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   const [roundTripLoading, setRoundTripLoading] = useState(false);
   const [roundTripError, setRoundTripError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [routineSearch, setRoutineSearch] = useState("");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedRoutineLabel, setSelectedRoutineLabel] = useState<string | null>(null);
@@ -902,19 +905,22 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
 
   const filteredEntries = useMemo(() => {
     if (!catalog) return [];
-    const query = search.trim().toLowerCase();
+    const query = search.trim();
     if (!query) return catalog.entries;
-    return catalog.entries.filter((entry) => [
+    return catalog.entries.filter((entry) => matchesSearch(query, ...[
       entry.displayName,
       entry.id,
       ...entry.paths,
       ...entry.routines.map((routine) => routine.label),
-    ].some((value) => value.toLowerCase().includes(query)));
+    ]));
   }, [catalog, search]);
 
   const selectedEntry =
     catalog?.entries.find((entry) => entry.id === selectedGroupId) ?? null;
-  const selectedPathRoutines = routinesForPath(selectedEntry, selectedPath);
+  const selectedPathRoutines = routineSearch.trim()
+    ? (selectedEntry?.routines ?? []).filter((routine) => matchesSearch(routineSearch,
+      routine.label, routine.path, categoryLabel(routine.category), ...routine.operationKinds))
+    : routinesForPath(selectedEntry, selectedPath);
   const categorizedRoutines = SCRIPT_CATEGORY_ORDER
     .map((category) => ({
       category,
@@ -1002,8 +1008,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
     setSelectedRoutineLabel(preferredRoutine(routines)?.label ?? null);
   }
 
-  function selectRoutine(label: string) {
-    if (label === selectedRoutineLabel || !confirmDiscardMacroEdit()) return;
+  function selectRoutine(label: string, path: string) {
+    if ((label === selectedRoutineLabel && path === selectedPath) || !confirmDiscardMacroEdit()) return;
+    setSelectedPath(path);
     setSelectedRoutineLabel(label);
   }
 
@@ -1648,6 +1655,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
               <div className="script-workspace-grid">
                 <aside className="script-routine-list">
                   <strong>Script structure</strong>
+                  <input type="search" aria-label="Search routines in all companion files"
+                    placeholder="Search routines in all files…" value={routineSearch}
+                    onChange={(event) => setRoutineSearch(event.target.value)} />
                   <p className="help-text script-routine-list-help">
                     Event states stay prominent. Supporting dialogue, movement,
                     helpers, and data are grouped separately so they remain
@@ -1656,12 +1666,12 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
 
                   {categorizedRoutines.length === 0 ? (
                     <p className="empty-state">
-                      No categorized script labels were detected in this file.
+                      {routineSearch.trim() ? "No routines match in this map’s files." : "No categorized script labels were detected in this file."}
                     </p>
                   ) : (
                     categorizedRoutines.map(({ category, routines }) => {
                       const selectedInCategory = routines.some(
-                        (routine) => routine.label === selectedRoutineLabel,
+                        (routine) => routine.label === selectedRoutineLabel && routine.path === selectedPath,
                       );
                       const buttons = (
                         <div className="script-routine-category-buttons">
@@ -1669,13 +1679,13 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                             <button
                               key={routineKey(routine)}
                               type="button"
-                              className={routine.label === selectedRoutineLabel ? "active" : ""}
-                              onClick={() => selectRoutine(routine.label)}
+                              className={routine.label === selectedRoutineLabel && routine.path === selectedPath ? "active" : ""}
+                              onClick={() => selectRoutine(routine.label, routine.path)}
                             >
                               <span>{labelTitle(routine.label)}</span>
                               <code>{routine.label}</code>
                               <small>
-                                line {routine.startLine}
+                                {routine.path.split("/").pop()}:{routine.startLine}
                                 {" · "}
                                 {routine.recognizedOperationCount} recognized operation
                                 {routine.recognizedOperationCount === 1 ? "" : "s"}
@@ -1704,7 +1714,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                         <details
                           className="script-routine-category script-routine-category-collapsible"
                           key={`${category}:${selectedInCategory ? "selected" : "idle"}`}
-                          open={selectedInCategory || undefined}
+                          open={Boolean(routineSearch.trim()) || selectedInCategory || undefined}
                         >
                           <summary>
                             <span>{categoryLabel(category)}</span>

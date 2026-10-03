@@ -1,6 +1,5 @@
 import { hashText } from "./history";
 import {
-  decodeAsmTextString,
   runtimeTextCommandPreview,
   visibleAsmText,
 } from "./textPreview";
@@ -75,8 +74,7 @@ export const TEXT_BOX_LINE_WIDTH = 18;
 export const TEXT_BOX_BOTTOM_LINE_WIDTH = 17;
 
 const TEXT_LINE_PATTERN = /^(\s*)(text|next|line|cont|para|page)\s+"((?:[^"\\]|\\.)*)"(.*)$/i;
-const LABEL_PATTERN = /^\s*([A-Za-z_.][A-Za-z0-9_.]*):{1,2}\s*(?:;.*)?$/;
-const GLOBAL_LABEL_PATTERN = /^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/;
+const LABEL_PATTERN = /^\s*(?:([A-Za-z_][A-Za-z0-9_]*):{1,2}|(\.[A-Za-z_][A-Za-z0-9_]*):{0,2})\s*(?:;.*)?$/;
 const TERMINATOR_PATTERN = /^\s*(done|prompt|dex|text_end)\b/i;
 const FAR_TEXT_PATTERN = /^\s*text_far\s+([A-Za-z_.][A-Za-z0-9_.]*)\b/i;
 const TEXT_POINTER_LOAD_PATTERN = /^\s*ld\s+hl\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i;
@@ -98,10 +96,6 @@ const TEXT_TOKEN_WIDTHS: Readonly<Record<string, number>> = {
   "<ROCKET>": 6,
   "<……>": 2,
 };
-
-function escapeRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 function encodeAsmString(value: string): string {
   return value
@@ -242,64 +236,56 @@ export function textDocumentSegmentMetrics(
   return textSegmentMetrics(document.displayParts, segments, document.terminator);
 }
 
-function findLabelRange(lines: string[], label: string): LabelRange {
-  const exact = new RegExp(`^\\s*${escapeRegex(label)}:{1,2}\\s*(?:;.*)?$`);
-  const matches: number[] = [];
-  lines.forEach((line, index) => {
-    if (exact.test(line)) {
-      matches.push(index);
+function labelDefinitions(lines: string[]): { label: string; index: number; global: boolean }[] {
+  let scope = "";
+  return lines.flatMap<{ label: string; index: number; global: boolean }>((line, index) => {
+    const match = line.match(LABEL_PATTERN);
+    if (!match) return [];
+    if (match[1]) {
+      scope = match[1];
+      return [{ label: scope, index, global: true }];
     }
+    return [{ label: `${scope}${match[2]}`, index, global: false }];
   });
+}
 
-  if (matches.length === 0) {
-    throw new Error(`Text label '${label}' was not found.`);
-  }
+function labelRange(lines: string[], label: string, includeLocals: boolean): LabelRange {
+  const definitions = labelDefinitions(lines);
+  const matches = definitions.filter((entry) => label.startsWith(".")
+    ? entry.label.endsWith(label) && !entry.global
+    : entry.label === label);
+  if (matches.length === 0) throw new Error(`Text label '${label}' was not found.`);
   if (matches.length > 1) {
-    throw new Error(
-      `Text label '${label}' appears more than once in this file, so Yellow Editor cannot edit it safely yet.`,
-    );
+    throw new Error(`Text label '${label}' appears more than once in this file, so Yellow Editor cannot edit it safely yet. Use its full scoped label.`);
   }
-
-  const start = matches[0];
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (LABEL_PATTERN.test(lines[index])) {
-      end = index;
-      break;
-    }
-  }
+  const start = matches[0].index;
+  const end = definitions.find((entry) => entry.index > start
+    && (!includeLocals || !matches[0].global || entry.global))?.index ?? lines.length;
   return { start, end };
 }
 
+function findLabelRange(lines: string[], label: string): LabelRange {
+  return labelRange(lines, label, false);
+}
+
 function findGlobalLabelRange(lines: string[], label: string): LabelRange {
-  if (label.startsWith(".")) {
-    return findLabelRange(lines, label);
-  }
+  return labelRange(lines, label, true);
+}
 
-  const exact = new RegExp(`^\\s*${escapeRegex(label)}:{1,2}\\s*(?:;.*)?$`);
-  const matches: number[] = [];
-  lines.forEach((line, index) => {
-    if (exact.test(line)) matches.push(index);
-  });
+function scopedTarget(lines: string[], index: number, target: string): string {
+  if (!target.startsWith(".")) return target;
+  const globals = labelDefinitions(lines).filter((entry) => entry.global && entry.index <= index);
+  const scope = globals[globals.length - 1];
+  return `${scope?.label ?? ""}${target}`;
+}
 
-  if (matches.length === 0) {
-    throw new Error(`Text label '${label}' was not found.`);
-  }
-  if (matches.length > 1) {
-    throw new Error(
-      `Text label '${label}' appears more than once in this file, so Yellow Editor cannot edit it safely yet.`,
-    );
-  }
-
-  const start = matches[0];
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (GLOBAL_LABEL_PATTERN.test(lines[index])) {
-      end = index;
-      break;
-    }
-  }
-  return { start, end };
+// UI references must qualify local text pointers at their actual source position.
+export function qualifiedTextLabel(contents: string, target: string, sourceLine: number): string | null {
+  if (!target.startsWith(".")) return target;
+  const lines = contents.split(/\r?\n/);
+  if (!Number.isInteger(sourceLine) || sourceLine < 1 || sourceLine > lines.length) return null;
+  const scoped = scopedTarget(lines, sourceLine - 1, target);
+  return scoped === target ? null : scoped;
 }
 
 function parseBlock(
@@ -378,29 +364,16 @@ function parseBlock(
   };
 }
 
-function farTextLabel(contents: string, label: string): string | null {
-  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
-  const lines = contents.split(newline);
-  // A text_asm wrapper can put its actual text_far under a local label such as
-  // .IntroText. Scan the whole global wrapper, including local labels, but only
-  // auto-follow it when there is exactly one distinct far-text destination.
-  const range = findGlobalLabelRange(lines, label);
-  const labels: string[] = [];
-  for (let index = range.start + 1; index < range.end; index += 1) {
-    const farLabel = lines[index].match(FAR_TEXT_PATTERN)?.[1];
-    if (farLabel && !labels.includes(farLabel)) labels.push(farLabel);
-  }
-  return labels.length === 1 ? labels[0] : null;
-}
-
 function textPointerCandidates(contents: string, label: string): string[] {
-  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
-  const lines = contents.split(newline);
+  const lines = contents.split(/\r?\n/);
   const range = findGlobalLabelRange(lines, label);
   const labels: string[] = [];
   for (let index = range.start + 1; index < range.end; index += 1) {
     const candidate = lines[index].match(TEXT_POINTER_LOAD_PATTERN)?.[1];
-    if (candidate && !labels.includes(candidate)) labels.push(candidate);
+    if (candidate) {
+      const scoped = scopedTarget(lines, index, candidate);
+      if (!labels.includes(scoped)) labels.push(scoped);
+    }
   }
   return labels;
 }
@@ -416,8 +389,8 @@ function pathStem(path: string): string {
 }
 
 function containsLabel(contents: string, label: string): boolean {
-  const exact = new RegExp(`^\\s*${escapeRegex(label)}:{1,2}\\s*(?:;.*)?$`, "m");
-  return exact.test(contents);
+  try { findLabelRange(contents.split(/\r?\n/), label); return true; }
+  catch { return false; }
 }
 
 export function textDocumentDisplayPreview(
@@ -471,19 +444,8 @@ async function findExternalTextDocument(
   return null;
 }
 
-async function resolveFarTextDocument(
-  source: ProjectSource,
-  wrapperPath: string,
-  wrapperLabel: string,
-  wrapperContents: string,
-): Promise<TextDocument | null> {
-  const textLabel = farTextLabel(wrapperContents, wrapperLabel);
-  return textLabel ? findExternalTextDocument(source, wrapperPath, textLabel) : null;
-}
-
 function farTextLabels(contents: string, label: string): string[] {
-  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
-  const lines = contents.split(newline);
+  const lines = contents.split(/\r?\n/);
   const range = findGlobalLabelRange(lines, label);
   const labels: string[] = [];
   for (let index = range.start + 1; index < range.end; index += 1) {
@@ -493,16 +455,18 @@ function farTextLabels(contents: string, label: string): string[] {
   return labels;
 }
 
-function farcallTargets(contents: string, label: string): string[] {
-  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
-  const lines = contents.split(newline);
+function wrapperTargets(contents: string, label: string): string[] {
+  const lines = contents.split(/\r?\n/);
   const range = findGlobalLabelRange(lines, label);
   const labels: string[] = [];
   for (let index = range.start + 1; index < range.end; index += 1) {
     const target = lines[index].match(
-      /^\s*farcall\s+([A-Za-z_][A-Za-z0-9_]*)\b/i,
+      /^\s*(?:farcall|callfar|call|farjp|jp|jr)\s+(?:(?:nz|z|nc|c)\s*,\s*)?([A-Za-z_.][A-Za-z0-9_.]*)\s*(?:;.*)?$/i,
     )?.[1];
-    if (target && !labels.includes(target)) labels.push(target);
+    if (target) {
+      const scoped = scopedTarget(lines, index, target);
+      if (!labels.includes(scoped)) labels.push(scoped);
+    }
   }
   return labels;
 }
@@ -545,13 +509,13 @@ async function resolveTextLeafDocuments(
     if (external) resolved.push(external);
   }
 
-  for (const target of farcallTargets(contents, label)) {
+  for (const target of wrapperTargets(contents, label)) {
     if (containsLabel(contents, target)) {
       resolved.push(...await resolveTextLeafDocuments(
         source,
         path,
         target,
-        new Set(visited),
+        visited,
       ));
       continue;
     }
@@ -563,78 +527,27 @@ async function resolveTextLeafDocuments(
         source,
         candidatePath,
         target,
-        new Set(visited),
+        visited,
       ));
       break;
     }
   }
 
-  if (resolved.length === 0) {
-    for (const candidate of textPointerCandidates(contents, label)) {
-      if (candidate.startsWith(".")) continue;
-      if (!containsLabel(contents, candidate)) continue;
-      try {
-        resolved.push(...await resolveTextLeafDocuments(
-          source,
-          path,
-          candidate,
-          new Set(visited),
-        ));
-      } catch {
-        // Some register loads point at non-text data. Ignore unproven targets.
-      }
+  for (const candidate of textPointerCandidates(contents, label)) {
+    if (!containsLabel(contents, candidate)) continue;
+    try {
+      resolved.push(...await resolveTextLeafDocuments(
+        source,
+        path,
+        candidate,
+        visited,
+      ));
+    } catch {
+      // Some register loads point at non-text data. Ignore unproven targets.
     }
   }
 
   return uniqueDocuments(resolved);
-}
-
-async function resolveTextLeafDocument(
-  source: ProjectSource,
-  path: string,
-  label: string,
-  previewText: string,
-  visited: Set<string>,
-): Promise<TextDocument | null> {
-  const visitKey = `${path}:${label}`;
-  if (visited.has(visitKey)) return null;
-  visited.add(visitKey);
-
-  const contents = await source.readText(path);
-  const direct = await parseTextDocument(path, label, contents);
-  if (direct.editable) return direct;
-
-  const candidates = textPointerCandidates(contents, label);
-  const resolved: TextDocument[] = [];
-  for (const candidate of candidates) {
-    try {
-      const document = await resolveTextLeafDocument(
-        source,
-        path,
-        candidate,
-        previewText,
-        new Set(visited),
-      );
-      if (document && !resolved.some((existing) =>
-        existing.path === document.path && existing.label === document.label
-      )) {
-        resolved.push(document);
-      }
-    } catch {
-      // Registers may point at data that is not text. Ignore candidates that
-      // cannot be proven to resolve to an editable dialogue leaf.
-    }
-  }
-
-  const expected = comparableText(previewText);
-  const exactMatches = resolved.filter((document) =>
-    comparableText(textDocumentDisplayPreview(document)) === expected
-  );
-  if (exactMatches.length === 1) return exactMatches[0];
-  if (resolved.length === 1) return resolved[0];
-  if (resolved.length > 1) return null;
-
-  return resolveFarTextDocument(source, path, label, contents);
 }
 
 export async function parseTextDocument(
@@ -642,8 +555,7 @@ export async function parseTextDocument(
   label: string,
   contents: string,
 ): Promise<TextDocument> {
-  const newline = contents.includes("\r\n") ? "\r\n" : "\n";
-  const lines = contents.split(newline);
+  const lines = contents.split(/\r?\n/);
   const range = findLabelRange(lines, label);
   const parsed = parseBlock(lines, range);
 
@@ -699,7 +611,11 @@ export function applyTextDocumentEdits(
   segments: TextSegment[],
 ): string {
   const newline = contents.includes("\r\n") ? "\r\n" : "\n";
-  const lines = contents.split(newline);
+  const separators = contents.match(/\r?\n/g) ?? [];
+  const lines = contents.split(/\r?\n/);
+  const offsets: number[] = [];
+  let offset = 0;
+  lines.forEach((line, index) => { offsets.push(offset); offset += line.length + (separators[index]?.length ?? 0); });
   const range = findLabelRange(lines, label);
   const current = parseBlock(lines, range);
 
@@ -727,10 +643,16 @@ export function applyTextDocumentEdits(
         `Text label '${label}' changed structure while it was being edited. Reload it before saving.`,
       );
     }
-    rewriteDexTextBlock(lines, range, segments);
-    return lines.join(newline);
+    const replacement = lines.slice(range.start, range.end);
+    rewriteDexTextBlock(replacement, { start: 0, end: replacement.length }, segments);
+    const tailSeparator = range.end < lines.length
+      ? separators[range.end - 1]
+      : contents.endsWith("\n") ? separators[separators.length - 1] : "";
+    return contents.slice(0, offsets[range.start + 1]) + replacement.slice(1).join(newline)
+      + tailSeparator + contents.slice(offsets[range.end] ?? contents.length);
   }
 
+  const replacements: { start: number; end: number; text: string }[] = [];
   let segmentIndex = 0;
   for (let index = range.start + 1; index < range.end; index += 1) {
     const match = lines[index].match(TEXT_LINE_PATTERN);
@@ -750,14 +672,20 @@ export function applyTextDocumentEdits(
         "A single text segment cannot contain a raw line break. Use the existing text-flow segments instead.",
       );
     }
-    const originalText = decodeAsmTextString(match[3]);
-    const terminatorIndex = originalText.indexOf("@");
-    const sourceSuffix = terminatorIndex >= 0 ? originalText.slice(terminatorIndex) : "";
-    lines[index] = `${match[1]}${match[2]} "${encodeAsmString(next.text + sourceSuffix)}"${match[4]}`;
+    const terminatorIndex = match[3].indexOf("@");
+    const sourceSuffix = terminatorIndex >= 0 ? match[3].slice(terminatorIndex) : "";
+    if (next.text !== visibleAsmText(match[3])) {
+      const start = offsets[index] + lines[index].indexOf('"') + 1;
+      replacements.push({ start, end: start + match[3].length, text: encodeAsmString(next.text) + sourceSuffix });
+    }
     segmentIndex += 1;
   }
 
-  return lines.join(newline);
+  let rewritten = contents;
+  for (const replacement of replacements.reverse()) {
+    rewritten = rewritten.slice(0, replacement.start) + replacement.text + rewritten.slice(replacement.end);
+  }
+  return rewritten;
 }
 
 export function attachTextEditing(
@@ -770,7 +698,7 @@ export function attachTextEditing(
     const contents = await source.readText(path);
     if (containsLabel(contents, label)) return path;
 
-    for (const candidatePath of SHARED_TEXT_WRAPPER_PATHS) {
+    for (const candidatePath of [...siblingScriptPaths(path), ...SHARED_TEXT_WRAPPER_PATHS]) {
       if (!(await source.exists(candidatePath))) continue;
       const candidateContents = await source.readText(candidatePath);
       if (containsLabel(candidateContents, label)) return candidatePath;
@@ -807,31 +735,12 @@ export function attachTextEditing(
         && comparableText(textDocumentDisplayPreview(document)) === expected
       );
       if (matches.length === 1) return matches[0];
-
-      try {
-        const leafDocument = await resolveTextLeafDocument(
-          source,
-          resolvedPath,
-          label,
-          previewText,
-          new Set(),
-        );
-        if (leafDocument) return leafDocument;
-      } catch {
-        // Fall through to conservative behavior.
-      }
     }
 
     const editableLeaves = leaves.filter((document) => document.editable);
     if (editableLeaves.length === 1) return editableLeaves[0];
 
-    const farDocument = await resolveFarTextDocument(
-      source,
-      resolvedPath,
-      label,
-      contents,
-    );
-    return farDocument ?? parseTextDocument(resolvedPath, label, contents);
+    return parseTextDocument(resolvedPath, label, contents);
   };
 
   extended.saveTextDocument = async (request) => {

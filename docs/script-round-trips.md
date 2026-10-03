@@ -121,3 +121,33 @@ The runner now executes 70 assembled CPU probes in total. Undoing a source edit
 and rebuilding does not restore event bits already changed in a save; testing the
 normal encounter again requires a save from before the reset ran or explicit
 restoration of its setup.
+
+## Dialogue leaves and search
+
+A dialogue wrapper may contain event checks, rewards, local jumps, and banked
+calls. Text editing resolves concrete quoted-text leaves through literal calls,
+tail/local jumps, `text_far`, and `ld hl` pointers in the source or its companion
+script. Local labels use their full global scope, including colonless `.text`
+labels. Unknown assembly remains read-only, and wrapper code is never rewritten
+by the dialogue editor. Multiple editable leaves always offer a path picker,
+including when an interaction already has a preview. Duplicate previews do not
+identify a unique branch.
+
+Ordinary text saves replace only changed quoted payloads. Text-flow commands,
+runtime inserts, terminators, comments, spacing, neighboring labels, and mixed
+line endings remain unchanged; stale file hashes refuse the save. Structural
+Pokédex edits remain a separate supported operation. Focused tests cover local
+scope collisions, calls/jumps, cycles, ambiguity, stale saves, and byte-preserving
+rewrites. Source sweeps additionally save/edit/reparse all six real Route 1 leaves
+in each game (all four reward branches, the ledge NPC, and the sign). The edited
+ROM variants include those dialogue changes while keeping wrapper sources intact.
+These checks establish text/source safety and assembly compatibility; actual
+on-screen presentation and full gameplay remain manual ROM validation.
+
+Controlled dropdowns with more than 20 options now expose search across displayed
+names and source constants. Filtering retains the current selection and never
+changes a draft by itself. The Scripts browser and dialogue path picker also
+support searches ignoring case, underscores, and CamelCase spacing. Routine search
+covers every companion file for the selected map and expands matching categories,
+so searching `rival` on Route 22 shows its related routines together with their
+source paths.

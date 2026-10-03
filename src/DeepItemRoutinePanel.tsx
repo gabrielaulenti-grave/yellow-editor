@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import type {
   BattleFlagEffect,
   ItemData,
@@ -156,7 +157,7 @@ export function DeepItemRoutinePanel({
         {routine.editable ? (
           <label className="editor-field">
             <span>HP Restored</span>
-            <select
+            <SearchableSelect
               value={routine.restoreMode}
               disabled={busy}
               onChange={(event) =>
@@ -168,7 +169,7 @@ export function DeepItemRoutinePanel({
               <option value="quarter">25% of maximum HP</option>
               <option value="half">50% of maximum HP — vanilla Revive</option>
               <option value="full">100% of maximum HP</option>
-            </select>
+            </SearchableSelect>
           </label>
         ) : (
           <ReadonlyField label="HP Restored" value="100% of maximum HP" />
@@ -280,7 +281,7 @@ export function DeepItemRoutinePanel({
         <strong>Bicycle movement speed</strong>
         <label className="editor-field">
           <span>Movement Speed</span>
-          <select
+          <SearchableSelect
             value={routine.speedMultiplier}
             disabled={busy}
             onChange={(event) =>
@@ -292,7 +293,7 @@ export function DeepItemRoutinePanel({
             <option value={1}>1× — walking speed</option>
             <option value={2}>2× — vanilla bicycle</option>
             <option value={4}>4× — fast bicycle</option>
-          </select>
+          </SearchableSelect>
         </label>
         <ReadonlyField
           label="Detected Routine Layout"
@@ -317,7 +318,7 @@ export function DeepItemRoutinePanel({
         <strong>Status medicine effect</strong>
         <label className="editor-field">
           <span>Status Cured</span>
-          <select
+          <SearchableSelect
             value={routine.effect}
             disabled={busy}
             onChange={(event) =>
@@ -332,7 +333,7 @@ export function DeepItemRoutinePanel({
             <option value="sleep">Sleep</option>
             <option value="paralysis">Paralysis</option>
             <option value="all">All status conditions</option>
-          </select>
+          </SearchableSelect>
         </label>
         <p className="help-text">
           Yellow Editor changes both the status mask and the matching party-menu message, so a
@@ -351,7 +352,7 @@ export function DeepItemRoutinePanel({
           <ReadonlyField label="Raised Stat" value={routine.stat} />
           <label className="editor-field">
             <span>Stages Raised</span>
-            <select
+            <SearchableSelect
               value={routine.stageBoost}
               disabled={busy}
               onChange={(event) =>
@@ -362,7 +363,7 @@ export function DeepItemRoutinePanel({
             >
               <option value={1}>+1 stage — vanilla</option>
               <option value={2}>+2 stages</option>
-            </select>
+            </SearchableSelect>
           </label>
         </div>
         <p className="help-text">
@@ -384,7 +385,7 @@ export function DeepItemRoutinePanel({
         <strong>Battle item effect</strong>
         <label className="editor-field">
           <span>Effect Applied</span>
-          <select
+          <SearchableSelect
             value={routine.effect}
             disabled={busy}
             onChange={(event) =>
@@ -396,7 +397,7 @@ export function DeepItemRoutinePanel({
             <option value="x-accuracy">X Accuracy — ignore normal accuracy/evasion checks</option>
             <option value="mist">Guard Spec. — protect against stat reductions</option>
             <option value="focus-energy">Dire Hit — apply Focus Energy state</option>
-          </select>
+          </SearchableSelect>
         </label>
         <p className="help-text">
           X Accuracy, Guard Spec., and Dire Hit each set a persistent bit in the player's battle
@@ -444,7 +445,7 @@ export function DeepItemRoutinePanel({
                 </div>
                 <label className="editor-field">
                   <span>Evolution Item</span>
-                  <select
+                  <SearchableSelect
                     value={reference.itemConstant}
                     disabled={busy}
                     onChange={(event) => {
@@ -461,7 +462,7 @@ export function DeepItemRoutinePanel({
                         {itemLabel(items, constant)}
                       </option>
                     ))}
-                  </select>
+                  </SearchableSelect>
                 </label>
               </div>
             ))}

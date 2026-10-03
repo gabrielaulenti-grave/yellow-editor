@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import type {
   PokemonDetails,
   PokemonEditDocument,
@@ -75,11 +76,11 @@ function SelectField({
   return (
     <label className="editor-field">
       <span>{label}</span>
-      <select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
+      <SearchableSelect value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
         ))}
-      </select>
+      </SearchableSelect>
     </label>
   );
 }
@@ -146,7 +147,7 @@ export function PokemonTab({
           <h2>Pokémon</h2>
           <p>Edit the complete species progression data, presentation, learnsets, evolutions, and Pokédex entry.</p>
         </div>
-        <select
+        <SearchableSelect
           value={selectedPokemonId ?? ""}
           disabled={editBusy}
           onChange={(event) => {
@@ -163,7 +164,7 @@ export function PokemonTab({
                 {formatHex(entry.internalId)} — {entry.displayName}
               </option>
             ))}
-        </select>
+        </SearchableSelect>
       </div>
 
       {!project && <p>Open a project to browse Pokémon.</p>}
@@ -312,17 +313,17 @@ export function PokemonTab({
                     {draft.evolutions.map((item, index) => (
                       <tr key={index}>
                         <td>
-                          <select value={item.method} disabled={editBusy} onChange={(event) => updateEvolution(index, { method: event.target.value as PokemonEvolutionDraft["method"] })}>
+                          <SearchableSelect value={item.method} disabled={editBusy} onChange={(event) => updateEvolution(index, { method: event.target.value as PokemonEvolutionDraft["method"] })}>
                             <option value="level">Level</option>
                             <option value="item">Item</option>
                             <option value="trade">Trade</option>
                             <option value="move">Level up knowing move</option>
-                          </select>
+                          </SearchableSelect>
                         </td>
                         <td><input type="number" min={1} max={255} value={item.level} disabled={editBusy} onChange={(event) => updateEvolution(index, { level: event.target.value })} /></td>
                         <td>
                           {item.method === "item" ? (
-                            <select
+                            <SearchableSelect
                               value={item.item}
                               disabled={editBusy}
                               onChange={(event) =>
@@ -331,9 +332,9 @@ export function PokemonTab({
                               {document.options.evolutionItems.map((option) => (
                                 <option key={option} value={option}>{option}</option>
                               ))}
-                            </select>
+                            </SearchableSelect>
                           ) : item.method === "move" ? (
-                            <select
+                            <SearchableSelect
                               value={item.move}
                               disabled={editBusy}
                               onChange={(event) =>
@@ -342,15 +343,15 @@ export function PokemonTab({
                               {document.options.moves.map((option) => (
                                 <option key={option} value={option}>{option}</option>
                               ))}
-                            </select>
+                            </SearchableSelect>
                           ) : (
                             <span className="help-text">—</span>
                           )}
                         </td>
                         <td>
-                          <select value={item.target} disabled={editBusy} onChange={(event) => updateEvolution(index, { target: event.target.value })}>
+                          <SearchableSelect value={item.target} disabled={editBusy} onChange={(event) => updateEvolution(index, { target: event.target.value })}>
                             {document.options.species.map((option) => <option key={option} value={option}>{option}</option>)}
-                          </select>
+                          </SearchableSelect>
                         </td>
                         <td>
                           <button type="button" className="small-button danger-action" disabled={editBusy} onClick={() => patch({ evolutions: draft.evolutions.filter((_, itemIndex) => itemIndex !== index) })}>
@@ -408,9 +409,9 @@ export function PokemonTab({
                       <tr key={index}>
                         <td><input type="number" min={1} max={100} value={move.level} disabled={editBusy} onChange={(event) => updateLearnset(index, { level: event.target.value })} /></td>
                         <td>
-                          <select value={move.moveConstant} disabled={editBusy} onChange={(event) => updateLearnset(index, { moveConstant: event.target.value })}>
+                          <SearchableSelect value={move.moveConstant} disabled={editBusy} onChange={(event) => updateLearnset(index, { moveConstant: event.target.value })}>
                             {document.options.moves.map((option) => <option key={option} value={option}>{option}</option>)}
-                          </select>
+                          </SearchableSelect>
                         </td>
                         <td><button type="button" className="small-button danger-action" disabled={editBusy} onClick={() => patch({ learnset: draft.learnset.filter((_, itemIndex) => itemIndex !== index) })}>Remove</button></td>
                       </tr>

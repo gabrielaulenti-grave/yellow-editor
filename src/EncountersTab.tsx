@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useState } from "react";
 import type {
   EncounterTableEditDocument,
@@ -302,7 +303,7 @@ export function EncountersTab({
                                 <td>{index + 1}</td>
                                 <td>{SLOT_CHANCES[index]}</td>
                                 <td>
-                                  <select
+                                  <SearchableSelect
                                     value={slot.speciesConstant}
                                     disabled={busy}
                                     onChange={(event) =>
@@ -314,7 +315,7 @@ export function EncountersTab({
                                         {pokemon.displayName} — {pokemon.constant}
                                       </option>
                                     ))}
-                                  </select>
+                                  </SearchableSelect>
                                 </td>
                                 <td className={levelError ? "field-invalid" : ""}>
                                   <input

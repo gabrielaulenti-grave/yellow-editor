@@ -1,3 +1,5 @@
+import { matchesSearch } from "./editor/search";
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useState } from "react";
 import type { HistorySummary } from "./core/types";
 import {
@@ -77,6 +79,7 @@ export function TextEditor({
   const [open, setOpen] = useState(false);
   const [document, setDocument] = useState<TextDocument | null>(null);
   const [leafDocuments, setLeafDocuments] = useState<TextDocument[]>([]);
+  const [pathSearch, setPathSearch] = useState("");
   const [draft, setDraft] = useState<TextSegment[]>([]);
   const [preview, setPreview] = useState(initialText);
   const [busy, setBusy] = useState(false);
@@ -202,6 +205,7 @@ export function TextEditor({
       return;
     }
     setOpen(true);
+    setPathSearch("");
     setError(null);
 
     if (controlled && controlledSegments) {
@@ -225,27 +229,25 @@ export function TextEditor({
     if (!target) return;
     setBusy(true);
     try {
-      if (initialText === null) {
-        const documents = await invoke<TextDocument[]>("get_text_leaf_documents", {
-          path: target.path,
-          label: target.label,
-        });
-        const editable = documents.filter((entry) => entry.editable && entry.segments.length > 0);
-        if (editable.length > 1) {
-          setLeafDocuments(editable);
-          setDocument(null);
-          setDraft([]);
-          setPreview(`${editable.length} dialogue paths available. Open the editor to choose one.`);
-          return;
-        }
-        if (editable.length === 1) {
-          const next = editable[0];
-          setLeafDocuments([]);
-          setDocument(next);
-          setDraft(next.segments.map((segment) => ({ ...segment })));
-          setPreview(textDocumentDisplayPreview(next));
-          return;
-        }
+      const documents = await invoke<TextDocument[]>("get_text_leaf_documents", {
+        path: target.path,
+        label: target.label,
+      });
+      const editable = documents.filter((entry) => entry.editable && entry.segments.length > 0);
+      if (editable.length > 1) {
+        setLeafDocuments(editable);
+        setDocument(null);
+        setDraft([]);
+        setPreview(`${editable.length} dialogue paths available. Open the editor to choose one.`);
+        return;
+      }
+      if (editable.length === 1) {
+        const next = editable[0];
+        setLeafDocuments([]);
+        setDocument(next);
+        setDraft(next.segments.map((segment) => ({ ...segment })));
+        setPreview(textDocumentDisplayPreview(next));
+        return;
       }
 
       const next = await invoke<TextDocument>("get_text_document", {
@@ -414,18 +416,21 @@ export function TextEditor({
                     Choose the piece of dialogue you want to edit. Yellow Editor keeps the surrounding game-state and Yes/No logic unchanged.
                   </p>
                 </div>
+                <input type="search" aria-label="Search dialogue paths" placeholder="Search dialogue or labels…"
+                  value={pathSearch} onChange={(event) => setPathSearch(event.target.value)} />
                 <div className="text-editor-path-list">
-                  {leafDocuments.map((entry, index) => (
+                  {leafDocuments.filter((entry) => matchesSearch(pathSearch, entry.path, entry.label, textDocumentDisplayPreview(entry))).map((entry) => (
                     <button
                       key={`${entry.path}:${entry.label}`}
                       type="button"
                       onClick={() => chooseLeaf(entry)}
                     >
-                      <strong>Dialogue path {index + 1}</strong>
+                      <strong>{entry.label.replace(/^_/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2")}</strong>
                       <span>{textDocumentDisplayPreview(entry) || entry.label}</span>
                       <code>{entry.label}</code>
                     </button>
                   ))}
+                  {!leafDocuments.some((entry) => matchesSearch(pathSearch, entry.path, entry.label, textDocumentDisplayPreview(entry))) && <p>No dialogue paths match.</p>}
                 </div>
               </div>
             )}
@@ -470,7 +475,7 @@ export function TextEditor({
                         <span className="text-editor-segment-heading">
                           <span className="text-editor-control-with-help">
                             {dexMode ? (
-                              <select
+                              <SearchableSelect
                                 value={segment.control}
                                 disabled={busy || !document.editable}
                                 aria-label="Text flow control"
@@ -479,7 +484,7 @@ export function TextEditor({
                                 <option value="text">Start text</option>
                                 <option value="next">Next line</option>
                                 <option value="page">New Pokédex page</option>
-                              </select>
+                              </SearchableSelect>
                             ) : (
                               <span>{controlLabel(segment.control)}</span>
                             )}

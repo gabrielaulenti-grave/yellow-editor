@@ -1,3 +1,4 @@
+import "./textEditing.test";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { loadMacroAnalysis } from "../src/core/macroCatalog";

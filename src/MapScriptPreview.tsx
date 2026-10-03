@@ -1,3 +1,4 @@
+import { qualifiedTextLabel } from "./core/textEditing";
 import { Fragment, useMemo } from "react";
 import {
   structuredMapScriptFlow,
@@ -141,13 +142,20 @@ function textPointerLabels(contents: string): Map<string, string> {
 function textEditorTarget(
   reference: MapScriptPreviewReference,
   sourceLabel: string | undefined,
+  sourceLine?: number,
 ): TextEditorTarget | null {
   if (!sourceLabel) return null;
   let wrapperLabel = sourceLabel;
   if (sourceLabel.startsWith("TEXT_")) {
     wrapperLabel = textPointerLabels(reference.mapScriptSource).get(sourceLabel) ?? "";
   }
-  if (!wrapperLabel || wrapperLabel.startsWith(".")) return null;
+  if (!wrapperLabel) return null;
+  if (wrapperLabel.startsWith(".")) {
+    if (sourceLine === undefined) return null;
+    const scoped = qualifiedTextLabel(reference.mapScriptSource, wrapperLabel, sourceLine);
+    if (!scoped) return null;
+    wrapperLabel = scoped;
+  }
   return { path: reference.scriptPath, label: wrapperLabel };
 }
 
@@ -600,7 +608,7 @@ function DialoguePreview({
     <div className="map-script-dialogue-preview">
       <TextEditor
         title="Dialogue"
-        target={preview?.target ?? textEditorTarget(reference, displayedLabel ?? node.textLabel)}
+        target={preview?.target ?? textEditorTarget(reference, displayedLabel ?? node.textLabel, node.source.lineStart)}
         initialText={preview?.target ? null : preview?.text ?? null}
       />
       <TextScriptLogic

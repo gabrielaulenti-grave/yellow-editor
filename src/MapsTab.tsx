@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   EncounterTableEditDocument,
@@ -955,14 +956,14 @@ export function MapsTab({
 
                 <label className="world-map-zoom">
                   <span>Zoom</span>
-                  <select
+                  <SearchableSelect
                     value={zoom}
                     onChange={(event) => setZoom(Number.parseInt(event.target.value, 10))}
                   >
                     <option value={1}>1×</option>
                     <option value={2}>2×</option>
                     <option value={3}>3×</option>
-                  </select>
+                  </SearchableSelect>
                 </label>
 
                 {view === "map" && (

@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useRef, useState } from "react";
 import type {
   HistorySummary,
@@ -401,7 +402,7 @@ export function TrainerSpritePanel({
                 <>
                   <label className="editor-field">
                     <span>Party portrait override</span>
-                    <select
+                    <SearchableSelect
                       value={overrideDraft}
                       disabled={overrideBusy}
                       onChange={(event) => setOverrideDraft(event.target.value)}
@@ -411,7 +412,7 @@ export function TrainerSpritePanel({
                           {displayPicLabel(picLabel)} — {picLabel}
                         </option>
                       ))}
-                    </select>
+                    </SearchableSelect>
                   </label>
                   <p className="help-text">
                     This exact override applies only to {displayName}. Existing engine behavior remains underneath it.

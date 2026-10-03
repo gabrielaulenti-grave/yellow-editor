@@ -1,3 +1,4 @@
+import { route1DialogueRoundTrips } from "./route1Dialogue";
 import assert from "node:assert/strict";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -55,6 +56,11 @@ try {
     run("make", ["clean"], root);
     run("make", ["-j2", `RGBDS=${rgbds}/`, rom], root);
     console.log(`${original}: vanilla ROM assembled and linked`);
+
+    for (const [path, contents] of await route1DialogueRoundTrips(source)) {
+      await writeFile(join(root, path), contents);
+    }
+    console.log("  all 6 Route 1 dialogue leaves edited; wrapper assembly sources untouched");
 
     for (let variant = 0; variant < 3; variant++) {
       let changed = 0;

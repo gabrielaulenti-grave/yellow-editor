@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useState } from "react";
 import type {
   ItemCreateDocument,
@@ -222,7 +223,7 @@ export function AddItemWizard({
             <div className="field-grid two-column-fields">
               <label className="editor-field">
                 <span>Unused Slot</span>
-                <select
+                <SearchableSelect
                   value={slotId}
                   disabled={busy}
                   onChange={(event) => {
@@ -236,7 +237,7 @@ export function AddItemWizard({
                       {formatHex(slot.id)} — {slot.constant} — {slot.displayName}
                     </option>
                   ))}
-                </select>
+                </SearchableSelect>
               </label>
 
               <label className="editor-field">
