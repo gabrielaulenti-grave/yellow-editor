@@ -1,3 +1,4 @@
+import { route1DialogueRoundTrips } from "./route1Dialogue";
 import assert from "node:assert/strict";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -55,6 +56,11 @@ try {
     run("make", ["clean"], root);
     run("make", ["-j2", `RGBDS=${rgbds}/`, rom], root);
     console.log(`${original}: vanilla ROM assembled and linked`);
+
+    for (const [path, contents] of await route1DialogueRoundTrips(source)) {
+      await writeFile(join(root, path), contents);
+    }
+    console.log("  all 6 Route 1 dialogue leaves edited; wrapper assembly sources untouched");
 
     for (let variant = 0; variant < 3; variant++) {
       let changed = 0;
@@ -114,6 +120,18 @@ try {
     const selected = [...new Set([options[0].value, options[Math.floor(options.length / 2)].value, options[options.length - 1].value])];
     const delay = (await source.readText("home/delay.asm")).split("\n\n")[0];
     let runtimePassed = 0;
+    async function runAssembledProbe(asm: string, expectations: string[]) {
+      const filename = join(temporary, "probe.asm");
+      const object = join(temporary, "probe.o");
+      const cartridge = join(temporary, "probe.gb");
+      const symbols = join(temporary, "probe.sym");
+      await writeFile(filename, asm);
+      run(join(rgbds, "rgbasm"), ["-I", `${root}/`, "-o", object, filename], root);
+      run(join(rgbds, "rgblink"), ["-n", symbols, "-o", cartridge, object]);
+      run(join(rgbds, "rgbfix"), ["-v", "-p", "0", cartridge]);
+      const stop = (await readFile(symbols, "utf8")).match(/^00:([0-9a-f]+) ProbeDone$/mi)![1];
+      run(cpu, [cartridge, stop, ...expectations]);
+    }
     async function probe(body: string, event: string, initial: number, expected: number, duration: number) {
       const eventNumber = analysis.catalog.numericConstants![event];
       assert.ok(Number.isInteger(eventNumber), `No numeric event index for ${event}`);
@@ -127,20 +145,11 @@ try {
         `\tld a, ${initial}`, `\tld [$${address.toString(16)}], a`, '\tcall Target', 'ProbeDone:', '\thalt', '\tjr ProbeDone',
         body, delay, 'DelayFrame:', '\tld hl, $c001', '\tinc [hl]', '\tret', '',
       ].join("\n");
-      const filename = join(temporary, "probe.asm");
-      const object = join(temporary, "probe.o");
-      const cartridge = join(temporary, "probe.gb");
-      const symbols = join(temporary, "probe.sym");
-      await writeFile(filename, asm);
-      run(join(rgbds, "rgbasm"), ["-I", `${root}/`, "-o", object, filename], root);
-      run(join(rgbds, "rgblink"), ["-n", symbols, "-o", cartridge, object]);
-      run(join(rgbds, "rgbfix"), ["-v", "-p", "0", cartridge]);
-      const stop = (await readFile(symbols, "utf8")).match(/^00:([0-9a-f]+) ProbeDone$/mi)![1];
       const expectations = Array.from({ length: 512 }, (_, index) => {
         const current = 0xc100 + index;
         return `${current.toString(16)}=${(current === address ? expected : 0).toString(16)}`;
       });
-      run(cpu, [cartridge, stop, `c001=${duration.toString(16)}`, ...expectations]);
+      await runAssembledProbe(asm, [`c001=${duration.toString(16)}`, ...expectations]);
       runtimePassed++;
     }
     for (const event of selected) {
@@ -155,6 +164,80 @@ try {
       }
     }
     console.log(`  ${runtimePassed} assembled CPU probes passed: event set/reset, both conditional paths, exact delay counts, and all neighboring event bytes`);
+
+    const route22 = files.find((file) => file.path === "scripts/Route22.asm")!.contents;
+    const dispatcher = route22.slice(route22.indexOf("Route22DefaultScript:"), route22.indexOf("Route22FirstRivalBattleScript:"));
+    const coordsSource = files.find((file) => file.path === "home/map_objects.asm")!.contents;
+    const coords = coordsSource.slice(coordsSource.indexOf("ArePlayerCoordsInArray::"), coordsSource.indexOf("CheckBoulderCoords::"));
+    const dependency = analysis.catalog.eventBranchDependencies?.find((entry) => entry.routine === "Route22DefaultScript");
+    assert.equal(dependency?.guardEvent, "EVENT_ROUTE22_RIVAL_WANTS_BATTLE");
+    assert.deepEqual(dependency?.branchEvents, ["EVENT_1ST_ROUTE22_RIVAL_BATTLE", "EVENT_2ND_ROUTE22_RIVAL_BATTLE"]);
+    assert.ok(dependency?.writtenSymbols.includes("wJoyIgnore"));
+    const pending = "EVENT_1ST_ROUTE22_RIVAL_BATTLE";
+    const second = "EVENT_2ND_ROUTE22_RIVAL_BATTLE";
+    const enabled = "EVENT_ROUTE22_RIVAL_WANTS_BATTLE";
+    const completed = "EVENT_BEAT_ROUTE22_RIVAL_1ST_BATTLE";
+    const route1 = files.find((file) => file.path === "scripts/Route1.asm")!.contents;
+    // Red's original Route1_Script ends in a tail jump and is correctly refused
+    // by the simple-action builder. Use a supported helper for its reset probes.
+    const resetSource = yellow ? route1 : "ResetOrigin:\n\tret\n";
+    const resetPath = yellow ? "scripts/Route1.asm" : "scripts/ResetOrigin.asm";
+    const resetRoutine = yellow ? "Route1_Script" : "ResetOrigin";
+    let encounterProbes = 0;
+    for (const scenario of [
+      { label: "first encounter", initial: [pending, enabled], reset: [], branch: 1 },
+      { label: "pending flag cleared alone", initial: [pending, enabled], reset: [pending], branch: 0 },
+      { label: "encounter cancelled", initial: [pending, enabled], reset: [pending, enabled], branch: 0 },
+      { label: "second encounter", initial: [second, enabled], reset: [], branch: 2 },
+      { label: "completion flag cleared", initial: [pending, enabled, completed], reset: [completed], branch: 1 },
+      { label: "outside trigger coordinates", initial: [pending, enabled], reset: [], branch: 0, outside: true },
+    ]) {
+      let edited = resetSource;
+      for (const event of scenario.reset) {
+        const doc = await loadScriptSimpleActionCreateDocument(edited, resetPath, resetRoutine, analysis, movement, events);
+        edited = (await prepareScriptSimpleActionWrite(edited, doc, { action: "reset-event", event }, analysis, movement, events)).contents;
+      }
+      const route1Routine = edited.split("\n\n")[0];
+      const eventBytes = new Map<number, number>();
+      for (const event of scenario.initial) {
+        const number = analysis.catalog.numericConstants![event];
+        const address = 0xc100 + Math.floor(number / 8);
+        eventBytes.set(address, (eventBytes.get(address) ?? 0) | (1 << (number % 8)));
+      }
+      const expectedBytes = new Map(eventBytes);
+      for (const event of scenario.reset) {
+        const number = analysis.catalog.numericConstants![event];
+        const address = 0xc100 + Math.floor(number / 8);
+        expectedBytes.set(address, (expectedBytes.get(address) ?? 0) & ~(1 << (number % 8)));
+      }
+      for (const row of scenario.outside ? [6] : [4, 5]) {
+        const locked = !scenario.outside && !scenario.reset.includes(enabled);
+        const constants = analysis.catalog.numericConstants!;
+        const asm = [
+          'INCLUDE "macros/const.asm"', 'INCLUDE "constants/event_constants.asm"', 'INCLUDE "macros/scripts/events.asm"', 'INCLUDE "macros/coords.asm"',
+          'DEF wEventFlags EQU $c100', 'DEF wJoyIgnore EQU $c001', 'DEF wSavedCoordIndex EQU $c003',
+          'DEF wPlayerMovingDirection EQU $c004', 'DEF wCoordIndex EQU $c005', 'DEF wXCoord EQU $c006', 'DEF wYCoord EQU $c007', 'DEF hJoyHeld EQU $ff80',
+          `DEF PAD_CTRL_PAD EQU ${constants.PAD_CTRL_PAD}`, `DEF PLAYER_DIR_LEFT EQU ${constants.PLAYER_DIR_LEFT}`,
+          'SECTION "Header", ROM0[$100]', '\tjp Entry', '\tds $150 - @, 0', 'SECTION "Code", ROM0[$150]', 'Entry:', '\tdi', '\tld sp, $dfff',
+          '\tld hl, $c000', '\tld bc, $300', '.clear:', '\txor a', '\tld [hli], a', '\tdec bc', '\tld a, b', '\tor c', '\tjr nz, .clear',
+          ...[...eventBytes].flatMap(([address, byte]) => [`\tld a, ${byte}`, `\tld [$${address.toString(16)}], a`]),
+          '\tld a, 29', '\tld [wXCoord], a', `\tld a, ${row}`, '\tld [wYCoord], a', `\tcall ${resetRoutine}`,
+          // A stalled default state re-enters the same dispatcher every frame.
+          ...Array.from({ length: 5 }, () => '\tcall Route22DefaultScript'),
+          'ProbeDone:', '\thalt', '\tjr ProbeDone', route1Routine, dispatcher, coords,
+          'EnableAutoTextBoxDrawing:', '\tret',
+          'Route22FirstRivalBattleScript:', '\tld a, 1', '\tld [$c002], a', '\tret',
+          'Route22SecondRivalBattleScript:', '\tld a, 2', '\tld [$c002], a', '\tret', '',
+        ].join("\n");
+        const expectations = [`c001=${(locked ? constants.PAD_CTRL_PAD : 0).toString(16)}`, `c002=${scenario.branch.toString(16)}`,
+          `c003=${(locked ? row - 3 : 0).toString(16)}`, `c004=${(locked ? constants.PLAYER_DIR_LEFT : 0).toString(16)}`,
+          ...Array.from({ length: 512 }, (_, index) => `${(0xc100 + index).toString(16)}=${(expectedBytes.get(0xc100 + index) ?? 0).toString(16)}`)];
+        await runAssembledProbe(asm, expectations);
+        encounterProbes++;
+      }
+      console.log(`  Route 22 ${scenario.label}: controls ${!scenario.outside && !scenario.reset.includes(enabled) ? "locked" : "free"}, encounter handoff ${scenario.branch}`);
+    }
+    console.log(`  ${encounterProbes} ${yellow ? "Route 1" : "reset helper"}/Route 22 CPU regressions passed using real dispatcher, coordinate checks, and generated resets`);
   }
 } finally {
   await rm(temporary, { recursive: true, force: true });

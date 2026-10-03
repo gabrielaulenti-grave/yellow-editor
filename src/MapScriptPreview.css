@@ -2,6 +2,7 @@
   display: grid;
   gap: 0.9rem;
   margin-top: 1rem;
+  container: script-flow / inline-size;
 }
 
 .map-script-preview-heading {
@@ -173,6 +174,7 @@
 }
 
 .map-script-branches {
+  container: script-flow / inline-size;
   display: grid;
   grid-template-columns: 1fr;
   gap: 0.55rem;
@@ -411,5 +413,80 @@
 @media (max-width: 680px) {
   .map-script-validation-panel li {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Each nested card keeps the same content width in a narrow editor, including
+   desktop layouts where the map and routine sidebars leave little room. */
+@container script-flow (max-width: 38rem) {
+  .map-script-step {
+    position: relative;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.4rem;
+    padding: 0.65rem 0.6rem;
+  }
+
+  .map-script-step-icon {
+    display: none;
+  }
+
+  .map-script-step-number {
+    position: absolute;
+    top: 0.65rem;
+    left: 0.6rem;
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+  }
+
+  .map-script-step-title-row {
+    min-height: 1.5rem;
+    padding-left: 1.9rem;
+    overflow-wrap: anywhere;
+  }
+
+  .map-script-step.nested {
+    padding: 0.65rem 0;
+    border: 0;
+    border-top: 1px solid var(--border);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .map-script-step.nested > .map-script-step-number {
+    left: 0;
+  }
+
+  .map-script-step.nested.map-script-if-step {
+    /* Outline shows the condition's extent without subtracting width per level. */
+    outline: 1px solid var(--border);
+    outline-offset: -1px;
+    background: rgba(127, 127, 127, 0.035);
+  }
+
+  .map-script-branch {
+    padding: 0.5rem 0;
+    border: 0;
+    border-top: 2px solid var(--border-strong);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .map-script-branch > small {
+    width: fit-content;
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.25rem;
+    background: var(--panel-soft);
+  }
+
+  .map-script-step-body {
+    overflow-wrap: anywhere;
+  }
+
+  .map-script-dialogue-preview {
+    padding: 0.5rem;
+  }
+
+  .text-editor-summary-heading {
+    flex-wrap: wrap;
   }
 }

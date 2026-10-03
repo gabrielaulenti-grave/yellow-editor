@@ -1,4 +1,6 @@
 import { projectConstantCatalogFromSources, type ProjectRgbdsSourceFile } from "./projectConstants";
+import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
+import { deriveEventBranchDependencies } from "./eventDependencies";
 import type {
   MacroCatalog,
   MacroDefinitionSummary,
@@ -1093,6 +1095,7 @@ export async function loadMacroAnalysis(
       numericConstants: Object.fromEntries(projectConstantCatalogFromSources(readableFiles).constants
         .map((constant) => [constant.symbol, constant.value])),
       labelSignatures: labelSignatures(readableFiles, byName),
+      eventBranchDependencies: deriveEventBranchDependencies(readableFiles, deriveProjectEventMacroSemantics(readableFiles)),
     },
     callsByScriptPath,
   };

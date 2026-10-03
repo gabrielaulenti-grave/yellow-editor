@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useRef, useState } from "react";
 import type { FishingEditDocument, PokemonIndexEntry } from "./core/types";
 import { encounterLevelError } from "./editor/encounterForm";
@@ -66,7 +67,7 @@ function FishingSlotsTable({
                 <td>{index + 1}</td>
                 <td>{chances[index]}</td>
                 <td>
-                  <select
+                  <SearchableSelect
                     value={slot.speciesConstant}
                     disabled={busy}
                     onChange={(event) =>
@@ -78,7 +79,7 @@ function FishingSlotsTable({
                         {pokemon.displayName} — {pokemon.constant}
                       </option>
                     ))}
-                  </select>
+                  </SearchableSelect>
                 </td>
                 <td className={levelError ? "field-invalid" : ""}>
                   <input

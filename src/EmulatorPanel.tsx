@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useRef, useState } from "react";
 import type {
   ChangeEvent,
@@ -544,7 +545,7 @@ export function EmulatorPanel({ rom }: { rom: BuildArtifact }) {
         <div className="emulator-toolbar">
           <label>
             Speed
-            <select
+            <SearchableSelect
               value={speed}
               disabled={loading}
               onChange={(event) => updateSpeed(Number(event.target.value))}
@@ -554,7 +555,7 @@ export function EmulatorPanel({ rom }: { rom: BuildArtifact }) {
                   {option}×
                 </option>
               ))}
-            </select>
+            </SearchableSelect>
           </label>
 
           {!started ? (

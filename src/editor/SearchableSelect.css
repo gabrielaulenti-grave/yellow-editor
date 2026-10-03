@@ -1,0 +1,21 @@
+.searchable-select {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  width: 100%;
+}
+.searchable-select > input {
+  order: -1;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  font: inherit;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border-strong, #b8b8ae);
+  border-radius: 4px;
+  background: var(--panel, #fff);
+  color: inherit;
+}
+.searchable-select > select { max-width: 100%; }
+.searchable-select > small { font-size: 0.75rem; font-weight: normal; }

@@ -369,6 +369,7 @@ export async function loadScriptSimpleActionCreateDocument(
     sourceHash: await hashText(sourceText),
     insertionLine: insertion.insertionLine,
     availableActions,
+    eventBranchDependencies: analysis.catalog.eventBranchDependencies,
     eventOptions: {
       "set-event": [...(setMacro?.options ?? [])],
       "reset-event": [...(resetMacro?.options ?? [])],

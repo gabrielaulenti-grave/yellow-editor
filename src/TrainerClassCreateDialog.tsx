@@ -1,3 +1,4 @@
+import { SearchableSelect } from "./editor/SearchableSelect";
 import { useMemo, useState } from "react";
 import type {
   PokemonIndexEntry,
@@ -161,7 +162,7 @@ export function TrainerClassCreateDialog({
 
           <label className="trainer-reward-field">
             <span>Battle portrait</span>
-            <select
+            <SearchableSelect
               value={portraitClassConstant}
               disabled={busy}
               onChange={(event) => setPortraitClassConstant(event.target.value)}
@@ -169,13 +170,13 @@ export function TrainerClassCreateDialog({
               {classes.map((entry) => (
                 <option key={entry.constant} value={entry.constant}>{entry.name}</option>
               ))}
-            </select>
+            </SearchableSelect>
             <small>Reuses an existing trainer battle sprite until graphics editing is available.</small>
           </label>
 
           <label className="trainer-reward-field">
             <span>Battle behavior template</span>
-            <select
+            <SearchableSelect
               value={behaviorClassConstant}
               disabled={busy}
               onChange={(event) => setBehaviorClassConstant(event.target.value)}
@@ -183,7 +184,7 @@ export function TrainerClassCreateDialog({
               {classes.map((entry) => (
                 <option key={entry.constant} value={entry.constant}>{entry.name}</option>
               ))}
-            </select>
+            </SearchableSelect>
             <small>
               Copies the selected class's AI routine, AI-use count, and move-choice groups.
             </small>
@@ -205,7 +206,7 @@ export function TrainerClassCreateDialog({
 
           <label className="trainer-reward-field">
             <span>Initial Pokémon</span>
-            <select
+            <SearchableSelect
               value={speciesConstant}
               disabled={busy}
               onChange={(event) => setSpeciesConstant(event.target.value)}
@@ -215,7 +216,7 @@ export function TrainerClassCreateDialog({
                   {entry.displayName}
                 </option>
               ))}
-            </select>
+            </SearchableSelect>
             <small>Creates party #1. You can expand it immediately in the party editor.</small>
           </label>
 

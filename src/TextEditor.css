@@ -269,3 +269,9 @@
     transform: none;
   }
 }
+
+.text-editor-path-picker > input[type="search"] {
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem;
+}
