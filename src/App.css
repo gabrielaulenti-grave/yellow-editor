@@ -2693,3 +2693,40 @@ pre {
     justify-content: flex-start;
   }
 }
+
+
+.world-map-script-link,
+.trainer-script-workspace-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.8rem 0.9rem;
+  margin: 0.85rem 0;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 0.65rem;
+  background: var(--panel-bg, rgba(127, 127, 127, 0.05));
+}
+
+.world-map-script-link > div {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.world-map-script-link code {
+  overflow-wrap: anywhere;
+}
+
+.trainer-script-workspace-link .help-text {
+  margin: 0;
+  flex: 1;
+}
+
+@media (max-width: 720px) {
+  .world-map-script-link,
+  .trainer-script-workspace-link {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

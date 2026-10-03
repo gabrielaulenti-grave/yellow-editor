@@ -199,11 +199,13 @@ export async function prepareTrainerRewardWrite(
     );
   }
 
-  lines[lineIndex] =
-    `${parsed.prefix}${itemConstant}${parsed.separator}${quantity}${parsed.suffix}`;
+  const rawLines = contents.split("\n");
+  const carriageReturn = rawLines[lineIndex].endsWith("\r") ? "\r" : "";
+  rawLines[lineIndex] =
+    `${parsed.prefix}${itemConstant}${parsed.separator}${quantity}${parsed.suffix}${carriageReturn}`;
 
   return {
     path,
-    contents: lines.join(contents.includes("\r\n") ? "\r\n" : "\n"),
+    contents: rawLines.join("\n"),
   };
 }

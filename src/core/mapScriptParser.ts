@@ -1,3 +1,4 @@
+import type { ProjectMovementVocabulary } from "./types";
 import {
   findMapScriptOpcode,
   parseMovementStep,
@@ -59,7 +60,31 @@ export function parseMapScriptInstructions(source: string, lineOffset = 0): Pars
   return result;
 }
 
-export function parseMovementPath(label: string, source: string): ParsedMovementPath {
+function coalesceMovementSteps(steps: MapMovementStep[]): MapMovementStep[] {
+  const result: MapMovementStep[] = [];
+  for (const step of steps) {
+    const previous = result[result.length - 1];
+    if (
+      previous
+      && previous.raw === step.raw
+      && previous.direction === step.direction
+      && previous.operation === step.operation
+    ) {
+      previous.count += step.count;
+      continue;
+    }
+    result.push({ ...step });
+  }
+  return result;
+}
+
+export function parseMovementPath(
+  label: string,
+  source: string,
+  vocabulary?: ProjectMovementVocabulary,
+  mode: "npc" | "joypad" | "custom" = "npc",
+  consumerRoutine?: string,
+): ParsedMovementPath {
   const steps: MapMovementStep[] = [];
   for (const line of source.split(/\r?\n/)) {
     const match = withoutComment(line).match(/^db\s+([^,\s]+)(?:\s*,\s*([^,\s]+))?/i);
@@ -68,10 +93,21 @@ export function parseMovementPath(label: string, source: string): ParsedMovement
     const count = rawCount && /^\d+$/.test(rawCount) ? Number(rawCount)
       : rawCount && /^\$[0-9a-f]+$/i.test(rawCount) ? Number.parseInt(rawCount.slice(1), 16)
       : null;
-    const step = parseMovementStep(match[1], count);
+    const step = parseMovementStep(
+      match[1],
+      count,
+      vocabulary,
+      mode,
+      consumerRoutine,
+    );
     if (step) steps.push(step);
   }
-  return { label, steps, display: steps.map(renderMovementStep).join(" → ") };
+  const compactSteps = coalesceMovementSteps(steps);
+  return {
+    label,
+    steps: compactSteps,
+    display: compactSteps.map(renderMovementStep).join(" → "),
+  };
 }
 
 export function parseMapScriptRoutines(source: string): ParsedMapScriptRoutine[] {

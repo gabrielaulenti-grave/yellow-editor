@@ -34,6 +34,31 @@ import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
+import {
+  loadScriptCatalog,
+  loadScriptDocument,
+  resolveExternalScriptRoutines,
+} from "./scriptCatalog";
+import { loadMacroAnalysis } from "./macroCatalog";
+import {
+  loadScriptMacroEditDocument,
+  prepareScriptMacroCallWrite,
+} from "./scriptMacroEditing";
+import {
+  loadScriptEventConditionalCreateDocument,
+  loadScriptSimpleActionCreateDocument,
+  prepareScriptEventConditionalWrite,
+  prepareScriptSimpleActionWrite,
+} from "./scriptActionCreation";
+import {
+  runScriptRoundTripRegression as runScriptRoundTripRegressionAudit,
+  validateScriptSemanticRoundTrip,
+} from "./scriptRoundTripValidation";
+import { loadProjectSemanticDomains } from "./semanticDomains";
+import { loadProjectMovementVocabulary } from "./movementVocabulary";
+import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
+import { buildScriptAudit } from "./scriptAudit";
+import { readProjectRgbdsSources } from "./projectConstants";
 import { loadTmEditDocument, prepareTmEditWrites } from "./tmEditing";
 import { parseTrainerCatalog } from "./trainerIndex";
 import { createTrainerScanSource } from "./trainerScanSource";
@@ -64,6 +89,10 @@ import type {
   PokemonTmhmCompatibilityReference,
   ProjectSession,
   ProjectSource,
+  ScriptEventConditionalCreateDocument,
+  ScriptEventConditionalCreateValues,
+  ScriptSimpleActionCreateDocument,
+  ScriptSimpleActionCreateValues,
   TextWriteRequest,
   TrainerCatalog,
   TrainerClassCreateValues,
@@ -181,6 +210,13 @@ export async function createProjectSession(
   let encounterIndexPromise: ReturnType<typeof parseEncounterIndex> | null = null;
   let fishingPromise: ReturnType<typeof loadFishingEditDocument> | null = null;
   let mapIndexPromise: ReturnType<typeof parseMapIndex> | null = null;
+  let scriptCatalogPromise: ReturnType<typeof loadScriptCatalog> | null = null;
+  let scriptAuditPromise: Promise<ReturnType<typeof buildScriptAudit>> | null = null;
+  let rgbdsSourceFilesPromise: ReturnType<typeof readProjectRgbdsSources> | null = null;
+  let movementVocabularyPromise: ReturnType<typeof loadProjectMovementVocabulary> | null = null;
+  let eventMacroSemanticsPromise: Promise<ReturnType<typeof deriveProjectEventMacroSemantics>> | null = null;
+  let semanticDomainCatalogPromise: ReturnType<typeof loadProjectSemanticDomains> | null = null;
+  let macroAnalysisPromise: ReturnType<typeof loadMacroAnalysis> | null = null;
   const mapVisualizationPromises = new Map<
     string,
     ReturnType<typeof loadMapVisualization>
@@ -322,7 +358,361 @@ export async function createProjectSession(
     return pending;
   }
 
+  function getScriptCatalog() {
+    if (!scriptCatalogPromise) {
+      scriptCatalogPromise = loadScriptCatalog(source).catch((error) => {
+        scriptCatalogPromise = null;
+        throw error;
+      });
+    }
+    return scriptCatalogPromise;
+  }
+
+  function getScriptAudit() {
+    if (!scriptAuditPromise) {
+      scriptAuditPromise = Promise.all([
+        getRgbdsSourceFiles(),
+        getMacroAnalysis(),
+        getMovementVocabulary(),
+        getEventMacroSemantics(),
+      ]).then(([files, macroAnalysis, movementVocabulary, eventMacroSemantics]) =>
+        buildScriptAudit(
+          files,
+          macroAnalysis,
+          movementVocabulary,
+          eventMacroSemantics,
+        )
+      ).catch((error) => {
+        scriptAuditPromise = null;
+        throw error;
+      });
+    }
+    return scriptAuditPromise;
+  }
+
+  async function runScriptRoundTripRegression() {
+    const [
+      files,
+      macroAnalysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      getRgbdsSourceFiles(),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    return runScriptRoundTripRegressionAudit(
+      files,
+      macroAnalysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+  }
+
+  function getRgbdsSourceFiles() {
+    if (!rgbdsSourceFilesPromise) {
+      rgbdsSourceFilesPromise = readProjectRgbdsSources(source).catch((error) => {
+        rgbdsSourceFilesPromise = null;
+        throw error;
+      });
+    }
+    return rgbdsSourceFilesPromise;
+  }
+
+  function getMovementVocabulary() {
+    if (!movementVocabularyPromise) {
+      movementVocabularyPromise = loadProjectMovementVocabulary(
+        source,
+        getRgbdsSourceFiles(),
+      ).catch((error) => {
+        movementVocabularyPromise = null;
+        throw error;
+      });
+    }
+    return movementVocabularyPromise;
+  }
+
+  function getEventMacroSemantics() {
+    if (!eventMacroSemanticsPromise) {
+      eventMacroSemanticsPromise = getRgbdsSourceFiles()
+        .then((files) => deriveProjectEventMacroSemantics(files))
+        .catch((error) => {
+          eventMacroSemanticsPromise = null;
+          throw error;
+        });
+    }
+    return eventMacroSemanticsPromise;
+  }
+
+  async function getScriptDocument(path: string) {
+    const [document, movementVocabulary, sourceFiles, eventMacroSemantics] = await Promise.all([
+      loadScriptDocument(source, path),
+      getMovementVocabulary(),
+      getRgbdsSourceFiles(),
+      getEventMacroSemantics(),
+    ]);
+    return {
+      ...document,
+      movementVocabulary,
+      externalRoutines: resolveExternalScriptRoutines(document, sourceFiles),
+      eventMacroSemantics,
+    };
+  }
+
+  function getSemanticDomainCatalog() {
+    if (!semanticDomainCatalogPromise) {
+      semanticDomainCatalogPromise = loadProjectSemanticDomains(source, projectName).catch((error) => {
+        semanticDomainCatalogPromise = null;
+        throw error;
+      });
+    }
+    return semanticDomainCatalogPromise;
+  }
+
+  function getMacroAnalysis() {
+    if (!macroAnalysisPromise) {
+      macroAnalysisPromise = loadMacroAnalysis(
+        source,
+        getSemanticDomainCatalog(),
+        getRgbdsSourceFiles(),
+      ).catch((error) => {
+        macroAnalysisPromise = null;
+        throw error;
+      });
+    }
+    return macroAnalysisPromise;
+  }
+
+  function resetMacroAnalysis(): void {
+    semanticDomainCatalogPromise = null;
+    macroAnalysisPromise = null;
+  }
+
+  function resetScriptSourceAnalysis(): void {
+    resetMacroAnalysis();
+    rgbdsSourceFilesPromise = null;
+    movementVocabularyPromise = null;
+    eventMacroSemanticsPromise = null;
+    scriptAuditPromise = null;
+  }
+
+  async function getMacroCatalog() {
+    return (await getMacroAnalysis()).catalog;
+  }
+
+  async function getScriptMacroCalls(path: string) {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    const analysis = await getMacroAnalysis();
+    return analysis.callsByScriptPath.get(path) ?? { path, calls: [] };
+  }
+
+  async function getScriptSimpleActionCreateDocument(
+    path: string,
+    routineLabel: string,
+  ): Promise<ScriptSimpleActionCreateDocument> {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    return loadScriptSimpleActionCreateDocument(
+      sourceText,
+      path,
+      routineLabel,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+  }
+
+  async function createScriptSimpleAction(
+    document: ScriptSimpleActionCreateDocument,
+    values: ScriptSimpleActionCreateValues,
+  ) {
+    if (!/^scripts\/.+\.asm$/i.test(document.path)) {
+      throw new Error(`Unsupported script path: ${document.path}`);
+    }
+    resetScriptSourceAnalysis();
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(document.path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    const change = await prepareScriptSimpleActionWrite(
+      sourceText,
+      document,
+      values,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+    const result = await history.save(
+      `Add script action ${values.action} to ${document.routineLabel}`,
+      [change],
+    );
+    invalidateNonTrainerReadModels([document.path]);
+    if (trainerCacheAffected([document.path])) {
+      await trainerCatalogCache?.clear();
+    }
+    return result;
+  }
+
+  async function getScriptEventConditionalCreateDocument(
+    path: string,
+    routineLabel: string,
+  ): Promise<ScriptEventConditionalCreateDocument> {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    return loadScriptEventConditionalCreateDocument(
+      sourceText,
+      path,
+      routineLabel,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+  }
+
+  async function createScriptEventConditional(
+    document: ScriptEventConditionalCreateDocument,
+    values: ScriptEventConditionalCreateValues,
+  ) {
+    if (!/^scripts\/.+\.asm$/i.test(document.path)) {
+      throw new Error(`Unsupported script path: ${document.path}`);
+    }
+    resetScriptSourceAnalysis();
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(document.path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    const change = await prepareScriptEventConditionalWrite(
+      sourceText,
+      document,
+      values,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+    const result = await history.save(
+      `Add event condition to ${document.routineLabel}`,
+      [change],
+    );
+    invalidateNonTrainerReadModels([document.path]);
+    if (trainerCacheAffected([document.path])) {
+      await trainerCatalogCache?.clear();
+    }
+    return result;
+  }
+
+  async function getScriptMacroEditDocument(path: string, line: number) {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    resetScriptSourceAnalysis();
+    const [sourceText, analysis] = await Promise.all([
+      source.readText(path),
+      getMacroAnalysis(),
+    ]);
+    return loadScriptMacroEditDocument(sourceText, path, line, analysis);
+  }
+
+  async function saveScriptMacroCall(
+    path: string,
+    line: number,
+    macroName: string,
+    expectedHash: string,
+    arguments_: string[],
+  ) {
+    if (!/^scripts\/.+\.asm$/i.test(path)) {
+      throw new Error(`Unsupported script path: ${path}`);
+    }
+    resetScriptSourceAnalysis();
+    const [
+      sourceText,
+      analysis,
+      movementVocabulary,
+      eventMacroSemantics,
+    ] = await Promise.all([
+      source.readText(path),
+      getMacroAnalysis(),
+      getMovementVocabulary(),
+      getEventMacroSemantics(),
+    ]);
+    const change = await prepareScriptMacroCallWrite(
+      sourceText,
+      path,
+      line,
+      macroName,
+      expectedHash,
+      arguments_,
+      analysis,
+    );
+    validateScriptSemanticRoundTrip(
+      sourceText,
+      change.contents,
+      line,
+      movementVocabulary,
+      eventMacroSemantics,
+    );
+    const result = await history.save(
+      `Edit script macro ${macroName} at ${path}:${line}`,
+      [change],
+    );
+    invalidateNonTrainerReadModels([path]);
+    if (trainerCacheAffected([path])) {
+      await trainerCatalogCache?.clear();
+    }
+    return result;
+  }
+
+  function invalidateScriptReadModels(paths: string[]): void {
+    if (paths.some((path) => /\.(?:asm|inc)$/i.test(path))) {
+      resetScriptSourceAnalysis();
+    }
+    if (paths.some((path) => path.startsWith("scripts/"))) {
+      scriptCatalogPromise = null;
+    }
+  }
+
   function invalidateNonTrainerReadModels(paths: string[]): void {
+    invalidateScriptReadModels(paths);
     if (paths.some((path) => path.startsWith("data/pokemon/base_stats/"))) {
       pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
@@ -425,6 +815,7 @@ export async function createProjectSession(
           expectedHash,
         },
       ]);
+      invalidateScriptReadModels([change.path]);
       pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
       return result;
@@ -440,6 +831,7 @@ export async function createProjectSession(
         values,
       );
       const result = await history.save(`Edit Pokémon ${values.displayName}`, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
       if (changes.some((change) => change.path.startsWith("data/pokemon/base_stats/"))) {
         pokemonCatchProfilesPromise = null;
         tmhmCompatibilityIndexPromise = null;
@@ -453,7 +845,9 @@ export async function createProjectSession(
     saveItemEdit: async (document: ItemEditDocument, values: ItemEditValues) => {
       const changes = await prepareItemEditWrites(source, document, values);
       if (changes.length === 0) return history.getSummary();
-      return history.save(`Edit item ${document.constant}`, changes);
+      const result = await history.save(`Edit item ${document.constant}`, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
+      return result;
     },
     getItemCreateDocument: () => loadItemCreateDocument(source),
     createItem: async (
@@ -462,10 +856,24 @@ export async function createProjectSession(
     ) => {
       const changes = await prepareItemCreateWrites(source, document, values);
       if (changes.length === 0) return history.getSummary();
-      return history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
+      const result = await history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
+      return result;
     },
     getMapIndex,
     getMapVisualization,
+    getScriptCatalog,
+    getScriptAudit,
+    runScriptRoundTripRegression,
+    getScriptSimpleActionCreateDocument,
+    createScriptSimpleAction,
+    getScriptEventConditionalCreateDocument,
+    createScriptEventConditional,
+    getScriptDocument,
+    getMacroCatalog,
+    getScriptMacroCalls,
+    getScriptMacroEditDocument,
+    saveScriptMacroCall,
     getTmhmCompatibility: async (moveConstant) => {
       const index = await getTmhmCompatibilityIndex();
       return index.get(moveConstant) ?? [];
@@ -485,6 +893,7 @@ export async function createProjectSession(
       }
       const label = `Edit TM${String(document.tmNumber).padStart(2, "0")} ${document.moveConstant} → ${values.moveConstant}`;
       const result = await history.save(label, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
       tmhmCompatibilityIndexPromise = null;
       return result;
     },
@@ -506,6 +915,7 @@ export async function createProjectSession(
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
+      invalidateScriptReadModels(changedPaths);
       if (trainerBaseAffected(changedPaths)) {
         invalidateTrainerBaseCatalog(changedPaths);
       }
@@ -553,6 +963,15 @@ export async function createProjectSession(
       itemConstant,
       quantity,
     ) => {
+      const [
+        beforeSource,
+        movementVocabulary,
+        eventMacroSemantics,
+      ] = await Promise.all([
+        source.readText(path),
+        getMovementVocabulary(),
+        getEventMacroSemantics(),
+      ]);
       const change = await prepareTrainerRewardWrite(
         source,
         path,
@@ -560,9 +979,19 @@ export async function createProjectSession(
         itemConstant,
         quantity,
       );
+      if (/^scripts\/.+\.asm$/i.test(path)) {
+        validateScriptSemanticRoundTrip(
+          beforeSource,
+          change.contents,
+          sourceLine,
+          movementVocabulary,
+          eventMacroSemantics,
+        );
+      }
       const result = await history.save(`Edit trainer reward ${itemConstant}`, [
         { ...change, expectedHash },
       ]);
+      invalidateScriptReadModels([path]);
       if (trainerCacheAffected([path])) {
         await trainerCatalogCache?.clear();
       }
@@ -609,6 +1038,7 @@ export async function createProjectSession(
       }
 
       const result = await history.save(`Edit trainer party ${partyId}`, changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
       await updateTrainerBaseAfterSave(partyId, values, changes);
       if (trainerCacheAffected(changes.map((change) => change.path))) {
         await trainerCatalogCache?.clear();
@@ -632,6 +1062,7 @@ export async function createProjectSession(
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
+      invalidateScriptReadModels(changedPaths);
       invalidateTrainerBaseCatalog(changedPaths);
       if (trainerCacheAffected(changedPaths)) {
         await trainerCatalogCache?.clear();
@@ -658,6 +1089,7 @@ export async function createProjectSession(
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
+      invalidateScriptReadModels(changedPaths);
       invalidateTrainerBaseCatalog(changedPaths);
       if (trainerCacheAffected(changedPaths)) {
         await trainerCatalogCache?.clear();
@@ -680,6 +1112,7 @@ export async function createProjectSession(
       const result = await history.save(`Edit ${label} wild encounters`, [
         { path: change.path, contents: change.contents, expectedHash },
       ]);
+      invalidateScriptReadModels([change.path]);
       encounterIndexPromise = null;
       encounterTablePromises.delete(path);
       return result;
@@ -696,6 +1129,7 @@ export async function createProjectSession(
         species,
       );
       const result = await history.save("Edit fishing encounters", changes);
+      invalidateScriptReadModels(changes.map((change) => change.path));
       fishingPromise = null;
       return result;
     },
@@ -730,6 +1164,7 @@ export async function createProjectSession(
     saveTextChanges: async (label, changes) => {
       const result = await history.save(label, changes);
       const changedPaths = changes.map((change) => change.path);
+      invalidateNonTrainerReadModels(changedPaths);
       if (trainerBaseAffected(changedPaths)) {
         invalidateTrainerBaseCatalog(changedPaths);
       }

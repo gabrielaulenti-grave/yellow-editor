@@ -80,6 +80,452 @@ export interface MapVisualization {
   warnings: string[];
 }
 
+export type ScriptRoutineKind = "state" | "routine" | "source-label";
+
+export type ScriptRoutineCategory =
+  | "event-state"
+  | "dispatcher"
+  | "helper"
+  | "dialogue"
+  | "movement"
+  | "data";
+
+export interface ScriptRoutineSummary {
+  path: string;
+  label: string;
+  startLine: number;
+  kind: ScriptRoutineKind;
+  category: ScriptRoutineCategory;
+  recognizedOperationCount: number;
+  operationKinds: string[];
+}
+
+export interface ScriptCatalogEntry {
+  id: string;
+  displayName: string;
+  paths: string[];
+  routines: ScriptRoutineSummary[];
+}
+
+export interface ScriptCatalog {
+  entries: ScriptCatalogEntry[];
+  fileCount: number;
+  routineCount: number;
+}
+
+export type ScriptAuditStatus = "semantic" | "structural" | "internal" | "unresolved";
+
+export type ScriptAuditConstructKind =
+  | "macro"
+  | "call"
+  | "farcall"
+  | "predef"
+  | "jp"
+  | "instruction"
+  | "directive";
+
+export interface ScriptAuditExample {
+  path: string;
+  line: number;
+  source: string;
+}
+
+export interface ScriptAuditConstruct {
+  key: string;
+  name: string;
+  kind: ScriptAuditConstructKind;
+  status: ScriptAuditStatus;
+  familyId?: string;
+  occurrences: number;
+  paths: string[];
+  examples: ScriptAuditExample[];
+  reason: string;
+}
+
+export interface ScriptAuditFile {
+  path: string;
+  semanticLines: number;
+  structuralLines: number;
+  internalLines: number;
+  unresolvedLines: number;
+  meaningfulLines: number;
+  semanticInvocationCount: number;
+  structuralInvocationCount: number;
+  internalInvocationCount: number;
+  unresolvedInvocationCount: number;
+  unboundSemanticInvocationCount: number;
+  unresolvedKeys: string[];
+  structuralInvocationKeys: string[];
+  unboundSemanticKeys: string[];
+}
+
+export interface ScriptAuditReleaseReadiness {
+  ready: boolean;
+  blockerCount: number;
+  unresolvedConstructCount: number;
+  structuralConstructCount: number;
+  externalTargetConstructCount: number;
+  macroSemanticConstructCount: number;
+  unresolvedSyntaxConstructCount: number;
+  unboundSemanticConstructCount: number;
+  criteria: string[];
+}
+
+export interface ScriptAuditSemanticFamily {
+  id: string;
+  label: string;
+  description: string;
+  builderPriority: "core" | "advanced";
+}
+
+export interface ScriptAuditRegressionFixture {
+  id: string;
+  label: string;
+  purpose: string;
+  paths: string[];
+  presentPaths: string[];
+  requiredFamilies: string[];
+  missingFamilies: string[];
+  blockerCount: number;
+  unresolvedInvocationCount: number;
+  structuralInvocationCount: number;
+  unboundSemanticInvocationCount: number;
+  passed: boolean;
+}
+
+export interface ScriptAuditReport {
+  irVersion: string;
+  semanticFamilies: ScriptAuditSemanticFamily[];
+  releaseReadiness: ScriptAuditReleaseReadiness;
+  regressionFixtures: ScriptAuditRegressionFixture[];
+  fileCount: number;
+  meaningfulLineCount: number;
+  semanticLineCount: number;
+  structuralLineCount: number;
+  internalLineCount: number;
+  unresolvedLineCount: number;
+  semanticInvocationCount: number;
+  structuralInvocationCount: number;
+  internalInvocationCount: number;
+  unresolvedInvocationCount: number;
+  unboundSemanticInvocationCount: number;
+  files: ScriptAuditFile[];
+  constructs: ScriptAuditConstruct[];
+  warnings: string[];
+}
+
+export type ProjectMovementDirection =
+  | "up"
+  | "down"
+  | "left"
+  | "right"
+  | "up-left"
+  | "up-right"
+  | "down-left"
+  | "down-right";
+
+export interface ProjectMovementRange {
+  minimum: number;
+  maximumExclusive: number | null;
+  symbol: string;
+  direction: ProjectMovementDirection;
+  sourcePath: string;
+}
+
+export interface ProjectMovementExactValue {
+  value: number;
+  symbol: string;
+  direction?: ProjectMovementDirection;
+  operation?: "change-facing";
+  sourcePath: string;
+}
+
+export type ProjectMovementCommandAction = "move" | "look" | "delay" | "end";
+export type ProjectMovementCommandStyle = "step" | "slide" | "hop" | "walk";
+
+export interface ProjectMovementCommandValue {
+  value: number;
+  symbol: string;
+  family: string;
+  action: ProjectMovementCommandAction;
+  style?: ProjectMovementCommandStyle;
+  direction?: ProjectMovementDirection;
+  sourcePath: string;
+}
+
+export interface ProjectMovementConsumer {
+  routine: string;
+  register: "hl" | "de";
+  family: string;
+  commands: ProjectMovementCommandValue[];
+  sourcePaths: string[];
+  guards: string[];
+}
+
+export interface ProjectSpriteMovementStatus {
+  value: number;
+  routine: string;
+  sourcePath: string;
+}
+
+export interface ProjectMovementVocabulary {
+  npcRanges: ProjectMovementRange[];
+  npcExactValues: ProjectMovementExactValue[];
+  joypadExactValues: ProjectMovementExactValue[];
+  exactValues: ProjectMovementExactValue[];
+  consumers: ProjectMovementConsumer[];
+  spriteStatuses: ProjectSpriteMovementStatus[];
+  warnings: string[];
+}
+
+export type ProjectEventMacroAction =
+  | "check"
+  | "set"
+  | "reset"
+  | "set-many"
+  | "reset-many"
+  | "set-range"
+  | "reset-range"
+  | "check-set"
+  | "check-reset"
+  | "check-any"
+  | "check-all";
+
+export type ProjectEventZeroMeaning =
+  | "event-clear"
+  | "none-set"
+  | "all-set";
+
+export interface ProjectEventMacroSemantic {
+  name: string;
+  action: ProjectEventMacroAction;
+  eventParameterIndexes: number[];
+  zeroMeaning?: ProjectEventZeroMeaning;
+  sourcePath: string;
+  sourceLine: number;
+}
+
+export interface ScriptExternalRoutineSource {
+  label: string;
+  path: string;
+  startLine: number;
+  source: string;
+}
+
+export interface ScriptDocument {
+  path: string;
+  source: string;
+  routines: ScriptRoutineSummary[];
+  movementVocabulary?: ProjectMovementVocabulary;
+  externalRoutines?: ScriptExternalRoutineSource[];
+  eventMacroSemantics?: ProjectEventMacroSemantic[];
+}
+
+export type MacroParameterKind =
+  | "unknown"
+  | "number"
+  | "string"
+  | "label"
+  | "constant"
+  | "symbol"
+  | "expression";
+
+export type MacroInferenceConfidence = "low" | "medium" | "high";
+
+export type ProjectSemanticDomainKind =
+  | "pokemon"
+  | "move"
+  | "item"
+  | "map"
+  | "trainer-class"
+  | "constant-family"
+  | "label-family";
+
+export interface ProjectSemanticDomainOption {
+  value: string;
+  label: string;
+}
+
+export interface ProjectSemanticDomain {
+  id: string;
+  label: string;
+  kind: ProjectSemanticDomainKind;
+  sourcePath: string | null;
+  options: ProjectSemanticDomainOption[];
+}
+
+export interface SemanticDomainMatch {
+  domainId: string;
+  domainLabel: string;
+  domainKind: ProjectSemanticDomainKind;
+  confidence: MacroInferenceConfidence;
+  evidence: string[];
+}
+
+export interface ProjectSemanticDomainCatalog {
+  domains: ProjectSemanticDomain[];
+  warnings: string[];
+}
+
+export type MacroParameterSourceRole =
+  | "value"
+  | "symbol-definition"
+  | "routine-target"
+  | "structural-reference"
+  | "computed-symbol"
+  | "assembly-control";
+
+export interface MacroParameterSummary {
+  index: number;
+  displayName: string;
+  required: boolean;
+  inferredKind: MacroParameterKind;
+  confidence: MacroInferenceConfidence;
+  examples: string[];
+  evidence: string[];
+  semanticDomains: SemanticDomainMatch[];
+  sourceRole?: MacroParameterSourceRole;
+  preserveAddressDivisors?: number[];
+  preserveRemainders?: number[];
+}
+
+export interface MacroDefinitionSummary {
+  name: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+  parameters: MacroParameterSummary[];
+  callCount: number;
+  nestedMacros: string[];
+  byteExpressions?: Array<{ destination: string; expression: string }>;
+}
+
+export interface MacroCatalog {
+  macros: MacroDefinitionSummary[];
+  sourceFileCount: number;
+  scriptFileCount: number;
+  definitionCount: number;
+  callCount: number;
+  warnings: string[];
+  domains: ProjectSemanticDomain[];
+  domainWarnings: string[];
+  numericConstants?: Record<string, number>;
+  labelSignatures?: Record<string, string>;
+}
+
+export interface ScriptMacroArgument {
+  index: number;
+  raw: string;
+  inferredKind: MacroParameterKind;
+  confidence: MacroInferenceConfidence;
+  semanticDomains: SemanticDomainMatch[];
+}
+
+export interface ScriptMacroCall {
+  name: string;
+  path: string;
+  line: number;
+  definitionPath: string;
+  definitionLine: number;
+  arguments: ScriptMacroArgument[];
+}
+
+export interface ScriptMacroCallDocument {
+  path: string;
+  calls: ScriptMacroCall[];
+}
+
+export interface ScriptMacroEditDocument {
+  path: string;
+  line: number;
+  macroName: string;
+  sourceHash: string;
+  sourceLine: string;
+  arguments: string[];
+  editableArgumentDomains: Array<{
+    index: number;
+    domainIds: string[];
+    allowedValues: string[];
+  }>;
+}
+
+export interface ScriptRoundTripRegressionCase {
+  path: string;
+  line: number;
+  macroName: string;
+  argumentIndex: number;
+  previousValue: string;
+  nextValue: string;
+  passed: boolean;
+  refused?: boolean;
+  error?: string;
+  beforeShapes: string[];
+  afterShapes: string[];
+}
+
+export interface ScriptRoundTripRegressionFixture {
+  id: string;
+  label: string;
+  candidateShapeCount: number;
+  readOnlyArgumentCount: number;
+  testedCaseCount: number;
+  passedCaseCount: number;
+  refusedCaseCount: number;
+  failedCaseCount: number;
+  passed: boolean;
+  cases: ScriptRoundTripRegressionCase[];
+}
+
+export interface ScriptRoundTripRegressionReport {
+  fixtureCount: number;
+  testedFixtureCount: number;
+  testedCaseCount: number;
+  readOnlyArgumentCount: number;
+  passedCaseCount: number;
+  refusedCaseCount: number;
+  failedCaseCount: number;
+  passed: boolean;
+  fixtures: ScriptRoundTripRegressionFixture[];
+}
+
+export type ScriptSimpleActionKind =
+  | "set-event"
+  | "reset-event"
+  | "wait"
+  | "heal-party";
+
+export interface ScriptSimpleActionCreateDocument {
+  path: string;
+  routineLabel: string;
+  sourceHash: string;
+  insertionLine: number;
+  availableActions: ScriptSimpleActionKind[];
+  eventOptions: {
+    "set-event": ProjectSemanticDomainOption[];
+    "reset-event": ProjectSemanticDomainOption[];
+  };
+}
+
+export interface ScriptSimpleActionCreateValues {
+  action: ScriptSimpleActionKind;
+  event?: string;
+  frames?: number;
+}
+
+export interface ScriptEventConditionalCreateDocument {
+  path: string;
+  routineLabel: string;
+  sourceHash: string;
+  insertionLine: number;
+  eventOptions: ProjectSemanticDomainOption[];
+  availableActions: ScriptSimpleActionKind[];
+}
+
+export interface ScriptEventConditionalCreateValues {
+  event: string;
+  action: ScriptSimpleActionCreateValues;
+}
+
 export interface PokemonIndexEntry {
   internalId: number;
   constant: string | null;
@@ -1073,6 +1519,39 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
+  getScriptCatalog(): Promise<ScriptCatalog>;
+  getScriptAudit(): Promise<ScriptAuditReport>;
+  runScriptRoundTripRegression(): Promise<ScriptRoundTripRegressionReport>;
+  getScriptSimpleActionCreateDocument(
+    path: string,
+    routineLabel: string,
+  ): Promise<ScriptSimpleActionCreateDocument>;
+  createScriptSimpleAction(
+    document: ScriptSimpleActionCreateDocument,
+    values: ScriptSimpleActionCreateValues,
+  ): Promise<HistorySummary>;
+  getScriptEventConditionalCreateDocument(
+    path: string,
+    routineLabel: string,
+  ): Promise<ScriptEventConditionalCreateDocument>;
+  createScriptEventConditional(
+    document: ScriptEventConditionalCreateDocument,
+    values: ScriptEventConditionalCreateValues,
+  ): Promise<HistorySummary>;
+  getScriptDocument(path: string): Promise<ScriptDocument>;
+  getMacroCatalog(): Promise<MacroCatalog>;
+  getScriptMacroCalls(path: string): Promise<ScriptMacroCallDocument>;
+  getScriptMacroEditDocument(
+    path: string,
+    line: number,
+  ): Promise<ScriptMacroEditDocument>;
+  saveScriptMacroCall(
+    path: string,
+    line: number,
+    macroName: string,
+    expectedHash: string,
+    arguments_: string[],
+  ): Promise<HistorySummary>;
   getTrainers(onProgress?: TrainerLoadProgressListener): Promise<TrainerCatalog>;
   getTrainerPresentation(
     classConstant: string,

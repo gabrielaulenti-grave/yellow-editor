@@ -35,6 +35,7 @@ import { ItemsTab } from "./ItemsTab";
 import { MapsTab } from "./MapsTab";
 import { MovesTab } from "./MovesTab";
 import { PokemonTab } from "./PokemonTab";
+import { ScriptsTab, type ScriptFocus } from "./ScriptsTab";
 import { TrainersTab, type TrainerSection } from "./TrainersTab";
 import {
   parsePokemonDraft,
@@ -89,7 +90,7 @@ import {
 import { invoke, open, saveProjectCopy } from "./platform/compat";
 import "./App.css";
 
-type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "build";
+type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "scripts" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
@@ -146,6 +147,8 @@ function App() {
   const [encounterSection, setEncounterSection] =
     useState<EncounterSection>("walking");
   const [mapFocusConstant, setMapFocusConstant] = useState<string | null>(null);
+  const [scriptFocus, setScriptFocus] = useState<ScriptFocus | null>(null);
+  const [scriptDirty, setScriptDirty] = useState(false);
   const [fishingFocusMapConstant, setFishingFocusMapConstant] =
     useState<string | null>(null);
   const [fishingDocument, setFishingDocument] =
@@ -615,7 +618,8 @@ function App() {
     || encounterDirty
     || fishingDirty
     || trainerDirty
-    || trainerClassDirty;
+    || trainerClassDirty
+    || scriptDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -975,6 +979,7 @@ function App() {
       setEncounterSearch("");
       setEncounterSection("walking");
       setMapFocusConstant(null);
+      setScriptFocus(null);
       setFishingFocusMapConstant(null);
       setHistorySummary(history);
       setHistoryTimeline(null);
@@ -1017,6 +1022,7 @@ function App() {
       clearPokemonEditor();
       clearEncounterEditor();
       setMapFocusConstant(null);
+      setScriptFocus(null);
       setFishingFocusMapConstant(null);
       setSelectedMoveId(null);
       setSelectedItemId(null);
@@ -2127,6 +2133,19 @@ function App() {
     setFishingFocusMapConstant(mapConstant);
   }
 
+  async function openScript(
+    path: string,
+    routineLabel?: string | null,
+    previewReference?: NonNullable<ScriptFocus["previewReference"]>,
+  ) {
+    if (!(await selectTab("scripts"))) return;
+    setScriptFocus({
+      path,
+      routineLabel: routineLabel ?? null,
+      previewReference: previewReference ?? null,
+    });
+  }
+
   return (
     <main className="app-shell">
       <header className="app-header">
@@ -2224,6 +2243,12 @@ function App() {
           onClick={() => void selectTab("maps")}
         >
           Maps
+        </button>
+        <button
+          className={activeTab === "scripts" ? "active" : ""}
+          onClick={() => void selectTab("scripts")}
+        >
+          Scripts
         </button>
         <button
           className={activeTab === "build" ? "active" : ""}
@@ -2337,6 +2362,9 @@ function App() {
           onUpdateClassField={changeTrainerClassField}
           onToggleClassMoveChoice={toggleTrainerClassMoveChoice}
           onCreateClass={createTrainerClass}
+          onOpenScript={(path, routineLabel, reference) => {
+            void openScript(path, routineLabel, reference);
+          }}
         />
       )}
 
@@ -2378,6 +2406,15 @@ function App() {
           focusMapConstant={mapFocusConstant}
           onOpenWalkingEncounter={(entry) => void openWalkingEncounterFromMap(entry)}
           onOpenFishing={(mapConstant) => void openFishingFromMap(mapConstant)}
+          onOpenScript={(path, routineLabel) => void openScript(path, routineLabel)}
+        />
+      )}
+
+      {activeTab === "scripts" && (
+        <ScriptsTab
+          project={project}
+          focus={scriptFocus}
+          onDirtyChange={setScriptDirty}
         />
       )}
 

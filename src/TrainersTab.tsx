@@ -11,6 +11,7 @@ import type {
   TrainerInteractionReward,
   TrainerPartyEntry,
   TrainerRewardEditDocument,
+  TrainerScriptReference,
 } from "./core/types";
 import {
   trainerLevelError,
@@ -18,7 +19,6 @@ import {
   type TrainerPartyDraft,
 } from "./editor/trainerPartyForm";
 import type { TrainerClassDraft } from "./editor/trainerClassForm";
-import { MapScriptPreview } from "./MapScriptPreview";
 import { TextEditor } from "./TextEditor";
 import { TrainerSpritePanel } from "./TrainerSpritePanel";
 import { TrainerClassCreateDialog } from "./TrainerClassCreateDialog";
@@ -65,6 +65,7 @@ interface TrainersTabProps {
   ): void;
   onToggleClassMoveChoice(modifier: number): void;
   onCreateClass(values: TrainerClassCreateValues): Promise<void>;
+  onOpenScript(path: string, routineLabel: string, reference: TrainerScriptReference): void;
 }
 
 function titleCaseConstant(value: string): string {
@@ -484,6 +485,7 @@ function PartyBrowser({
   onUpdateSpecialMove,
   onAddSpecialMove,
   onRemoveSpecialMove,
+  onOpenScript,
 }: {
   trainers: TrainerPartyEntry[];
   selectedTrainerId: string | null;
@@ -503,6 +505,7 @@ function PartyBrowser({
   onUpdateSpecialMove: TrainersTabProps["onUpdateSpecialMove"];
   onAddSpecialMove: TrainersTabProps["onAddSpecialMove"];
   onRemoveSpecialMove: TrainersTabProps["onRemoveSpecialMove"];
+  onOpenScript: TrainersTabProps["onOpenScript"];
 }) {
   const selectedTrainer = trainers.find((trainer) => trainer.id === selectedTrainerId) ?? null;
   const query = search.trim().toLowerCase();
@@ -688,11 +691,23 @@ function PartyBrowser({
                           <div><strong>Selecting routine</strong><code>{reference.routineLabel}</code></div>
                           <div><strong>Source</strong><code>{reference.scriptPath}:{reference.sourceLine}</code></div>
                         </div>
-                        <MapScriptPreview reference={reference} />
-                        <details className="trainer-full-script">
-                          <summary>Advanced: view complete map script and trigger conditions</summary>
-                          <pre className="trainer-script-source"><code>{reference.mapScriptSource}</code></pre>
-                        </details>
+                        <div className="trainer-script-workspace-link">
+                          <button
+                            type="button"
+                            className="small-button primary-action"
+                            onClick={() => onOpenScript(
+                              reference.scriptPath,
+                              reference.routineLabel,
+                              reference,
+                            )}
+                          >
+                            Open in Scripts
+                          </button>
+                          <span className="help-text">
+                            Event flow, branches, movement, battle handoff, dialogue targets,
+                            and source now live in the shared Scripts workspace.
+                          </span>
+                        </div>
                       </div>
                     </details>
                   ))}
@@ -1022,6 +1037,7 @@ export function TrainersTab({
   onUpdateClassField,
   onToggleClassMoveChoice,
   onCreateClass,
+  onOpenScript,
 }: TrainersTabProps) {
   return (
     <section className="tab-content">
@@ -1050,6 +1066,7 @@ export function TrainersTab({
           onUpdateSpecialMove={onUpdateSpecialMove}
           onAddSpecialMove={onAddSpecialMove}
           onRemoveSpecialMove={onRemoveSpecialMove}
+          onOpenScript={onOpenScript}
         />
       ) : (
         <ClassBrowser

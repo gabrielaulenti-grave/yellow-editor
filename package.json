@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:scripts": "node scripts/check-script-round-trips.mjs",
+    "test:scripts:rom": "node scripts/check-script-round-trips.mjs --rom",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
@@ -26,6 +28,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
+    "esbuild": "^0.28.1",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }

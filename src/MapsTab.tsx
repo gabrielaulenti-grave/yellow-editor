@@ -347,6 +347,7 @@ interface MapsTabProps {
   focusMapConstant: string | null;
   onOpenWalkingEncounter(entry: EncounterTableIndexEntry): void;
   onOpenFishing(mapConstant: string): void;
+  onOpenScript(path: string, routineLabel?: string | null): void;
 }
 
 export function MapsTab({
@@ -357,6 +358,7 @@ export function MapsTab({
   focusMapConstant,
   onOpenWalkingEncounter,
   onOpenFishing,
+  onOpenScript,
 }: MapsTabProps) {
   const [maps, setMaps] = useState<MapIndexEntry[]>([]);
   const [selectedConstant, setSelectedConstant] = useState<string | null>(null);
@@ -783,6 +785,23 @@ export function MapsTab({
                   <small>Outdoor map edges</small>
                 </div>
               </div>
+
+              <section className="world-map-script-link">
+                <div>
+                  <strong>Map scripts</strong>
+                  <small>
+                    Event flow, NPC logic, trainer triggers, and source are centralized in Scripts.
+                  </small>
+                  <code>{`scripts/${visualization.mapSourceLabel}.asm`}</code>
+                </div>
+                <button
+                  type="button"
+                  className="small-button primary-action"
+                  onClick={() => onOpenScript(`scripts/${visualization.mapSourceLabel}.asm`)}
+                >
+                  Open in Scripts →
+                </button>
+              </section>
 
               <section className="world-map-encounters">
                 <div className="world-map-encounters-heading">

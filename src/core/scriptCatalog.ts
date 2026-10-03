@@ -1,0 +1,379 @@
+import { parseMapScriptRoutines } from "./mapScriptParser";
+import type { ProjectRgbdsSourceFile } from "./projectConstants";
+import { movementLabelAlternativesAtCall } from "./mapScriptMovementAnalysis";
+import type {
+  ProjectSource,
+  ScriptCatalog,
+  ScriptCatalogEntry,
+  ScriptDocument,
+  ScriptExternalRoutineSource,
+  ScriptRoutineCategory,
+  ScriptRoutineSummary,
+} from "./types";
+
+function scriptStem(path: string): string {
+  return path.split("/").pop()?.replace(/\.asm$/i, "") ?? path;
+}
+
+function groupStem(path: string): string {
+  return scriptStem(path).replace(/_([2-9]\d*)$/i, "");
+}
+
+function displayName(value: string): string {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/_/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/(^|\s)\S/g, (letter) => letter.toUpperCase());
+}
+
+function isScriptPath(path: string): boolean {
+  return /^scripts\/.+\.asm$/i.test(path);
+}
+
+function scriptStateEntries(
+  source: string,
+): Array<{ label: string; line: number }> {
+  const result: Array<{ label: string; line: number }> = [];
+  source.split(/\r?\n/).forEach((line, index) => {
+    const label = line.match(
+      /^\s*dw_const\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*SCRIPT_[A-Z0-9_]+\b/i,
+    )?.[1];
+    if (label) result.push({ label, line: index + 1 });
+  });
+  return result;
+}
+
+function globalLabelSections(source: string): Map<string, string> {
+  const lines = source.split(/\r?\n/);
+  const starts: Array<{ label: string; index: number }> = [];
+  lines.forEach((line, index) => {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/);
+    if (match) starts.push({ label: match[1], index });
+  });
+
+  return new Map(starts.map((start, index) => [
+    start.label,
+    lines.slice(start.index, starts[index + 1]?.index ?? lines.length).join("\n"),
+  ]));
+}
+
+function textRoutineLabels(source: string, sections: Map<string, string>): Set<string> {
+  const result = new Set(
+    [...source.matchAll(
+      /^\s*dw_const\s+([A-Za-z_][A-Za-z0-9_]*)\s*,\s*TEXT_[A-Z0-9_]+\b/gm,
+    )].map((match) => match[1]),
+  );
+
+  for (const [label, body] of sections) {
+    if (
+      /Text$/i.test(label)
+      || /^\s*text_(?:asm|far)\b/im.test(body)
+    ) {
+      result.add(label);
+    }
+  }
+  return result;
+}
+
+function movementRoutineLabels(sections: Map<string, string>): Set<string> {
+  const result = new Set<string>();
+
+  for (const body of sections.values()) {
+    const lines = body.split(/\r?\n/);
+    lines.forEach((line, index) => {
+      const clean = line.split(";", 1)[0].trim();
+      if (!/^call\s+[A-Za-z_][A-Za-z0-9_]*\b/i.test(clean)) return;
+
+      const routine = clean.match(/^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i)?.[1] ?? "";
+      const registers: Array<"de" | "hl"> = /^MoveSprite$/i.test(routine)
+        ? ["de"]
+        : /(?:Movement|Path)/i.test(routine)
+          ? ["hl", "de"]
+          : [];
+
+      for (const register of registers) {
+        for (const alternative of movementLabelAlternativesAtCall(body, index, register)) {
+          if (!alternative.label.startsWith(".")) result.add(alternative.label);
+        }
+      }
+    });
+  }
+
+  for (const label of sections.keys()) {
+    if (/(?:Movement(?:Data)?|MovementPath|RLE)$/i.test(label)) {
+      result.add(label);
+    }
+  }
+  return result;
+}
+
+function isDataSection(source: string): boolean {
+  const body = source.split(/\r?\n/).slice(1);
+  let sawData = false;
+  for (const sourceLine of body) {
+    const line = sourceLine.split(";", 1)[0].trim();
+    if (!line) continue;
+    if (/^[A-Za-z_.][A-Za-z0-9_.]*:{1,2}$/.test(line)) continue;
+    if (
+      /^(?:db|dw|dw_const|dl|ds|dba|dbw|dab|assert|DEF|REPT|ENDR|IF|ELIF|ELSE|ENDC|def_[A-Za-z0-9_]+)\b/i.test(line)
+    ) {
+      sawData = true;
+      continue;
+    }
+    return false;
+  }
+  return sawData;
+}
+
+function routineCategory(
+  path: string,
+  label: string,
+  source: string,
+  stateLabels: Set<string>,
+  textLabels: Set<string>,
+  movementLabels: Set<string>,
+): ScriptRoutineCategory {
+  if (stateLabels.has(label)) return "event-state";
+
+  const dispatcherLabel = `${groupStem(path)}_Script`;
+  if (
+    label === dispatcherLabel
+    || (/(?:CallFunctionInTable|ExecuteCurMapScriptInTable)/i.test(source)
+      && /ScriptPointers/i.test(source))
+  ) {
+    return "dispatcher";
+  }
+
+  if (textLabels.has(label)) return "dialogue";
+
+  if (
+    movementLabels.has(label)
+    || /Movement(?:Script|Data|Path)?$/i.test(label)
+    || /RLE_/i.test(label)
+  ) {
+    return "movement";
+  }
+
+  if (
+    isDataSection(source)
+    || /(?:Pointers?|Table|Data)$/i.test(label)
+  ) {
+    return "data";
+  }
+  return "helper";
+}
+
+function routineSummaries(path: string, source: string): ScriptRoutineSummary[] {
+  const stateEntries = scriptStateEntries(source);
+  const stateLabels = new Set(stateEntries.map((entry) => entry.label));
+  const sections = globalLabelSections(source);
+  const textLabels = textRoutineLabels(source, sections);
+  const movementLabels = movementRoutineLabels(sections);
+
+  const summaries = parseMapScriptRoutines(source).map((routine) => {
+    const section = sections.get(routine.label) ?? "";
+    const category = routineCategory(
+      path,
+      routine.label,
+      section,
+      stateLabels,
+      textLabels,
+      movementLabels,
+    );
+    const kind = stateLabels.has(routine.label)
+      ? "state"
+      : routine.instructions.length > 0
+        || category === "dispatcher"
+        || category === "helper"
+        || /Script$/i.test(routine.label)
+        ? "routine"
+        : "source-label";
+
+    return {
+      path,
+      label: routine.label,
+      startLine: routine.startLine,
+      kind,
+      category,
+      recognizedOperationCount: routine.instructions.length,
+      operationKinds: [...new Set(routine.instructions.map((instruction) => instruction.kind))],
+    } satisfies ScriptRoutineSummary;
+  });
+
+  const existingLabels = new Set(summaries.map((summary) => summary.label));
+  for (const state of stateEntries) {
+    if (existingLabels.has(state.label)) continue;
+    summaries.push({
+      path,
+      label: state.label,
+      startLine: state.line,
+      kind: "state",
+      category: "event-state",
+      recognizedOperationCount: 0,
+      operationKinds: [],
+    });
+  }
+
+  return summaries.sort((left, right) =>
+    left.startLine - right.startLine || left.label.localeCompare(right.label)
+  );
+}
+
+export async function loadScriptCatalog(source: ProjectSource): Promise<ScriptCatalog> {
+  if (!source.listFiles) {
+    throw new Error(
+      "This project source cannot enumerate script files. Reopen the project with a current Yellow Editor workspace.",
+    );
+  }
+
+  const paths = [...new Set(await source.listFiles())]
+    .filter(isScriptPath)
+    .sort((left, right) => left.localeCompare(right));
+
+  const parsed = new Array<{
+    path: string;
+    groupId: string;
+    routines: ScriptRoutineSummary[];
+  }>(paths.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(12, paths.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextIndex < paths.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const path = paths[index];
+      const contents = await source.readText(path);
+      parsed[index] = {
+        path,
+        groupId: groupStem(path),
+        routines: routineSummaries(path, contents),
+      };
+    }
+  });
+  await Promise.all(workers);
+
+  const groups = new Map<string, ScriptCatalogEntry>();
+  for (const file of parsed) {
+    const existing = groups.get(file.groupId);
+    if (existing) {
+      existing.paths.push(file.path);
+      existing.routines.push(...file.routines);
+      continue;
+    }
+    groups.set(file.groupId, {
+      id: file.groupId,
+      displayName: displayName(file.groupId),
+      paths: [file.path],
+      routines: [...file.routines],
+    });
+  }
+
+  const entries = [...groups.values()]
+    .map((entry) => ({
+      ...entry,
+      paths: entry.paths.sort((left, right) => left.localeCompare(right)),
+      routines: entry.routines.sort((left, right) =>
+        left.path.localeCompare(right.path) || left.startLine - right.startLine),
+    }))
+    .sort((left, right) => left.displayName.localeCompare(right.displayName));
+
+  return {
+    entries,
+    fileCount: paths.length,
+    routineCount: entries.reduce(
+      (total, entry) => total + entry.routines.filter((routine) => routine.kind !== "source-label").length,
+      0,
+    ),
+  };
+}
+
+export async function loadScriptDocument(
+  source: ProjectSource,
+  path: string,
+): Promise<ScriptDocument> {
+  if (!isScriptPath(path)) {
+    throw new Error(`Unsupported script path: ${path}`);
+  }
+  if (!(await source.exists(path))) {
+    throw new Error(`Script file not found: ${path}`);
+  }
+
+  const contents = await source.readText(path);
+  return {
+    path,
+    source: contents,
+    routines: routineSummaries(path, contents),
+  };
+}
+
+
+function sourceSectionEndsUnconditionally(lines: string[]): boolean {
+  for (let index = lines.length - 1; index >= 1; index -= 1) {
+    const clean = lines[index].split(";", 1)[0].trim();
+    if (!clean || /^\.[A-Za-z_][A-Za-z0-9_.]*:{0,2}$/.test(clean)) continue;
+    if (/^(?:ret|reti)\s*$/i.test(clean)) return true;
+    if (/^(?:jp|jr)\s+(?!z\b|nz\b|c\b|nc\b)[A-Za-z_.][A-Za-z0-9_.]*\b/i.test(clean)) {
+      return true;
+    }
+    return false;
+  }
+  return false;
+}
+
+export function resolveExternalScriptRoutines(
+  document: ScriptDocument,
+  files: ProjectRgbdsSourceFile[],
+): ScriptExternalRoutineSource[] {
+  const localLabels = new Set(
+    parseMapScriptRoutines(document.source).map((routine) => routine.label),
+  );
+  const wanted = new Set(
+    document.routines
+      .filter((routine) => routine.kind === "state" && !localLabels.has(routine.label))
+      .map((routine) => routine.label),
+  );
+  if (wanted.size === 0) return [];
+
+  const result: ScriptExternalRoutineSource[] = [];
+  for (const file of files) {
+    if (file.path === document.path || !file.contents) continue;
+    const lines = file.contents.split(/\r?\n/);
+    const starts: Array<{ label: string; index: number }> = [];
+    lines.forEach((line, index) => {
+      const label = line.match(
+        /^\s*([A-Za-z_][A-Za-z0-9_]*):{1,2}\s*(?:;.*)?$/,
+      )?.[1];
+      if (label) starts.push({ label, index });
+    });
+
+    starts.forEach((start, index) => {
+      if (!wanted.has(start.label)) return;
+
+      let end = starts[index + 1]?.index ?? lines.length;
+      let sectionIndex = index;
+      for (let depth = 0; depth < 4; depth += 1) {
+        const sectionEnd = starts[sectionIndex + 1]?.index ?? lines.length;
+        const sectionLines = lines.slice(starts[sectionIndex].index, sectionEnd);
+        end = sectionEnd;
+        if (sourceSectionEndsUnconditionally(sectionLines)) break;
+        if (sectionIndex + 1 >= starts.length) break;
+        sectionIndex += 1;
+      }
+
+      result.push({
+        label: start.label,
+        path: file.path,
+        startLine: start.index + 1,
+        source: lines.slice(start.index, end).join("\n"),
+      });
+    });
+  }
+
+  return result.sort((left, right) =>
+    left.label.localeCompare(right.label)
+    || left.path.localeCompare(right.path)
+    || left.startLine - right.startLine
+  );
+}

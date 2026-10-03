@@ -238,6 +238,11 @@
   gap: 0.55rem;
 }
 
+.map-script-safe-edit-link {
+  margin-top: 0.55rem;
+  width: fit-content;
+}
+
 .map-script-source-detail {
   margin-top: 0.15rem;
   font-size: 0.8rem;
@@ -354,5 +359,57 @@
 @media (max-width: 680px) {
   .map-script-battle-handoff-heading {
     display: grid;
+  }
+}
+
+
+.map-script-validation-panel {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border-color, rgba(127, 127, 127, 0.3));
+  border-radius: 0.65rem;
+  background: rgba(127, 127, 127, 0.04);
+}
+
+.map-script-validation-panel > p {
+  margin: 0;
+}
+
+.map-script-validation-panel ul {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.map-script-validation-panel li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.4rem;
+  background: rgba(127, 127, 127, 0.05);
+}
+
+.map-script-validation-error {
+  border-left: 3px solid currentColor;
+}
+
+.map-script-validation-warning {
+  border-left: 3px dashed currentColor;
+}
+
+.map-script-validation-panel code {
+  white-space: nowrap;
+  opacity: 0.72;
+}
+
+@media (max-width: 680px) {
+  .map-script-validation-panel li {
+    grid-template-columns: 1fr;
   }
 }

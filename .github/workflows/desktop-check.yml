@@ -25,6 +25,49 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Check TypeScript
+        run: npm exec tsc -- --noEmit
+
+      - name: Check script round trips
+        run: npm run test:scripts
+
+      - name: Checkout Yellow script fixtures
+        uses: actions/checkout@v6
+        with:
+          repository: pret/pokeyellow
+          ref: e89ead154b9968aa50eed9328ff2b38b6c194382
+          path: .script-fixtures/pokeyellow
+          persist-credentials: false
+
+      - name: Checkout Red and Blue script fixtures
+        uses: actions/checkout@v6
+        with:
+          repository: pret/pokered
+          ref: d2704a63c26f9ba046ade877445216b3de0519a4
+          path: .script-fixtures/pokered
+          persist-credentials: false
+
+      - name: Check disassembly script round trips
+        run: npm run test:scripts -- .script-fixtures/pokeyellow .script-fixtures/pokered
+
+      - name: Checkout script probe CPU
+        uses: actions/checkout@v6
+        with:
+          repository: binji/binjgb
+          ref: 8abd0d38d5bf109d7c280b27d815a8b53168adde
+          path: .script-fixtures/binjgb
+          persist-credentials: false
+
+      - name: Install pinned native RGBDS
+        run: |
+          mkdir -p .script-fixtures/rgbds
+          curl --fail --location --output .script-fixtures/rgbds.tar.xz https://github.com/gbdev/rgbds/releases/download/v1.0.4/rgbds-linux-x86_64.tar.xz
+          echo "3e19e50ea602e316be709160acaf0a708b1fa6d32d219ec541f244442895dbb7  .script-fixtures/rgbds.tar.xz" | sha256sum --check
+          tar --no-same-owner -xf .script-fixtures/rgbds.tar.xz -C .script-fixtures/rgbds
+
+      - name: Assemble edited ROMs and execute script probes
+        run: npm run test:scripts:rom -- .script-fixtures/rgbds .script-fixtures/binjgb .script-fixtures/pokeyellow .script-fixtures/pokered
+
       - name: Prepare shared WASM tools
         run: |
           sudo apt-get update

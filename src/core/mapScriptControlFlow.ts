@@ -1,3 +1,5 @@
+import { eventArgumentsForSemantic } from "./eventMacroSemantics";
+import type { ProjectEventMacroSemantic } from "./types";
 import type {
   MapScriptSemanticNode,
   MapScriptSourceSpan,
@@ -9,10 +11,16 @@ export type MapScriptCondition =
       type: "event-state";
       event: string;
       state: "set" | "clear";
+      afterCheck?: "set" | "reset";
     }
   | {
       type: "battle-result";
       result: "lost" | "not-lost";
+    }
+  | {
+      type: "event-group";
+      events: string[];
+      state: "none-set" | "any-set" | "all-set" | "not-all-set";
     }
   | {
       type: "variable-compare";
@@ -25,6 +33,12 @@ export type MapScriptCondition =
       variable: string;
       flag: string;
       state: "set" | "clear";
+    }
+  | {
+      type: "routine-result";
+      routine: string;
+      result: "carry" | "no-carry";
+      argument?: string;
     };
 
 export type MapScriptBranchOutcome =
@@ -32,6 +46,12 @@ export type MapScriptBranchOutcome =
   | { type: "return" }
   | {
       type: "jump";
+      target: string;
+      summary?: string;
+      targetSource?: MapScriptSourceSpan;
+    }
+  | {
+      type: "call";
       target: string;
       summary?: string;
       targetSource?: MapScriptSourceSpan;
@@ -56,7 +76,7 @@ export type MapScriptFlowItem =
   | MapScriptIfBlock;
 
 interface ConditionalBranch {
-  flag: "z" | "nz";
+  flag: "z" | "nz" | "c" | "nc";
   outcome: MapScriptBranchOutcome;
   index: number;
 }
@@ -84,6 +104,7 @@ interface FlowContext {
   nodesByStart: Map<number, MapScriptSemanticNode[]>;
   localLabels: Map<string, number>;
   externalSections: Map<string, RoutineSection>;
+  eventMacros: Map<string, ProjectEventMacroSemantic>;
 }
 
 function withoutComment(line: string): string {
@@ -107,19 +128,30 @@ function sourceSpan(
 
 function conditionalBranch(line: string, index: number): ConditionalBranch | null {
   const clean = withoutComment(line);
-  const jump = clean.match(/^(?:jr|jp)\s+(z|nz)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
+  const jump = clean.match(/^(?:jr|jp)\s+(z|nz|c|nc)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i);
   if (jump) {
     return {
-      flag: jump[1].toLowerCase() as "z" | "nz",
+      flag: jump[1].toLowerCase() as ConditionalBranch["flag"],
       outcome: { type: "jump", target: jump[2] },
       index,
     };
   }
 
-  const conditionalReturn = clean.match(/^ret\s+(z|nz)\b/i);
+  const conditionalCall = clean.match(
+    /^call\s+(z|nz|c|nc)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)\b/i,
+  );
+  if (conditionalCall) {
+    return {
+      flag: conditionalCall[1].toLowerCase() as ConditionalBranch["flag"],
+      outcome: { type: "call", target: conditionalCall[2] },
+      index,
+    };
+  }
+
+  const conditionalReturn = clean.match(/^ret\s+(z|nz|c|nc)\b/i);
   if (conditionalReturn) {
     return {
-      flag: conditionalReturn[1].toLowerCase() as "z" | "nz",
+      flag: conditionalReturn[1].toLowerCase() as ConditionalBranch["flag"],
       outcome: { type: "return" },
       index,
     };
@@ -128,13 +160,73 @@ function conditionalBranch(line: string, index: number): ConditionalBranch | nul
   return null;
 }
 
-function eventCondition(lines: string[], index: number): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
-  const event = withoutComment(lines[index]).match(/^CheckEvent\s+([A-Z][A-Z0-9_]*)\s*$/i)?.[1];
+function isZeroBranch(
+  branch: ConditionalBranch,
+): branch is ConditionalBranch & { flag: "z" | "nz" } {
+  return branch.flag === "z" || branch.flag === "nz";
+}
+
+function eventCondition(
+  lines: string[],
+  index: number,
+  eventMacros: Map<string, ProjectEventMacroSemantic>,
+): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
+  const clean = withoutComment(lines[index]);
+  const invocation = clean.match(/^([A-Za-z_][A-Za-z0-9_#@.]*)\s+(.+)$/);
+  if (invocation) {
+    const semantic = eventMacros.get(invocation[1].toLowerCase());
+    if (semantic?.action.startsWith("check") && semantic.zeroMeaning) {
+      const arguments_ = invocation[2].split(",").map((value) => value.trim());
+      const events = eventArgumentsForSemantic(
+        semantic,
+        arguments_,
+      );
+      const branch = conditionalBranch(lines[index + 1] ?? "", index + 1);
+      if (!branch || !isZeroBranch(branch) || events.length === 0) return null;
+
+      if (semantic.zeroMeaning === "event-clear") {
+        return {
+          condition: {
+            type: "event-state",
+            event: events[0],
+            state: branch.flag === "z" ? "clear" : "set",
+            afterCheck: semantic.action === "check-set"
+              ? "set"
+              : semantic.action === "check-reset"
+                ? "reset"
+                : undefined,
+          },
+          branch,
+        };
+      }
+
+      if (semantic.zeroMeaning === "none-set") {
+        return {
+          condition: {
+            type: "event-group",
+            events,
+            state: branch.flag === "z" ? "none-set" : "any-set",
+          },
+          branch,
+        };
+      }
+
+      return {
+        condition: {
+          type: "event-group",
+          events,
+          state: branch.flag === "z" ? "all-set" : "not-all-set",
+        },
+        branch,
+      };
+    }
+  }
+
+  const event = clean.match(/^CheckEvent\s+([A-Z][A-Z0-9_]*)\s*$/i)?.[1];
   if (!event) return null;
   const branch = conditionalBranch(lines[index + 1] ?? "", index + 1);
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
-  // CheckEvent leaves Z when the event is clear and NZ when it is set.
   return {
     condition: {
       type: "event-state",
@@ -149,7 +241,7 @@ function battleResultCondition(lines: string[], index: number): { condition: Map
   if (!/^ld\s+a\s*,\s*\[wIsInBattle\]\s*$/i.test(withoutComment(lines[index]))) return null;
   if (!/^cp\s+LOST_BATTLE\s*$/i.test(withoutComment(lines[index + 1] ?? ""))) return null;
   const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
   return {
     condition: {
@@ -166,7 +258,7 @@ function variableComparisonCondition(lines: string[], index: number): { conditio
   const value = withoutComment(lines[index + 1] ?? "").match(/^cp\s+([^\s;]+)\s*$/i)?.[1];
   if (!value) return null;
   const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
   return {
     condition: {
@@ -174,6 +266,35 @@ function variableComparisonCondition(lines: string[], index: number): { conditio
       variable,
       comparison: branch.flag === "z" ? "equals" : "not-equals",
       value,
+    },
+    branch,
+  };
+}
+
+function zeroTestCondition(lines: string[], index: number): { condition: MapScriptCondition; branch: ConditionalBranch } | null {
+  const variable = withoutComment(lines[index]).match(/^ld\s+a\s*,\s*\[(w[A-Za-z0-9_]+)\]\s*$/i)?.[1];
+  if (!variable) return null;
+  if (!/^and\s+a\s*$/i.test(withoutComment(lines[index + 1] ?? ""))) return null;
+
+  let branch: ConditionalBranch | null = null;
+  for (let probe = index + 2; probe <= Math.min(lines.length - 1, index + 5); probe += 1) {
+    const clean = withoutComment(lines[probe]);
+    if (!clean) continue;
+    branch = conditionalBranch(lines[probe], probe);
+    if (branch) break;
+    // LD does not modify the Game Boy CPU flags, so a zero test remains valid
+    // across setup loads such as "ld de, DefaultMovement".
+    if (/^ld\b/i.test(clean)) continue;
+    return null;
+  }
+  if (!branch || !isZeroBranch(branch)) return null;
+
+  return {
+    condition: {
+      type: "variable-compare",
+      variable,
+      comparison: branch.flag === "z" ? "equals" : "not-equals",
+      value: "0",
     },
     branch,
   };
@@ -190,7 +311,7 @@ function flagCondition(lines: string[], index: number): { condition: MapScriptCo
   if (variable === "wStatusFlags5" && flag === "BIT_SCRIPTED_NPC_MOVEMENT") return null;
 
   const branch = conditionalBranch(lines[index + 2] ?? "", index + 2);
-  if (!branch) return null;
+  if (!branch || !isZeroBranch(branch)) return null;
 
   return {
     condition: {
@@ -203,8 +324,44 @@ function flagCondition(lines: string[], index: number): { condition: MapScriptCo
   };
 }
 
-function flowConditionAt(lines: string[], index: number): ParsedCondition | null {
-  const event = eventCondition(lines, index);
+function routineResultCondition(
+  lines: string[],
+  index: number,
+): { condition: MapScriptCondition; branch: ConditionalBranch; startIndex: number } | null {
+  const first = withoutComment(lines[index]);
+  const load = first.match(
+    /^ld\s+(?:hl|de|bc|a)\s*,\s*([^\s;]+)\s*$/i,
+  );
+  const callIndex = load ? index + 1 : index;
+  const routine = withoutComment(lines[callIndex] ?? "").match(
+    /^call\s+([A-Za-z_][A-Za-z0-9_]*)\b/i,
+  )?.[1];
+  if (!routine) return null;
+
+  const branch = conditionalBranch(lines[callIndex + 1] ?? "", callIndex + 1);
+  if (!branch || (branch.flag !== "c" && branch.flag !== "nc")) return null;
+
+  return {
+    condition: {
+      type: "routine-result",
+      routine,
+      result: branch.flag === "c" ? "carry" : "no-carry",
+      argument: load?.[1],
+    },
+    branch,
+    startIndex: index,
+  };
+}
+
+function flowConditionAt(
+  lines: string[],
+  index: number,
+  eventMacros: Map<string, ProjectEventMacroSemantic>,
+): ParsedCondition | null {
+  const routineResult = routineResultCondition(lines, index);
+  if (routineResult) return routineResult;
+
+  const event = eventCondition(lines, index, eventMacros);
   if (event) return { ...event, startIndex: index };
 
   const battle = battleResultCondition(lines, index);
@@ -212,6 +369,9 @@ function flowConditionAt(lines: string[], index: number): ParsedCondition | null
 
   const variable = variableComparisonCondition(lines, index);
   if (variable) return { ...variable, startIndex: index };
+
+  const zeroTest = zeroTestCondition(lines, index);
+  if (zeroTest) return { ...zeroTest, startIndex: index };
 
   const flag = flagCondition(lines, index);
   if (flag) return { ...flag, startIndex: index };
@@ -222,8 +382,10 @@ function flowConditionAt(lines: string[], index: number): ParsedCondition | null
 function labelsInState(lines: string[]): Map<string, number> {
   const result = new Map<string, number>();
   lines.forEach((line, index) => {
-    const label = line.match(/^\s*([A-Za-z_.][A-Za-z0-9_.]*):{1,2}\s*(?:;.*)?$/)?.[1];
-    if (label) result.set(label, index);
+    const match = line.match(
+      /^\s*((?:\.[A-Za-z_][A-Za-z0-9_.]*)(?::{1,2})?|(?:[A-Za-z_][A-Za-z0-9_]*):{1,2})\s*(?:;.*)?$/,
+    );
+    if (match) result.set(match[1].replace(/:{1,2}$/, ""), index);
   });
   return result;
 }
@@ -251,7 +413,11 @@ function globalRoutineSections(source: string | undefined): Map<string, RoutineS
 function previousExecutableIndex(lines: string[], start: number, endExclusive: number): number | null {
   for (let index = endExclusive - 1; index >= start; index -= 1) {
     const clean = withoutComment(lines[index]);
-    if (!clean || /^[A-Za-z_.][A-Za-z0-9_.]*:{1,2}$/.test(clean)) continue;
+    if (
+      !clean
+      || /^(?:\.[A-Za-z_][A-Za-z0-9_.]*)(?::{1,2})?$/.test(clean)
+      || /^[A-Za-z_][A-Za-z0-9_]*:{1,2}$/.test(clean)
+    ) continue;
     return index;
   }
   return null;
@@ -307,15 +473,28 @@ function enrichExternalOutcome(
   outcome: MapScriptBranchOutcome,
   context: FlowContext,
 ): MapScriptBranchOutcome {
-  if (outcome.type !== "jump") return outcome;
+  if (outcome.type !== "jump" && outcome.type !== "call") return outcome;
   if (context.localLabels.has(outcome.target)) return outcome;
 
-  const reset = resetRoutineSummary(context.externalSections.get(outcome.target));
-  if (!reset) return outcome;
+  const section = context.externalSections.get(outcome.target);
+  const reset = resetRoutineSummary(section);
+  if (reset) {
+    return {
+      ...outcome,
+      summary: reset.summary,
+      targetSource: reset.source,
+    };
+  }
+  if (!section) return outcome;
+
   return {
     ...outcome,
-    summary: reset.summary,
-    targetSource: reset.source,
+    targetSource: {
+      lineStart: section.startLine,
+      lineEnd: section.startLine + section.lines.length - 1,
+      raw: section.lines.join("\n"),
+      confidence: "exact",
+    },
   };
 }
 
@@ -353,6 +532,28 @@ function structureCondition(
   const conditionEnd = parsed.branch.index;
 
   if (depth > 8) return makeSimpleBlock(context, parsed);
+
+  if (branchOutcome.type === "call") {
+    return {
+      block: {
+        type: "if",
+        id: `${context.state.label}:${context.state.startLine + parsed.startIndex}:if`,
+        condition: parsed.condition,
+        whenTrue: {
+          items: [],
+          outcome: enrichExternalOutcome(branchOutcome, context),
+        },
+        whenFalse: { items: [], outcome: { type: "continue" } },
+        source: sourceSpan(
+          context.state,
+          context.lines,
+          parsed.startIndex,
+          parsed.branch.index,
+        ),
+      },
+      nextIndex: parsed.branch.index + 1,
+    };
+  }
 
   if (branchOutcome.type === "return") {
     const falseItems = buildRange(context, conditionEnd + 1, endExclusive, depth + 1);
@@ -470,7 +671,7 @@ function buildRange(
   let index = startIndex;
 
   while (index < endExclusive) {
-    const parsed = flowConditionAt(context.lines, index);
+    const parsed = flowConditionAt(context.lines, index, context.eventMacros);
     if (parsed && parsed.branch.index < endExclusive) {
       const structured = structureCondition(context, parsed, endExclusive, depth);
       if (structured) {
@@ -497,6 +698,7 @@ function buildRange(
 export function structuredMapScriptFlow(
   state: MapScriptState,
   fullSource?: string,
+  eventMacroSemantics: ProjectEventMacroSemantic[] = [],
 ): MapScriptFlowItem[] {
   const lines = state.source.split(/\r?\n/);
   const context: FlowContext = {
@@ -505,6 +707,9 @@ export function structuredMapScriptFlow(
     nodesByStart: nodesByStart(state),
     localLabels: labelsInState(lines),
     externalSections: globalRoutineSections(fullSource),
+    eventMacros: new Map(
+      eventMacroSemantics.map((semantic) => [semantic.name.toLowerCase(), semantic]),
+    ),
   };
 
   // Index 0 is the state's own label.
