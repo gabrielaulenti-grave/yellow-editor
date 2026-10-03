@@ -19,6 +19,7 @@ import { prepareTrainerRewardWrite } from "../src/core/trainerRewardEditing";
 import { editableScriptMacroArguments } from "../src/core/scriptMacroEligibility";
 import { analyzeTextScript } from "../src/core/textScriptAnalysis";
 import { projectConstantCatalogFromSources } from "../src/core/projectConstants";
+import { deriveEventBranchDependencies, eventMutationDependencies } from "../src/core/eventDependencies";
 import type { ProjectEventMacroSemantic, ProjectMovementVocabulary } from "../src/core/types";
 
 const movement: ProjectMovementVocabulary = {
@@ -354,4 +355,38 @@ test("event builders exclude unresolved count symbols from the selector and writ
   const doc = await loadScriptSimpleActionCreateDocument(routine, path, "Target", analysis, movement, events);
   assert.ok(!doc.eventOptions["set-event"].some((option) => option.value === "NUM_EVENTS"));
   await assert.rejects(prepareScriptSimpleActionWrite(routine, doc, { action: "set-event", event: "NUM_EVENTS" }, analysis, movement, events));
+});
+
+const guardedEncounter = "Encounter:\n\tTestEvent EVENT_ENABLED\n\tret z\n\tcall CoordinateTest\n\tret nc\n\tld a, $f0\n\tld [wInputMask], a\n\tTestEvent EVENT_ALPHA\n\tjr nz, FirstBranch\n\tTestEvent EVENT_BETA\n\tjp nz, SecondBranch\n\tret\nFirstBranch:\n\tret\nSecondBranch:\n\tret\n";
+
+test("event dependency analysis identifies enabling flags and pending branch selectors from source", () => {
+  const files = [{ path: "scripts/Encounter.asm", contents: guardedEncounter }];
+  const dependencies = deriveEventBranchDependencies(files, events);
+  assert.deepEqual(dependencies, [{ path: "scripts/Encounter.asm", routine: "Encounter", line: 2,
+    guardEvent: "EVENT_ENABLED", branchEvents: ["EVENT_ALPHA", "EVENT_BETA"], writtenSymbols: ["wInputMask"] }]);
+  assert.equal(eventMutationDependencies(dependencies, "EVENT_ALPHA", "reset").length, 1);
+  assert.equal(eventMutationDependencies(dependencies, "EVENT_ENABLED", "set").length, 1);
+  assert.equal(eventMutationDependencies(dependencies, "EVENT_ALPHA", "set").length, 0);
+  assert.equal(eventMutationDependencies(dependencies, "EVENT_ENABLED", "reset").length, 0);
+});
+
+test("event dependency analysis leaves cleanup, local branches, and read-only checks unclassified", () => {
+  for (const contents of [
+    guardedEncounter.replace("\tret\nFirstBranch:", "\txor a\n\tld [wInputMask], a\n\tret\nFirstBranch:"),
+    guardedEncounter.replace("jr nz, FirstBranch", "jr nz, .first"),
+    guardedEncounter.replace("\tld [wInputMask], a\n", ""),
+    guardedEncounter.replace("ret nc", "jp OtherRoutine"),
+  ]) assert.equal(deriveEventBranchDependencies([{ path: "scripts/Encounter.asm", contents }], events).length, 0);
+  assert.equal(deriveEventBranchDependencies([{ path: "engine/Encounter.asm", contents: guardedEncounter }], events).length, 0);
+});
+
+test("generated event-action documents include project-derived dependency warnings", async () => {
+  const source = "Target:\n\tret\n";
+  const { files } = await analysisFor(source);
+  files.push({ path: "scripts/Encounter.asm", contents: guardedEncounter.replaceAll("TestEvent", "ReadFlag") });
+  files.push({ path: "macros/check.asm", contents: "MACRO ReadFlag\n\tld hl, wEventFlags + (\\1 / 8)\n\tbit (\\1) % 8, [hl]\nENDM\n" });
+  const analysis = await loadMacroAnalysis({} as never, { domains, warnings: [] }, files);
+  const doc = await loadScriptSimpleActionCreateDocument(source, path, "Target", analysis, movement, events);
+  assert.equal(doc.eventBranchDependencies?.[0].guardEvent, "EVENT_ENABLED");
+  assert.deepEqual(doc.eventBranchDependencies?.[0].branchEvents, ["EVENT_ALPHA", "EVENT_BETA"]);
 });

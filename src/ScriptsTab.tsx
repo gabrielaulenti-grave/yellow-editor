@@ -15,6 +15,7 @@ import type {
   ScriptRoundTripRegressionReport,
   ScriptSimpleActionCreateDocument,
   ScriptSimpleActionCreateValues,
+  ScriptEventBranchDependency,
   ScriptRoutineCategory,
   ScriptRoutineSummary,
 } from "./core/types";
@@ -28,6 +29,7 @@ import {
   scriptMacroReadOnlyReason,
 } from "./core/scriptMacroEligibility";
 import { invoke } from "./platform/compat";
+import { eventMutationDependencies } from "./core/eventDependencies";
 import "./ScriptsTab.css";
 
 export interface ScriptFocus {
@@ -95,6 +97,25 @@ function macroKindLabel(value: string): string {
   return value === "unknown"
     ? "unresolved"
     : value.replace(/-/g, " ");
+}
+
+function EventDependencyWarning({ dependencies, event }: { dependencies: ScriptEventBranchDependency[]; event: string }) {
+  if (dependencies.length === 0) return null;
+  return (
+    <div className="world-map-warning script-macro-edit-message" role="status">
+      <strong>Event flags work together</strong>
+      {dependencies.map((dependency) => (
+        <p key={`${dependency.path}:${dependency.line}`}>
+          <code>{dependency.guardEvent}</code> enables <code>{dependency.routine}</code>, while{" "}
+          {dependency.branchEvents.map((value, index) => <span key={value}>{index > 0 ? " or " : ""}<code>{value}</code></span>)}{" "}
+          selects its branch. If the enabling flag stays set while all branch flags are clear,
+          this routine can change game state and return without selecting a branch, which may stall an event.
+          Review the related flags before changing <code>{event}</code>.
+          {" "}<small>Source: {dependency.path}:{dependency.line}</small>
+        </p>
+      ))}
+    </div>
+  );
 }
 
 function MacroCallForm({
@@ -334,6 +355,11 @@ function MacroCallForm({
                 {readOnlyReason && (
                   <small className="script-macro-evidence">Read-only: {readOnlyReason}</small>
                 )}
+                <EventDependencyWarning
+                  dependencies={eventMutationDependencies(catalog?.eventBranchDependencies, rawValue, "set")
+                    .concat(eventMutationDependencies(catalog?.eventBranchDependencies, rawValue, "reset"))}
+                  event={rawValue}
+                />
                 {editDocument && !editable && semanticDomain && !readOnlyReason && (
                   <small className="script-macro-evidence">
                     Read-only in this phase: the backend did not confirm this parameter as safely rewritable.
@@ -515,6 +541,7 @@ function SimpleActionBuilder({
           <p className="help-text">
             Available only when Yellow Editor can prove this state has one straight-line exit.
             Generated source must reparse as exactly one new semantic action.
+            Event changes also depend on the game's existing flag relationships.
           </p>
         </div>
         {!document && (
@@ -604,6 +631,12 @@ function SimpleActionBuilder({
           <small>
             New action will be inserted before the final return at line {document.insertionLine}.
           </small>
+          {(action === "set-event" || action === "reset-event") && (
+            <EventDependencyWarning
+              dependencies={eventMutationDependencies(document.eventBranchDependencies, event, action === "set-event" ? "set" : "reset")}
+              event={event}
+            />
+          )}
           <div className="script-macro-edit-actions">
             <button
               type="button"
@@ -625,7 +658,7 @@ function SimpleActionBuilder({
                 || ((action === "set-event" || action === "reset-event") && !event)
               }
             >
-              {saving ? "Validating…" : "Add verified action"}
+              {saving ? "Validating…" : "Add action"}
             </button>
           </div>
         </div>
