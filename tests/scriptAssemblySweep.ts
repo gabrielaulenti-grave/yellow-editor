@@ -1,4 +1,6 @@
 import { route1DialogueRoundTrips } from "./route1Dialogue";
+import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
+import type { ProjectSource } from "../src/core/types";
 import assert from "node:assert/strict";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -112,6 +114,50 @@ try {
     assert.equal(generated, 6);
     run("make", ["-j2", `RGBDS=${rgbds}/`, rom], root);
     console.log(`  generated-action ROM: ${generated} simple/conditional insertions assembled and linked`);
+
+    for (const [mapConstant, x, y, reuse] of [
+      ["ROUTE_1", 6, 24, false], ["ROUTE_1", 7, 24, true],
+      ["ROUTE_2", 6, 24, false], ["ROUTE_22", 6, 9, false],
+      ["REDS_HOUSE_2F", 2, 2, false],
+    ] as const) {
+      const document = await loadMapNpcCreateDocument(source as ProjectSource, mapConstant);
+      const option = document.dialogueOptions.find(option => /EditorNpc/.test(option.label));
+      const writes = await prepareMapNpcWrites(source as ProjectSource, document, {
+        x, y, sprite: document.sprites.find(sprite => sprite === "SPRITE_YOUNGSTER") ?? document.sprites[0],
+        movement: reuse ? "WALK" : "STAY", direction: reuse ? "LEFT_RIGHT" : "DOWN",
+        dialogue: reuse ? { kind: "existing", id: option!.id } : { kind: "new", lines: ["Hello there!", "Enjoy your trip."] },
+      });
+      for (const write of writes) await writeFile(join(root, write.path), write.contents);
+    }
+    run("make", ["-j2", `RGBDS=${rgbds}/`, rom], root);
+    const romBytes = new Uint8Array(await readFile(join(root, rom)));
+    const romSymbols = await readFile(join(root, rom.replace(/\.gbc$/, ".sym")), "utf8");
+    const location = (label: string) => {
+      const match = romSymbols.match(new RegExp(`^(\\w+):(\\w+) ${label}$`, "m"));
+      assert.ok(match, `Missing ROM symbol ${label}`);
+      const bank = Number.parseInt(match[1], 16), address = Number.parseInt(match[2], 16);
+      return { bank, address, offset: bank * 0x4000 + (address % 0x4000) };
+    };
+    // Existing object pointers retain IDs 1/2; the sign moves above both new
+    // object IDs. Verify the actual linked ROM addresses, not just source text.
+    const pointerTable = location("Route1_TextPointers");
+    for (const [i, label] of ["Route1Youngster1Text", "Route1Youngster2Text", "Route1EditorNpc3Text", "Route1EditorNpc4Text", "Route1SignText"].entries()) {
+      const target = location(label);
+      assert.equal(pointerTable.bank, target.bank);
+      assert.equal(romBytes[pointerTable.offset + i * 2] | (romBytes[pointerTable.offset + i * 2 + 1] << 8), target.address);
+    }
+    const objectTable = location("Route1_Object");
+    let cursor = objectTable.offset + 1;
+    const warps = romBytes[cursor++]; cursor += warps * 4;
+    const signs = romBytes[cursor++];
+    assert.equal(signs, 1);
+    assert.equal(romBytes[cursor + 2], 5);
+    cursor += signs * 3;
+    assert.equal(romBytes[cursor++], 4);
+    assert.deepEqual([...romBytes.slice(cursor + 12, cursor + 18)], [4, 28, 10, 255, 208, 3]);
+    assert.deepEqual([...romBytes.slice(cursor + 18, cursor + 24)], [4, 28, 11, 254, 2, 4]);
+    assert.equal(romBytes[location("Route1EditorNpc3Text").offset], 0); // TX_START, ordinary text entry.
+    console.log("  NPC ROM: five creations linked; object bytes, dialogue pointer banks, original NPC bindings, and shifted sign IDs verified");
 
     const target = "Target:\n\tret\n";
     const simple = await loadScriptSimpleActionCreateDocument(target, "scripts/Probe.asm", "Target", analysis, movement, events);

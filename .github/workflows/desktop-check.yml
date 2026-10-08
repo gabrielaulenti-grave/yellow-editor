@@ -37,6 +37,9 @@ jobs:
       - name: Check script editor layouts
         run: npm run test:scripts:layout
 
+      - name: Check NPC creation workflow
+        run: npm run test:npcs:ui
+
       - name: Checkout Yellow script fixtures
         uses: actions/checkout@v6
         with:
