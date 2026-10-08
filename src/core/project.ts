@@ -34,6 +34,7 @@ import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
+import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "./npcCreation";
 import {
   loadScriptCatalog,
   loadScriptDocument,
@@ -713,6 +714,10 @@ export async function createProjectSession(
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
     invalidateScriptReadModels(paths);
+    if (paths.some(path => path.startsWith("data/maps/") || path.startsWith("scripts/") || path.startsWith("constants/") || path.startsWith("gfx/tilesets") || path === "maps.asm")) {
+      mapIndexPromise = null;
+      mapVisualizationPromises.clear();
+    }
     if (paths.some((path) => path.startsWith("data/pokemon/base_stats/"))) {
       pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
@@ -862,6 +867,13 @@ export async function createProjectSession(
     },
     getMapIndex,
     getMapVisualization,
+    getMapNpcCreateDocument: mapConstant => loadMapNpcCreateDocument(source, mapConstant),
+    createMapNpc: async (document, values) => {
+      const changes = await prepareMapNpcWrites(source, document, values);
+      const result = await history.save(`Add NPC to ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
     getScriptCatalog,
     getScriptAudit,
     runScriptRoundTripRegression,

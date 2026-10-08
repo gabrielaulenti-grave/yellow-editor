@@ -15,7 +15,8 @@
     "prepare:shared-wasm-dev": "node scripts/prepare-shared-wasm-dev.mjs",
     "prepare:wasm-tools": "npm run prepare:pret-wasm && npm run prepare:rgbds-wasm && npm run prepare:emulator-wasm",
     "tauri": "tauri",
-    "test:scripts:layout": "node scripts/check-script-layout.mjs"
+    "test:scripts:layout": "node scripts/check-script-layout.mjs",
+    "test:npcs:ui": "node scripts/check-npc-workflow.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

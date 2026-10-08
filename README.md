@@ -40,3 +40,11 @@ For source development, Yellow Editor synchronizes the already-published pinned 
 ## Current editor coverage
 
 Yellow Editor currently supports source-backed Pokémon data and base-stat editing, move browsing, trainer parsing/editing, wild encounter editing, source-backed tile/block/map visualization with warp, sign-text, branched NPC dialogue, outdoor-map, and wild-encounter cross-navigation, ROM builds for Yellow and Red/Blue, an integrated Game Boy emulator, and persistent/exportable battery save RAM. The project checkout remains the source of truth, with edit history stored outside the checkout.
+
+### Add an NPC
+
+In **Maps**, select a map and choose **Add NPC** below its preview. Click or tap walkable ground, choose a compatible character and facing or wandering pattern, then write dialogue or reuse plain dialogue from that map. Review and create the NPC; its placement and dialogue save together as one undoable change. Select the new NPC to edit its dialogue afterward.
+
+Outdoor choices respect shared sprite sets, including both halves of split maps. Indoor choices respect graphics memory, and Yellow reserves the follower's object slot. Existing object IDs stay in place; sign text pointers shift above the expanded object range. Trainers, items, and story routines are never assigned as a new NPC's interaction. Maps with ambiguous source tables, unsupported macros, exhausted slots, or numeric text dispatches that cannot be preserved refuse creation.
+
+Placement checks map bounds and existing objects/warps; choose walkable terrain in the preview. Phase 1 creates dialogue NPCs. Battles, rewards, visibility flags, and scripted movement are outside this workflow.

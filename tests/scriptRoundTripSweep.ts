@@ -1,4 +1,5 @@
 import { route1DialogueRoundTrips } from "./route1Dialogue";
+import { npcCreationChecks } from "./npcCreation";
 import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { loadMacroAnalysis } from "../src/core/macroCatalog";
@@ -36,6 +37,7 @@ for (const directory of process.argv.slice(2)) {
     listFiles,
   };
   await route1DialogueRoundTrips(source);
+  await npcCreationChecks(source);
   console.log(`${root}: all 6 Route 1 dialogue leaves save/edit/reparse with source neighbors preserved`);
   const files = await readProjectRgbdsSources(source);
   const [analysis, movement] = await Promise.all([
