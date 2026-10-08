@@ -93,13 +93,13 @@ export function MapNpcWizard({ mapConstant, renderPlacement, onClose, onSaved }:
           <label>Character<SearchableSelect aria-label="Character" value={sprite} onChange={event => setSprite(event.target.value)}>{document.sprites.map(value => <option key={value} value={value}>{nameOf(value)}</option>)}</SearchableSelect></label>
           <small>{document.spriteNote}</small>
           <div className="npc-create-grid">
-            <label>Movement<select value={movement} onChange={event => { const next = event.target.value as "STAY" | "WALK"; setMovement(next); setDirection(next === "STAY" ? "DOWN" : "ANY_DIR"); }}><option value="STAY">Stay in place</option><option value="WALK">Wander</option></select></label>
-            <label>{movement === "STAY" ? "Facing" : "Wandering"}<select value={direction} onChange={event => setDirection(event.target.value)}>{(movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"]).map(value => <option key={value} value={value}>{({ ANY_DIR: "Any direction", UP_DOWN: "Up and down", LEFT_RIGHT: "Left and right" } as Record<string, string>)[value] ?? value.toLowerCase()}</option>)}</select></label>
+            <label>Movement<select aria-label="Movement" value={movement} onChange={event => { const next = event.target.value as "STAY" | "WALK"; setMovement(next); setDirection(next === "STAY" ? "DOWN" : "ANY_DIR"); }}><option value="STAY">Stay in place</option><option value="WALK">Wander</option></select></label>
+            <label>{movement === "STAY" ? "Facing" : "Wandering"}<select aria-label={movement === "STAY" ? "Facing" : "Wandering"} value={direction} onChange={event => setDirection(event.target.value)}>{(movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"]).map(value => <option key={value} value={value}>{({ ANY_DIR: "Any direction", UP_DOWN: "Up and down", LEFT_RIGHT: "Left and right" } as Record<string, string>)[value] ?? value.toLowerCase()}</option>)}</select></label>
           </div>
           {placementError && <p role="alert">{placementError}</p>}
         </div>}
         {step === 1 && <div className="wizard-page">
-          <label>Dialogue<select value={kind} onChange={event => setKind(event.target.value as "new" | "existing")}><option value="new">Write new dialogue</option><option value="existing" disabled={!document.dialogueOptions.length}>Reuse existing dialogue</option></select></label>
+          <label>Dialogue<select aria-label="Dialogue" value={kind} onChange={event => setKind(event.target.value as "new" | "existing")}><option value="new">Write new dialogue</option><option value="existing" disabled={!document.dialogueOptions.length}>Reuse existing dialogue</option></select></label>
           {kind === "existing" ? <>
             <label>Existing dialogue<SearchableSelect aria-label="Existing dialogue" value={existingId} onChange={event => setExistingId(event.target.value)}>{document.dialogueOptions.map(option => <option key={option.id} value={option.id}>{option.label} — {option.preview.replace(/\n/g, " ")}</option>)}</SearchableSelect></label>
             <pre className="npc-dialogue-preview">{chosen?.preview}</pre>
