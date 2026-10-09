@@ -3,7 +3,9 @@ import type {
   SaveCompatibilityDescriptor,
 } from "../core/types";
 
-const DATABASE_NAME = "yellow-editor-emulator";
+import { browserDatabaseName } from "./releaseChannel";
+
+const DATABASE_NAME = browserDatabaseName("yellow-editor-emulator");
 const DATABASE_VERSION = 1;
 const SAVE_STORE = "battery-saves";
 const PROJECT_TARGET_INDEX = "project-target";
