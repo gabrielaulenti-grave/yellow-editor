@@ -6,7 +6,9 @@ import type {
   TrainerCatalog,
 } from "../core/types";
 
-const DATABASE_NAME = "yellow-editor";
+import { browserDatabaseName } from "./releaseChannel";
+
+const DATABASE_NAME = browserDatabaseName("yellow-editor");
 const DATABASE_VERSION = 2;
 const PROJECT_STORE = "project-identities";
 const LEGACY_HISTORY_STORE = "project-history";

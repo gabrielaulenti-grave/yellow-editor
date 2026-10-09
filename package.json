@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:pages": "node scripts/check-pages.mjs",
     "test:scripts": "node scripts/check-script-round-trips.mjs",
     "test:scripts:rom": "node scripts/check-script-round-trips.mjs --rom",
     "dev": "vite",
