@@ -88,6 +88,7 @@ import {
   type FishingRod,
 } from "./editor/fishingForm";
 import { invoke, open, saveProjectCopy } from "./platform/compat";
+import { isBetaRelease } from "./platform/releaseChannel";
 import "./App.css";
 
 type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "scripts" | "build";
@@ -2155,6 +2156,14 @@ function App() {
         </div>
         <button onClick={selectProject}>Open Project</button>
       </header>
+
+      {isBetaRelease && (
+        <aside className="beta-release-banner" aria-label="Beta version">
+          <strong>Beta testing</strong>
+          <span>Testing upcoming changes. Browser history and game saves are separate here.</span>
+          <a href="../">Open main app</a>
+        </aside>
+      )}
 
       {projectLoadProgress && (
         <section className="project-loading-panel" aria-live="polite">

@@ -2,7 +2,7 @@ name: Check desktop app
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "beta"]
   pull_request:
   workflow_dispatch:
 
@@ -30,6 +30,9 @@ jobs:
 
       - name: Check script round trips
         run: npm run test:scripts
+
+      - name: Check Pages channel packaging
+        run: npm run test:pages
 
       - name: Install layout-check browser
         run: npm exec playwright -- install --with-deps chromium

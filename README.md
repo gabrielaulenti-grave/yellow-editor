@@ -26,6 +26,17 @@ npm run build
 
 The static output is written to `dist/`.
 
+### Main and beta URLs
+
+- [Main app](https://gabrielaulenti-grave.github.io/yellow-editor/) builds from `main`.
+- [Beta app](https://gabrielaulenti-grave.github.io/yellow-editor/beta/) builds from `beta`, which can contain unmerged PR changes.
+
+Pages publishes both builds as one artifact. A main deployment preserves the beta URL, and a beta deployment preserves the main app. Beta has a visible testing banner and separate browser edit history, trainer caches, and emulator battery saves. Project folders remain user-selected files: use **Save As** or a separate project copy when testing beta edits.
+
+To promote a PR for browser testing, update the `beta` branch with the desired PR and the Pages channel infrastructure. A push to `beta` runs **Check desktop app**; a successful push check automatically starts **Deploy web app to GitHub Pages** from `main`. The deployment pins current `main` and the latest beta revision that passed push checks, then verifies their asset paths before publishing. A newer beta revision that fails checks leaves the previous passing beta available. `release.json` at each URL records the exact deployed commit. Updating beta does not merge the feature into main.
+
+For a manual rebuild of both URLs, open **Actions → Deploy web app to GitHub Pages → Run workflow** and select `main`. A failed build never publishes a partial site.
+
 ## Run the desktop app
 
 Install the normal Tauri development prerequisites, then run:
