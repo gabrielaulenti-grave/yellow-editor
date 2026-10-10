@@ -1,3 +1,4 @@
+import type { InteractionDocument, InteractionValues } from "../core/scriptInteractions";
 import type {
   BuildProgressListener,
   BuildTarget,
@@ -610,6 +611,14 @@ export async function invoke<T>(
       return (await session.createMapNpc(args.document as MapNpcCreateDocument, args.values as MapNpcCreateValues)) as T;
     }
 
+    case "get_script_interaction_document":
+      return await session.getScriptInteractionDocument(stringArg(args, "path"), stringArg(args, "label")) as T;
+    case "save_script_interaction":
+      if (!args?.document || !args.values) throw new Error("Missing interaction document or values.");
+      return await session.saveScriptInteraction(args.document as InteractionDocument, args.values as InteractionValues) as T;
+    case "save_script_reward":
+      if (!args?.document) throw new Error("Missing reward document.");
+      return await session.saveScriptReward(args.document as InteractionDocument, stringArg(args, "item"), numberArg(args, "quantity"), args.fixBagFull === true) as T;
     case "get_script_catalog":
       return (await session.getScriptCatalog()) as T;
 

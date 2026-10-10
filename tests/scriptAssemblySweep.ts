@@ -1,3 +1,5 @@
+import { interactionRuntimeProbes } from "./interactionRuntime";
+import { interactionRoundTrips } from "./scriptInteractions";
 import { route1DialogueRoundTrips } from "./route1Dialogue";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
 import type { ProjectSource } from "../src/core/types";
@@ -163,6 +165,10 @@ try {
     assert.equal(romBytes[location("Route1EditorNpc3Text").offset], 0); // TX_START, ordinary text entry.
     console.log("  NPC ROM: five creations linked; object bytes, dialogue pointer banks, original NPC bindings, and shifted sign IDs verified");
 
+    for (const [path, contents] of await interactionRoundTrips(source as ProjectSource)) await writeFile(join(root, path), contents);
+    run("make", ["-j2", `RGBDS=${rgbds}/`, rom], root);
+    console.log("  interaction ROM: Route 1 reward edits, sign item/condition/event actions, and approach/return states assembled and linked");
+
     const target = "Target:\n\tret\n";
     const simple = await loadScriptSimpleActionCreateDocument(target, "scripts/Probe.asm", "Target", analysis, movement, events);
     const conditional = await loadScriptEventConditionalCreateDocument(target, "scripts/Probe.asm", "Target", analysis, movement, events);
@@ -182,6 +188,7 @@ try {
       const stop = (await readFile(symbols, "utf8")).match(/^00:([0-9a-f]+) ProbeDone$/mi)![1];
       run(cpu, [cartridge, stop, ...expectations]);
     }
+    await interactionRuntimeProbes(source as ProjectSource, runAssembledProbe);
     async function probe(body: string, event: string, initial: number, expected: number, duration: number) {
       const eventNumber = analysis.catalog.numericConstants![event];
       assert.ok(Number.isInteger(eventNumber), `No numeric event index for ${event}`);

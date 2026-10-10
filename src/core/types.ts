@@ -1,3 +1,4 @@
+import type { InteractionDocument, InteractionValues } from "./scriptInteractions";
 export interface ProjectInfo {
   path: string;
   valid: boolean;
@@ -1555,6 +1556,9 @@ export interface ProjectSession {
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
   getMapNpcCreateDocument(mapConstant: string): Promise<MapNpcCreateDocument>;
   createMapNpc(document: MapNpcCreateDocument, values: MapNpcCreateValues): Promise<HistorySummary>;
+  getScriptInteractionDocument(path: string, label: string): Promise<InteractionDocument>;
+  saveScriptInteraction(document: InteractionDocument, values: InteractionValues): Promise<HistorySummary>;
+  saveScriptReward(document: InteractionDocument, item: string, quantity: number, fixBagFull: boolean): Promise<HistorySummary>;
   getScriptCatalog(): Promise<ScriptCatalog>;
   getScriptAudit(): Promise<ScriptAuditReport>;
   runScriptRoundTripRegression(): Promise<ScriptRoundTripRegressionReport>;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { build } from "esbuild";
 import { chromium } from "playwright";
@@ -20,17 +20,26 @@ try {
   const script = await readFile(outfile, "utf8");
   browser = await chromium.launch();
   for (const root of roots) {
-    const original = {};
-    for (const path of ["scripts/ViridianCity.asm", "scripts/ViridianCity_2.asm", "text/ViridianCity.asm", "scripts/Route1.asm", "scripts/Route1_2.asm", "text/Route1.asm", "text.asm"]) {
-      try { original[path] = await readFile(join(root, path), "utf8"); }
-      catch (error) { if (!path.endsWith("_2.asm")) throw error; }
+    const original = {}, bytes = {};
+    async function collect(folder = "") {
+      for (const entry of await readdir(join(root, folder), { withFileTypes: true })) {
+        if (entry.name.startsWith(".")) continue;
+        const path = join(folder, entry.name);
+        if (entry.isDirectory()) await collect(path);
+        else if (path.endsWith(".asm")) original[path] = await readFile(join(root, path), "utf8");
+        else if (path.endsWith(".blk") || path.endsWith(".bst")) bytes[path] = Array.from(await readFile(join(root, path)));
+      }
     }
+    await collect();
+    const objectPath = "data/maps/objects/ViridianCity.asm";
+    original[objectPath] = original[objectPath].replace("ViridianCity_Object:", "\tconst_export VIRIDIANCITY_INTERACTION_TEST_NPC\n\nViridianCity_Object:").replace("def_warps_to VIRIDIAN_CITY", "\tobject_event 18, 19, SPRITE_YOUNGSTER, STAY, DOWN, TEXT_VIRIDIANCITY_INTERACTION_TEST_NPC\n\n\tdef_warps_to VIRIDIAN_CITY");
+    original["scripts/ViridianCity.asm"] = original["scripts/ViridianCity.asm"].replace(/^(\s*dw_const ViridianCitySignText,)/m, "\tdw_const ViridianCityInteractionTestNpcText, TEXT_VIRIDIANCITY_INTERACTION_TEST_NPC\n$1") + "\nViridianCityInteractionTestNpcText:\n\ttext_far _ViridianCityYoungster1Text\n\ttext_end\n";
     for (const width of [320, 375, 1280]) {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       const errors = [];
       page.on("pageerror", error => errors.push(error.message));
       await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
-      await page.evaluate(files => { window.dialogueFiles = files; }, original);
+      await page.evaluate(({ files, bytes }) => { window.dialogueFiles = files; window.dialogueBytes = bytes; }, { files: original, bytes });
       await page.addScriptTag({ content: script });
       const preview = page.locator(".script-routine-details .text-editor-preview");
       await preview.filter({ hasText: "VIRIDIAN CITY" }).waitFor();
@@ -68,6 +77,40 @@ try {
       assert.equal(await page.getByRole("button", { name: "Add action", exact: true }).count(), 0);
       await page.getByRole("searchbox", { name: "Search dialogue paths" }).fill("Potion");
       assert.ok(await dialog.locator(".text-editor-path-list button").count());
+      await dialog.locator(".text-editor-path-list button").first().click();
+      await dialog.locator("textarea").first().fill("Thank you!");
+      await dialog.getByRole("button", { name: "Save text", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      const interaction = page.getByRole("dialog", { name: "Edit interaction", exact: true });
+      await interaction.getByRole("spinbutton", { name: "Reward quantity" }).fill("2");
+      await interaction.getByRole("checkbox", { name: "Allow another attempt when the bag is full" }).check();
+      await interaction.getByRole("button", { name: "Save reward", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("spinbutton", { name: "Reward quantity" }).inputValue(), "2");
+      assert.equal(await interaction.getByRole("checkbox", { name: "Allow another attempt when the bag is full" }).count(), 0);
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Reload scripts", exact: true }).click();
+      await preview.filter({ hasText: "WELCOME!" }).waitFor();
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("checkbox", { name: "Give an item", exact: true }).check();
+      await interaction.getByRole("spinbutton", { name: "Reward quantity" }).fill("3");
+      await interaction.getByRole("textbox", { name: "Interaction dialogue" }).fill("A gift for you!");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("spinbutton", { name: "Reward quantity" }).inputValue(), "3");
+      assert.equal(await interaction.getByRole("textbox", { name: "Interaction dialogue" }).inputValue(), "A gift for you!");
+      await interaction.getByRole("checkbox", { name: "Have an NPC approach", exact: true }).check();
+      await interaction.getByRole("combobox", { name: "Approaching NPC" }).selectOption("VIRIDIANCITY_INTERACTION_TEST_NPC");
+      await interaction.getByRole("textbox", { name: "NPC walking route" }).fill("UP");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route" }).inputValue(), "UP");
+      const overflowing = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+      assert.equal(overflowing, false, "Interaction form must fit the viewport");
       assert.deepEqual(errors, []);
       console.log(`${root} ${width}px: Scripts-tab sign edit/save/reload, byte preservation, dirty protection, and NPC branch picker passed`);
       await page.close();

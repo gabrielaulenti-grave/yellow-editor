@@ -35,6 +35,7 @@ import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "./npcCreation";
+import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite } from "./scriptInteractions";
 import {
   loadScriptCatalog,
   loadScriptDocument,
@@ -871,6 +872,19 @@ export async function createProjectSession(
     createMapNpc: async (document, values) => {
       const changes = await prepareMapNpcWrites(source, document, values);
       const result = await history.save(`Add NPC to ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    getScriptInteractionDocument: (path, label) => loadScriptInteractionDocument(source, path, label),
+    saveScriptInteraction: async (document, values) => {
+      const changes = await prepareScriptInteractionWrites(source, document, values);
+      const result = await history.save(`Edit interaction ${document.label}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    saveScriptReward: async (document, item, quantity, fixBagFull) => {
+      const changes = await prepareScriptRewardWrite(source, document, item, quantity, fixBagFull);
+      const result = await history.save(`Edit reward ${document.label}`, changes);
       invalidateNonTrainerReadModels(changes.map(change => change.path));
       return result;
     },
