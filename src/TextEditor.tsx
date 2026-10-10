@@ -1,12 +1,13 @@
 import { matchesSearch } from "./editor/search";
 import { SearchableSelect } from "./editor/SearchableSelect";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { HistorySummary } from "./core/types";
 import {
   TEXT_BOX_BOTTOM_LINE_WIDTH,
   TEXT_BOX_LINE_WIDTH,
   textDocumentDisplayPreview,
   textDocumentSegmentMetrics,
+  textDocumentEditErrors,
   textSegmentsDisplayParts,
   type TextDocument,
   type TextSegment,
@@ -30,6 +31,7 @@ interface TextEditorProps {
   controlledTerminator?: TextTerminator;
   onControlledSegmentsChange?(segments: TextSegment[]): void;
   onSaved?(history: HistorySummary): void;
+  onEditStateChange?(open: boolean, dirty: boolean): void;
 }
 
 function controlLabel(control: TextSegmentControl): string {
@@ -75,6 +77,7 @@ export function TextEditor({
   controlledTerminator = null,
   onControlledSegmentsChange,
   onSaved,
+  onEditStateChange,
 }: TextEditorProps) {
   const [open, setOpen] = useState(false);
   const [document, setDocument] = useState<TextDocument | null>(null);
@@ -93,10 +96,14 @@ export function TextEditor({
       }
     : document;
   const dirty = Boolean(document && !sameSegments(draft, document.segments));
+  const editStateCallback = useRef(onEditStateChange);
+  editStateCallback.current = onEditStateChange;
+  useEffect(() => { editStateCallback.current?.(open, dirty); }, [open, dirty]);
+  useEffect(() => () => { editStateCallback.current?.(false, false); }, []);
   const segmentMetrics = workingDocument
     ? textDocumentSegmentMetrics(workingDocument, draft)
     : draft.map(() => ({ width: 0, maxWidth: TEXT_BOX_LINE_WIDTH, error: null }));
-  const lineErrors = segmentMetrics.map((metric) => metric.error);
+  const lineErrors = workingDocument ? textDocumentEditErrors(workingDocument, draft) : segmentMetrics.map(metric => metric.error);
   const dexStructureError = workingDocument?.terminator === "dex" && (
     draft.length === 0
     || draft[0]?.control !== "text"

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyTextDocumentEdits, attachTextEditing, parseTextDocument, qualifiedTextLabel } from "../src/core/textEditing";
+import { applyTextDocumentEdits, attachTextEditing, parseTextDocument, qualifiedTextLabel, scriptTextEntryKind } from "../src/core/textEditing";
 import { matchesSearch } from "../src/editor/search";
 import type { ProjectSession, ProjectSource } from "../src/core/types";
 
@@ -13,6 +13,45 @@ function sessionFor(files: Record<string, string>) {
     readText: async (path: string) => { if (!(path in files)) throw new Error("Missing file"); return files[path]; },
   } as ProjectSource);
 }
+
+test("plain text entries use the text-engine calling convention, independent of label spelling", () => {
+  const source = 'Sign:\n\ttext_far _Sign\n\ttext_end\nWords:\n\ttext "Hello; world"\n\tdone\nNpc:\n\ttext_asm\n\tjp TextScriptEnd\nNotText:\n\tcall PrintText\n\tret\n';
+  assert.equal(scriptTextEntryKind(source, "Sign"), "text");
+  assert.equal(scriptTextEntryKind(source, "Words"), "text");
+  assert.equal(scriptTextEntryKind(source, "Npc"), "assembly");
+  assert.equal(scriptTextEntryKind(source, "NotText"), null);
+  assert.equal(scriptTextEntryKind(source, "Absent"), null);
+});
+
+test("Viridian City's ordinary far-text sign saves its words without changing the wrapper or neighbors", async () => {
+  const files = {
+    "scripts/ViridianCity.asm": 'ViridianCitySignText:\n\ttext_far _ViridianCitySignText\n\ttext_end\nViridianCityGymSignText:\n\ttext_far _ViridianCityGymSignText\n\ttext_end\n',
+    "text/ViridianCity.asm": '_ViridianCitySignText::\n\ttext "VIRIDIAN CITY "\n\tline "The Eternally"\n\tcont "Green Paradise"\n\tdone\n_ViridianCityGymSignText::\n\ttext "GYM"\n\tdone\n',
+  };
+  const before = { ...files };
+  const session = sessionFor(files);
+  const leaves = await session.getTextLeafDocuments("scripts/ViridianCity.asm", "ViridianCitySignText");
+  assert.equal(leaves.length, 1);
+  assert.equal(leaves[0].editable, true);
+  assert.equal(leaves[0].label, "_ViridianCitySignText");
+  await session.saveTextDocument({ ...leaves[0], segments: leaves[0].segments.map((segment, index) =>
+    ({ ...segment, text: index === 0 ? "WELCOME!" : segment.text })) });
+  assert.equal(files["scripts/ViridianCity.asm"], before["scripts/ViridianCity.asm"]);
+  assert.equal(files["text/ViridianCity.asm"], before["text/ViridianCity.asm"].replace("VIRIDIAN CITY ", "WELCOME!"));
+  assert.equal((await session.getTextLeafDocuments("scripts/ViridianCity.asm", "ViridianCitySignText"))[0].segments[0].text, "WELCOME!");
+});
+
+test("pre-existing wide rows can be preserved, but an edited row still obeys its width limit", async () => {
+  const source = 'Leaf:\n\ttext "Hello"\n\tline "123456789012345678"\n\tcont "Last"\n\tdone\n';
+  const leaf = await parseTextDocument("text/Map.asm", "Leaf", source);
+  assert.equal(applyTextDocumentEdits(source, "Leaf", leaf.segments), source);
+  const segments = leaf.segments.map((segment, index) => ({ ...segment, text: index === 0 ? "Welcome!" : segment.text }));
+  assert.equal(applyTextDocumentEdits(source, "Leaf", segments), source.replace("Hello", "Welcome!"));
+  segments[1].text = "abcdefghijklmnopqr";
+  assert.throws(() => applyTextDocumentEdits(source, "Leaf", segments), /17 safe spaces/);
+  segments[1].text = "abcdefghijklmnopq";
+  assert.ok(applyTextDocumentEdits(source, "Leaf", segments).includes(segments[1].text));
+});
 
 test("local text leaves are scoped, including colonless labels and duplicate names", async () => {
   const source = 'First:\n\tld hl, .text\n\tcall PrintText\n\tret\n.text\n\ttext "First"\n\tdone\nSecond:\n\tld hl, .text\n\tcall PrintText\n\tret\n.text:\n\ttext "Second"\n\tdone\n';

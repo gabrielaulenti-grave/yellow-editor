@@ -1,4 +1,5 @@
 import { route1DialogueRoundTrips } from "./route1Dialogue";
+import { staticDialogueRoundTrips } from "./staticDialogue";
 import assert from "node:assert/strict";
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -61,6 +62,9 @@ try {
       await writeFile(join(root, path), contents);
     }
     console.log("  all 6 Route 1 dialogue leaves edited; wrapper assembly sources untouched");
+    for (const [path, contents] of await staticDialogueRoundTrips(source)) {
+      await writeFile(join(root, path), contents);
+    }
 
     for (let variant = 0; variant < 3; variant++) {
       let changed = 0;
