@@ -25,6 +25,7 @@ interface ManagedInteraction {
   cleanup: string | null;
   arrivalId: number | null;
   cleanupId: number | null;
+  idleStates?: number[];
   values: InteractionValues;
 }
 export interface RewardDocument {
@@ -214,18 +215,18 @@ function textBlock(label: string, input: string[], state: Awaited<ReturnType<typ
   const template = `${label}:\n${segments.map(segment => `\t${segment.control} ""`).join("\n")}\n\tdone\n`;
   return applyTextDocumentEdits(template, label, segments);
 }
-function rewardCode(m: ManagedInteraction) {
+function rewardCode(m: ManagedInteraction, textPrefix = m.prefix) {
   const v = m.values, p = m.prefix;
   const code: string[] = [];
   if (v.reward) code.push(`\tlb bc, ${v.reward.item}, ${v.reward.quantity}`, "\tcall GiveItem", `\tjp nc, ${p}BagFull`);
   if (m.flag) code.push(`\tSetEvent ${m.flag}`);
   for (const event of v.events) code.push(`\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`);
   if (v.reward) code.push("\tld a, SFX_GET_ITEM_1", "\tcall PlaySound", "\tcall WaitForSoundToFinish");
-  code.push(...print(`${p}Dialogue`), `\tjp ${p}Finish`);
-  if (v.reward) code.push(`${p}BagFull:`, ...print(`${p}BagFullText`), `\tjp ${p}Finish`);
+  code.push(...print(`${textPrefix}Dialogue`), `\tjp ${p}Finish`);
+  if (v.reward) code.push(`${p}BagFull:`, ...print(`${textPrefix}BagFullText`), `\tjp ${p}Finish`);
   return code;
 }
-function render(m: ManagedInteraction, npcId: number | null, mapName: string) {
+function render(m: ManagedInteraction, npcId: number | null, mapName: string, resumeState = 0, textPrefix = m.prefix) {
   const p = m.prefix, v = m.values;
   const code = [`${m.label}:`, "\ttext_asm", `\t; yellow-editor-interaction: ${JSON.stringify(m)}`];
   if (v.condition) code.push(`\tCheckEvent ${v.condition.event}`, `\tjp ${v.condition.set ? "z" : "nz"}, ${p}OriginalOnly`);
@@ -234,7 +235,7 @@ function render(m: ManagedInteraction, npcId: number | null, mapName: string) {
     const slot = String(npcId!.toString(16)).padStart(2, "0").toUpperCase();
     // A background event has no NPC index: always name the selected object.
     code.push(`\tld a, [w${mapName}CurScript]`, "\tand a", `\tjp nz, ${p}OriginalOnly`, `\tld a, [wXCoord]`, `\tcp ${v.movement.playerX}`, `\tjp nz, ${p}OriginalOnly`, `\tld a, [wYCoord]`, `\tcp ${v.movement.playerY}`, `\tjp nz, ${p}OriginalOnly`, `\tld a, [wSprite${slot}StateData1MovementStatus]`, "\tand a", `\tjp z, ${p}OriginalOnly`);
-    if (v.showOriginal) code.push(...print(`${p}Original`));
+    if (v.showOriginal) code.push(...print(`${textPrefix}Original`));
     // Defer movement until the sign's text engine has closed its box.
     code.push("\tld a, $ff", "\tld [wJoyIgnore], a", `\tld a, ${m.arrival}`, `\tld [w${mapName}CurScript], a`, "\tjp TextScriptEnd", "");
     code.push(`${p}StartWalk:`, `\tld a, ${v.movement.npc}`, "\tldh [hSpriteIndex], a", `\tld de, ${p}Walk`, "\tcall MoveSprite", "\tret", "");
@@ -242,16 +243,16 @@ function render(m: ManagedInteraction, npcId: number | null, mapName: string) {
     // A separate state is needed; the text entry must never spin inside PrintText.
     code.push(`${p}StartState:`, `\tcall ${p}StartWalk`, `\tld a, ${m.arrivalId! + 1}`, `\tld [w${mapName}CurScript], a`, "\tret", "");
     code.push(`${p}ArriveState:`, "\tld a, [wStatusFlags5]", "\tbit BIT_SCRIPTED_NPC_MOVEMENT, a", "\tret nz");
-    code.push(`\tld a, ${v.movement.npc}`, "\tldh [hSpriteIndex], a", `\tld a, ${p}Facing`, "\tldh [hSpriteFacingDirection], a", "\tcall SetSpriteFacingDirectionAndDelay", ...rewardCode(m));
+    code.push(`\tld a, ${v.movement.npc}`, "\tldh [hSpriteIndex], a", `\tld a, ${p}Facing`, "\tldh [hSpriteFacingDirection], a", "\tcall SetSpriteFacingDirectionAndDelay", ...rewardCode(m, textPrefix));
     code.push(`${p}Finish:`, `\tld a, ${v.movement.npc}`, "\tldh [hSpriteIndex], a", `\tld de, ${p}Return`, "\tcall MoveSprite", `\tld a, ${m.cleanup}`, `\tld [w${mapName}CurScript], a`, "\tret", "");
-    code.push(`${p}CleanupState:`, "\tld a, [wStatusFlags5]", "\tbit BIT_SCRIPTED_NPC_MOVEMENT, a", "\tret nz", "\txor a", "\tld [wJoyIgnore], a", `\tld [w${mapName}CurScript], a`, "\tret", "");
+    code.push(`${p}CleanupState:`, "\tld a, [wStatusFlags5]", "\tbit BIT_SCRIPTED_NPC_MOVEMENT, a", "\tret nz", "\txor a", "\tld [wJoyIgnore], a", ...(resumeState ? [`\tld a, ${resumeState}`] : []), `\tld [w${mapName}CurScript], a`, "\tret", "");
     code.push(`${p}Walk:`, ...v.movement.steps.map(step => `\tdb NPC_MOVEMENT_${step}`), "\tdb -1", "", `${p}Return:`, ...v.movement.steps.slice().reverse().map(step => `\tdb NPC_MOVEMENT_${opposite[step]}`), "\tdb -1", "");
   } else {
     if (v.showOriginal) code.push(...print(`${p}Original`));
     code.push(...rewardCode(m), `${p}Finish:`, "\tjp TextScriptEnd", "");
   }
-  code.push(`${p}Already:`, ...print(`${p}AlreadyText`), "\tjp TextScriptEnd", `${p}OriginalOnly:`, ...print(`${p}Original`), "\tjp TextScriptEnd", "");
-  return code.join("\n");
+  code.push(`${p}Already:`, ...print(`${textPrefix}AlreadyText`), "\tjp TextScriptEnd", `${p}OriginalOnly:`, ...print(`${textPrefix}Original`), "\tjp TextScriptEnd", "");
+  return code.join("\n").replace(`\tld a, [w${mapName}CurScript]\n\tand a`, `\tld a, [w${mapName}CurScript]\n${resumeState ? `\tcp ${resumeState}` : "\tand a"}`);
 }
 const opposite: Record<string, string> = { UP: "DOWN", DOWN: "UP", LEFT: "RIGHT", RIGHT: "LEFT" };
 function endpoint(steps: string[]) { let x = 0, y = 0; for (const step of steps) { x += step === "RIGHT" ? 1 : step === "LEFT" ? -1 : 0; y += step === "DOWN" ? 1 : step === "UP" ? -1 : 0; } return { x, y }; }
@@ -343,20 +344,32 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   // Disabling one-time behavior retains its reserved bit for future re-enabling.
   const movement = values.movement ? await validateMovement(source, state, values.movement) : null;
   if (movement && !m.arrival) {
+    // Yellow's Viridian City has three reviewed idle states. Keep its tutorial
+    // progress by giving each state its own arrival/cleanup pair; no scratch RAM
+    // or save layout changes are needed.
+    const body = (label: string) => { try { return range(state.primary, label).body.map(clean).filter(Boolean).join("\n"); } catch { return ""; } };
+    const yellowIdle = state.mapName === "ViridianCity" &&
+      body("ViridianCityDefaultScript") === "call ViridianCityCheckGymOpenScript\ncall ViridianCityCheckSleepingOldMan\nret" &&
+      body("ViridianCityAfterPokedexScript") === "call ViridianCityCheckWaitingOldMan" &&
+      body("ViridianCityPostCatchTraining") === "call ViridianCityCheckGymOpenScript\nret" &&
+      body("ViridianCity_ScriptPointers").split("\n").slice(1, 4).every((line, i) => new RegExp(`^dw_const ${["ViridianCityDefaultScript", "ViridianCityAfterPokedexScript", "ViridianCityPostCatchTraining"][i]},\\s*\\w+$`).test(line));
+    m.idleStates = yellowIdle ? [0, 1, 2] : [0];
+    if (state.stateCount + m.idleStates.length * 3 > 256) throw new Error("The map has no room for the approach sequence's states.");
     m.arrivalId = state.stateCount; m.cleanupId = state.stateCount + 2;
     m.arrival = `SCRIPT_${prefix.toUpperCase()}_START`;
     m.cleanup = `SCRIPT_${prefix.toUpperCase()}_CLEANUP`;
     const arrivalNext = `SCRIPT_${prefix.toUpperCase()}_ARRIVE`;
     const r = range(state.primary, `${state.mapName}_ScriptPointers`);
     const originalTable = state.primary.slice(r.from, r.to);
-    const additions = `\tdw_const ${prefix}StartState, ${m.arrival}\n\tdw_const ${prefix}ArriveState, ${arrivalNext}\n\tdw_const ${prefix}CleanupState, ${m.cleanup}\n\n`;
+    const additions = `\tdw_const ${prefix}StartState, ${m.arrival}\n\tdw_const ${prefix}ArriveState, ${arrivalNext}\n\tdw_const ${prefix}CleanupState, ${m.cleanup}\n` + m.idleStates.slice(1).map(idle => ["Start", "Arrive", "Cleanup"].map(kind => `\tdw_const ${prefix}Resume${idle}${kind}State, SCRIPT_${prefix.toUpperCase()}_RESUME${idle}_${kind.toUpperCase()}\n`).join("")).join("") + "\n";
     changed.set(state.primaryPath, state.primary.slice(0, r.from) + originalTable.trimEnd() + "\n" + additions.replace(/\n/g, state.primary.includes("\r\n") ? "\r\n" : "\n") + state.primary.slice(r.to));
 
   }
   if (state.old?.values.movement && !values.movement) throw new Error("An existing approach sequence must keep its movement enabled. Edit its NPC and route instead.");
-  const renderManaged = (model: ManagedInteraction, info: typeof movement) => {
+  const renderPart = (model: ManagedInteraction, info: typeof movement, resumeState = 0, textPrefix = model.prefix) => {
+    const prefix = model.prefix;
     const effective = { ...model, flag: model.values.once ? model.flag : null };
-    let code = render(effective, info?.id ?? null, state.mapName);
+    let code = render(effective, info?.id ?? null, state.mapName, resumeState, textPrefix);
     // Keep the actual reserved flag in metadata even while repeatable behavior is selected.
     code = code.replace(`; yellow-editor-interaction: ${JSON.stringify(effective)}`, `; yellow-editor-interaction: ${JSON.stringify(model)}`);
     if (info) {
@@ -368,6 +381,19 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
       code = code.replace(`\tld [w${state.mapName}CurScript], a\n\tret\n\n${prefix}Walk:`, `\tld [w${state.mapName}CurScript], a\n\tld a, ${originalDirection}\n\tld [wMapSpriteData + ${(info.id - 1) * 2 + 1}], a\n\tret\n\n${prefix}Walk:`);
       code += `DEF ${prefix}Facing EQU SPRITE_FACING_${info.facing}\n`;
     }
+    return code;
+  };
+  const renderManaged = (model: ManagedInteraction, info: typeof movement) => {
+    let code = renderPart(model, info);
+    const dispatch: string[] = [];
+    for (const [i, idle] of (model.idleStates ?? [0]).slice(1).entries()) {
+      const prefix = `${model.prefix}Resume${idle}`;
+      const variant = { ...model, prefix, label: `${prefix}Entry`, arrival: `SCRIPT_${model.prefix.toUpperCase()}_RESUME${idle}_START`, cleanup: `SCRIPT_${model.prefix.toUpperCase()}_RESUME${idle}_CLEANUP`, arrivalId: model.arrivalId! + (i + 1) * 3, cleanupId: model.cleanupId! + (i + 1) * 3 };
+      // Dispatch from the text engine's assembly mode, past each variant's opcode.
+      dispatch.push(`\tcp ${idle}`, `\tjp z, ${variant.label} + 1`);
+      code += renderPart(variant, info, idle, model.prefix);
+    }
+    if (dispatch.length) code = code.replace(`\tld a, [w${state.mapName}CurScript]\n\tand a`, `\tld a, [w${state.mapName}CurScript]\n${dispatch.join("\n")}\n\tand a`);
     return code + `; yellow-editor-interaction-code-end ${model.label}\n\n`;
   };
   const code = renderManaged(m, movement);
