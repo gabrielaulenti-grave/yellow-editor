@@ -21,7 +21,7 @@ try {
   browser = await chromium.launch();
   for (const root of roots) {
     const original = {};
-    for (const path of ["scripts/ViridianCity.asm", "scripts/ViridianCity_2.asm", "text/ViridianCity.asm", "scripts/Route1.asm", "text/Route1.asm", "text.asm"]) {
+    for (const path of ["scripts/ViridianCity.asm", "scripts/ViridianCity_2.asm", "text/ViridianCity.asm", "scripts/Route1.asm", "scripts/Route1_2.asm", "text/Route1.asm", "text.asm"]) {
       try { original[path] = await readFile(join(root, path), "utf8"); }
       catch (error) { if (!path.endsWith("_2.asm")) throw error; }
     }
