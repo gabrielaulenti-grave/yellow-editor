@@ -1,6 +1,7 @@
 import { parseMapScriptRoutines } from "./mapScriptParser";
 import type { ProjectRgbdsSourceFile } from "./projectConstants";
 import { movementLabelAlternativesAtCall } from "./mapScriptMovementAnalysis";
+import { scriptTextEntryKind } from "./textEditing";
 import type {
   ProjectSource,
   ScriptCatalog,
@@ -69,6 +70,7 @@ function textRoutineLabels(source: string, sections: Map<string, string>): Set<s
   for (const [label, body] of sections) {
     if (
       /Text$/i.test(label)
+      || scriptTextEntryKind(body, label) !== null
       || /^\s*text_(?:asm|far)\b/im.test(body)
     ) {
       result.add(label);

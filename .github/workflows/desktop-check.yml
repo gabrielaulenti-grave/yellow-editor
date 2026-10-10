@@ -62,6 +62,9 @@ jobs:
       - name: Check disassembly script round trips
         run: npm run test:scripts -- .script-fixtures/pokeyellow .script-fixtures/pokered
 
+      - name: Check sign and NPC dialogue editing through Scripts
+        run: npm run test:dialogue:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Checkout script probe CPU
         uses: actions/checkout@v6
         with:
