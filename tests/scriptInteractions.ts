@@ -37,7 +37,11 @@ export async function interactionRoundTrips(source: ProjectSource): Promise<Map<
   const objectPath = "data/maps/objects/ViridianCity.asm";
   const objects = await current.readText(objectPath);
   changed.set(objectPath, objects.replace("ViridianCity_Object:", "\tconst_export VIRIDIANCITY_INTERACTION_TEST_NPC\n\nViridianCity_Object:").replace("def_warps_to VIRIDIAN_CITY", "\tobject_event 18, 19, SPRITE_YOUNGSTER, STAY, DOWN, TEXT_VIRIDIANCITY_INTERACTION_TEST_NPC\n\n\tdef_warps_to VIRIDIAN_CITY"));
-  changed.set(sign.path, (await current.readText(sign.path)).replace(/^(\s*dw_const ViridianCitySignText,)/m, "\tdw_const ViridianCityInteractionTestNpcText, TEXT_VIRIDIANCITY_INTERACTION_TEST_NPC\n$1") + "\nViridianCityInteractionTestNpcText:\n\ttext_far _ViridianCityYoungster1Text\n\ttext_end\n");
+  changed.set(sign.path, (await current.readText(sign.path)).replace(/^(\s*dw_const ViridianCitySignText,)/m, "\tdw_const ViridianCityInteractionTestNpcText, TEXT_VIRIDIANCITY_INTERACTION_TEST_NPC\n$1") + `\nViridianCityInteractionTestNpcText:\n\ttext "Hello there!"\n\tdone\n`);
+  const inline = await loadScriptInteractionDocument(current, sign.path, "ViridianCityInteractionTestNpcText");
+  assert.ok(inline.canCreate);
+  for (const write of await prepareScriptInteractionWrites(current, inline, { ...inline.values, once: false, reward: { item: "POTION", quantity: 1 } })) changed.set(write.path, write.contents);
+  assert.ok((await current.readText(sign.path)).includes('ViridianCityInteractionTestNpcTextEditorInteractionOriginal:\n\ttext "Hello there!"'));
   sign = await loadScriptInteractionDocument(current, sign.path, sign.label);
   const moveValues = { ...sign.values, movement: { npc: "VIRIDIANCITY_INTERACTION_TEST_NPC", steps: ["UP"], playerX: 17, playerY: 18 } };
   await assert.rejects(prepareScriptInteractionWrites(current, sign, { ...moveValues, movement: { ...moveValues.movement, steps: ["LEFT", "UP"] } }), /blocked|beside/);

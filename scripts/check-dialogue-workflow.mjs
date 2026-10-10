@@ -69,7 +69,7 @@ try {
       await dialog.locator("textarea").first().waitFor();
       assert.equal(await dialog.locator("textarea").first().inputValue(), "WELCOME!");
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
-      await page.locator(".script-group-list button").filter({ hasText: "Route1" }).click();
+      await page.locator(".script-group-list button").filter({ hasText: /^Route1\s/ }).click();
       await page.getByRole("searchbox", { name: "Search routines in all companion files" }).fill("Route1Youngster1Text");
       await page.locator(".script-routine-list button").filter({ hasText: "Route1Youngster1Text" }).click();
       await page.getByRole("button", { name: "Edit text", exact: true }).click();
