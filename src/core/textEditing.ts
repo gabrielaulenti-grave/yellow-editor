@@ -236,6 +236,32 @@ export function textDocumentSegmentMetrics(
   return textSegmentMetrics(document.displayParts, segments, document.terminator);
 }
 
+// Validate rows whose text changes. Some vanilla rows already exceed our
+// conservative runtime-width estimate; preserving their exact source must not
+// prevent an unchanged save or an edit to an independent row.
+export function textDocumentEditErrors(
+  document: Pick<TextDocument, "displayParts" | "segments" | "terminator">,
+  segments: TextSegment[],
+): (string | null)[] {
+  const errors = textDocumentSegmentMetrics(document, segments).map(metric => metric.error);
+  const sameStructure = segments.length === document.segments.length
+    && segments.every((segment, index) => segment.control === document.segments[index]?.control);
+  if (!sameStructure) return errors;
+  let row: number[] = [];
+  const flush = () => {
+    if (row.every(index => segments[index]?.text === document.segments[index]?.text)) {
+      for (const index of row) errors[index] = null;
+    }
+    row = [];
+  };
+  for (const part of document.displayParts) {
+    if (part.type === "break") flush();
+    else if (part.type === "segment") row.push(part.segmentIndex);
+  }
+  flush();
+  return errors;
+}
+
 function labelDefinitions(lines: string[]): { label: string; index: number; global: boolean }[] {
   let scope = "";
   return lines.flatMap<{ label: string; index: number; global: boolean }>((line, index) => {
@@ -270,6 +296,23 @@ function findLabelRange(lines: string[], label: string): LabelRange {
 
 function findGlobalLabelRange(lines: string[], label: string): LabelRange {
   return labelRange(lines, label, true);
+}
+
+// Text bytecode runs through the text engine, not the CPU's normal call/ret
+// convention. Route by the entry instruction, never by a label's spelling.
+export function scriptTextEntryKind(contents: string, label: string): "text" | "assembly" | null {
+  const lines = contents.split(/\r?\n/);
+  let range: LabelRange;
+  try { range = findLabelRange(lines, label); } catch { return null; }
+  for (const raw of lines.slice(range.start + 1, range.end)) {
+    const clean = raw.split(";", 1)[0].trim();
+    if (!clean) continue;
+    if (/^text_asm\b/i.test(clean)) return "assembly";
+    return FAR_TEXT_PATTERN.test(clean) || TEXT_LINE_PATTERN.test(raw)
+      || TERMINATOR_PATTERN.test(clean) || /^text_start\b/i.test(clean)
+      || runtimeTextCommandPreview(clean) !== null ? "text" : null;
+  }
+  return null;
 }
 
 function scopedTarget(lines: string[], index: number, target: string): string {
@@ -628,8 +671,7 @@ export function applyTextDocumentEdits(
   const displayParts = current.terminator === "dex"
     ? textSegmentsDisplayParts(segments)
     : current.displayParts;
-  const metrics = textSegmentMetrics(displayParts, segments, current.terminator);
-  const firstMetricError = metrics.find((metric) => metric.error)?.error;
+  const firstMetricError = textDocumentEditErrors({ ...current, displayParts }, segments).find(Boolean);
   if (firstMetricError) {
     throw new Error(`${firstMetricError} Shorten the affected displayed row before saving.`);
   }

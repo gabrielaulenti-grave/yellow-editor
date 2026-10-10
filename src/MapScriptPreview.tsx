@@ -1,4 +1,4 @@
-import { qualifiedTextLabel } from "./core/textEditing";
+import { qualifiedTextLabel, scriptTextEntryKind } from "./core/textEditing";
 import { Fragment, useMemo } from "react";
 import {
   structuredMapScriptFlow,
@@ -29,6 +29,7 @@ import type {
   ScriptExternalRoutineSource,
   TrainerInteraction,
   TrainerInteractionDialogue,
+  HistorySummary,
 } from "./core/types";
 import { TextEditor, type TextEditorTarget } from "./TextEditor";
 import {
@@ -588,6 +589,34 @@ function TextScriptLogic({
   );
 }
 
+export function ScriptDialoguePreview({ reference, editBlocked, onEditStateChange, onSaved }: {
+  reference: MapScriptPreviewReference;
+  editBlocked?: boolean;
+  onEditStateChange?(open: boolean, dirty: boolean): void;
+  onSaved?(history: HistorySummary): void;
+}) {
+  const kind = scriptTextEntryKind(reference.mapScriptSource, reference.routineLabel);
+  return (
+    <section className="map-script-preview">
+      <p className="help-text">
+        {kind === "text"
+          ? "Edit this dialogue while preserving its existing text flow and references."
+          : "Choose the dialogue to edit. Its surrounding branches, rewards, and event logic are preserved."}
+      </p>
+      <TextEditor
+        key={`${reference.scriptPath}:${reference.routineLabel}`}
+        title="Dialogue"
+        target={{ path: reference.scriptPath, label: reference.routineLabel }}
+        initialText={null}
+        disabled={editBlocked}
+        onEditStateChange={onEditStateChange}
+        onSaved={onSaved}
+      />
+      {kind !== "text" && <TextScriptLogic label={reference.routineLabel} reference={reference} />}
+    </section>
+  );
+}
+
 function DialoguePreview({
   preview,
   node,
@@ -983,6 +1012,10 @@ export function MapScriptPreview({
     reference.movementVocabulary,
     reference.eventMacroSemantics,
   ]);
+
+  if (scriptTextEntryKind(reference.mapScriptSource, reference.routineLabel) === "text") {
+    return <ScriptDialoguePreview reference={reference} />;
+  }
 
   if (model.states.length === 0) {
     return (
