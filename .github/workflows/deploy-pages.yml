@@ -4,22 +4,71 @@ on:
   push:
     branches: ["main"]
   workflow_dispatch:
+  # Run deployments from main after a beta branch push passes CI.
+  workflow_run:
+    workflows: ["Check desktop app"]
+    branches: ["beta"]
+    types: [completed]
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
+  actions: read
 
 concurrency:
   group: "pages"
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
+  resolve:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    outputs:
+      stable_sha: ${{ steps.revisions.outputs.stable_sha }}
+      beta_sha: ${{ steps.revisions.outputs.beta_sha }}
+    steps:
+      - name: Select main and the latest beta revision that passed checks
+        id: revisions
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const repository = { owner: context.repo.owner, repo: context.repo.repo };
+            const { data: main } = await github.rest.repos.getBranch({ ...repository, branch: 'main' });
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              ...repository, workflow_id: 'desktop-check.yml', branch: 'beta',
+              event: 'push', status: 'success', per_page: 1,
+            });
+            const run = data.workflow_runs[0];
+            if (!run || run.head_repository.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+              core.setFailed('The beta branch must pass Check desktop app before it can be published.');
+              return;
+            }
+            core.setOutput('stable_sha', main.commit.sha);
+            core.setOutput('beta_sha', run.head_sha);
+            core.info(`Publishing main ${main.commit.sha} and checked beta ${run.head_sha}`);
+
   build:
     runs-on: ubuntu-latest
+    needs: resolve
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - channel: stable
+            ref: main
+            base: /yellow-editor/
+          - channel: beta
+            ref: beta
+            base: /yellow-editor/beta/
     steps:
-      - name: Checkout
+      - name: Checkout channel source
         uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.channel == 'stable' && needs.resolve.outputs.stable_sha || needs.resolve.outputs.beta_sha }}
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@v6
@@ -43,24 +92,69 @@ jobs:
           source ./.emsdk/emsdk_env.sh
           npm run prepare:wasm-tools
 
-      - name: Build
-        run: npm run build
+      - name: Build channel and record its exact revision
+        env:
+          VITE_RELEASE_CHANNEL: ${{ matrix.channel }}
+          PAGES_BASE: ${{ matrix.base }}
+          PAGES_REF: ${{ matrix.ref }}
+        run: |
+          npm run build -- --base "$PAGES_BASE"
+          PAGES_SHA="$(git rev-parse HEAD)" node scripts/write-pages-release.mjs
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - name: Upload channel build
+        uses: actions/upload-artifact@v4
+        with:
+          name: pages-${{ matrix.channel }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Upload Pages artifact
+  # Pages replaces the whole site, so always publish main and beta together.
+  assemble:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout trusted packaging scripts
+        uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+
+      - name: Download main build
+        uses: actions/download-artifact@v4
+        with:
+          name: pages-stable
+          path: .pages/stable
+
+      - name: Download beta build
+        uses: actions/download-artifact@v4
+        with:
+          name: pages-beta
+          path: .pages/beta
+
+      - name: Assemble and verify both URLs
+        run: node scripts/assemble-pages.mjs .pages/stable .pages/beta .pages/site
+
+      - name: Upload complete Pages site
         uses: actions/upload-pages-artifact@v4
         with:
-          path: ./dist
+          path: .pages/site
 
   deploy:
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
+    needs: assemble
     steps:
-      - name: Deploy to GitHub Pages
+      - name: Deploy main and beta together
         id: deployment
         uses: actions/deploy-pages@v4

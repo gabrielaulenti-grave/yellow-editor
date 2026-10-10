@@ -91,6 +91,24 @@ input[readonly] {
   color: var(--muted);
 }
 
+.beta-release-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #b47a12;
+  border-radius: 8px;
+  background: #fff7df;
+  color: #503706;
+}
+
+.beta-release-banner a {
+  margin-left: auto;
+  color: inherit;
+}
+
 .project-loading-panel {
   display: grid;
   gap: 7px;
