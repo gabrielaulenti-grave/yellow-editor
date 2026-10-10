@@ -135,13 +135,14 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   let canCreate = Boolean(old), reason: string | null = null;
   if (!old) {
     const leaves = await attachTextEditing({} as ProjectSession, source).getTextLeafDocuments(path, label);
+    const inline = (await parseTextDocument(path, label, text)).editable;
     const plain = entry.length === 2 && /^text_far \w+$/.test(entry[0]) && entry[1] === "text_end";
     let yellowPlain = false;
     if (entry.length === 3 && entry[0] === "text_asm" && /^farcall \w+$/.test(entry[1]) && entry[2] === "jp TextScriptEnd") {
       const helper = range(rewardText, rewardLabel).body.map(clean).filter(Boolean);
       yellowPlain = /^ld hl,\s*\.\w+$/.test(helper[0] ?? "") && helper[1] === "call PrintText" && helper[2] === "ret" && helper.slice(3).every(line => /^\.\w+:?$/.test(line) || /^text_far \w+$/.test(line) || line === "text_end");
     }
-    canCreate = path === primaryPath && leaves.length === 1 && leaves[0].editable && (plain || yellowPlain);
+    canCreate = path === primaryPath && leaves.length === 1 && leaves[0].editable && (plain || yellowPlain || inline);
     if (!canCreate) reason = reward ? "Edit this existing reward below. Its dialogue paths are available above." : "New actions require a plain dialogue entry. This interaction's existing logic is preserved.";
   }
   const objectsPath = `data/maps/objects/${mapName}.asm`;
@@ -382,7 +383,9 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     script = script.slice(0, r.from) + code.replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n") + script.slice(after).replace(/^\r?\n/, "");
   } else {
     const leaves = await attachTextEditing({} as ProjectSession, source).getTextLeafDocuments(document.path, document.label);
-    const original = ` ${prefix}Original:\n\ttext_far ${leaves[0].label}\n\ttext_end\n`.trimStart();
+    const original = leaves[0].path === document.path && leaves[0].label === document.label
+      ? script.slice(range(script, document.label).from, range(script, document.label).to).replace(new RegExp(`^${document.label}:{1,2}`), `${prefix}Original:`)
+      : ` ${prefix}Original:\n\ttext_far ${leaves[0].label}\n\ttext_end\n`.trimStart();
     script = replaceBlock(script, document.label, code + original.replace(/\r\n/g, "\n") + "\n");
   }
   for (const [suffix, input] of [["Dialogue", values.dialogue], ["BagFullText", values.bagFull], ["AlreadyText", values.already]] as const) {
