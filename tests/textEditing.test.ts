@@ -118,3 +118,21 @@ test("structural Pokédex edits preserve the label separator and neighbors", asy
   assert.ok(changed.endsWith('Neighbor:\n\ttext "Keep"\n\tdone'));
   assert.deepEqual((await parseTextDocument("text/Map.asm", "Dex", changed)).segments, segments);
 });
+
+test("receipt rows can be added and removed without changing sounds, endings or source neighbors", async () => {
+  const source = 'Receipt:: ; gift\r\n\ttext "Here you go!" ; receipt\r\n\t; keep this note\r\n\tsound_get_item_1\r\n\tdone\r\nNeighbor:\n\ttext "Keep"\n\tdone';
+  const document = await parseTextDocument("text/Map.asm", "Receipt", source);
+  assert.equal(document.canEditStructure, true);
+  const segments = [{ control: "text" as const, text: "<PLAYER> received" }, { control: "line" as const, text: "a MOON STONE!" }, { control: "cont" as const, text: "Enjoy!" }];
+  const changed = applyTextDocumentEdits(source, "Receipt", segments);
+  assert.ok(changed.includes('\ttext "<PLAYER> received" ; receipt\r\n\tline "a MOON STONE!"\r\n\tcont "Enjoy!"'));
+  assert.ok(changed.endsWith('\t; keep this note\r\n\tsound_get_item_1\r\n\tdone\r\nNeighbor:\n\ttext "Keep"\n\tdone'));
+  assert.deepEqual((await parseTextDocument("text/Map.asm", "Receipt", changed)).segments, segments);
+  const removed = applyTextDocumentEdits(changed, "Receipt", segments.slice(0, 2));
+  assert.deepEqual((await parseTextDocument("text/Map.asm", "Receipt", removed)).segments, segments.slice(0, 2));
+  assert.ok(removed.includes('\tsound_get_item_1\r\n\tdone'));
+  assert.throws(() => applyTextDocumentEdits(source, "Receipt", [{ control: "text", text: "<PLAYER> received!!!" }]), /18 spaces/);
+  const dynamic = 'Receipt:\n\ttext "Received"\n\ttext_ram wStringBuffer\n\tdone\n';
+  assert.equal((await parseTextDocument("text/Map.asm", "Receipt", dynamic)).canEditStructure, false);
+  assert.throws(() => applyTextDocumentEdits(dynamic, "Receipt", [{ control: "text", text: "Gift" }, { control: "line", text: "Enjoy!" }]), /changed structure/);
+});

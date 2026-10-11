@@ -44,6 +44,7 @@ export interface TextDocument {
   displayParts: TextDisplayPart[];
   terminator: TextTerminator;
   editable: boolean;
+  canEditStructure?: boolean;
   warnings: string[];
 }
 
@@ -334,7 +335,7 @@ export function qualifiedTextLabel(contents: string, target: string, sourceLine:
 function parseBlock(
   lines: string[],
   range: LabelRange,
-): Pick<TextDocument, "segments" | "displayParts" | "terminator" | "editable" | "warnings"> {
+): Pick<TextDocument, "segments" | "displayParts" | "terminator" | "editable" | "canEditStructure" | "warnings"> {
   const segments: TextSegment[] = [];
   const displayParts: TextDisplayPart[] = [];
   const warnings: string[] = [];
@@ -403,8 +404,33 @@ function parseBlock(
     displayParts,
     terminator,
     editable: warnings.length === 0 && segments.length > 0,
+    canEditStructure: dialogueStructureRows(lines, range) !== null,
     warnings,
   };
+}
+
+// Restructure only a contiguous run of ordinary quoted rows. Keep sounds,
+// endings, comments and the rest of the source in their original positions.
+function dialogueStructureRows(lines: string[], range: LabelRange): number[] | null {
+  const indices: number[] = [];
+  let ended = false;
+  let terminators = 0;
+  for (let i = range.start + 1; i < range.end; i++) {
+    const raw = lines[i], text = raw.match(TEXT_LINE_PATTERN);
+    if (text) {
+      if (ended || text[3].includes("@") || (indices.length === 0 ? text[2] !== "text" : !["line", "next", "cont", "para"].includes(text[2]))) return null;
+      indices.push(i); continue;
+    }
+    const clean = raw.split(";", 1)[0].trim();
+    if (!clean) continue;
+    if (!indices.length && clean === "text_start") continue;
+    if (indices.length && /^(?:done|prompt|text_end|sound_get_item_[12])$/.test(clean)) {
+      if (/^(?:done|prompt|text_end)$/.test(clean) && ++terminators > 1) return null;
+      ended = true; continue;
+    }
+    return null;
+  }
+  return indices.length && terminators === 1 ? indices : null;
 }
 
 function textPointerCandidates(contents: string, label: string): string[] {
@@ -668,7 +694,7 @@ export function applyTextDocumentEdits(
     );
   }
 
-  const displayParts = current.terminator === "dex"
+  const displayParts = current.terminator === "dex" || current.canEditStructure
     ? textSegmentsDisplayParts(segments)
     : current.displayParts;
   const firstMetricError = textDocumentEditErrors({ ...current, displayParts }, segments).find(Boolean);
@@ -680,6 +706,29 @@ export function applyTextDocumentEdits(
     && segments.every((segment, index) => segment.control === current.segments[index]?.control);
 
   if (!sameStructure) {
+    if (current.canEditStructure) {
+      if (!segments.length || segments.length > 64 || segments[0].control !== "text" || segments.slice(1).some(segment => !["line", "next", "cont", "para"].includes(segment.control)) || segments.some(segment => /[\r\n@]/.test(segment.text))) throw new Error("Dialogue must start with Start text and use separate line, continue, or paragraph rows.");
+      const indices = dialogueStructureRows(lines, range)!;
+      const last = indices[indices.length - 1];
+      const indent = lines[indices[0]].match(TEXT_LINE_PATTERN)![1];
+      const edits: { start: number; end: number; text: string }[] = [];
+      for (const [i, index] of indices.entries()) {
+        const match = lines[index].match(TEXT_LINE_PATTERN)!;
+        const next = segments[i];
+        const replacement = next ? `${match[1]}${next.control} "${encodeAsmString(next.text)}"${match[4]}` : (match[4].trim() ? `${match[1]}${match[4].trim()}` : "");
+        edits.push({ start: offsets[index], end: offsets[index] + lines[index].length, text: replacement });
+      }
+      if (segments.length > indices.length) {
+        const at = offsets[last] + lines[last].length;
+        edits.push({ start: at, end: at, text: segments.slice(indices.length).map(segment => `${newline}${indent}${segment.control} "${encodeAsmString(segment.text)}"`).join("") });
+      }
+      let rewritten = contents;
+      for (const edit of edits.sort((a, b) => b.start - a.start)) rewritten = rewritten.slice(0, edit.start) + edit.text + rewritten.slice(edit.end);
+      const reparsedLines = rewritten.split(/\r?\n/);
+      const reparsed = parseBlock(reparsedLines, findLabelRange(reparsedLines, label));
+      if (!reparsed.editable || reparsed.terminator !== current.terminator || JSON.stringify(reparsed.segments) !== JSON.stringify(segments)) throw new Error("The updated dialogue did not reparse correctly.");
+      return rewritten;
+    }
     if (current.terminator !== "dex") {
       throw new Error(
         `Text label '${label}' changed structure while it was being edited. Reload it before saving.`,

@@ -207,10 +207,11 @@ export async function prepareScriptRewardWrite(source: ProjectSource, document: 
 
 function print(label: string) { return [`\tld hl, ${label}`, "\tcall PrintText"]; }
 function textBlock(label: string, input: string[], state: Awaited<ReturnType<typeof inspect>>) {
-  if (!Array.isArray(input) || input.length < 1 || input.length > 16 || input.some(value => typeof value !== "string" || /[\r\n@<>\\"]/u.test(value)) || !input.some(value => value.trim())) throw new Error("Enter 1–16 dialogue lines without control tokens.");
+  if (!Array.isArray(input) || input.length < 1 || input.length > 16 || input.some(value => typeof value !== "string" || /[\r\n@\\"]/u.test(value)) || !input.some(value => value.trim())) throw new Error("Enter 1–16 dialogue lines without embedded line breaks or text-ending codes.");
   const charmap = state.files.find(file => file.path.endsWith("charmap.asm"))?.contents ?? "";
   const chars = new Set([...charmap.matchAll(/^\s*charmap "([^"\\])",\s*\$([\da-f]{2})\b/gmi)].filter(m => Number.parseInt(m[2], 16) >= 0x60 || m[1] === "#" && m[2] === "54").map(m => m[1]));
-  if (input.some(line => [...line].some(char => !chars.has(char)))) throw new Error("Dialogue contains characters unavailable in this game's font.");
+  const tokens = new Set(["<PLAYER>", "<RIVAL>", "<TARGET>", "<USER>", "<PKMN>", "<PC>", "<TM>", "<TRAINER>", "<ROCKET>", "<……>"].filter(token => new RegExp(`charmap "${token}",`).test(charmap)));
+  if (input.some(line => [...line.matchAll(/<[^>]*>/g)].some(match => !tokens.has(match[0])) || [...line.replace(/<[^>]*>/g, "")].some(char => !chars.has(char)))) throw new Error("Dialogue contains an unsupported token or characters unavailable in this game's font.");
   const segments = input.map((text, i) => ({ control: i === 0 ? "text" as const : i === 1 ? "line" as const : "cont" as const, text }));
   const template = `${label}:\n${segments.map(segment => `\t${segment.control} ""`).join("\n")}\n\tdone\n`;
   return applyTextDocumentEdits(template, label, segments);

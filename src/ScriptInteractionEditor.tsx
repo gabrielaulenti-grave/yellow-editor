@@ -85,7 +85,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
           <p className="help-text">Enter UP, DOWN, LEFT, or RIGHT, separated by commas. The NPC walks the reverse route after speaking.</p>
         </>}
         <label>{values.reward ? "Reward received dialogue" : "NPC or interaction dialogue"}<textarea aria-label="Interaction dialogue" rows={3} disabled={busy} value={values.dialogue.join("\n")} onChange={event => update({ dialogue: event.target.value.split("\n") })} /></label>
-        <p className="help-text">Use one game text row per line: up to 18 spaces on the first row and 17 on later rows.</p>
+        <p className="help-text">Press Enter for another game text row: up to 18 character spaces on the first row and 17 on later rows. Tokens such as &lt;PLAYER&gt; are supported; player and rival names count as up to 7 spaces.</p>
         {values.once && <label>Repeat dialogue<textarea aria-label="Repeat dialogue" rows={3} disabled={busy} value={values.already.join("\n")} onChange={event => update({ already: event.target.value.split("\n") })} /></label>}
         <label><input type="checkbox" disabled={busy || !document.events.length} checked={Boolean(values.condition)} onChange={event => update({ condition: event.target.checked ? { event: document.events[0], set: true } : null })} />Require an event condition</label>
         {values.condition && <>{eventSelect(values.condition.event, event => update({ condition: { ...values.condition!, event } }), "Required event")}
