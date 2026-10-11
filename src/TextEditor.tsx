@@ -89,7 +89,7 @@ export function TextEditor({
   const [error, setError] = useState<string | null>(null);
 
   const controlled = Boolean(controlledSegments && onControlledSegmentsChange);
-  const workingDocument = document && document.terminator === "dex"
+  const workingDocument = document && (document.terminator === "dex" || document.canEditStructure)
     ? {
         ...document,
         displayParts: textSegmentsDisplayParts(draft),
@@ -327,8 +327,8 @@ export function TextEditor({
     setDraft((current) => current.filter((_, segmentIndex) => segmentIndex !== index));
   }
 
-  function addDexSegment() {
-    setDraft((current) => [...current, { control: "next", text: "" }]);
+  function addTextSegment() {
+    setDraft((current) => [...current, { control: document?.terminator === "dex" ? "next" : current.length === 1 ? "line" : "cont", text: "" }]);
   }
 
   async function save() {
@@ -460,7 +460,7 @@ export function TextEditor({
                   </p>
                 ) : (
                   <p className="help-text">
-                    Yellow Editor preserves the existing text flow. Upper dialogue rows have {TEXT_BOX_LINE_WIDTH} character spaces; the bottom row has {TEXT_BOX_BOTTOM_LINE_WIDTH} safe spaces because the continue arrow uses the final cell. The counter includes runtime inserts where their maximum width is known: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names, and common dynamic item/name buffers are reserved automatically. Source terminator <code>@</code> characters are hidden and preserved for you.
+                    {document.canEditStructure ? <>Use <strong>Add text line</strong> for another row. Choose <strong>Bottom line</strong>, <strong>Continue scrolling</strong>, or <strong>New paragraph</strong> to control its placement. </> : <>Yellow Editor preserves the existing text flow. </>}Upper dialogue rows have {TEXT_BOX_LINE_WIDTH} character spaces; the bottom row has {TEXT_BOX_BOTTOM_LINE_WIDTH} safe spaces because the continue arrow uses the final cell. The counter includes runtime inserts where their maximum width is known: <code>#</code> displays as <code>POKé</code> (4), <code>&lt;PLAYER&gt;</code> and <code>&lt;RIVAL&gt;</code> reserve 7, <code>&lt;USER&gt;</code> / <code>&lt;TARGET&gt;</code> reserve 10 for Pokémon names, and common dynamic item/name buffers are reserved automatically. Source terminator <code>@</code> characters are hidden and preserved for you.
                   </p>
                 )}
                 {document.warnings.length > 0 && (
@@ -481,16 +481,20 @@ export function TextEditor({
                       <label className={`text-editor-segment${lineError ? " invalid" : ""}`} key={`${index}:${segment.control}`}>
                         <span className="text-editor-segment-heading">
                           <span className="text-editor-control-with-help">
-                            {dexMode ? (
+                            {dexMode || document.canEditStructure ? (
                               <SearchableSelect
                                 value={segment.control}
                                 disabled={busy || !document.editable}
                                 aria-label="Text flow control"
                                 onChange={(event) => updateSegmentControl(index, event.target.value as TextSegmentControl)}
                               >
-                                <option value="text">Start text</option>
-                                <option value="next">Next line</option>
-                                <option value="page">New Pokédex page</option>
+                                {(dexMode || index === 0) && <option value="text">Start text</option>}
+                                {(dexMode || index > 0) && <option value="next">Next line</option>}
+                                {dexMode ? <option value="page">New Pokédex page</option> : index > 0 && <>
+                                  <option value="line">Bottom line</option>
+                                  <option value="cont">Continue scrolling</option>
+                                  <option value="para">New paragraph</option>
+                                </>}
                               </SearchableSelect>
                             ) : (
                               <span>{controlLabel(segment.control)}</span>
@@ -508,7 +512,7 @@ export function TextEditor({
                           </span>
                           <span className="text-editor-segment-meta">
                             <small>{width} / {maxWidth}</small>
-                            {dexMode && (
+                            {(dexMode || document.canEditStructure && index > 0) && (
                               <button
                                 type="button"
                                 className="small-button danger-action"
@@ -533,13 +537,13 @@ export function TextEditor({
                   })}
                 </div>
 
-                {document.terminator === "dex" && (
+                {(document.terminator === "dex" || document.canEditStructure) && (
                   <>
                     <button
                       type="button"
                       className="small-button text-editor-add-segment"
                       disabled={busy || !document.editable}
-                      onClick={addDexSegment}
+                      onClick={addTextSegment}
                     >
                       Add text line
                     </button>

@@ -48,8 +48,12 @@ export async function interactionRoundTrips(source: ProjectSource): Promise<Map<
   for (const write of await prepareScriptInteractionWrites(current, sign, moveValues)) changed.set(write.path, write.contents);
   sign = await loadScriptInteractionDocument(current, sign.path, sign.label);
   assert.deepEqual(sign.values, moveValues);
-  for (const write of await prepareScriptInteractionWrites(current, sign, { ...moveValues, dialogue: ["Thank you!"] })) changed.set(write.path, write.contents);
-  assert.deepEqual((await loadScriptInteractionDocument(current, sign.path, sign.label)).values.dialogue, ["Thank you!"]);
+  const receipt = ["<PLAYER> received", "a MOON STONE!"];
+  for (const write of await prepareScriptInteractionWrites(current, sign, { ...moveValues, dialogue: receipt })) changed.set(write.path, write.contents);
+  assert.deepEqual((await loadScriptInteractionDocument(current, sign.path, sign.label)).values.dialogue, receipt);
+  const receiptDocument = await loadScriptInteractionDocument(current, sign.path, sign.label);
+  await assert.rejects(prepareScriptInteractionWrites(current, receiptDocument, { ...receiptDocument.values, dialogue: ["<DONE>"] }), /unsupported token/);
+  await assert.rejects(prepareScriptInteractionWrites(current, receiptDocument, { ...receiptDocument.values, dialogue: ["<PLAYER> received!!!"] }), /18 spaces/);
   await assert.rejects(prepareScriptInteractionWrites(current, sign, moveValues), /changed/);
   console.log("  item rewards: Red/Yellow wrapper resolution, all four editable leaves, bag-full timing, sign conditions, regenerated actions, movement states and blocked routes passed");
   return changed;
