@@ -108,6 +108,7 @@ try {
       await dialog.locator(".text-editor-path-list button").first().click();
       await dialog.getByRole("button", { name: "Add text line", exact: true }).click();
       await dialog.locator("textarea").nth(2).fill("Enjoy!");
+      await dialog.getByRole("combobox", { name: "Text flow control", exact: true }).nth(2).selectOption("para");
       await dialog.getByRole("button", { name: "Save text", exact: true }).click();
       await dialog.waitFor({ state: "hidden" });
       await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
@@ -122,6 +123,11 @@ try {
       const overflowing = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
       assert.equal(overflowing, false, "Interaction form must fit the viewport");
       assert.deepEqual(errors, []);
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Edit text", exact: true }).click();
+      await page.getByRole("searchbox", { name: "Search dialogue paths" }).fill("received");
+      await dialog.locator(".text-editor-path-list button").first().click();
+      assert.equal(await dialog.getByRole("combobox", { name: "Text flow control", exact: true }).nth(2).inputValue(), "para");
       console.log(`${root} ${width}px: Scripts-tab sign edit/save/reload, byte preservation, dirty protection, and NPC branch picker passed`);
       await page.close();
     }
