@@ -60,6 +60,9 @@ export async function interactionRoundTrips(source: ProjectSource): Promise<Map<
   const paragraphDocument = await loadScriptInteractionDocument(current, sign.path, sign.label);
   for (const write of await prepareScriptInteractionWrites(current, paragraphDocument, paragraphDocument.values)) changed.set(write.path, write.contents);
   assert.equal((await parseTextDocument(sign.path, receiptLabel, await current.readText(sign.path))).segments[1].control, "para");
+  const walkingLeaves = await attachTextEditing({} as never, current).getTextLeafDocuments(sign.path, sign.label);
+  assert.equal(walkingLeaves.length, 4);
+  assert.equal(walkingLeaves.find(leaf => leaf.label === receiptLabel)?.segments[1].control, "para");
   await assert.rejects(prepareScriptInteractionWrites(current, sign, moveValues), /changed/);
   console.log("  item rewards: Red/Yellow wrapper resolution, all four editable leaves, bag-full timing, sign conditions, regenerated actions, movement states and blocked routes passed");
   return changed;

@@ -444,6 +444,20 @@ function textPointerCandidates(contents: string, label: string): string[] {
       if (!labels.includes(scoped)) labels.push(scoped);
     }
   }
+  // Managed approach interactions print their receipt from a later map state,
+  // beyond the entry's call graph. Their metadata names the concrete text leaves.
+  const marker = lines.slice(range.start + 1, range.end).find(line => /^\s*; yellow-editor-interaction: /.test(line));
+  if (marker && contents.split(/\r?\n/).includes(`; yellow-editor-interaction-code-end ${label}`)) {
+    try {
+      const metadata = JSON.parse(marker.replace(/^\s*; yellow-editor-interaction: /, ""));
+      if (metadata.version === 1 && metadata.label === label && typeof metadata.prefix === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(metadata.prefix)) {
+        for (const suffix of ["Original", "Dialogue", "BagFullText", "AlreadyText"]) {
+          const candidate = `${metadata.prefix}${suffix}`;
+          if (containsLabel(contents, candidate) && !labels.includes(candidate)) labels.push(candidate);
+        }
+      }
+    } catch { /* Fall back to the source-derived pointers for unknown metadata. */ }
+  }
   return labels;
 }
 
