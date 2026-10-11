@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite } from "../src/core/scriptInteractions";
 import type { ProjectSource } from "../src/core/types";
-import { attachTextEditing, applyTextDocumentEdits } from "../src/core/textEditing";
+import { attachTextEditing, applyTextDocumentEdits, parseTextDocument } from "../src/core/textEditing";
 
 export async function interactionRoundTrips(source: ProjectSource): Promise<Map<string, string>> {
   const changed = new Map<string, string>();
@@ -54,6 +54,12 @@ export async function interactionRoundTrips(source: ProjectSource): Promise<Map<
   const receiptDocument = await loadScriptInteractionDocument(current, sign.path, sign.label);
   await assert.rejects(prepareScriptInteractionWrites(current, receiptDocument, { ...receiptDocument.values, dialogue: ["<DONE>"] }), /unsupported token/);
   await assert.rejects(prepareScriptInteractionWrites(current, receiptDocument, { ...receiptDocument.values, dialogue: ["<PLAYER> received!!!"] }), /18 spaces/);
+  const receiptLabel = `${sign.label}EditorInteractionDialogue`;
+  const leaf = await parseTextDocument(sign.path, receiptLabel, await current.readText(sign.path));
+  changed.set(sign.path, applyTextDocumentEdits(await current.readText(sign.path), receiptLabel, leaf.segments.map((segment, i) => i === 1 ? { ...segment, control: "para" as const } : segment)));
+  const paragraphDocument = await loadScriptInteractionDocument(current, sign.path, sign.label);
+  for (const write of await prepareScriptInteractionWrites(current, paragraphDocument, paragraphDocument.values)) changed.set(write.path, write.contents);
+  assert.equal((await parseTextDocument(sign.path, receiptLabel, await current.readText(sign.path))).segments[1].control, "para");
   await assert.rejects(prepareScriptInteractionWrites(current, sign, moveValues), /changed/);
   console.log("  item rewards: Red/Yellow wrapper resolution, all four editable leaves, bag-full timing, sign conditions, regenerated actions, movement states and blocked routes passed");
   return changed;
