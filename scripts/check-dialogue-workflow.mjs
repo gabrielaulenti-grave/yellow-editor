@@ -163,7 +163,14 @@ try {
         await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
         assert.equal(await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).inputValue(), "DRATINI");
         assert.equal(await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).inputValue(), "20");
-        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Gift form must fit the viewport");
+        const overflow = await page.evaluate(() => ({
+          width: innerWidth, scroll: document.documentElement.scrollWidth,
+          elements: Array.from(document.querySelectorAll("body *")).filter(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.width && rect.right > innerWidth + 1 && rect.left >= 0;
+          }).map(element => ({ tag: element.tagName, class: element.className, text: element.textContent?.slice(0, 100), right: element.getBoundingClientRect().right })).slice(-12),
+        }));
+        assert.ok(overflow.scroll <= overflow.width, `${group}: gift form must fit the viewport: ${JSON.stringify(overflow)}`);
         await interaction.getByRole("button", { name: "Close", exact: true }).click();
         const savedGift = await page.evaluate(path => window.dialogueFiles[path], `scripts/${group}.asm`);
         assert.equal(savedGift, original[`scripts/${group}.asm`].replace(`lb bc, ${species}, ${level}`, "lb bc, DRATINI, 20"));
