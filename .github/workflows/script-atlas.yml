@@ -51,11 +51,11 @@ jobs:
           path: .script-fixtures/pokeyellow
           persist-credentials: false
       - name: Verify every vanilla script file and global label is inventoried
-        run: npm run scripts:atlas -- .script-fixtures/pokered .script-fixtures/pokeyellow --check --json-dir .script-atlas-output
+        run: npm run scripts:atlas -- .script-fixtures/pokered .script-fixtures/pokeyellow --check --json-dir script-atlas-output
       - name: Upload complete routine and reference atlases
         uses: actions/upload-artifact@v4
         with:
           name: vanilla-script-atlas
-          path: .script-atlas-output/*.json
+          path: script-atlas-output/*.json
           if-no-files-found: error
           retention-days: 30
