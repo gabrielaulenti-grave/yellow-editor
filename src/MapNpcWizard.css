@@ -1,0 +1,13 @@
+.npc-create-dialog { color: inherit; width: min(620px, calc(100vw - 32px)); }
+.npc-create-dialog::backdrop { background: rgba(0, 0, 0, .56); }
+.npc-create-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
+.npc-create-fields label { display: grid; gap: 6px; min-width: 0; }
+.npc-create-fields input, .npc-create-fields select { width: 100%; min-width: 0; box-sizing: border-box; }
+.npc-create-fields small { color: var(--muted); }
+.npc-create-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.npc-dialogue-preview { white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; border: 1px solid var(--border); border-radius: 8px; margin: 0; }
+.npc-create-error { overflow-wrap: anywhere; }
+.npc-create-dialog .wizard-actions { margin-top: 20px; }
+.npc-placement-map { max-height: 280px; overflow: auto; border: 1px solid var(--border); cursor: crosshair; }
+.npc-placement-marker { position: absolute; display: grid; place-items: center; box-sizing: border-box; background: #ffc83ccc; border: 2px solid #6a4300; color: #332200; font-weight: bold; pointer-events: none; }
+@media (max-width: 480px) { .npc-create-dialog { padding: 14px; } .npc-create-dialog .wizard-steps { gap: 4px; } .npc-create-dialog .wizard-steps span { padding: 6px; font-size: .8rem; } }

@@ -17,6 +17,29 @@ export interface MapIndexEntry {
   isUnused: boolean;
 }
 
+export interface MapNpcCreateDocument {
+  mapConstant: string;
+  mapName: string;
+  width: number;
+  height: number;
+  objectId: number;
+  maxObjects: number;
+  sprites: string[];
+  spriteNote: string;
+  dialogueOptions: Array<{ id: string; path: string; label: string; preview: string }>;
+  occupied: Array<{ x: number; y: number }>;
+  sources: Array<{ path: string; hash: string }>;
+}
+
+export interface MapNpcCreateValues {
+  x: number;
+  y: number;
+  sprite: string;
+  movement: "STAY" | "WALK";
+  direction: string;
+  dialogue: { kind: "new"; lines: string[] } | { kind: "existing"; id: string };
+}
+
 export interface MapWarpEvent {
   id: number;
   x: number;
@@ -1530,6 +1553,8 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
+  getMapNpcCreateDocument(mapConstant: string): Promise<MapNpcCreateDocument>;
+  createMapNpc(document: MapNpcCreateDocument, values: MapNpcCreateValues): Promise<HistorySummary>;
   getScriptCatalog(): Promise<ScriptCatalog>;
   getScriptAudit(): Promise<ScriptAuditReport>;
   runScriptRoundTripRegression(): Promise<ScriptRoundTripRegressionReport>;

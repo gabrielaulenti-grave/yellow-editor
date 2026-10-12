@@ -11,6 +11,7 @@ import type {
 } from "./core/types";
 import { invoke } from "./platform/compat";
 import { TextEditor } from "./TextEditor";
+import { MapNpcWizard } from "./MapNpcWizard";
 
 type MapView = "map" | "blocks" | "tiles";
 
@@ -127,6 +128,7 @@ function renderMap(
   canvas: HTMLCanvasElement,
   visualization: MapVisualization,
   showGrid: boolean,
+  gridSize = 32,
 ) {
   const width = visualization.map.width * 32;
   const height = visualization.map.height * 32;
@@ -173,13 +175,13 @@ function renderMap(
     context.save();
     context.strokeStyle = "rgba(0, 0, 0, 0.34)";
     context.lineWidth = 1;
-    for (let x = 32; x < width; x += 32) {
+    for (let x = gridSize; x < width; x += gridSize) {
       context.beginPath();
       context.moveTo(x + 0.5, 0);
       context.lineTo(x + 0.5, height);
       context.stroke();
     }
-    for (let y = 32; y < height; y += 32) {
+    for (let y = gridSize; y < height; y += gridSize) {
       context.beginPath();
       context.moveTo(0, y + 0.5);
       context.lineTo(width, y + 0.5);
@@ -204,6 +206,7 @@ function MapCanvas({
   onSelectWarp,
   onSelectSign,
   onSelectNpc,
+  placement,
 }: {
   visualization: MapVisualization;
   view: MapView;
@@ -219,6 +222,7 @@ function MapCanvas({
   onSelectWarp: (warpId: number) => void;
   onSelectSign: (signId: number) => void;
   onSelectNpc: (npcId: number) => void;
+  placement?: { x: number; y: number; onPlace(x: number, y: number): void };
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -230,9 +234,9 @@ function MapCanvas({
     } else if (view === "blocks") {
       renderBlocks(canvas, visualization);
     } else {
-      renderMap(canvas, visualization, showGrid);
+      renderMap(canvas, visualization, showGrid, placement ? 16 : 32);
     }
-  }, [visualization, view, showGrid]);
+  }, [visualization, view, showGrid, Boolean(placement)]);
 
   const scale = view === "tiles" ? Math.max(zoom, 2) : zoom;
   const intrinsicSize = view === "map"
@@ -257,6 +261,10 @@ function MapCanvas({
     <div
       className="world-map-stage"
       style={{ width: displayWidth, height: displayHeight }}
+      onClick={placement ? event => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        placement.onPlace(Math.floor((event.clientX - bounds.left) / (16 * scale)), Math.floor((event.clientY - bounds.top) / (16 * scale)));
+      } : undefined}
     >
       <canvas
         ref={canvasRef}
@@ -273,6 +281,9 @@ function MapCanvas({
               : `${visualization.tilesetName} tile preview`
         }
       />
+
+      {placement && Number.isInteger(placement.x) && Number.isInteger(placement.y) && <span className="npc-placement-marker" aria-label={`New NPC at ${placement.x}, ${placement.y}`}
+        style={{ left: placement.x * 16 * scale, top: placement.y * 16 * scale, width: 16 * scale, height: 16 * scale }}>+</span>}
 
       {view === "map" && showWarps && visualization.warps.map((warp) => (
         <button
@@ -384,8 +395,19 @@ export function MapsTab({
   const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [npcWizardOpen, setNpcWizardOpen] = useState(false);
+  const [mapRevision, setMapRevision] = useState(0);
+  const newNpcSelection = useRef<{ map: string; id: number } | null>(null);
 
   useEffect(() => {
+    const refresh = () => setMapRevision(value => value + 1);
+    window.addEventListener("yellow-editor:history-changed", refresh);
+    return () => window.removeEventListener("yellow-editor:history-changed", refresh);
+  }, []);
+
+  useEffect(() => {
+    setNpcWizardOpen(false);
+    newNpcSelection.current = null;
     if (!project) {
       setMaps([]);
       setSelectedConstant(null);
@@ -519,7 +541,12 @@ export function MapsTab({
           && result.warps.some((warp) => warp.id === arrivalWarpId);
         setSelectedWarpId(arrived ? arrivalWarpId : null);
         setSelectedSignId(null);
-        setSelectedNpcId(null);
+        const created = newNpcSelection.current;
+        setSelectedNpcId(previous => {
+          const id = created?.map === result.map.constant ? created.id : previous;
+          return result.npcs.some(npc => npc.id === id) ? id : null;
+        });
+        newNpcSelection.current = null;
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -531,7 +558,7 @@ export function MapsTab({
     return () => {
       cancelled = true;
     };
-  }, [project?.storageKey, selectedMap?.constant, arrivalWarpId]);
+  }, [project?.storageKey, selectedMap?.constant, arrivalWarpId, mapRevision]);
 
   const selectedEncounterEntry = selectedConstant
     ? encounters.find((entry) =>
@@ -1202,16 +1229,27 @@ export function MapsTab({
                 </div>
               )}
 
-              {view === "map" && visualization.npcs.length > 0 && (
+              {view === "map" && (
                 <div className="world-map-npc-panel">
                   <div className="world-map-npc-heading">
                     <div>
                       <strong>NPCs</strong>
                       <small>
-                        Ordinary six-field object events. Trainers and item balls remain separate layers.
+                        Select a character to edit their dialogue, or add a new NPC.
                       </small>
                     </div>
+                    <button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button>
                   </div>
+                  {npcWizardOpen && <MapNpcWizard key={`${project?.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
+                    renderPlacement={(x, y, onPlace) => <div className="npc-placement-map"><MapCanvas visualization={visualization} view="map" zoom={1}
+                      showGrid={true} showWarps={true} showSigns={true} showNpcs={true} selectedWarpId={null} selectedSignId={null} selectedNpcId={null} arrivalWarpId={null}
+                      onSelectWarp={() => {}} onSelectSign={() => {}} onSelectNpc={() => {}} placement={{ x, y, onPlace }} /></div>}
+                    onClose={() => setNpcWizardOpen(false)}
+                    onSaved={(id, history) => {
+                      newNpcSelection.current = { map: visualization.map.constant, id };
+                      setNpcWizardOpen(false);
+                      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                    }} />}
                   <div className="world-map-npc-list" aria-label="Map NPCs">
                     {visualization.npcs.map((npc) => (
                       <button
