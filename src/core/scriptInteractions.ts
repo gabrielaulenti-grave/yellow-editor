@@ -12,6 +12,8 @@ export interface InteractionValues {
   bagFull: string[];
   already: string[];
   reward: { item: string; quantity: number } | null;
+  pokemon?: { species: string; level: number } | null;
+  hideObject?: string | null;
   movement: { npc: string; steps: string[]; playerX: number; playerY: number } | null;
   condition: { event: string; set: boolean } | null;
   events: Array<{ event: string; set: boolean }>;
@@ -37,13 +39,26 @@ export interface RewardDocument {
   quantity: number;
   earlyFlag: string | null;
 }
+export interface PokemonGiftDocument {
+  path: string;
+  label: string;
+  sourceHash: string;
+  line: number;
+  species: string;
+  level: number;
+  hidesObject: boolean;
+}
 export interface InteractionDocument {
   path: string;
   label: string;
   sources: Array<{ path: string; hash: string }>;
   items: string[];
+  pokemon: string[];
+  pokemonReason: string | null;
+  hideObject: string | null;
   events: string[];
   reward: RewardDocument | null;
+  gift: PokemonGiftDocument | null;
   canCreate: boolean;
   reason: string | null;
   values: InteractionValues;
@@ -54,7 +69,7 @@ export interface InteractionDocument {
 const namePattern = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const clean = (line: string) => line.split(";", 1)[0].trim();
 const rows = (text: string) => text.split(/\r?\n/);
-const defaults = (): InteractionValues => ({ showOriginal: true, once: true, dialogue: ["Here you go!"], bagFull: ["Your BAG is full."], already: ["Come back soon!"], reward: null, movement: null, condition: null, events: [] });
+const defaults = (): InteractionValues => ({ showOriginal: true, once: true, dialogue: ["Here you go!"], bagFull: ["Your BAG is full."], already: ["Come back soon!"], reward: null, pokemon: null, hideObject: null, movement: null, condition: null, events: [] });
 
 function range(text: string, label: string) {
   const all = rows(text);
@@ -83,6 +98,66 @@ function macro(files: Map<string, string>, path: string, name: string, body: str
   if (matches.length !== 1 || rows(matches[0][1]).map(clean).filter(Boolean).join("\n") !== body) throw new Error(`Interaction generation needs a reviewed ${name} macro.`);
 }
 
+// Reviewed Red/Yellow delivery contract. Ignore comments and the extra Yellow
+// text terminator, but refuse changed branches or success/carry conventions.
+function pokemonDeliveryReason(files: Map<string, string>): string | null {
+  try {
+    const wrapper = range(files.get("home/give.asm") ?? "", "GivePokemon").body.map(clean).filter(Boolean).join("\n");
+    if (wrapper !== "ld a, b\nld [wCurPartySpecies], a\nld a, c\nld [wCurEnemyLevel], a\nxor a\nld [wMonDataLocation], a\nfarjp _GivePokemon") throw new Error("wrapper");
+    const body = range(files.get("engine/events/give_pokemon.asm") ?? "", "_GivePokemon").body.map(clean).filter(Boolean).join("\n").replace("ld hl, UnknownTerminator_f6794\ncall PrintText\n", "");
+    const reviewed = `call EnableAutoTextBoxDrawing
+xor a
+ld [wAddedToParty], a
+ld a, [wPartyCount]
+cp PARTY_LENGTH
+jr c, .addToParty
+ld a, [wBoxCount]
+cp MONS_PER_BOX
+jr nc, .boxFull
+xor a
+ld [wEnemyBattleStatus3], a
+ld a, [wCurPartySpecies]
+ld [wEnemyMonSpecies2], a
+callfar LoadEnemyMonData
+call SetPokedexOwnedFlag
+callfar SendNewMonToBox
+ld hl, wStringBuffer
+ld a, [wCurrentBoxNum]
+and BOX_NUM_MASK
+cp 9
+jr c, .singleDigitBoxNum
+sub 9
+ld [hl], '1'
+inc hl
+add '0'
+jr .next
+.singleDigitBoxNum
+add '1'
+.next
+ld [hli], a
+ld [hl], '@'
+ld hl, SentToBoxText
+call PrintText
+scf
+ret
+.boxFull
+ld hl, BoxIsFullText
+call PrintText
+and a
+ret
+.addToParty
+call SetPokedexOwnedFlag
+call AddPartyMon
+ld a, 1
+ld [wDoNotWaitForButtonPressAfterDisplayingText], a
+ld [wAddedToParty], a
+scf
+ret`;
+    if (body !== reviewed) throw new Error("delivery");
+    return null;
+  } catch { return "Pokémon gifts require the reviewed party/PC delivery routine. This project's routine differs."; }
+}
+
 async function inspect(source: ProjectSource, path: string, label: string) {
   if (!/^scripts\/[A-Za-z_][A-Za-z0-9_]*(?:_2)?\.asm$/.test(path) || !namePattern.test(label)) throw new Error("Choose a map interaction entry.");
   const files = await readProjectRgbdsSources(source);
@@ -107,12 +182,16 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     if (snapshot) { const value = number(snapshot[2].replace(/\bconst_value\b/g, String(eventValue))); if (value !== null) symbols.set(snapshot[1], value); }
   }
   const items = constants.constants.filter(entry => entry.sourcePath === "constants/item_constants.asm" && entry.symbol !== "NO_ITEM" && entry.value > 0 && entry.value < (symbols.get("NUM_ITEMS") ?? 256)).map(entry => entry.symbol);
+  const dexOrder = rows(byPath.get("data/pokemon/dex_order.asm") ?? "").flatMap(row => { const match = clean(row).match(/^db (.+)$/); return match ? [number(match[1])] : []; });
+  const pokemon = constants.constants.filter(entry => entry.sourcePath === "constants/pokemon_constants.asm" && entry.groupId !== null && entry.value > 0 && entry.value <= 255 && (dexOrder[entry.value - 1] ?? 0) > 0 && (dexOrder[entry.value - 1] ?? Infinity) <= (symbols.get("NUM_POKEMON") ?? 151)).map(entry => entry.symbol);
+  const pokemonReason = pokemonDeliveryReason(byPath);
   const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
   const mapName = path.replace(/^scripts\//, "").replace(/(?:_2)?\.asm$/, "");
   const primaryPath = `scripts/${mapName}.asm`;
   const primary = byPath.get(primaryPath) ?? "";
   const old = managed(text, label);
   let reward: RewardDocument | null = null;
+  let gift: PokemonGiftDocument | null = null;
   // Follow only a directly named companion farcall; leave arbitrary call graphs alone.
   let rewardPath = path, rewardLabel = label, rewardText = text;
   const entry = range(text, label).body.map(clean).filter(Boolean);
@@ -133,6 +212,14 @@ async function inspect(source: ProjectSource, path: string, label: string) {
       reward = { path: rewardPath, label: rewardLabel, sourceHash: await hashText(rewardText), line: index + 1, item: args[1], quantity: Number(args[2]), earlyFlag: flags.length === 1 ? flags[0].split(" ")[1] : null };
     }
   }
+  const giftCalls = rr.body.flatMap((line, i) => clean(line) === "call GivePokemon" ? [rr.start + 1 + i] : []);
+  if (!old && !pokemonReason && giftCalls.length === 1 && !calls.length) {
+    const index = giftCalls[0] - 1;
+    const args = clean(rr.all[index]).match(/^lb bc,\s*(\w+),\s*(\d+)$/);
+    if (args && pokemon.includes(args[1]) && Number(args[2]) >= 1 && Number(args[2]) <= 100 && /^jr nc,\s*\.[\w]+$/.test(clean(rr.all[index + 2]))) {
+      gift = { path: rewardPath, label: rewardLabel, sourceHash: await hashText(rewardText), line: index + 1, species: args[1], level: Number(args[2]), hidesObject: rr.body.some(row => clean(row) === "predef HideObject") };
+    }
+  }
   let canCreate = Boolean(old), reason: string | null = null;
   if (!old) {
     const leaves = await attachTextEditing({} as ProjectSession, source).getTextLeafDocuments(path, label);
@@ -144,7 +231,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
       yellowPlain = /^ld hl,\s*\.\w+$/.test(helper[0] ?? "") && helper[1] === "call PrintText" && helper[2] === "ret" && helper.slice(3).every(line => /^\.\w+:?$/.test(line) || /^text_far \w+$/.test(line) || line === "text_end");
     }
     canCreate = path === primaryPath && leaves.length === 1 && leaves[0].editable && (plain || yellowPlain || inline);
-    if (!canCreate) reason = reward ? "Edit this existing reward below. Its dialogue paths are available above." : "New actions require a plain dialogue entry. This interaction's existing logic is preserved.";
+    if (!canCreate) reason = reward || gift ? "Edit this existing gift below. Its dialogue paths are available above." : "New actions require a plain dialogue entry. This interaction's existing logic is preserved.";
   }
   const objectsPath = `data/maps/objects/${mapName}.asm`;
   const objects = byPath.get(objectsPath) ?? "";
@@ -153,6 +240,21 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const sign = signRow ? { x: Number(signRow[1]), y: Number(signRow[2]) } : null;
   const npcConstants = [...objects.matchAll(/^\s*const_export (\w+)\s*$/gm)].map(m => m[1]);
   const objectRows = [...objects.matchAll(/^\s*object_event\s+(\d+),\s*(\d+),\s*(\w+),\s*(\w+),\s*(\w+),\s*([^\r\n;]+)/gm)];
+  // Hiding is offered only for this entry's Poké Ball and an existing persistent
+  // toggle slot. Never resize or renumber the game's object-state save array.
+  const boundObjects = pointers ? objectRows.flatMap((row, i) => row[3] === "SPRITE_POKE_BALL" && row[6].trim() === pointers[1] ? [npcConstants[i]] : []) : [];
+  const toggleNames = rows(byPath.get("constants/toggle_constants.asm") ?? "").flatMap(row => { const match = clean(row).match(/^const (TOGGLE_\w+)$/); return match ? [match[1]] : []; });
+  let toggleMap = "", toggleIndex = 0, hideObject: string | null = null;
+  const mapConstant = byPath.get(`data/maps/headers/${mapName}.asm`)?.match(/map_header\s+\w+,\s*(\w+)/)?.[1];
+  for (const row of rows(byPath.get("data/maps/toggleable_objects.asm") ?? "")) {
+    const map = clean(row).match(/^toggleable_objects_for (\w+)$/);
+    if (map) toggleMap = map[1];
+    const object = clean(row).match(/^toggle_object_state (\w+),\s*(ON|OFF)$/);
+    if (!object) continue;
+    const toggle = toggleNames[toggleIndex];
+    if (toggleMap === mapConstant && boundObjects.length === 1 && boundObjects[0] === object[1] && object[2] === "ON" && npcConstants.length === objectRows.length && symbols.get(toggle) === toggleIndex && toggleIndex < 256) hideObject = toggle;
+    toggleIndex++;
+  }
   const npcs = objectRows.flatMap((m, i) => m[4] === "STAY" && npcConstants[i] && !m[6].includes(",") ? [{ constant: npcConstants[i], x: Number(m[1]), y: Number(m[2]) }] : []);
   let movementReason: string | null = null;
   let stateCount = 0;
@@ -163,19 +265,21 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     if (!stateCount || stateCount > 250 || !range(primary, `${mapName}_Script`).body.some(line => /^(?:jp|call) CallFunctionInTable$/.test(clean(line))) || !primary.includes(`[w${mapName}CurScript]`) || !byPath.get("ram/wram.asm")?.includes(`w${mapName}CurScript::`)) throw new Error("state");
     if (!sign || npcConstants.length !== objectRows.length) throw new Error("sign/object slots");
   } catch { movementReason = "NPC approach sequences need a sign and a map with an existing script-state table."; }
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "ram/wram.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "ram/wram.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();
   if (old) {
     editableValues = structuredClone(old.values);
+    editableValues.pokemon ??= null;
+    editableValues.hideObject ??= null;
     for (const [field, suffix] of [["dialogue", "Dialogue"], ["bagFull", "BagFullText"], ["already", "AlreadyText"]] as const) {
       const leaf = await parseTextDocument(path, `${old.prefix}${suffix}`, text);
       if (!leaf.editable) throw new Error("An interaction dialogue block was changed outside the editor.");
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, events, reward, canCreate, reason, values: editableValues, npcs, movementReason, sign };
+  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
 export async function loadScriptInteractionDocument(source: ProjectSource, path: string, label: string): Promise<InteractionDocument> {
@@ -205,6 +309,21 @@ export async function prepareScriptRewardWrite(source: ProjectSource, document: 
   return [{ path: reward.path, contents: text, expectedHash: reward.sourceHash }];
 }
 
+export async function prepareScriptPokemonGiftWrite(source: ProjectSource, document: InteractionDocument, species: string, level: number): Promise<TextWriteRequest[]> {
+  const current = await inspect(source, document.path, document.label);
+  if (JSON.stringify(current.document.sources) !== JSON.stringify(document.sources)) throw new Error("Interaction sources changed. Reopen the editor before saving.");
+  const gift = current.document.gift;
+  if (!gift || !current.document.pokemon.includes(species) || !Number.isInteger(level) || level < 1 || level > 100) throw new Error("Choose a valid Pokémon and a level from 1 to 100.");
+  const original = current.byPath.get(gift.path)!;
+  const all = rows(original);
+  all[gift.line - 1] = all[gift.line - 1].replace(/(lb bc,\s*)\w+(,\s*)\d+/, `$1${species}$2${level}`);
+  const text = all.join(original.includes("\r\n") ? "\r\n" : "\n");
+  const patched = { ...source, readText: async (path: string) => path === gift.path ? text : source.readText(path) };
+  const saved = await inspect(patched, document.path, document.label);
+  if (saved.document.gift?.species !== species || saved.document.gift.level !== level) throw new Error("The Pokémon gift did not reparse correctly.");
+  return [{ path: gift.path, contents: text, expectedHash: gift.sourceHash }];
+}
+
 function print(label: string) { return [`\tld hl, ${label}`, "\tcall PrintText"]; }
 function textBlock(label: string, input: string[], state: Awaited<ReturnType<typeof inspect>>) {
   if (!Array.isArray(input) || input.length < 1 || input.length > 16 || input.some(value => typeof value !== "string" || /[\r\n@\\"]/u.test(value)) || !input.some(value => value.trim())) throw new Error("Enter 1–16 dialogue lines without embedded line breaks or text-ending codes.");
@@ -230,11 +349,13 @@ function rewardCode(m: ManagedInteraction, textPrefix = m.prefix) {
   const v = m.values, p = m.prefix;
   const code: string[] = [];
   if (v.reward) code.push(`\tlb bc, ${v.reward.item}, ${v.reward.quantity}`, "\tcall GiveItem", `\tjp nc, ${p}BagFull`);
+  if (v.pokemon) code.push(`\tlb bc, ${v.pokemon.species}, ${v.pokemon.level}`, "\tcall GivePokemon", `\tjp nc, ${p}BagFull`, "\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing");
   if (m.flag) code.push(`\tSetEvent ${m.flag}`);
   for (const event of v.events) code.push(`\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`);
+  if (v.hideObject) code.push(`\tld a, ${v.hideObject}`, "\tld [wToggleableObjectIndex], a", "\tpredef HideObject");
   if (v.reward) code.push("\tld a, SFX_GET_ITEM_1", "\tcall PlaySound", "\tcall WaitForSoundToFinish");
   code.push(...print(`${textPrefix}Dialogue`), `\tjp ${p}Finish`);
-  if (v.reward) code.push(`${p}BagFull:`, ...print(`${textPrefix}BagFullText`), `\tjp ${p}Finish`);
+  if (v.reward || v.pokemon) code.push(`${p}BagFull:`, ...print(`${textPrefix}BagFullText`), `\tjp ${p}Finish`);
   return code;
 }
 function render(m: ManagedInteraction, npcId: number | null, mapName: string, resumeState = 0, textPrefix = m.prefix) {
@@ -318,6 +439,12 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   if (!state.document.canCreate) throw new Error(state.document.reason ?? "Cannot convert this entry safely.");
   if (typeof values.once !== "boolean" || typeof values.showOriginal !== "boolean" || !Array.isArray(values.events) || values.events.length > 16) throw new Error("Invalid interaction options.");
   if (values.reward && (!state.document.items.includes(values.reward.item) || !Number.isInteger(values.reward.quantity) || values.reward.quantity < 1 || values.reward.quantity > 99)) throw new Error("Choose an item and quantity from 1 to 99.");
+  if (values.pokemon) {
+    if (state.document.pokemonReason) throw new Error(state.document.pokemonReason);
+    if (values.reward) throw new Error("Choose one reward: an item or a Pokémon.");
+    if (!state.document.pokemon.includes(values.pokemon.species) || !Number.isInteger(values.pokemon.level) || values.pokemon.level < 1 || values.pokemon.level > 100) throw new Error("Choose a valid Pokémon and a level from 1 to 100.");
+  }
+  if (values.hideObject && (!values.pokemon || !values.once || values.movement || values.hideObject !== state.document.hideObject)) throw new Error("Only a one-time Pokémon gift can hide its own existing Poké Ball object.");
   if (values.condition && (!state.document.events.includes(values.condition.event) || typeof values.condition.set !== "boolean") || values.events.some(event => !state.document.events.includes(event.event) || typeof event.set !== "boolean")) throw new Error("Choose existing project events for conditions and changes.");
   const semantics = deriveProjectEventMacroSemantics(state.files);
   if (!semantics.some(event => event.name === "CheckEvent" && event.action === "check" && event.zeroMeaning === "event-clear")) throw new Error("Cannot prove this project's event-check convention.");

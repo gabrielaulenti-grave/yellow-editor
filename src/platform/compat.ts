@@ -619,6 +619,9 @@ export async function invoke<T>(
     case "save_script_reward":
       if (!args?.document) throw new Error("Missing reward document.");
       return await session.saveScriptReward(args.document as InteractionDocument, stringArg(args, "item"), numberArg(args, "quantity"), args.fixBagFull === true) as T;
+    case "save_script_pokemon_gift":
+      if (!args?.document) throw new Error("Missing Pokémon gift document.");
+      return await session.saveScriptPokemonGift(args.document as InteractionDocument, stringArg(args, "species"), numberArg(args, "level")) as T;
     case "get_script_catalog":
       return (await session.getScriptCatalog()) as T;
 

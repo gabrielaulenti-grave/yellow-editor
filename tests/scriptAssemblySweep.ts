@@ -1,5 +1,7 @@
 import { interactionRuntimeProbes } from "./interactionRuntime";
 import { interactionRoundTrips } from "./scriptInteractions";
+import { pokemonGiftRoundTrips } from "./pokemonGifts";
+import { pokemonGiftRuntimeProbes } from "./pokemonGiftRuntime";
 import { route1DialogueRoundTrips } from "./route1Dialogue";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
 import type { ProjectSource } from "../src/core/types";
@@ -188,6 +190,12 @@ try {
       const stop = (await readFile(symbols, "utf8")).match(/^00:([0-9a-f]+) ProbeDone$/mi)![1];
       run(cpu, [cartridge, stop, ...expectations]);
     }
+    await interactionRuntimeProbes(source as ProjectSource, runAssembledProbe);
+    await pokemonGiftRuntimeProbes(source as ProjectSource, runAssembledProbe);
+    for (const [path, contents] of await pokemonGiftRoundTrips(source as ProjectSource)) await writeFile(join(root, path), contents);
+    run("make", ["-j2", `RGBDS=${rgbds}/`, rom], root);
+    console.log("  gift Pokémon ROM: native gift edits, new NPC and Poké Ball gifts, and approach gifts assembled and linked");
+    await pokemonGiftRuntimeProbes(source as ProjectSource, runAssembledProbe);
     await interactionRuntimeProbes(source as ProjectSource, runAssembledProbe);
     async function probe(body: string, event: string, initial: number, expected: number, duration: number) {
       const eventNumber = analysis.catalog.numericConstants![event];
