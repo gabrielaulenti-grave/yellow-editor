@@ -315,9 +315,11 @@ export async function prepareScriptPokemonGiftWrite(source: ProjectSource, docum
   const gift = current.document.gift;
   if (!gift || !current.document.pokemon.includes(species) || !Number.isInteger(level) || level < 1 || level > 100) throw new Error("Choose a valid Pokémon and a level from 1 to 100.");
   const original = current.byPath.get(gift.path)!;
-  const all = rows(original);
+  // Keep each line's original CR byte so mixed newlines and final-newline
+  // presence survive a parameter edit byte for byte.
+  const all = original.split("\n");
   all[gift.line - 1] = all[gift.line - 1].replace(/(lb bc,\s*)\w+(,\s*)\d+/, `$1${species}$2${level}`);
-  const text = all.join(original.includes("\r\n") ? "\r\n" : "\n");
+  const text = all.join("\n");
   const patched = { ...source, readText: async (path: string) => path === gift.path ? text : source.readText(path) };
   const saved = await inspect(patched, document.path, document.label);
   if (saved.document.gift?.species !== species || saved.document.gift.level !== level) throw new Error("The Pokémon gift did not reparse correctly.");
