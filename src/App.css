@@ -2748,3 +2748,6 @@ pre {
     flex-direction: column;
   }
 }
+
+.world-map-npc-heading { flex-wrap: wrap; }
+.world-map-npc-heading > .world-map-npc-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }

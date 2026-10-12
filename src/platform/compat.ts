@@ -1,3 +1,4 @@
+import type { PcTutorialDocument, PcTutorialValues } from "../core/pcTutorial";
 import type { InteractionDocument, InteractionValues } from "../core/scriptInteractions";
 import type {
   BuildProgressListener,
@@ -600,6 +601,12 @@ export async function invoke<T>(
       return (await session.getMapVisualization(
         stringArg(args, "mapConstant"),
       )) as T;
+
+    case "get_pc_tutorial_document":
+      return await session.getPcTutorialDocument() as T;
+    case "save_pc_tutorial":
+      if (!args?.document || !args.values) throw new Error("Missing tutorial document or values.");
+      return await session.savePcTutorial(args.document as PcTutorialDocument, args.values as PcTutorialValues) as T;
 
     case "get_map_npc_create_document":
       return (await session.getMapNpcCreateDocument(stringArg(args, "mapConstant"))) as T;
