@@ -68,6 +68,9 @@ jobs:
       - name: Check sign and NPC dialogue editing through Scripts
         run: npm run test:dialogue:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check NPC and sign interaction editing through Maps
+        run: npm run test:maps:interactions -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Checkout script probe CPU
         uses: actions/checkout@v6
         with:

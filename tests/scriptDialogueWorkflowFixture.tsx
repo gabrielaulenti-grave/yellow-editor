@@ -2,6 +2,8 @@ import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareS
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ScriptsTab } from "../src/ScriptsTab";
+import { MapsTab } from "../src/MapsTab";
+import { parseMapIndex, loadMapVisualization } from "../src/core/mapVisualization";
 import { attachTextEditing } from "../src/core/textEditing";
 import { loadScriptCatalog, loadScriptDocument } from "../src/core/scriptCatalog";
 import type { ProjectSession, ProjectSource, TextWriteRequest } from "../src/core/types";
@@ -12,15 +14,19 @@ const fixture = window as unknown as {
   dialogueSaves: TextWriteRequest[][];
   dialogueDirty: boolean;
   dialogueBytes: Record<string, number[]>;
+  mapSurface?: boolean;
+  openedScript?: { path: string; label?: string | null };
+  interactionTargets: unknown[];
 };
 fixture.dialogueSaves = [];
+fixture.interactionTargets = [];
 const source = {
   readText: async (path: string) => {
     if (!(path in fixture.dialogueFiles)) throw new Error(`Missing fixture: ${path}`);
     return fixture.dialogueFiles[path];
   },
   readBytes: async (path: string) => new Uint8Array(fixture.dialogueBytes[path]),
-  exists: async (path: string) => path in fixture.dialogueFiles,
+  exists: async (path: string) => path in fixture.dialogueFiles || path in fixture.dialogueBytes,
   listFiles: async () => [...Object.keys(fixture.dialogueFiles), ...Object.keys(fixture.dialogueBytes)],
 } as ProjectSource;
 const session = attachTextEditing({ saveTextChanges: async (_title: string, changes: TextWriteRequest[]) => {
@@ -30,7 +36,11 @@ const session = attachTextEditing({ saveTextChanges: async (_title: string, chan
 } } as ProjectSession, source);
 fixture.dialogueInvoke = async (command, args) => {
   switch (command) {
-    case "get_script_interaction_document": return loadScriptInteractionDocument(source, args!.path as string, args!.label as string);
+    case "get_map_index": return parseMapIndex(source);
+    case "get_map_visualization": return loadMapVisualization(source, args!.mapConstant as string);
+    case "get_script_interaction_document":
+      fixture.interactionTargets.push(args);
+      return loadScriptInteractionDocument(source, args!.path as string, args!.label as string);
     case "save_script_interaction": return session.saveTextChanges("Edit interaction", await prepareScriptInteractionWrites(source, args!.document as never, args!.values as never));
     case "save_script_reward": return session.saveTextChanges("Edit reward", await prepareScriptRewardWrite(source, args!.document as never, args!.item as string, args!.quantity as number, args!.fixBagFull as boolean));
     case "save_script_pokemon_gift": return session.saveTextChanges("Edit Pokémon gift", await prepareScriptPokemonGiftWrite(source, args!.document as never, args!.species as string, args!.level as number));
@@ -51,7 +61,12 @@ function Fixture() {
   const [version, setVersion] = useState(0);
   return <>
     <button onClick={() => setVersion(value => value + 1)}>Reload scripts</button>
-    <ScriptsTab key={version} project={project} focus={focus} onDirtyChange={dirty => { fixture.dialogueDirty = dirty; }} />
+    {fixture.mapSurface
+      ? <MapsTab key={version} project={project} encounters={[]} fishingDocument={null} pokemonIndex={[]} focusMapConstant="VIRIDIAN_CITY"
+          onOpenWalkingEncounter={() => {}} onOpenFishing={() => {}}
+          onOpenScript={(path, label) => { fixture.openedScript = { path, label }; }}
+          onDirtyChange={dirty => { fixture.dialogueDirty = dirty; }} />
+      : <ScriptsTab key={version} project={project} focus={focus} onDirtyChange={dirty => { fixture.dialogueDirty = dirty; }} />}
   </>;
 }
 createRoot(window.document.getElementById("root")!).render(<Fixture />);

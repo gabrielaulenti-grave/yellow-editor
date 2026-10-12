@@ -1,7 +1,13 @@
 # Compose scripted interactions
 
 Select an ordinary NPC or sign, open **Edit interaction**, and choose
-**Compose action sequence**. Existing managed item/Pokémon interactions can
+**Compose action sequence** in the **Maps** inspector or **Scripts** tab.
+The map inspector also offers **View script** at the object's original entry;
+unsupported interactions explain why composition is unavailable. Dialogue
+editing retains its resolved text target, including Yellow's forwarded dialogue.
+Saving refreshes the map while retaining the selected object. Unsaved map
+interaction changes participate in the application's tab/project switch guards.
+Existing managed item/Pokémon interactions can
 upgrade to the composer. Their reward and dialogue become ordered actions;
 the original dialogue, one-time setting, repeat dialogue, event requirements,
 success effects and approach/return route are retained.
