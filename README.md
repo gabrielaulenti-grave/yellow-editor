@@ -66,3 +66,5 @@ Outdoor choices respect shared sprite sets, including both halves of split maps.
 
 Placement checks map bounds and existing objects/warps; choose walkable terrain in the preview. Phase 1 creates dialogue NPCs. Battles, rewards, visibility flags, and scripted movement are outside this workflow.
 The [reviewed engine contracts](docs/script-engine-contracts.md) document choice outcomes, audio scheduling, and resumable movement waits, with source fingerprints and CPU boundary tests.
+
+The [Viridian PC tutorial recipe](docs/pc-tutorial.md) creates a Lance-style entrance lesson with an escort, a direct-to-box Pokémon gift, real PC menus, and persistent tracking of the exact gift. Open Maps → Viridian Pokecenter → PC tutorial.
