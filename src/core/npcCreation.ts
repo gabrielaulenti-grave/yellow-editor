@@ -77,6 +77,7 @@ async function load(source: ProjectSource, mapConstant: string) {
   const scriptPath = `scripts/${name}.asm`;
   const objects = read(objectPath);
   const script = read(scriptPath);
+  if (script.includes("; yellow-editor-pc-tutorial: ")) throw new Error("This map has a managed PC tutorial. Review its walking routes before adding another NPC; undo tutorial creation first to change the cast.");
   checkMacros(read("macros/scripts/maps.asm"));
   for (const [macro, expected] of Object.entries({ text: "db TX_START, \\#", line: 'db "<LINE>", \\#', cont: 'db "<CONT>", \\#', done: 'db "<DONE>"', text_far: "db TX_FAR\ndab \\1", text_end: "db TX_END" })) {
     const matches = [...read("macros/scripts/text.asm").matchAll(new RegExp(`^MACRO ${macro}\\r?\\n([\\s\\S]*?)^ENDM`, "gm"))];

@@ -1,3 +1,4 @@
+import { loadPcTutorialDocument, preparePcTutorialWrites } from "./pcTutorial";
 import {
   parseBaseStats,
   parseMoves,
@@ -868,6 +869,13 @@ export async function createProjectSession(
     },
     getMapIndex,
     getMapVisualization,
+    getPcTutorialDocument: () => loadPcTutorialDocument(source),
+    savePcTutorial: async (document, values) => {
+      const changes = await preparePcTutorialWrites(source, document, values);
+      const result = await history.save(`${document.existing ? "Edit" : "Create"} PC tutorial in Viridian City`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
     getMapNpcCreateDocument: mapConstant => loadMapNpcCreateDocument(source, mapConstant),
     createMapNpc: async (document, values) => {
       const changes = await prepareMapNpcWrites(source, document, values);

@@ -86,6 +86,12 @@ jobs:
       - name: Check reviewed script engine contracts on the CPU
         run: npm run test:scripts:contracts -- .script-fixtures/rgbds .script-fixtures/binjgb .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Assemble and execute the PC tutorial in Red and Yellow
+        run: npm run test:pc-tutorial -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Check PC tutorial creation, editing and atomic undo in the browser
+        run: npm run test:pc-tutorial:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Prepare shared WASM tools
         run: |
           sudo apt-get update
