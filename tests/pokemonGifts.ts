@@ -20,6 +20,11 @@ export async function pokemonGiftRoundTrips(source: ProjectSource): Promise<Map<
     for (const badLevel of [0, 101, 1.5]) await assert.rejects(prepareScriptPokemonGiftWrite(current, document, "DRATINI", badLevel), /level/);
     await assert.rejects(prepareScriptPokemonGiftWrite(current, document, "MON_GHOST", 15), /valid Pokémon/);
     const original = await current.readText(path);
+    const mixed = original.replace(/\n/g, "\r\n").replace(/\r\n/, "\n").trimEnd();
+    const mixedSource = { ...current, readText: async (name: string) => name === path ? mixed : current.readText(name) };
+    const mixedDocument = await loadScriptInteractionDocument(mixedSource, path, label);
+    const mixedWrite = await prepareScriptPokemonGiftWrite(mixedSource, mixedDocument, "DRATINI", 20);
+    assert.equal(mixedWrite[0].contents, mixed.replace(`lb bc, ${species}, ${level}`, "lb bc, DRATINI, 20"));
     const writes = await prepareScriptPokemonGiftWrite(current, document, "DRATINI", 20);
     assert.equal(writes.length, 1);
     assert.equal(writes[0].contents, original.replace(`lb bc, ${species}, ${level}`, "lb bc, DRATINI, 20"));
