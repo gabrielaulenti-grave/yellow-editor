@@ -26,7 +26,9 @@ graphs as the `vanilla-script-atlas` artifact.
 | Battle-related semantic nodes | 366 | 347 |
 | Direct music, sound, and cry calls | 97 | 127 |
 | Unresolved literal references in the inventory | 0 | 0 |
-| Distinct source-audit classification blockers | 71 | 83 |
+| Distinct source-audit classification blockers | 70 | 82 |
+| Source-reviewed engine contracts | 6 | 6 |
+| Sound calls missing a semantic node | 0 | 0 |
 
 Counts describe source occurrences. They include conditional and unused code;
 they do not measure reachable gameplay scenes or supported writer actions.
@@ -34,19 +36,18 @@ Computed targets and indirect exits remain explicit runtime expressions. State
 tables retain every constant even when multiple entries share a routine. Table
 order is recorded without claiming it is the assembled numeric state ID.
 
-The source audit still has real classification gaps. `sound_level_up` is not
-classified at three vanilla call sites: Red's Pewter Gym and Viridian Gym and
-Yellow's Viridian Gym. Some known macros such as `callfar`/`farjp` have semantic
-invocations without a frozen family binding. The backlog also includes menu,
-map-gate, event-index, sprite-pointer, and service callbacks. Some entries are
-bookkeeping or declarations and need correct classification; they are not all
+The source audit still has real classification gaps. Some known macros such as
+`callfar`/`farjp` have semantic invocations without a frozen family binding. The
+backlog also includes menu, map-gate, event-index, sprite-pointer, and service
+callbacks. Some entries are bookkeeping or declarations; they are not all
 missing gameplay primitives.
 
-A second gap is visible in the operation model: 40 Red and 21 Yellow calls to
-`PlaySound`/`PlaySoundWaitForCurrent` have no semantic node covering their source
-line. The audit currently treats these helpers as internal, so a source audit
-alone would not establish that a sound-cue builder is ready. The atlas retains
-every one of those calls and its engine definition for review.
+The first [engine-contract tranche](script-engine-contracts.md) recognizes the
+literal `sound_level_up` alias at all three vanilla sites and models all 40 Red
+and 21 Yellow `PlaySound`/`PlaySoundWaitForCurrent` calls. It records six reviewed
+contracts per game, with source fingerprints, explicit Yes/No outcomes, blocking
+sound waits and yielding movement waits. CPU boundary probes validate those
+contracts separately. A source match does not enable arbitrary scene generation.
 
 ## Evidence needed for a reusable building block
 
@@ -110,6 +111,7 @@ is rejected; unrelated non-assembly assets do not affect the source-only atlas.
 ```sh
 npm ci
 npm run test:scripts:atlas
+npm run test:scripts:contracts
 npm run scripts:atlas -- /path/to/pokered /path/to/pokeyellow
 npm run scripts:atlas -- /path/to/pokered /path/to/pokeyellow --check
 npm run scripts:atlas -- /path/to/pokered /path/to/pokeyellow --json-dir /path/to/output

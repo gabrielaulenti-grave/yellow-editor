@@ -1,3 +1,4 @@
+import { reviewScriptEngineContracts } from "./scriptEngineContracts";
 import { hashText } from "./history";
 import { readProjectRgbdsSources, type ProjectRgbdsSourceFile } from "./projectConstants";
 import { loadMacroAnalysis } from "./macroCatalog";
@@ -46,6 +47,7 @@ export interface ScriptAtlas {
   maps: AtlasMap[];
   references: AtlasReference[];
   engineBoundaries: Array<{ label: string; definitions: AtlasLocation[]; callers: Array<{ path: string; line: number; owner: string | null }> }>;
+  contracts: Awaited<ReturnType<typeof reviewScriptEngineContracts>>;
   limitations: string[];
 }
 
@@ -206,6 +208,7 @@ export async function buildScriptAtlas(source: ProjectSource, revision: string, 
   }));
   const inputs = await Promise.all(files.sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0).map(async file => ({ path: file.path, hash: await hashText(file.contents) })));
   return { schemaVersion: 1, revision, inputDigest: await hashText(JSON.stringify(inputs)), inputs, audit, maps, references, engineBoundaries,
+    contracts: await reviewScriptEngineContracts(files, projectName === "pokeyellow" ? "pokeyellow" : "pokered"),
     limitations: [
       "Inventories source definitions and literal references, including conditional/unused code; it does not prove reachability in a compiled ROM.",
       "Local labels are scoped; duplicate global definitions remain ambiguous. Macro-generated and computed targets remain explicit runtime expressions.",

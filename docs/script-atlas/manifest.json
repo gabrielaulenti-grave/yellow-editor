@@ -14,15 +14,17 @@
         "objects": 918,
         "signs": 201,
         "yesNoCalls": 30,
+        "yesNoBoundBranches": 22,
         "movementNodes": 61,
         "battleNodes": 366,
         "audioCalls": 97,
-        "audioNodes": 57,
-        "soundCallsWithoutSemanticNode": 40,
+        "audioNodes": 97,
+        "soundCallsWithoutSemanticNode": 0,
+        "reviewedContracts": 6,
         "references": 12397,
         "missingLiteralReferences": 0,
         "ambiguousReferences": 0,
-        "classificationBlockers": 71
+        "classificationBlockers": 70
       }
     },
     {
@@ -38,15 +40,17 @@
         "objects": 943,
         "signs": 203,
         "yesNoCalls": 36,
+        "yesNoBoundBranches": 27,
         "movementNodes": 108,
         "battleNodes": 347,
         "audioCalls": 127,
-        "audioNodes": 102,
-        "soundCallsWithoutSemanticNode": 21,
+        "audioNodes": 123,
+        "soundCallsWithoutSemanticNode": 0,
+        "reviewedContracts": 6,
         "references": 13653,
         "missingLiteralReferences": 0,
         "ambiguousReferences": 0,
-        "classificationBlockers": 83
+        "classificationBlockers": 82
       }
     }
   ]

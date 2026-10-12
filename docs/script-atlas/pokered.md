@@ -92,7 +92,7 @@ Groups include companion files and non-map helpers. Global labels include execut
 | [OaksLab](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/OaksLab.asm) | 1 | 68 | 19 | 1 | 10 | 1 | 10 | 6/0/0 |
 | [PalletTown](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/PalletTown.asm) | 1 | 17 | 7 | 0 | 2 | 0 | 2 | 0/0/0 |
 | [PewterCity](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/PewterCity.asm) | 1 | 26 | 7 | 2 | 2 | 0 | 2 | 2/0/0 |
-| [PewterGym](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/PewterGym.asm) | 1 | 23 | 4 | 1 | 0 | 3 | 0 | 1/1/0 |
+| [PewterGym](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/PewterGym.asm) | 1 | 23 | 4 | 1 | 0 | 3 | 0 | 1/0/0 |
 | [PewterMart](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/PewterMart.asm) | 1 | 4 | 0 | 0 | 0 | 0 | 0 | 0/0/0 |
 | [PewterNidoranHouse](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/PewterNidoranHouse.asm) | 1 | 5 | 0 | 0 | 0 | 0 | 1 | 0/0/0 |
 | [PewterPokecenter](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/PewterPokecenter.asm) | 1 | 6 | 0 | 0 | 0 | 0 | 3 | 0/0/0 |
@@ -229,7 +229,7 @@ Groups include companion files and non-map helpers. Global labels include execut
 | [ViridianForest](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/ViridianForest.asm) | 1 | 27 | 3 | 0 | 0 | 3 | 0 | 0/0/0 |
 | [ViridianForestNorthGate](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/ViridianForestNorthGate.asm) | 1 | 4 | 0 | 0 | 0 | 0 | 0 | 0/0/0 |
 | [ViridianForestSouthGate](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/ViridianForestSouthGate.asm) | 1 | 4 | 0 | 0 | 0 | 0 | 0 | 0/0/0 |
-| [ViridianGym](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/ViridianGym.asm) | 1 | 70 | 5 | 0 | 1 | 11 | 1 | 1/1/1 |
+| [ViridianGym](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/ViridianGym.asm) | 1 | 70 | 5 | 0 | 1 | 11 | 1 | 1/0/1 |
 | [ViridianMart](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/ViridianMart.asm) | 1 | 13 | 3 | 0 | 1 | 0 | 0 | 1/0/0 |
 | [ViridianNicknameHouse](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/ViridianNicknameHouse.asm) | 1 | 6 | 0 | 0 | 0 | 0 | 1 | 0/0/0 |
 | [ViridianPokecenter](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/ViridianPokecenter.asm) | 1 | 6 | 0 | 0 | 0 | 0 | 0 | 0/0/0 |
@@ -238,11 +238,10 @@ Groups include companion files and non-map helpers. Global labels include execut
 
 ## Classification backlog
 
-The production audit reports **71 distinct classification blockers**. Some are engine bookkeeping or declaration macros; this is a review queue, not a count of broken scripts.
+The production audit reports **70 distinct classification blockers**. Some are engine bookkeeping or declaration macros; this is a review queue, not a count of broken scripts.
 
 | Construct | Kind | Status | Occurrences | Example | Current explanation |
 | --- | --- | --- | ---: | --- | --- |
-| sound_level_up | instruction | unresolved | 2 | [scripts/PewterGym.asm:158](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/PewterGym.asm#L158) | Yellow Editor could not classify this source construct as RGBDS syntax, a discovered macro, or a known script semantic. |
 | CinnabarGymSetTrainerHeader | call | structural | 7 | [scripts/CinnabarGym.asm:265](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/CinnabarGym.asm#L265) | Project helper is resolved, but its body still contains gameplay behavior that has not been promoted into the semantic IR. |
 | PlaceString | call | structural | 7 | [scripts/BikeShop.asm:60](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/BikeShop.asm#L60) | Project helper is resolved, but its body still contains gameplay behavior that has not been promoted into the semantic IR. |
 | Route23CheckForBadgeScript | call | structural | 7 | [scripts/Route23.asm:156](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/scripts/Route23.asm#L156) | Project helper is resolved, but its body still contains gameplay behavior that has not been promoted into the semantic IR. |
@@ -320,6 +319,19 @@ Missing targets can be macro-generated symbols, RGBDS anonymous labels, or unres
 
 | Source | Owner | Kind | Target/expression | Resolution |
 | --- | --- | --- | --- | --- |
+
+## Reviewed engine contracts
+
+Fingerprints verify the reviewed engine bodies. Boundary CPU probes are separate evidence; these contracts do not enable a scene writer.
+
+| Contract | Scheduling | Outcomes | Source status | Evidence |
+| --- | --- | --- | --- | --- |
+| yes-no | Blocks in the menu input loop | wCurrentMenuItem = 0: Yes; wCurrentMenuItem = 1: No or B | reviewed-source | [home/yes_no.asm:3](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/yes_no.asm#L3), [engine/menus/text_box.asm:206](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/engine/menus/text_box.asm#L206), [home/tilemap.asm:52](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/tilemap.asm#L52), [home/copy.asm:15](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/copy.asm#L15) |
+| sound-playback | Returns without waiting for the cue to finish | Requests playback, or stop-all for SFX_STOP_ALL_MUSIC | reviewed-source | [home/audio.asm:1](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/audio.asm#L1) |
+| sound-wait-before-play | Blocks before playback, then returns without waiting for the new cue | Wait for previous effects, then request the new cue; Low-health alarm bypasses the wait | reviewed-source | [home/delay.asm:8](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/delay.asm#L8), [home/audio.asm:1](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/audio.asm#L1) |
+| sound-wait | Busy-waits while interrupt-driven audio advances | Channels 5, 6 and 8 are zero; Or low-health alarm bit 7 is set | reviewed-source | [home/delay.asm:8](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/delay.asm#L8) |
+| npc-movement | Asynchronous; wait by returning from a resumable map state while the flag is set | BIT_SCRIPTED_NPC_MOVEMENT is set on start and cleared when the NPC consumes the terminator | reviewed-source | [home/pathfinding.asm:10](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/pathfinding.asm#L10), [engine/overworld/movement.asm:112](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/engine/overworld/movement.asm#L112) |
+| player-movement | Asynchronous; vanilla states yield while wSimulatedJoypadStatesIndex is nonzero | Starts BIT_SCRIPTED_MOVEMENT_STATE; The overworld clears simulated state and input locks at exhaustion | reviewed-source | [home/map_objects.asm:53](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/map_objects.asm#L53), [home/overworld.asm:1864](https://github.com/pret/pokered/blob/d2704a63c26f9ba046ade877445216b3de0519a4/home/overworld.asm#L1864) |
 
 ## Engine helper boundaries
 
