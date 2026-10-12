@@ -11,7 +11,6 @@ import type {
 } from "./core/types";
 import { invoke } from "./platform/compat";
 import { TextEditor } from "./TextEditor";
-import { PcTutorialWizard } from "./PcTutorialWizard";
 import { MapNpcWizard } from "./MapNpcWizard";
 
 type MapView = "map" | "blocks" | "tiles";
@@ -396,7 +395,6 @@ export function MapsTab({
   const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pcTutorialOpen, setPcTutorialOpen] = useState(false);
   const [npcWizardOpen, setNpcWizardOpen] = useState(false);
   const [mapRevision, setMapRevision] = useState(0);
   const newNpcSelection = useRef<{ map: string; id: number } | null>(null);
@@ -409,7 +407,6 @@ export function MapsTab({
 
   useEffect(() => {
     setNpcWizardOpen(false);
-    setPcTutorialOpen(false);
     newNpcSelection.current = null;
     if (!project) {
       setMaps([]);
@@ -1241,13 +1238,8 @@ export function MapsTab({
                         Select a character to edit their dialogue, or add a new NPC.
                       </small>
                     </div>
-                    <div className="world-map-npc-actions"><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button>
-                    {visualization.map.constant === "VIRIDIAN_POKECENTER" && <button type="button" className="primary-button" onClick={() => setPcTutorialOpen(true)}>PC tutorial</button>}</div>
+                    <div className="world-map-npc-actions"><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button></div>
                   </div>
-                  {pcTutorialOpen && <PcTutorialWizard onClose={() => setPcTutorialOpen(false)} onSaved={history => {
-                    setPcTutorialOpen(false);
-                    window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
-                  }} />}
                   {npcWizardOpen && <MapNpcWizard key={`${project?.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
                     renderPlacement={(x, y, onPlace) => <div className="npc-placement-map"><MapCanvas visualization={visualization} view="map" zoom={1}
                       showGrid={true} showWarps={true} showSigns={true} showNpcs={true} selectedWarpId={null} selectedSignId={null} selectedNpcId={null} arrivalWarpId={null}

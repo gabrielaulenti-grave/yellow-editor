@@ -18,7 +18,8 @@ try {
   const styles = (await Promise.all(["App.css", "ScriptsTab.css", "MapScriptPreview.css", "TextEditor.css", "editor/SearchableSelect.css"]
     .map(path => readFile(join("src", path), "utf8")))).join("\n");
   const script = await readFile(outfile, "utf8");
-  browser = await chromium.launch();
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    args: process.env.PLAYWRIGHT_CHROMIUM_ARGS ? JSON.parse(process.env.PLAYWRIGHT_CHROMIUM_ARGS) : undefined });
   for (const root of roots) {
     const original = {}, bytes = {};
     async function collect(folder = "") {
@@ -143,6 +144,36 @@ try {
       assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route" }).inputValue(), "UP");
       assert.equal(await interaction.getByRole("textbox", { name: "Interaction dialogue" }).inputValue(), "Take good care\nof DRATINI!");
       assert.equal(await interaction.getByRole("textbox", { name: "No room dialogue" }).inputValue(), "Make room in your\nparty or PC BOX.");
+      await interaction.getByRole("button", { name: "Compose action sequence", exact: true }).click();
+      const sequence = interaction.getByRole("group", { name: "Actions", exact: true });
+      await sequence.getByRole("combobox", { name: "Actions action type", exact: true }).selectOption("choice");
+      await sequence.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await sequence.getByRole("button", { name: "Actions move action 3 up", exact: true }).click();
+      await sequence.getByRole("button", { name: "Actions move action 2 up", exact: true }).click();
+      const yes = sequence.getByRole("group", { name: "Actions 1 Yes", exact: true });
+      await yes.getByRole("combobox", { name: "Actions 1 Yes action type", exact: true }).selectOption("dialogue");
+      await yes.getByRole("button", { name: "Actions 1 Yes add action", exact: true }).click();
+      await yes.getByRole("textbox", { name: "Actions 1 Yes action 1 dialogue", exact: true }).fill("Let's begin!");
+      await sequence.getByRole("combobox", { name: "Actions action type", exact: true }).selectOption("dialogue");
+      await sequence.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await sequence.getByRole("textbox", { name: "Actions action 4 dialogue", exact: true }).fill("Want a partner?");
+      for (const i of [4, 3, 2]) await sequence.getByRole("button", { name: `Actions move action ${i} up`, exact: true }).click();
+      await page.waitForFunction(() => window.dialogueDirty === true);
+      page.once("dialog", async confirmation => { await confirmation.dismiss(); });
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      assert.equal(await interaction.isVisible(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Nested action composer fits phone and desktop widths");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("textbox", { name: "Actions action 1 dialogue", exact: true }).waitFor();
+      assert.equal(await interaction.getByRole("textbox", { name: "Actions action 1 dialogue", exact: true }).inputValue(), "Want a partner?");
+      assert.equal(await interaction.getByRole("textbox", { name: "Actions 2 Yes action 1 dialogue", exact: true }).inputValue(), "Let's begin!");
+      assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route", exact: true }).inputValue(), "UP");
+      const generatedScene = await page.evaluate(() => window.dialogueFiles["scripts/ViridianCity.asm"]);
+      assert.ok(generatedScene.includes("\tcall YesNoChoice\n\tld a, [wCurrentMenuItem]"));
+      assert.ok(generatedScene.includes("ViridianCitySignTextEditorInteractionCleanupState:"));
+      assert.deepEqual(errors, []);
       await interaction.getByRole("button", { name: "Close", exact: true }).click();
       for (const [group, title, label, species, level] of [
         ["CeladonMansionRoofHouse", "Celadon Mansion Roof House", "CeladonMansionRoofHouseEeveePokeballText", "EEVEE", "25"],

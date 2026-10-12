@@ -1,4 +1,3 @@
-import type { PcTutorialDocument, PcTutorialValues } from "./pcTutorial";
 import type { InteractionDocument, InteractionValues } from "./scriptInteractions";
 export interface ProjectInfo {
   path: string;
@@ -1555,8 +1554,6 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
-  getPcTutorialDocument(): Promise<PcTutorialDocument>;
-  savePcTutorial(document: PcTutorialDocument, values: PcTutorialValues): Promise<HistorySummary>;
   getMapNpcCreateDocument(mapConstant: string): Promise<MapNpcCreateDocument>;
   createMapNpc(document: MapNpcCreateDocument, values: MapNpcCreateValues): Promise<HistorySummary>;
   getScriptInteractionDocument(path: string, label: string): Promise<InteractionDocument>;

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { PcTutorialWizard } from "../src/PcTutorialWizard";
-import { loadPcTutorialDocument,preparePcTutorialWrites } from "../src/core/pcTutorial";
+import { PcTutorialWizard } from "./PcTutorialRecipeWizard";
+import { loadPcTutorialDocument,preparePcTutorialWrites } from "./recipes/pcTutorial";
 import { hashText } from "../src/core/history";
 import type { ProjectSource,TextWriteRequest } from "../src/core/types";
 const fixture=window as unknown as {tutorialFiles:Record<string,string>;tutorialBytes:Record<string,number[]>;tutorialInvoke:(command:string,args?:Record<string,unknown>)=>Promise<unknown>;tutorialHistory:Array<Record<string,string>>;tutorialWrites:TextWriteRequest[][]};
