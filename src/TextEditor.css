@@ -1,6 +1,11 @@
 .text-editor-summary {
   display: grid;
   gap: 0.5rem;
+  min-width: 0;
+}
+
+.text-editor-summary > code {
+  overflow-wrap: anywhere;
 }
 
 .text-editor-summary-heading,
@@ -23,13 +28,15 @@
   inset: 0;
   z-index: 1000;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 1.5rem;
   background: rgba(0, 0, 0, 0.68);
 }
 
 .text-editor-dialog {
-  width: min(760px, 96vw);
+  width: min(760px, 100%);
+  min-width: 0;
   max-height: 88vh;
   overflow: auto;
   display: grid;
