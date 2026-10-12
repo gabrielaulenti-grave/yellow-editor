@@ -257,7 +257,8 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
           ? [{ label: "Object", value: titleCaseConstant(node.object) }]
           : [];
     case "music":
-      return node.music ? [{ label: "Music", value: titleCaseConstant(node.music) }] : [];
+      return node.sound ? [{ label: "Sound", value: titleCaseConstant(node.sound) }]
+        : node.music ? [{ label: "Music", value: titleCaseConstant(node.music) }] : [];
     case "facing": {
       const facingLabel = (value: string) => value === "0"
         ? "Down"
@@ -342,7 +343,14 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
     case "party":
       return [];
     case "service":
-      return [{ label: "Interaction", value: titleCaseConstant(node.service.replace(/-/g, "_")) }];
+      return [
+        { label: "Interaction", value: titleCaseConstant(node.service.replace(/-/g, "_")) },
+        ...(node.result ? [{ label: "B button", value: "Chooses No" }] : []),
+        ...(node.branch ? [
+          { label: node.branch.outcome === "yes" ? "Yes branch" : "No branch", value: node.branch.target },
+          { label: "Continues here", value: node.branch.fallthrough === "yes" ? "Yes" : "No" },
+        ] : []),
+      ];
     case "semantic-helper":
       return [
         { label: "IR family", value: titleCaseConstant(node.family.replace(/-/g, "_")) },

@@ -19,9 +19,9 @@ try {
   await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
     <style>${styles}\nbody{margin:0}#flow{margin:12px}</style>
     <main id="flow" class="editor-card">${flow}</main><div id="tab">${tab}</div>`);
-  assert.equal(await page.locator("#flow .map-script-if-step").count(), 8);
-  assert.equal(await page.getByText("Then", { exact: true }).count(), 8);
-  assert.equal(await page.getByText("Otherwise", { exact: true }).count(), 8);
+  assert.equal(await page.locator("#flow .map-script-if-step").count(), 9);
+  assert.equal(await page.getByText("Then", { exact: true }).count(), 9);
+  assert.equal(await page.getByText("Otherwise", { exact: true }).count(), 9);
   for (const width of [320, 375, 430, 768, 1280]) {
     await page.setViewportSize({ width, height: 900 });
     const widths = await page.locator("#flow .map-script-step-body")
@@ -34,7 +34,7 @@ try {
       const diagnostics = await page.locator(`#tab ${selector}`).boundingBox();
       assert.ok(diagnostics.y >= editor.y + editor.height, `${selector} appears before the workspace ends`);
     }
-    console.log(`${width}px: eight nested conditions remain readable; diagnostics follow the workspace`);
+    console.log(`${width}px: nine conditional blocks remain readable; diagnostics follow the workspace`);
   }
   // A desktop sidebar can constrain the editor even on a wide screen.
   await page.locator("#flow").evaluate((element) => { element.style.width = "400px"; });
