@@ -1,5 +1,6 @@
+import { ScriptInteractionEditor } from "./ScriptInteractionEditor";
 import { qualifiedTextLabel, scriptTextEntryKind } from "./core/textEditing";
-import { Fragment, useMemo } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   structuredMapScriptFlow,
   type MapScriptBranchOutcome,
@@ -596,6 +597,8 @@ export function ScriptDialoguePreview({ reference, editBlocked, onEditStateChang
   onSaved?(history: HistorySummary): void;
 }) {
   const kind = scriptTextEntryKind(reference.mapScriptSource, reference.routineLabel);
+  const [textOpen, setTextOpen] = useState(false);
+  const [interactionOpen, setInteractionOpen] = useState(false);
   return (
     <section className="map-script-preview">
       <p className="help-text">
@@ -608,10 +611,12 @@ export function ScriptDialoguePreview({ reference, editBlocked, onEditStateChang
         title="Dialogue"
         target={{ path: reference.scriptPath, label: reference.routineLabel }}
         initialText={null}
-        disabled={editBlocked}
-        onEditStateChange={onEditStateChange}
+        disabled={editBlocked || interactionOpen}
+        onEditStateChange={(open, dirty) => { setTextOpen(open); onEditStateChange?.(open, dirty); }}
         onSaved={onSaved}
       />
+      <ScriptInteractionEditor key={`interaction:${reference.scriptPath}:${reference.routineLabel}`} path={reference.scriptPath} label={reference.routineLabel}
+        disabled={editBlocked || textOpen} onEditStateChange={(open, dirty) => { setInteractionOpen(open); onEditStateChange?.(open, dirty); }} onSaved={onSaved} />
       {kind !== "text" && <TextScriptLogic label={reference.routineLabel} reference={reference} />}
     </section>
   );

@@ -1,6 +1,11 @@
 .text-editor-summary {
   display: grid;
   gap: 0.5rem;
+  min-width: 0;
+}
+
+.text-editor-summary > code {
+  overflow-wrap: anywhere;
 }
 
 .text-editor-summary-heading,
@@ -23,13 +28,15 @@
   inset: 0;
   z-index: 1000;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 1.5rem;
   background: rgba(0, 0, 0, 0.68);
 }
 
 .text-editor-dialog {
-  width: min(760px, 96vw);
+  width: min(760px, 100%);
+  min-width: 0;
   max-height: 88vh;
   overflow: auto;
   display: grid;
@@ -275,3 +282,11 @@
   min-width: 0;
   padding: 0.5rem;
 }
+
+.interaction-fields { display: grid; gap: 14px; min-width: 0; }
+.interaction-fields label { display: grid; gap: 6px; min-width: 0; }
+.interaction-fields label:has(input[type="checkbox"]) { display: flex; align-items: start; gap: 10px; }
+.interaction-fields input, .interaction-fields textarea, .interaction-fields select { max-width: 100%; box-sizing: border-box; }
+.interaction-fields textarea { width: 100%; }
+.interaction-coordinate-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-width: 0; }
+.interaction-coordinate-fields input { width: 100%; min-width: 0; }

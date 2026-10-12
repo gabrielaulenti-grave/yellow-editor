@@ -34,6 +34,7 @@ import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
+import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "./scriptInteractions";
 import {
   loadScriptCatalog,
   loadScriptDocument,
@@ -862,6 +863,25 @@ export async function createProjectSession(
     },
     getMapIndex,
     getMapVisualization,
+    getScriptInteractionDocument: (path, label) => loadScriptInteractionDocument(source, path, label),
+    saveScriptInteraction: async (document, values) => {
+      const changes = await prepareScriptInteractionWrites(source, document, values);
+      const result = await history.save(`Edit interaction ${document.label}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    saveScriptReward: async (document, item, quantity, fixBagFull) => {
+      const changes = await prepareScriptRewardWrite(source, document, item, quantity, fixBagFull);
+      const result = await history.save(`Edit reward ${document.label}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    saveScriptPokemonGift: async (document, species, level) => {
+      const changes = await prepareScriptPokemonGiftWrite(source, document, species, level);
+      const result = await history.save(`Edit Pokémon gift ${document.label}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
     getScriptCatalog,
     getScriptAudit,
     runScriptRoundTripRegression,

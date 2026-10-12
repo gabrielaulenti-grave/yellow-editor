@@ -1,3 +1,4 @@
+import type { InteractionDocument, InteractionValues } from "./scriptInteractions";
 export interface ProjectInfo {
   path: string;
   valid: boolean;
@@ -1530,6 +1531,10 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
+  getScriptInteractionDocument(path: string, label: string): Promise<InteractionDocument>;
+  saveScriptInteraction(document: InteractionDocument, values: InteractionValues): Promise<HistorySummary>;
+  saveScriptReward(document: InteractionDocument, item: string, quantity: number, fixBagFull: boolean): Promise<HistorySummary>;
+  saveScriptPokemonGift(document: InteractionDocument, species: string, level: number): Promise<HistorySummary>;
   getScriptCatalog(): Promise<ScriptCatalog>;
   getScriptAudit(): Promise<ScriptAuditReport>;
   runScriptRoundTripRegression(): Promise<ScriptRoundTripRegressionReport>;
