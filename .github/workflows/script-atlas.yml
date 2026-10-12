@@ -1,0 +1,61 @@
+name: Check vanilla script atlas
+
+on:
+  pull_request:
+    paths:
+      - "src/core/**"
+      - "scripts/script-atlas.mjs"
+      - "scripts/scriptAtlasReport.ts"
+      - "tests/scriptAtlas.test.ts"
+      - "docs/script-atlas*"
+      - "docs/script-atlas/**"
+      - "package*.json"
+      - ".github/workflows/script-atlas.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/core/**"
+      - "scripts/script-atlas.mjs"
+      - "scripts/scriptAtlasReport.ts"
+      - "tests/scriptAtlas.test.ts"
+      - "docs/script-atlas*"
+      - "docs/script-atlas/**"
+      - "package*.json"
+      - ".github/workflows/script-atlas.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  atlas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test:scripts:atlas
+      - uses: actions/checkout@v6
+        with:
+          repository: pret/pokered
+          ref: d2704a63c26f9ba046ade877445216b3de0519a4
+          path: .script-fixtures/pokered
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: pret/pokeyellow
+          ref: e89ead154b9968aa50eed9328ff2b38b6c194382
+          path: .script-fixtures/pokeyellow
+          persist-credentials: false
+      - name: Verify every vanilla script file and global label is inventoried
+        run: npm run scripts:atlas -- .script-fixtures/pokered .script-fixtures/pokeyellow --check --json-dir script-atlas-output
+      - name: Upload complete routine and reference atlases
+        uses: actions/upload-artifact@v4
+        with:
+          name: vanilla-script-atlas
+          path: script-atlas-output/*.json
+          if-no-files-found: error
+          retention-days: 30
