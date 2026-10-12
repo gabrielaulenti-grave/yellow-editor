@@ -144,12 +144,12 @@ try {
       assert.equal(await interaction.getByRole("textbox", { name: "Interaction dialogue" }).inputValue(), "Take good care\nof DRATINI!");
       assert.equal(await interaction.getByRole("textbox", { name: "No room dialogue" }).inputValue(), "Make room in your\nparty or PC BOX.");
       await interaction.getByRole("button", { name: "Close", exact: true }).click();
-      for (const [group, label, species, level] of [
-        ["CeladonMansionRoofHouse", "CeladonMansionRoofHouseEeveePokeballText", "EEVEE", "25"],
-        ["SilphCo7F", "SilphCo7FSilphWorkerM1Text", "LAPRAS", "15"],
+      for (const [group, title, label, species, level] of [
+        ["CeladonMansionRoofHouse", "Celadon Mansion Roof House", "CeladonMansionRoofHouseEeveePokeballText", "EEVEE", "25"],
+        ["SilphCo7F", "Silph Co7 F", "SilphCo7FSilphWorkerM1Text", "LAPRAS", "15"],
       ]) {
         await page.getByRole("searchbox", { name: "Search routines in all companion files" }).fill("");
-        await page.locator(".script-group-list button").filter({ has: page.locator("strong").filter({ hasText: new RegExp(`^${group}$`) }) }).click();
+        await page.locator(".script-group-list button").filter({ has: page.locator("strong").filter({ hasText: new RegExp(`^${title}$`) }) }).click();
         await page.getByRole("searchbox", { name: "Search routines in all companion files" }).fill(label);
         await page.locator(".script-routine-list button").filter({ hasText: label }).click();
         await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
