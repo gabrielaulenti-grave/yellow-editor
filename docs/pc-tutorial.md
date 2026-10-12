@@ -1,14 +1,14 @@
-# Viridian City PC tutorial recipe
+# Viridian City PC lesson regression scenario
 
-In **Maps**, select **Viridian Pokecenter**, then choose **PC tutorial** beside
-**Add NPC**. The default mentor is Lance and the gift is a Lv. 5 Dratini. Choose
-the portrait, species, level and dialogue, review the lesson, then create it.
-Build the ROM and enter the Pokémon Center to test it. Talking to the mentor
-resumes a declined or interrupted lesson.
+The Lance/Dratini PC lesson is a test case for reusable scripting tools. Its
+recipe generator, evidence and wizard live under `tests/`; there is no dedicated
+PC tutorial button or tutorial command in the application session API. The
+product provides [interaction composition](interaction-composer.md), with
+general scene triggers, movement and persistent service outcomes still to come.
 
 Creation is one history operation affecting eight existing source files. Undo
 restores the original map, text, flag declarations, exports and storage hooks.
-Reopening **PC tutorial** edits the gift and its three main dialogue blocks;
+The regression fixture also edits the gift and its three main dialogue blocks;
 those edits affect one script file. Already-delivered gifts in a save are not
 reissued or changed by recipe edits. The mentor returns to its starting tile and
 remains available after the lesson.

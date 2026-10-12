@@ -1,9 +1,9 @@
-import { hashText } from "./history";
-import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "./npcCreation";
-import { evaluateRgbdsExpression, projectConstantCatalogFromSources, readProjectRgbdsSources } from "./projectConstants";
-import { applyTextDocumentEdits, parseTextDocument } from "./textEditing";
+import { hashText } from "../../src/core/history";
+import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../../src/core/npcCreation";
+import { evaluateRgbdsExpression, projectConstantCatalogFromSources, readProjectRgbdsSources } from "../../src/core/projectConstants";
+import { applyTextDocumentEdits, parseTextDocument } from "../../src/core/textEditing";
 import { PC_TUTORIAL_EVIDENCE } from "./pcTutorialEvidence";
-import type { MapNpcCreateDocument, ProjectSource, TextWriteRequest } from "./types";
+import type { MapNpcCreateDocument, ProjectSource, TextWriteRequest } from "../../src/core/types";
 
 export interface PcTutorialValues {
   species: string; level: number; sprite: string;

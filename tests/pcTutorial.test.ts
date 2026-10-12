@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { readFile,readdir,writeFile,cp,mkdtemp,rm } from "node:fs/promises";
 import { resolve,join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { loadPcTutorialDocument,preparePcTutorialWrites,tutorialPath,renderPcTutorialStorage } from "../src/core/pcTutorial";
+import { loadPcTutorialDocument,preparePcTutorialWrites,tutorialPath,renderPcTutorialStorage } from "./recipes/pcTutorial";
 import type { ProjectSource } from "../src/core/types";
 
 test("tutorial routes avoid obstacles and reject disconnected destinations",()=>{

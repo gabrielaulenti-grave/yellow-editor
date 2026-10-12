@@ -1,11 +1,14 @@
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { hashText } from "./history";
+import { identifySequenceDialogue, renderInteractionSequence, sequenceDialogue, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
+import { reviewScriptEngineContracts } from "./scriptEngineContracts";
 import { evaluateRgbdsExpression, projectConstantCatalogFromSources, readProjectRgbdsSources } from "./projectConstants";
 import { parseMapIndex } from "./mapVisualization";
 import { applyTextDocumentEdits, attachTextEditing, parseTextDocument, type TextSegmentControl } from "./textEditing";
 import type { ProjectSession, ProjectSource, TextWriteRequest } from "./types";
 
 export interface InteractionValues {
+  actions?: InteractionAction[];
   showOriginal: boolean;
   once: boolean;
   dialogue: string[];
@@ -57,6 +60,9 @@ export interface InteractionDocument {
   pokemonReason: string | null;
   hideObject: string | null;
   events: string[];
+  sounds: string[];
+  choiceReason: string | null;
+  soundReason: string | null;
   reward: RewardDocument | null;
   gift: PokemonGiftDocument | null;
   canCreate: boolean;
@@ -185,7 +191,16 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const dexOrder = rows(byPath.get("data/pokemon/dex_order.asm") ?? "").flatMap(row => { const match = clean(row).match(/^db (.+)$/); return match ? [number(match[1])] : []; });
   const pokemon = constants.constants.filter(entry => entry.sourcePath === "constants/pokemon_constants.asm" && entry.groupId !== null && entry.value > 0 && entry.value <= 255 && (dexOrder[entry.value - 1] ?? 0) > 0 && (dexOrder[entry.value - 1] ?? Infinity) <= (symbols.get("NUM_POKEMON") ?? 151)).map(entry => entry.symbol);
   const pokemonReason = pokemonDeliveryReason(byPath);
-  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
+  const contracts = await reviewScriptEngineContracts(files, byPath.has("scripts/OaksLab_2.asm") ? "pokeyellow" : "pokered");
+  const choiceReason = contracts.find(c => c.id === "yes-no")?.sourceStatus === "reviewed-source" ? null : "Yes/No actions need the reviewed menu and screen-restoration routines; this project's routines differ.";
+  const soundReason = ["sound-playback", "sound-wait"].every(id => contracts.find(c => c.id === id)?.sourceStatus === "reviewed-source") ? null : "Sound actions need the reviewed playback and effect-wait routines; this project's routines differ.";
+  // Vanilla sound IDs are linker-address EQUS aliases, not numeric constants.
+  // Keep those symbolic operands and let RGBDS resolve their reviewed layout.
+  const music = byPath.get("constants/music_constants.asm") ?? "";
+  const soundMacro = music.match(/MACRO music_const\s*\n([\s\S]*?)\nENDM/);
+  const sounds = soundMacro && rows(soundMacro[1]).map(clean).filter(Boolean).join("\n") === 'DEF \\1 EQUS "((\\2 - SFX_Headers_1) / 3)"'
+    ? [...music.matchAll(/^\s*music_const\s+(SFX_[A-Z0-9_]+),\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter((name, i, all) => all.indexOf(name) === i && name !== "SFX_STOP_ALL_MUSIC") : [];
+  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION\d*_DONE$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
   const mapName = path.replace(/^scripts\//, "").replace(/(?:_2)?\.asm$/, "");
   const primaryPath = `scripts/${mapName}.asm`;
   const primary = byPath.get(primaryPath) ?? "";
@@ -265,7 +280,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     if (!stateCount || stateCount > 250 || !range(primary, `${mapName}_Script`).body.some(line => /^(?:jp|call) CallFunctionInTable$/.test(clean(line))) || !primary.includes(`[w${mapName}CurScript]`) || !byPath.get("ram/wram.asm")?.includes(`w${mapName}CurScript::`)) throw new Error("state");
     if (!sign || npcConstants.length !== objectRows.length) throw new Error("sign/object slots");
   } catch { movementReason = "NPC approach sequences need a sign and a map with an existing script-state table."; }
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "ram/wram.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();
@@ -273,13 +288,20 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     editableValues = structuredClone(old.values);
     editableValues.pokemon ??= null;
     editableValues.hideObject ??= null;
+    if (editableValues.actions) {
+      for (const block of sequenceDialogue(editableValues.actions)) {
+        const leaf = await parseTextDocument(path, `${old.prefix}${block.key}Text`, text);
+        if (!leaf.editable) throw new Error("An action's dialogue was changed outside the editor.");
+        block.lines.splice(0, block.lines.length, ...leaf.segments.map(segment => segment.text));
+      }
+    }
     for (const [field, suffix] of [["dialogue", "Dialogue"], ["bagFull", "BagFullText"], ["already", "AlreadyText"]] as const) {
       const leaf = await parseTextDocument(path, `${old.prefix}${suffix}`, text);
       if (!leaf.editable) throw new Error("An interaction dialogue block was changed outside the editor.");
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
+  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
 export async function loadScriptInteractionDocument(source: ProjectSource, path: string, label: string): Promise<InteractionDocument> {
@@ -334,7 +356,7 @@ function textBlock(label: string, input: string[], state: Awaited<ReturnType<typ
   const tokens = new Set(["<PLAYER>", "<RIVAL>", "<TARGET>", "<USER>", "<PKMN>", "<PC>", "<TM>", "<TRAINER>", "<ROCKET>", "<……>"].filter(token => new RegExp(`charmap "${token}",`).test(charmap)));
   if (input.some(line => [...line.matchAll(/<[^>]*>/g)].some(match => !tokens.has(match[0])) || [...line.replace(/<[^>]*>/g, "")].some(char => !chars.has(char)))) throw new Error("Dialogue contains an unsupported token or characters unavailable in this game's font.");
   let originalBlock: string | null = null;
-  if (state.old) {
+  if (state.old && new RegExp(`^${label}:{1,2}$`, "m").test(state.text.replace(/\r\n/g, "\n"))) {
     const existing = range(state.text, label);
     originalBlock = state.text.slice(existing.from, existing.to).trimEnd() + "\n";
   }
@@ -350,6 +372,12 @@ function textBlock(label: string, input: string[], state: Awaited<ReturnType<typ
 function rewardCode(m: ManagedInteraction, textPrefix = m.prefix) {
   const v = m.values, p = m.prefix;
   const code: string[] = [];
+  if (v.actions) {
+    const completion = [...(m.flag ? [`\tSetEvent ${m.flag}`] : []), ...v.events.map(event => `\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`)];
+    code.push(...renderInteractionSequence(v.actions, p, textPrefix, completion), ...completion, `\tjp ${p}Finish`);
+    code.push(`${p}BagFull:`, ...print(`${textPrefix}BagFullText`), `\tjp ${p}Finish`);
+    return code;
+  }
   if (v.reward) code.push(`\tlb bc, ${v.reward.item}, ${v.reward.quantity}`, "\tcall GiveItem", `\tjp nc, ${p}BagFull`);
   if (v.pokemon) code.push(`\tlb bc, ${v.pokemon.species}, ${v.pokemon.level}`, "\tcall GivePokemon", `\tjp nc, ${p}BagFull`, "\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing");
   if (m.flag) code.push(`\tSetEvent ${m.flag}`);
@@ -440,6 +468,11 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   if (JSON.stringify(state.document.sources) !== JSON.stringify(document.sources)) throw new Error("Interaction sources changed. Reopen the editor before saving.");
   if (!state.document.canCreate) throw new Error(state.document.reason ?? "Cannot convert this entry safely.");
   if (typeof values.once !== "boolean" || typeof values.showOriginal !== "boolean" || !Array.isArray(values.events) || values.events.length > 16) throw new Error("Invalid interaction options.");
+  if (values.actions !== undefined) {
+    if (values.reward || values.pokemon || values.hideObject) throw new Error("Use reward actions inside the sequence rather than the legacy reward options.");
+    validateInteractionSequence(values.actions, state.document, values.once);
+    values = { ...values, actions: identifySequenceDialogue(values.actions) };
+  }
   if (values.reward && (!state.document.items.includes(values.reward.item) || !Number.isInteger(values.reward.quantity) || values.reward.quantity < 1 || values.reward.quantity > 99)) throw new Error("Choose an item and quantity from 1 to 99.");
   if (values.pokemon) {
     if (state.document.pokemonReason) throw new Error(state.document.pokemonReason);
@@ -559,6 +592,20 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     script = state.old ? replaceBlock(script, `${prefix}${suffix}`, block + "\n") : script + block.replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n") + "\n";
     const parsed = await parseTextDocument(document.path, `${prefix}${suffix}`, script);
     if (!parsed.editable || parsed.segments.map(segment => segment.text).join("\n") !== input.join("\n")) throw new Error("Generated dialogue did not reparse correctly.");
+  }
+  // Action text remains independently editable through Edit text. Remove only
+  // the old action leaves and regenerate the new leaves, preserving their flow
+  // controls through reordering using each dialogue action's stable identity.
+  const actionBlocks = (values.actions ? sequenceDialogue(values.actions) : []).map(block => ({ label: `${prefix}${block.key}Text`, lines: block.lines }));
+  const renderedBlocks = actionBlocks.map(block => ({ ...block, contents: textBlock(block.label, block.lines, state) }));
+  for (const block of state.old?.values.actions ? sequenceDialogue(state.old.values.actions) : []) {
+    const r = range(script, `${prefix}${block.key}Text`);
+    script = script.slice(0, r.from) + script.slice(r.to);
+  }
+  for (const block of renderedBlocks) {
+    script += block.contents.replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n") + "\n";
+    const parsed = await parseTextDocument(document.path, block.label, script);
+    if (!parsed.editable || parsed.segments.map(segment => segment.text).join("\n") !== block.lines.join("\n")) throw new Error("Generated action dialogue did not reparse correctly.");
   }
   changed.set(document.path, script);
   const patchSource = { ...source, readText: async (path: string) => changed.get(path) ?? source.readText(path) };

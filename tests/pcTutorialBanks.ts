@@ -1,6 +1,6 @@
 import { readFile,writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { renderPcTutorialHook,renderPcTutorialStorage,type PcTutorialModel } from "../src/core/pcTutorial";
+import { renderPcTutorialHook,renderPcTutorialStorage,type PcTutorialModel } from "./recipes/pcTutorial";
 
 export async function pcTutorialBankProbes(m:PcTutorialModel,root:string,rgbds:string,temporary:string,run:(cmd:string,args:string[],cwd?:string)=>string) {
  const p=m.prefix,base=0xc100+m.eventStart/8,cpu=join(temporary,"cpu");

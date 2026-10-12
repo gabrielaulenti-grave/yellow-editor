@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:maps:interactions": "node scripts/check-map-interactions.mjs",
+    "test:interactions": "node scripts/check-interaction-sequence.mjs",
     "test:pc-tutorial:ui": "node scripts/check-pc-tutorial-ui.mjs",
     "test:pc-tutorial": "node scripts/check-pc-tutorial.mjs",
     "test:dialogue:ui": "node scripts/check-dialogue-workflow.mjs",

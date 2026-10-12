@@ -10,8 +10,7 @@ import type {
   ProjectInfo,
 } from "./core/types";
 import { invoke } from "./platform/compat";
-import { TextEditor } from "./TextEditor";
-import { PcTutorialWizard } from "./PcTutorialWizard";
+import { MapInteractionEditor } from "./MapInteractionEditor";
 import { MapNpcWizard } from "./MapNpcWizard";
 
 type MapView = "map" | "blocks" | "tiles";
@@ -361,6 +360,7 @@ interface MapsTabProps {
   onOpenWalkingEncounter(entry: EncounterTableIndexEntry): void;
   onOpenFishing(mapConstant: string): void;
   onOpenScript(path: string, routineLabel?: string | null): void;
+  onDirtyChange?(dirty: boolean): void;
 }
 
 export function MapsTab({
@@ -372,6 +372,7 @@ export function MapsTab({
   onOpenWalkingEncounter,
   onOpenFishing,
   onOpenScript,
+  onDirtyChange,
 }: MapsTabProps) {
   const [maps, setMaps] = useState<MapIndexEntry[]>([]);
   const [selectedConstant, setSelectedConstant] = useState<string | null>(null);
@@ -396,10 +397,12 @@ export function MapsTab({
   const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [pcTutorialOpen, setPcTutorialOpen] = useState(false);
   const [npcWizardOpen, setNpcWizardOpen] = useState(false);
   const [mapRevision, setMapRevision] = useState(0);
   const newNpcSelection = useRef<{ map: string; id: number } | null>(null);
+  const dirtyCallback = useRef(onDirtyChange);
+  dirtyCallback.current = onDirtyChange;
+  useEffect(() => () => dirtyCallback.current?.(false), []);
 
   useEffect(() => {
     const refresh = () => setMapRevision(value => value + 1);
@@ -409,7 +412,6 @@ export function MapsTab({
 
   useEffect(() => {
     setNpcWizardOpen(false);
-    setPcTutorialOpen(false);
     newNpcSelection.current = null;
     if (!project) {
       setMaps([]);
@@ -543,7 +545,7 @@ export function MapsTab({
         const arrived = arrivalWarpId !== null
           && result.warps.some((warp) => warp.id === arrivalWarpId);
         setSelectedWarpId(arrived ? arrivalWarpId : null);
-        setSelectedSignId(null);
+        setSelectedSignId(previous => result.signs.some(sign => sign.id === previous) ? previous : null);
         const created = newNpcSelection.current;
         setSelectedNpcId(previous => {
           const id = created?.map === result.map.constant ? created.id : previous;
@@ -1215,18 +1217,22 @@ export function MapsTab({
                         <code>x {selectedSign.x}, y {selectedSign.y}</code>
                         <code>{selectedSign.textConstant}</code>
                       </div>
-                      <TextEditor
-                        key={`${selectedSign.scriptPath}:${selectedSign.textLabel ?? selectedSign.textConstant}`}
+                      <MapInteractionEditor
+                        key={`sign:${selectedSign.scriptPath}:${selectedSign.id}:${selectedSign.textLabel ?? selectedSign.textConstant}`}
                         title={`Sign #${selectedSign.id} text`}
                         target={selectedSign.textLabel
                           ? { path: selectedSign.scriptPath, label: selectedSign.textLabel }
                           : null}
-                        initialText={null}
+                        dialogueTarget={selectedSign.textLabel
+                          ? { path: selectedSign.scriptPath, label: selectedSign.textLabel }
+                          : null}
+                        onOpenScript={onOpenScript}
+                        onDirtyChange={onDirtyChange}
                       />
                     </div>
                   ) : (
                     <p className="world-map-warp-empty">
-                      Select an S marker to inspect and edit that sign's text.
+                      Select an S marker to edit that sign's text and interaction.
                     </p>
                   )}
                 </div>
@@ -1238,16 +1244,11 @@ export function MapsTab({
                     <div>
                       <strong>NPCs</strong>
                       <small>
-                        Select a character to edit their dialogue, or add a new NPC.
+                        Select a character to edit their dialogue and interaction, or add a new NPC.
                       </small>
                     </div>
-                    <div className="world-map-npc-actions"><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button>
-                    {visualization.map.constant === "VIRIDIAN_POKECENTER" && <button type="button" className="primary-button" onClick={() => setPcTutorialOpen(true)}>PC tutorial</button>}</div>
+                    <div className="world-map-npc-actions"><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button></div>
                   </div>
-                  {pcTutorialOpen && <PcTutorialWizard onClose={() => setPcTutorialOpen(false)} onSaved={history => {
-                    setPcTutorialOpen(false);
-                    window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
-                  }} />}
                   {npcWizardOpen && <MapNpcWizard key={`${project?.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
                     renderPlacement={(x, y, onPlace) => <div className="npc-placement-map"><MapCanvas visualization={visualization} view="map" zoom={1}
                       showGrid={true} showWarps={true} showSigns={true} showNpcs={true} selectedWarpId={null} selectedSignId={null} selectedNpcId={null} arrivalWarpId={null}
@@ -1319,16 +1320,20 @@ export function MapsTab({
                       </div>
 
                       <div className="world-map-npc-dialogue">
-                        <TextEditor
-                          key={`${selectedNpc.dialoguePath}:${selectedNpc.dialogueLabel ?? selectedNpc.textConstant}`}
+                        <MapInteractionEditor
+                          key={`npc:${selectedNpc.scriptPath}:${selectedNpc.id}:${selectedNpc.textLabel ?? selectedNpc.textConstant}`}
                           title="NPC dialogue"
-                          target={selectedNpc.dialogueLabel
+                          target={selectedNpc.textLabel
+                            ? { path: selectedNpc.scriptPath, label: selectedNpc.textLabel }
+                            : null}
+                          dialogueTarget={selectedNpc.dialogueLabel
                             ? {
                                 path: selectedNpc.dialoguePath,
                                 label: selectedNpc.dialogueLabel,
                               }
                             : null}
-                          initialText={null}
+                          onOpenScript={onOpenScript}
+                          onDirtyChange={onDirtyChange}
                         />
                         <small className="help-text">
                           Scripted NPCs can choose different dialogue based on game state

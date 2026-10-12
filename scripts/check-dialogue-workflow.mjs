@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 
@@ -8,7 +9,14 @@ const roots = process.argv.slice(2);
 assert.ok(roots.length, "Supply pinned Red/Yellow source directories for the dialogue UI check.");
 const directory = await mkdtemp(join("node_modules", ".dialogue-ui-"));
 let browser;
+// Engine fingerprints use SHA-256. A localhost origin provides the same
+// secure-context Web Crypto API as the production HTTPS app.
+const server = createServer((_request, response) => {
+  response.setHeader("Content-Type", "text/html");
+  response.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>');
+});
 try {
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const outfile = join(directory, "fixture.js");
   await build({ entryPoints: ["tests/scriptDialogueWorkflowFixture.tsx"], outfile, bundle: true, platform: "browser", jsx: "automatic",
     loader: { ".css": "empty" }, plugins: [{ name: "fixture-session", setup(builder) {
@@ -18,7 +26,8 @@ try {
   const styles = (await Promise.all(["App.css", "ScriptsTab.css", "MapScriptPreview.css", "TextEditor.css", "editor/SearchableSelect.css"]
     .map(path => readFile(join("src", path), "utf8")))).join("\n");
   const script = await readFile(outfile, "utf8");
-  browser = await chromium.launch();
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    args: process.env.PLAYWRIGHT_CHROMIUM_ARGS ? JSON.parse(process.env.PLAYWRIGHT_CHROMIUM_ARGS) : undefined });
   for (const root of roots) {
     const original = {}, bytes = {};
     async function collect(folder = "") {
@@ -38,6 +47,7 @@ try {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       const errors = [];
       page.on("pageerror", error => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${server.address().port}`);
       await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
       await page.evaluate(({ files, bytes }) => { window.dialogueFiles = files; window.dialogueBytes = bytes; }, { files: original, bytes });
       await page.addScriptTag({ content: script });
@@ -143,6 +153,36 @@ try {
       assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route" }).inputValue(), "UP");
       assert.equal(await interaction.getByRole("textbox", { name: "Interaction dialogue" }).inputValue(), "Take good care\nof DRATINI!");
       assert.equal(await interaction.getByRole("textbox", { name: "No room dialogue" }).inputValue(), "Make room in your\nparty or PC BOX.");
+      await interaction.getByRole("button", { name: "Compose action sequence", exact: true }).click();
+      const sequence = interaction.getByRole("group", { name: "Actions", exact: true });
+      await sequence.getByRole("combobox", { name: "Actions action type", exact: true }).selectOption("choice");
+      await sequence.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await sequence.getByRole("button", { name: "Actions move action 3 up", exact: true }).click();
+      await sequence.getByRole("button", { name: "Actions move action 2 up", exact: true }).click();
+      const yes = sequence.getByRole("group", { name: "Actions 1 Yes", exact: true });
+      await yes.getByRole("combobox", { name: "Actions 1 Yes action type", exact: true }).selectOption("dialogue");
+      await yes.getByRole("button", { name: "Actions 1 Yes add action", exact: true }).click();
+      await yes.getByRole("textbox", { name: "Actions 1 Yes action 1 dialogue", exact: true }).fill("Let's begin!");
+      await sequence.getByRole("combobox", { name: "Actions action type", exact: true }).selectOption("dialogue");
+      await sequence.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await sequence.getByRole("textbox", { name: "Actions action 4 dialogue", exact: true }).fill("Want a partner?");
+      for (const i of [4, 3, 2]) await sequence.getByRole("button", { name: `Actions move action ${i} up`, exact: true }).click();
+      await page.waitForFunction(() => window.dialogueDirty === true);
+      page.once("dialog", async confirmation => { await confirmation.dismiss(); });
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      assert.equal(await interaction.isVisible(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Nested action composer fits phone and desktop widths");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("textbox", { name: "Actions action 1 dialogue", exact: true }).waitFor();
+      assert.equal(await interaction.getByRole("textbox", { name: "Actions action 1 dialogue", exact: true }).inputValue(), "Want a partner?");
+      assert.equal(await interaction.getByRole("textbox", { name: "Actions 2 Yes action 1 dialogue", exact: true }).inputValue(), "Let's begin!");
+      assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route", exact: true }).inputValue(), "UP");
+      const generatedScene = await page.evaluate(() => window.dialogueFiles["scripts/ViridianCity.asm"]);
+      assert.ok(generatedScene.includes("\tcall YesNoChoice\n\tld a, [wCurrentMenuItem]"));
+      assert.ok(generatedScene.includes("ViridianCitySignTextEditorInteractionCleanupState:"));
+      assert.deepEqual(errors, []);
       await interaction.getByRole("button", { name: "Close", exact: true }).click();
       for (const [group, title, label, species, level] of [
         ["CeladonMansionRoofHouse", "Celadon Mansion Roof House", "CeladonMansionRoofHouseEeveePokeballText", "EEVEE", "25"],
@@ -181,6 +221,7 @@ try {
     }
   }
 } finally {
+  server.close();
   await browser?.close();
   await rm(directory, { recursive: true, force: true });
 }
