@@ -1534,6 +1534,7 @@ export interface ProjectSession {
   getScriptInteractionDocument(path: string, label: string): Promise<InteractionDocument>;
   saveScriptInteraction(document: InteractionDocument, values: InteractionValues): Promise<HistorySummary>;
   saveScriptReward(document: InteractionDocument, item: string, quantity: number, fixBagFull: boolean): Promise<HistorySummary>;
+  saveScriptPokemonGift(document: InteractionDocument, species: string, level: number): Promise<HistorySummary>;
   getScriptCatalog(): Promise<ScriptCatalog>;
   getScriptAudit(): Promise<ScriptAuditReport>;
   runScriptRoundTripRegression(): Promise<ScriptRoundTripRegressionReport>;

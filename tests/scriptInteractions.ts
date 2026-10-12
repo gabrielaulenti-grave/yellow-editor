@@ -33,6 +33,15 @@ export async function interactionRoundTrips(source: ProjectSource): Promise<Map<
   for (const write of await prepareScriptInteractionWrites(current, sign, { ...values, reward: { item: "SUPER_POTION", quantity: 2 } })) changed.set(write.path, write.contents);
   sign = await loadScriptInteractionDocument(current, sign.path, sign.label);
   assert.equal(sign.values.reward?.quantity, 2);
+  // Interactions saved by older beta versions have neither Pokémon nor hide
+  // fields in metadata. Reopen and upgrade them without rejecting their code.
+  changed.set(sign.path, (await current.readText(sign.path)).replace(/(; yellow-editor-interaction: )(.*)/, (_row, intro, json) => {
+    const old = JSON.parse(json); delete old.values.pokemon; delete old.values.hideObject;
+    return intro + JSON.stringify(old);
+  }));
+  sign = await loadScriptInteractionDocument(current, sign.path, sign.label);
+  assert.equal(sign.values.pokemon, null);
+  for (const write of await prepareScriptInteractionWrites(current, sign, sign.values)) changed.set(write.path, write.contents);
   // Add an ordinary stationary NPC beside the sign, using a free existing object slot.
   const objectPath = "data/maps/objects/ViridianCity.asm";
   const objects = await current.readText(objectPath);

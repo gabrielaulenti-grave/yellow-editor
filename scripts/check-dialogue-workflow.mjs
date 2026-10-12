@@ -128,7 +128,48 @@ try {
       await page.getByRole("searchbox", { name: "Search dialogue paths" }).fill("received");
       await dialog.locator(".text-editor-path-list button").first().click();
       assert.equal(await dialog.getByRole("combobox", { name: "Text flow control", exact: true }).nth(2).inputValue(), "para");
-      console.log(`${root} ${width}px: Scripts-tab sign edit/save/reload, byte preservation, dirty protection, and NPC branch picker passed`);
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("checkbox", { name: "Give a Pokémon", exact: true }).check();
+      assert.equal(await interaction.getByRole("checkbox", { name: "Give an item", exact: true }).isChecked(), false);
+      await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).selectOption("DRATINI");
+      await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).fill("20");
+      await interaction.getByRole("textbox", { name: "Interaction dialogue" }).fill("Take good care\nof DRATINI!");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).inputValue(), "DRATINI");
+      assert.equal(await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).inputValue(), "20");
+      assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route" }).inputValue(), "UP");
+      assert.equal(await interaction.getByRole("textbox", { name: "Interaction dialogue" }).inputValue(), "Take good care\nof DRATINI!");
+      assert.equal(await interaction.getByRole("textbox", { name: "No room dialogue" }).inputValue(), "Make room in your\nparty or PC BOX.");
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      for (const [group, label, species, level] of [
+        ["CeladonMansionRoofHouse", "CeladonMansionRoofHouseEeveePokeballText", "EEVEE", "25"],
+        ["SilphCo7F", "SilphCo7FSilphWorkerM1Text", "LAPRAS", "15"],
+      ]) {
+        await page.getByRole("searchbox", { name: "Search routines in all companion files" }).fill("");
+        await page.locator(".script-group-list button").filter({ has: page.locator("strong").filter({ hasText: new RegExp(`^${group}$`) }) }).click();
+        await page.getByRole("searchbox", { name: "Search routines in all companion files" }).fill(label);
+        await page.locator(".script-routine-list button").filter({ hasText: label }).click();
+        await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+        await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).waitFor();
+        assert.equal(await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).inputValue(), species);
+        assert.equal(await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).inputValue(), level);
+        await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).selectOption("DRATINI");
+        await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).fill("20");
+        await interaction.getByRole("button", { name: "Save Pokémon gift", exact: true }).click();
+        await interaction.waitFor({ state: "hidden" });
+        await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+        assert.equal(await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).inputValue(), "DRATINI");
+        assert.equal(await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).inputValue(), "20");
+        assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Gift form must fit the viewport");
+        await interaction.getByRole("button", { name: "Close", exact: true }).click();
+        const savedGift = await page.evaluate(path => window.dialogueFiles[path], `scripts/${group}.asm`);
+        assert.equal(savedGift, original[`scripts/${group}.asm`].replace(`lb bc, ${species}, ${level}`, "lb bc, DRATINI, 20"));
+      }
+      assert.deepEqual(errors, []);
+      console.log(`${root} ${width}px: sign and NPC text/rewards, movement gifts, Eevee/Lapras gift editing, dirty protection and viewport checks passed`);
       await page.close();
     }
   }
