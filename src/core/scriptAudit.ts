@@ -62,6 +62,10 @@ const DIRECT_SEMANTIC_CALLS = new Set([
   "PlayCry",
   "PlayDefaultMusic",
   "PlayMusic",
+  "PlaySound",
+  "PlaySoundWaitForCurrent",
+  "WaitForSoundToFinish",
+  "StopAllMusic",
   "PrintText",
   "SaveEndBattleTextPointers",
   "SetSpriteFacingDirectionAndDelay",
@@ -383,7 +387,7 @@ function semanticFamilyForTarget(name: string): string | undefined {
   if (/^(?:CheckFightingMapTrainers|DisplayEnemyTrainerTextAndStartBattle|EndTrainerBattle|TalkToTrainer|EngageMapTrainer)$/i.test(name)) return "trainer";
   if (/^(?:InitBattleEnemyParameters|SaveEndBattleTextPointers)$/i.test(name)) return "battle";
   if (/^(?:MoveSprite|SetSpriteMovementBytesToFF)$/i.test(name)) return "movement";
-  if (/^(?:Delay3|DelayFrames|DelayFrame)$/i.test(name)) return "wait";
+  if (/^(?:Delay3|DelayFrames|DelayFrame|WaitForSoundToFinish)$/i.test(name)) return "wait";
   if (/^(?:DisableWaitingAfterTextDisplay)$/i.test(name)) return "scene-control";
   if (/^(?:DecodeArrowMovementRLE|DecodeRLEList|StartSimulatingJoypadStates|ForceBikeOrSurf)$/i.test(name)) return "forced-movement";
   if (/^SetSpriteFacingDirectionAndDelay$/i.test(name)) return "facing";
@@ -393,7 +397,7 @@ function semanticFamilyForTarget(name: string): string | undefined {
   if (/^(?:IsPlayerOnDungeonWarp)$/i.test(name)) return "warp";
   if (/^(?:FlagActionPredef)$/i.test(name)) return "indexed-event";
   if (/^(?:HealParty)$/i.test(name)) return "recovery";
-  if (/^(?:PlayMusic|PlayDefaultMusic|PlayCry|PlayPikachuSoundClip|Music_)/i.test(name)) return "music";
+  if (/^(?:PlayMusic|PlayDefaultMusic|PlayCry|PlayPikachuSoundClip|PlaySound|StopAllMusic|Music_)/i.test(name)) return "music";
   if (/^(?:YesNoChoice|Random|ArePlayerCoordsInArray|CheckPikachuStatusCondition)$/i.test(name)) return "condition";
   if (/^(?:DisplayElevatorFloorMenu|DoInGameTradeDialogue|OaksAideScript|DisplayNameRaterScreen|GiveFossilToCinnabarLab|SurfingPikachuMinigame|HallOfFamePC|SaveGameData|RemoveGuardDrink)$/i.test(name)) return "service";
   if (/^(?:CallFunctionInTable|ExecuteCurMapScriptInTable)$/i.test(name)) return "state-transition";
@@ -432,7 +436,7 @@ function semanticCall(
   return null;
 }
 
-function projectTextCommandMacros(
+export function projectTextCommandMacros(
   files: ProjectRgbdsSourceFile[],
 ): Set<string> {
   const result = new Set<string>();
@@ -456,6 +460,34 @@ function projectTextCommandMacros(
         }
       }
       if (emitsTextCommand) result.add(start[1].toLowerCase());
+    }
+  }
+  // Only a literal, unique alias to a known text-command macro is accepted.
+  // Expressions, conflicting declarations and cycles stay unresolved.
+  const aliases = new Map<string, string[]>();
+  for (const file of files) {
+    let conditionalDepth = 0, macroDepth = 0;
+    for (const row of file.contents.split(/\r?\n/)) {
+      const clean = withoutComment(row);
+      if (/^MACRO\b/i.test(clean)) { macroDepth++; continue; }
+      if (/^ENDM\b/i.test(clean)) { macroDepth--; continue; }
+      if (macroDepth) continue;
+      if (/^IF\b/i.test(clean)) { conditionalDepth++; continue; }
+      if (/^ENDC\b/i.test(clean)) { conditionalDepth--; continue; }
+      const declaration = clean.match(/^(?:DEF|REDEF)\s+(\w+)\s+EQUS\s+(.+)$/i);
+      if (!declaration) continue;
+      const literal = declaration[2].match(/^"([A-Za-z_][A-Za-z0-9_]*)"$/);
+      const name = declaration[1].toLowerCase();
+      // An unsupported or conditional declaration still invalidates an earlier
+      // candidate of the same name; it must not disappear from conflict checks.
+      aliases.set(name, [...aliases.get(name) ?? [], conditionalDepth === 0 ? literal?.[1].toLowerCase() ?? "" : ""]);
+    }
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [name, targets] of aliases) if (targets.length === 1 && result.has(targets[0]) && !result.has(name)) {
+      result.add(name); changed = true;
     }
   }
   return result;
@@ -628,13 +660,14 @@ export function buildScriptAudit(
   eventMacroSemantics: ProjectEventMacroSemantic[],
 ): ScriptAuditReport {
   const scriptFiles = files.filter(isScriptFile);
-  const macroDefinitions = new Set(
-    macroAnalysis.catalog.macros.map((macro) => macro.name.toLowerCase()),
-  );
+  const textCommandMacros = projectTextCommandMacros(files);
+  const macroDefinitions = new Set([
+    ...macroAnalysis.catalog.macros.map((macro) => macro.name.toLowerCase()),
+    ...textCommandMacros,
+  ]);
   const eventMacros = new Map(
     eventMacroSemantics.map((semantic) => [semantic.name.toLowerCase(), semantic]),
   );
-  const textCommandMacros = projectTextCommandMacros(files);
   const labels = directGlobalLabels(files);
   const setterLabels = scriptSetterLabels(files);
   const objectWrappers = objectWrapperLabels(files);

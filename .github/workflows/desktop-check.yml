@@ -77,6 +77,9 @@ jobs:
       - name: Assemble edited ROMs and execute script probes
         run: npm run test:scripts:rom -- .script-fixtures/rgbds .script-fixtures/binjgb .script-fixtures/pokeyellow .script-fixtures/pokered
 
+      - name: Check reviewed script engine contracts on the CPU
+        run: npm run test:scripts:contracts -- .script-fixtures/rgbds .script-fixtures/binjgb .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Prepare shared WASM tools
         run: |
           sudo apt-get update

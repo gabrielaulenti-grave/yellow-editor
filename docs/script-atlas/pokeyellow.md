@@ -230,7 +230,7 @@ Groups include companion files and non-map helpers. Global labels include execut
 | [ViridianForest](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianForest_2.asm) | 2 | 45 | 3 | 0 | 0 | 1 | 0 | 0/0/0 |
 | [ViridianForestNorthGate](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianForestNorthGate.asm) | 1 | 4 | 0 | 0 | 0 | 0 | 0 | 0/0/0 |
 | [ViridianForestSouthGate](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianForestSouthGate.asm) | 1 | 4 | 0 | 0 | 0 | 0 | 0 | 0/0/0 |
-| [ViridianGym](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianGym.asm) | 1 | 70 | 5 | 0 | 1 | 11 | 1 | 1/1/1 |
+| [ViridianGym](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianGym.asm) | 1 | 70 | 5 | 0 | 1 | 11 | 1 | 1/0/1 |
 | [ViridianMart](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianMart.asm) | 1 | 13 | 3 | 0 | 1 | 0 | 0 | 1/0/0 |
 | [ViridianNicknameHouse](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianNicknameHouse.asm) | 1 | 6 | 0 | 0 | 0 | 0 | 1 | 0/0/0 |
 | [ViridianPokecenter](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianPokecenter.asm) | 1 | 7 | 0 | 0 | 0 | 0 | 0 | 0/0/1 |
@@ -239,11 +239,10 @@ Groups include companion files and non-map helpers. Global labels include execut
 
 ## Classification backlog
 
-The production audit reports **83 distinct classification blockers**. Some are engine bookkeeping or declaration macros; this is a review queue, not a count of broken scripts.
+The production audit reports **82 distinct classification blockers**. Some are engine bookkeeping or declaration macros; this is a review queue, not a count of broken scripts.
 
 | Construct | Kind | Status | Occurrences | Example | Current explanation |
 | --- | --- | --- | ---: | --- | --- |
-| sound_level_up | instruction | unresolved | 1 | [scripts/ViridianGym.asm:255](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/ViridianGym.asm#L255) | Yellow Editor could not classify this source construct as RGBDS syntax, a discovered macro, or a known script semantic. |
 | CinnabarGymSetTrainerHeader | call | structural | 7 | [scripts/CinnabarGym.asm:325](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/CinnabarGym.asm#L325) | Project helper is resolved, but its body still contains gameplay behavior that has not been promoted into the semantic IR. |
 | PlaceString | call | structural | 7 | [scripts/BikeShop.asm:60](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/BikeShop.asm#L60) | Project helper is resolved, but its body still contains gameplay behavior that has not been promoted into the semantic IR. |
 | Route23CheckForBadgeScript | call | structural | 7 | [scripts/Route23.asm:156](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/scripts/Route23.asm#L156) | Project helper is resolved, but its body still contains gameplay behavior that has not been promoted into the semantic IR. |
@@ -333,6 +332,19 @@ Missing targets can be macro-generated symbols, RGBDS anonymous labels, or unres
 
 | Source | Owner | Kind | Target/expression | Resolution |
 | --- | --- | --- | --- | --- |
+
+## Reviewed engine contracts
+
+Fingerprints verify the reviewed engine bodies. Boundary CPU probes are separate evidence; these contracts do not enable a scene writer.
+
+| Contract | Scheduling | Outcomes | Source status | Evidence |
+| --- | --- | --- | --- | --- |
+| yes-no | Blocks in the menu input loop | wCurrentMenuItem = 0: Yes; wCurrentMenuItem = 1: No or B | reviewed-source | [home/yes_no.asm:3](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/yes_no.asm#L3), [engine/menus/text_box.asm:205](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/engine/menus/text_box.asm#L205), [home/tilemap.asm:36](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/tilemap.asm#L36), [home/copy.asm:13](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/copy.asm#L13) |
+| sound-playback | Returns without waiting for the cue to finish | Requests playback, or stop-all for SFX_STOP_ALL_MUSIC | reviewed-source | [home/audio.asm:1](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/audio.asm#L1) |
+| sound-wait-before-play | Blocks before playback, then returns without waiting for the new cue | Wait for previous effects, then request the new cue; Low-health alarm bypasses the wait | reviewed-source | [home/delay.asm:8](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/delay.asm#L8), [home/audio.asm:1](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/audio.asm#L1) |
+| sound-wait | Busy-waits while interrupt-driven audio advances | Channels 5, 6 and 8 are zero; Or low-health alarm bit 7 is set | reviewed-source | [home/delay.asm:8](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/delay.asm#L8) |
+| npc-movement | Asynchronous; wait by returning from a resumable map state while the flag is set | BIT_SCRIPTED_NPC_MOVEMENT is set on start and cleared when the NPC consumes the terminator | reviewed-source | [home/pathfinding.asm:10](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/pathfinding.asm#L10), [engine/overworld/movement.asm:97](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/engine/overworld/movement.asm#L97) |
+| player-movement | Asynchronous; vanilla states yield while wSimulatedJoypadStatesIndex is nonzero | Starts BIT_SCRIPTED_MOVEMENT_STATE; The overworld clears simulated state and input locks at exhaustion | reviewed-source | [home/map_objects.asm:53](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/map_objects.asm#L53), [home/overworld.asm:1623](https://github.com/pret/pokeyellow/blob/e89ead154b9968aa50eed9328ff2b38b6c194382/home/overworld.asm#L1623) |
 
 ## Engine helper boundaries
 

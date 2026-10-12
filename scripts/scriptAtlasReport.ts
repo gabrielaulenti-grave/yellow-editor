@@ -29,12 +29,14 @@ function count(atlas: ScriptAtlas) {
     objects: atlas.maps.flatMap(m => m.triggers).filter(t => t.kind === "object").length,
     signs: atlas.maps.flatMap(m => m.triggers).filter(t => t.kind === "sign").length,
     yesNoCalls: atlas.references.filter(r => r.target === "YesNoChoice").length,
+    yesNoBoundBranches: operations.filter(n => n.type === "service" && n.service === "yes-no" && n.branch).length,
     movementNodes: operations.filter(n => n.type === "movement").length,
     battleNodes: operations.filter(n => n.kind === "battle").length,
     audioCalls: atlas.references.filter(r => r.target && /^(?:PlaySound(?:WaitForCurrent)?|PlayMusic|PlayDefaultMusic|StopAllMusic|PlayCry|PlayPikachuSoundClip|Music_\w+)$/.test(r.target)).length,
     audioNodes: operations.filter(n => n.kind === "music").length,
     soundCallsWithoutSemanticNode: sum(routines.map(r => r.references.filter(ref =>
       ["PlaySound", "PlaySoundWaitForCurrent"].includes(ref.target ?? "") && !r.operations.some(n => n.source.lineStart <= ref.line && n.source.lineEnd >= ref.line)).length)),
+    reviewedContracts: atlas.contracts.filter(c => c.sourceStatus === "reviewed-source").length,
     references: atlas.references.length,
     missingLiteralReferences: atlas.references.filter(r => r.resolution === "missing").length,
     ambiguousReferences: atlas.references.filter(r => r.resolution === "ambiguous").length,
@@ -68,6 +70,9 @@ function gameReport(atlas: ScriptAtlas, game: typeof pinned[number]) {
     "Missing targets can be macro-generated symbols, RGBDS anonymous labels, or unresolved expressions. They are retained for review; a lexical lookup failure is not a ROM linker error.", "",
     "| Source | Owner | Kind | Target/expression | Resolution |", "| --- | --- | --- | --- | --- |",
     ...atlas.references.filter(r => r.resolution === "missing" || r.resolution === "ambiguous").map(r => `| [${r.path}:${r.line}](${sourceLink(game.repository, game.sha, r.path, r.line)}) | ${r.owner ?? "—"} | ${r.kind} | ${pipe(r.expression)} | ${r.resolution} |`), "",
+    "## Reviewed engine contracts", "", "Fingerprints verify the reviewed engine bodies. Boundary CPU probes are separate evidence; these contracts do not enable a scene writer.", "",
+    "| Contract | Scheduling | Outcomes | Source status | Evidence |", "| --- | --- | --- | --- | --- |",
+    ...atlas.contracts.map(c => `| ${c.id} | ${pipe(c.scheduling)} | ${pipe(c.outcomes.join("; "))} | ${c.sourceStatus} | ${c.evidence.map(e => `[${e.path}:${e.line}](${sourceLink(game.repository, game.sha, e.path, e.line ?? 1)})`).join(", ")} |`), "",
     "## Engine helper boundaries", "", "These targets resolve outside `scripts/`. Their source definitions and every caller are also in the downloadable JSON atlas. They are named dependencies; this atlas does not claim to have proven their internal register or gameplay contracts.", "",
     "| Helper | Call sites | Source definition(s) |", "| --- | ---: | --- |",
     ...atlas.engineBoundaries.map(b => `| ${b.label} | ${b.callers.length} | ${b.definitions.map(d => `[${d.path}:${d.line}](${sourceLink(game.repository, game.sha, d.path, d.line)})`).join(", ")} |`), "", "## Limits", "", ...atlas.limitations.map(s => `- ${s}`), "",
@@ -91,6 +96,7 @@ for (const [i, directory] of projects.entries()) {
     exists: async (path: string) => { try { await readFile(join(root, path)); return true; } catch { return false; } },
   } as ProjectSource;
   const atlas = await buildScriptAtlas(source, game.sha, game.game), counts = count(atlas);
+  assert.ok(atlas.contracts.every(c => c.sourceStatus === "reviewed-source"), "Reviewed engine contract source drifted; review the changed implementation before updating fingerprints.");
   assert.equal(new Set(atlas.maps.flatMap(map => map.paths)).size, atlas.audit.fileCount, "A script file was omitted from the atlas.");
   assert.equal(atlas.maps.flatMap(map => map.routines).length, (await Promise.all(atlas.maps.flatMap(map => map.paths).map(async path =>
     [...(await source.readText(path)).matchAll(/^\s*[A-Za-z_][A-Za-z0-9_]*:{1,2}\s*(?:;.*)?$/gm)].length))).reduce((a, b) => a + b, 0), "A global label was omitted from the atlas.");

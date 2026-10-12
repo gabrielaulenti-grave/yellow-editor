@@ -57,3 +57,5 @@ boundaries, classification gaps, and the roadmap for a scene composer. Run
 pinned source reports; `npm run test:scripts:atlas` checks the inventory scanner.
 
 Yellow Editor currently supports source-backed Pokémon data and base-stat editing, move browsing, trainer parsing/editing, wild encounter editing, source-backed tile/block/map visualization with warp, sign-text, branched NPC dialogue, outdoor-map, and wild-encounter cross-navigation, ROM builds for Yellow and Red/Blue, an integrated Game Boy emulator, and persistent/exportable battery save RAM. The project checkout remains the source of truth, with edit history stored outside the checkout.
+
+The [reviewed engine contracts](docs/script-engine-contracts.md) document choice outcomes, audio scheduling, and resumable movement waits, with source fingerprints and CPU boundary tests.
