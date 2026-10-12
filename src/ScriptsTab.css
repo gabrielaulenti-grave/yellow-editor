@@ -262,6 +262,9 @@
 }
 
 .script-source-tabs button {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 0.45rem 0.65rem;
   border-radius: 0.45rem;
 }
