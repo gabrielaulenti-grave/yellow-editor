@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { createServer } from "node:http";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 
@@ -8,7 +9,14 @@ const roots = process.argv.slice(2);
 assert.ok(roots.length, "Supply pinned Red/Yellow source directories for the dialogue UI check.");
 const directory = await mkdtemp(join("node_modules", ".dialogue-ui-"));
 let browser;
+// Engine fingerprints use SHA-256. A localhost origin provides the same
+// secure-context Web Crypto API as the production HTTPS app.
+const server = createServer((_request, response) => {
+  response.setHeader("Content-Type", "text/html");
+  response.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>');
+});
 try {
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const outfile = join(directory, "fixture.js");
   await build({ entryPoints: ["tests/scriptDialogueWorkflowFixture.tsx"], outfile, bundle: true, platform: "browser", jsx: "automatic",
     loader: { ".css": "empty" }, plugins: [{ name: "fixture-session", setup(builder) {
@@ -39,6 +47,7 @@ try {
       const page = await browser.newPage({ viewport: { width, height: 900 } });
       const errors = [];
       page.on("pageerror", error => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${server.address().port}`);
       await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
       await page.evaluate(({ files, bytes }) => { window.dialogueFiles = files; window.dialogueBytes = bytes; }, { files: original, bytes });
       await page.addScriptTag({ content: script });
@@ -212,6 +221,7 @@ try {
     }
   }
 } finally {
+  server.close();
   await browser?.close();
   await rm(directory, { recursive: true, force: true });
 }
