@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "scripts:atlas": "node scripts/script-atlas.mjs",
+    "test:scripts:atlas": "node scripts/script-atlas.mjs --test",
     "test:pages": "node scripts/check-pages.mjs",
     "test:scripts": "node scripts/check-script-round-trips.mjs",
     "test:scripts:rom": "node scripts/check-script-round-trips.mjs --rom",
