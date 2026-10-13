@@ -1,4 +1,4 @@
-import { renderPcTutorialScene,renderPcTutorialStorage,type PcTutorialModel } from "../src/core/pcTutorial";
+import { renderPcTutorialScene,renderPcTutorialStorage,type PcTutorialModel } from "./recipes/pcTutorial";
 
 export async function pcTutorialSceneProbes(model:PcTutorialModel,charmap:string,runProbe:(asm:string,expected:string[])=>Promise<void>) {
  const p=model.prefix,base=0xc100+model.eventStart/8, actor=model.npcId;

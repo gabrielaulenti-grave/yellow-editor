@@ -150,6 +150,7 @@ function App() {
   const [mapFocusConstant, setMapFocusConstant] = useState<string | null>(null);
   const [scriptFocus, setScriptFocus] = useState<ScriptFocus | null>(null);
   const [scriptDirty, setScriptDirty] = useState(false);
+  const [mapDirty, setMapDirty] = useState(false);
   const [fishingFocusMapConstant, setFishingFocusMapConstant] =
     useState<string | null>(null);
   const [fishingDocument, setFishingDocument] =
@@ -620,7 +621,8 @@ function App() {
     || fishingDirty
     || trainerDirty
     || trainerClassDirty
-    || scriptDirty;
+    || scriptDirty
+    || mapDirty;
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -2416,6 +2418,7 @@ function App() {
           onOpenWalkingEncounter={(entry) => void openWalkingEncounterFromMap(entry)}
           onOpenFishing={(mapConstant) => void openFishingFromMap(mapConstant)}
           onOpenScript={(path, routineLabel) => void openScript(path, routineLabel)}
+          onDirtyChange={setMapDirty}
         />
       )}
 

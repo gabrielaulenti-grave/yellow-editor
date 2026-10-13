@@ -1,8 +1,8 @@
 import { useEffect,useState } from "react";
-import type { PcTutorialDocument,PcTutorialValues } from "./core/pcTutorial";
-import type { HistorySummary } from "./core/types";
-import { invoke } from "./platform/compat";
-import { SearchableSelect } from "./editor/SearchableSelect";
+import type { PcTutorialDocument,PcTutorialValues } from "./recipes/pcTutorial";
+import type { HistorySummary } from "../src/core/types";
+import { invoke } from "../src/platform/compat";
+import { SearchableSelect } from "../src/editor/SearchableSelect";
 
 export function PcTutorialWizard({onClose,onSaved}:{onClose:()=>void;onSaved:(history:HistorySummary)=>void}) {
  const [document,setDocument]=useState<PcTutorialDocument|null>(null),[values,setValues]=useState<PcTutorialValues|null>(null);

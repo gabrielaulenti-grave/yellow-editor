@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SearchableSelect } from "./editor/SearchableSelect";
+import { InteractionSequenceEditor } from "./InteractionSequenceEditor";
+import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
 import { invoke } from "./platform/compat";
 import type { InteractionDocument, InteractionValues } from "./core/scriptInteractions";
 import type { HistorySummary } from "./core/types";
@@ -75,6 +77,21 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         <p>Choose what happens when the player interacts. Gifts remain available if delivery fails; approach sequences return the NPC to its starting tile.</p>
         <label><input type="checkbox" disabled={busy} checked={values.showOriginal} onChange={event => update({ showOriginal: event.target.checked })} />Show the original dialogue first</label>
         <label><input type="checkbox" disabled={busy} checked={values.once} onChange={event => update({ once: event.target.checked, hideObject: event.target.checked ? values.hideObject : null })} />Run once per save file</label>
+        {!values.actions && <button type="button" className="small-button" disabled={busy || Boolean(values.hideObject)} onClick={() => {
+          const actions: InteractionAction[] = [
+            ...(values.reward ? [{ kind: "item" as const, ...values.reward }] : []),
+            ...(values.pokemon ? [{ kind: "pokemon" as const, ...values.pokemon }] : []),
+            { kind: "dialogue", lines: [...values.dialogue], textId: newSequenceDialogueId() },
+          ];
+          update({ actions, reward: null, pokemon: null });
+        }}>Compose action sequence</button>}
+        {values.actions ? <>
+          <p>Actions run in order. Yes/No and event branches can rejoin the next action or end early. Use one reward per path; failed delivery shows the no-room dialogue and leaves the interaction available for retry.</p>
+          <InteractionSequenceEditor actions={values.actions} document={document} busy={busy} onChange={actions => update({ actions })} />
+          <label>No room dialogue<textarea aria-label="No room dialogue" rows={3} disabled={busy} value={values.bagFull.join("\n")} onChange={e => update({ bagFull: e.target.value.split("\n") })} /></label>
+          {document.choiceReason && <p className="help-text">{document.choiceReason}</p>}
+          {document.soundReason && <p className="help-text">{document.soundReason}</p>}
+        </> : <>
         <label><input type="checkbox" disabled={busy} checked={Boolean(values.reward)} onChange={event => update({ reward: event.target.checked ? { item: document.items.includes("POTION") ? "POTION" : document.items[0], quantity: 1 } : null, ...(event.target.checked ? { pokemon: null, hideObject: null, bagFull: ["Your BAG is full."] } : {}) })} />Give an item</label>
         {values.reward && <>
           <label>Reward item<SearchableSelect aria-label="Reward item" value={values.reward.item} disabled={busy} onChange={event => update({ reward: { ...values.reward!, item: event.target.value } })}>{document.items.map(value => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</SearchableSelect></label>
@@ -90,6 +107,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
           <label>No room dialogue<textarea aria-label="No room dialogue" rows={3} disabled={busy} value={values.bagFull.join("\n")} onChange={event => update({ bagFull: event.target.value.split("\n") })} /></label>
           {document.hideObject && <label><input type="checkbox" disabled={busy || !values.once || Boolean(values.movement)} checked={Boolean(values.hideObject)} onChange={event => update({ hideObject: event.target.checked ? document.hideObject : null })} />Hide the Poké Ball after delivery</label>}
         </>}
+        </>}
         <label><input type="checkbox" disabled={busy || Boolean(values.hideObject) || Boolean(document.movementReason) || document.npcs.length === 0} checked={Boolean(values.movement)} onChange={event => update({ movement: event.target.checked ? { npc: document.npcs[0].constant, steps: ["DOWN"], playerX: document.sign!.x, playerY: document.sign!.y + 1 } : null })} />Have an NPC approach</label>
         {document.movementReason && <p className="help-text">{document.movementReason}</p>}
         {!document.movementReason && !document.npcs.length && <p className="help-text">Add a stationary NPC near the sign before creating an approach sequence.</p>}
@@ -103,7 +121,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
           <label>Walking route<textarea aria-label="NPC walking route" rows={3} disabled={busy} value={routeText} onChange={event => { setRouteText(event.target.value); update({ movement: { ...values.movement!, steps: event.target.value.toUpperCase().split(/[\s,]+/).filter(Boolean) } }); }} /></label>
           <p className="help-text">Enter UP, DOWN, LEFT, or RIGHT, separated by commas. The NPC walks the reverse route after speaking.</p>
         </>}
-        <label>{values.reward || values.pokemon ? "Dialogue after delivery" : "NPC or interaction dialogue"}<textarea aria-label="Interaction dialogue" rows={3} disabled={busy} value={values.dialogue.join("\n")} onChange={event => update({ dialogue: event.target.value.split("\n") })} /></label>
+        {!values.actions && <label>{values.reward || values.pokemon ? "Dialogue after delivery" : "NPC or interaction dialogue"}<textarea aria-label="Interaction dialogue" rows={3} disabled={busy} value={values.dialogue.join("\n")} onChange={event => update({ dialogue: event.target.value.split("\n") })} /></label>}
         <p className="help-text">Press Enter for another game text row: up to 18 character spaces on the first row and 17 on later rows. Tokens such as &lt;PLAYER&gt; are supported; player and rival names count as up to 7 spaces.</p>
         {values.once && <label>Repeat dialogue<textarea aria-label="Repeat dialogue" rows={3} disabled={busy} value={values.already.join("\n")} onChange={event => update({ already: event.target.value.split("\n") })} /></label>}
         <label><input type="checkbox" disabled={busy || !document.events.length} checked={Boolean(values.condition)} onChange={event => update({ condition: event.target.checked ? { event: document.events[0], set: true } : null })} />Require an event condition</label>

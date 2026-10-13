@@ -28,6 +28,7 @@ fixture.npcInvoke = async (command, args) => {
       return { canUndo: true, canRedo: false };
     }
     case "get_text_leaf_documents": return [];
+    case "get_script_interaction_document": return { canCreate: false, reason: "Fixture interaction is read-only." };
     default: throw new Error(`Unexpected UI command: ${command}`);
   }
 };

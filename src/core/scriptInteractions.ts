@@ -1,11 +1,14 @@
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { hashText } from "./history";
+import { identifySequenceDialogue, renderInteractionSequence, sequenceDialogue, sequenceDialoguePrompts, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
+import { reviewScriptEngineContracts } from "./scriptEngineContracts";
 import { evaluateRgbdsExpression, projectConstantCatalogFromSources, readProjectRgbdsSources } from "./projectConstants";
 import { parseMapIndex } from "./mapVisualization";
 import { applyTextDocumentEdits, attachTextEditing, parseTextDocument, type TextSegmentControl } from "./textEditing";
 import type { ProjectSession, ProjectSource, TextWriteRequest } from "./types";
 
 export interface InteractionValues {
+  actions?: InteractionAction[];
   showOriginal: boolean;
   once: boolean;
   dialogue: string[];
@@ -19,7 +22,8 @@ export interface InteractionValues {
   events: Array<{ event: string; set: boolean }>;
 }
 interface ManagedInteraction {
-  version: 1;
+  version: 1 | 2;
+  originalHasPrompt?: boolean;
   label: string;
   prefix: string;
   flag: string | null;
@@ -57,6 +61,9 @@ export interface InteractionDocument {
   pokemonReason: string | null;
   hideObject: string | null;
   events: string[];
+  sounds: string[];
+  choiceReason: string | null;
+  soundReason: string | null;
   reward: RewardDocument | null;
   gift: PokemonGiftDocument | null;
   canCreate: boolean;
@@ -90,7 +97,7 @@ function managed(text: string, label: string): ManagedInteraction | null {
   const match = range(text, label).body.find(line => /^\s*; yellow-editor-interaction: /.test(line));
   if (!match) return null;
   const value = JSON.parse(match.replace(/^\s*; yellow-editor-interaction: /, "")) as ManagedInteraction;
-  if (value.version !== 1 || value.label !== label || !namePattern.test(value.prefix)) throw new Error("Unsupported interaction format. Review its source before editing.");
+  if (![1, 2].includes(value.version) || value.label !== label || !namePattern.test(value.prefix)) throw new Error("Unsupported interaction format. Review its source before editing.");
   return value;
 }
 function macro(files: Map<string, string>, path: string, name: string, body: string) {
@@ -185,7 +192,16 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const dexOrder = rows(byPath.get("data/pokemon/dex_order.asm") ?? "").flatMap(row => { const match = clean(row).match(/^db (.+)$/); return match ? [number(match[1])] : []; });
   const pokemon = constants.constants.filter(entry => entry.sourcePath === "constants/pokemon_constants.asm" && entry.groupId !== null && entry.value > 0 && entry.value <= 255 && (dexOrder[entry.value - 1] ?? 0) > 0 && (dexOrder[entry.value - 1] ?? Infinity) <= (symbols.get("NUM_POKEMON") ?? 151)).map(entry => entry.symbol);
   const pokemonReason = pokemonDeliveryReason(byPath);
-  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
+  const contracts = await reviewScriptEngineContracts(files, byPath.has("scripts/OaksLab_2.asm") ? "pokeyellow" : "pokered");
+  const choiceReason = contracts.find(c => c.id === "yes-no")?.sourceStatus === "reviewed-source" ? null : "Yes/No actions need the reviewed menu and screen-restoration routines; this project's routines differ.";
+  const soundReason = ["sound-playback", "sound-wait"].every(id => contracts.find(c => c.id === id)?.sourceStatus === "reviewed-source") ? null : "Sound actions need the reviewed playback and effect-wait routines; this project's routines differ.";
+  // Vanilla sound IDs are linker-address EQUS aliases, not numeric constants.
+  // Keep those symbolic operands and let RGBDS resolve their reviewed layout.
+  const music = byPath.get("constants/music_constants.asm") ?? "";
+  const soundMacro = music.match(/MACRO music_const\s*\n([\s\S]*?)\nENDM/);
+  const sounds = soundMacro && rows(soundMacro[1]).map(clean).filter(Boolean).join("\n") === 'DEF \\1 EQUS "((\\2 - SFX_Headers_1) / 3)"'
+    ? [...music.matchAll(/^\s*music_const\s+(SFX_[A-Z0-9_]+),\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter((name, i, all) => all.indexOf(name) === i && name !== "SFX_STOP_ALL_MUSIC") : [];
+  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION\d*_DONE$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
   const mapName = path.replace(/^scripts\//, "").replace(/(?:_2)?\.asm$/, "");
   const primaryPath = `scripts/${mapName}.asm`;
   const primary = byPath.get(primaryPath) ?? "";
@@ -265,7 +281,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     if (!stateCount || stateCount > 250 || !range(primary, `${mapName}_Script`).body.some(line => /^(?:jp|call) CallFunctionInTable$/.test(clean(line))) || !primary.includes(`[w${mapName}CurScript]`) || !byPath.get("ram/wram.asm")?.includes(`w${mapName}CurScript::`)) throw new Error("state");
     if (!sign || npcConstants.length !== objectRows.length) throw new Error("sign/object slots");
   } catch { movementReason = "NPC approach sequences need a sign and a map with an existing script-state table."; }
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "ram/wram.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();
@@ -273,13 +289,20 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     editableValues = structuredClone(old.values);
     editableValues.pokemon ??= null;
     editableValues.hideObject ??= null;
+    if (editableValues.actions) {
+      for (const block of sequenceDialogue(editableValues.actions)) {
+        const leaf = await parseTextDocument(path, `${old.prefix}${block.key}Text`, text);
+        if (!leaf.editable) throw new Error("An action's dialogue was changed outside the editor.");
+        block.lines.splice(0, block.lines.length, ...leaf.segments.map(segment => segment.text));
+      }
+    }
     for (const [field, suffix] of [["dialogue", "Dialogue"], ["bagFull", "BagFullText"], ["already", "AlreadyText"]] as const) {
       const leaf = await parseTextDocument(path, `${old.prefix}${suffix}`, text);
       if (!leaf.editable) throw new Error("An interaction dialogue block was changed outside the editor.");
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
+  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
 export async function loadScriptInteractionDocument(source: ProjectSource, path: string, label: string): Promise<InteractionDocument> {
@@ -327,14 +350,14 @@ export async function prepareScriptPokemonGiftWrite(source: ProjectSource, docum
 }
 
 function print(label: string) { return [`\tld hl, ${label}`, "\tcall PrintText"]; }
-function textBlock(label: string, input: string[], state: Awaited<ReturnType<typeof inspect>>) {
+function textBlock(label: string, input: string[], state: Awaited<ReturnType<typeof inspect>>, terminator?: "done" | "prompt") {
   if (!Array.isArray(input) || input.length < 1 || input.length > 16 || input.some(value => typeof value !== "string" || /[\r\n@\\"]/u.test(value)) || !input.some(value => value.trim())) throw new Error("Enter 1–16 dialogue lines without embedded line breaks or text-ending codes.");
   const charmap = state.files.find(file => file.path.endsWith("charmap.asm"))?.contents ?? "";
   const chars = new Set([...charmap.matchAll(/^\s*charmap "([^"\\])",\s*\$([\da-f]{2})\b/gmi)].filter(m => Number.parseInt(m[2], 16) >= 0x60 || m[1] === "#" && m[2] === "54").map(m => m[1]));
   const tokens = new Set(["<PLAYER>", "<RIVAL>", "<TARGET>", "<USER>", "<PKMN>", "<PC>", "<TM>", "<TRAINER>", "<ROCKET>", "<……>"].filter(token => new RegExp(`charmap "${token}",`).test(charmap)));
   if (input.some(line => [...line.matchAll(/<[^>]*>/g)].some(match => !tokens.has(match[0])) || [...line.replace(/<[^>]*>/g, "")].some(char => !chars.has(char)))) throw new Error("Dialogue contains an unsupported token or characters unavailable in this game's font.");
   let originalBlock: string | null = null;
-  if (state.old) {
+  if (state.old && new RegExp(`^${label}:{1,2}$`, "m").test(state.text.replace(/\r\n/g, "\n"))) {
     const existing = range(state.text, label);
     originalBlock = state.text.slice(existing.from, existing.to).trimEnd() + "\n";
   }
@@ -343,13 +366,22 @@ function textBlock(label: string, input: string[], state: Awaited<ReturnType<typ
     return match ? [match[1] as TextSegmentControl] : [];
   }) : [];
   const segments = input.map((text, i) => ({ control: controls[i] ?? (i === 0 ? "text" as const : i === 1 ? "line" as const : "cont" as const), text }));
-  if (originalBlock) return applyTextDocumentEdits(originalBlock, label, segments);
-  const template = `${label}:\n${segments.map(segment => `\t${segment.control} ""`).join("\n")}\n\tdone\n`;
+  if (originalBlock) {
+    const edited = applyTextDocumentEdits(originalBlock, label, segments);
+    return terminator ? edited.replace(/^(\s*)(?:done|prompt|text_end)(\s*(?:;[^\r\n]*)?)$/m, `$1${terminator}$2`) : edited;
+  }
+  const template = `${label}:\n${segments.map(segment => `\t${segment.control} ""`).join("\n")}\n\t${terminator ?? "done"}\n`;
   return applyTextDocumentEdits(template, label, segments);
 }
 function rewardCode(m: ManagedInteraction, textPrefix = m.prefix) {
   const v = m.values, p = m.prefix;
   const code: string[] = [];
+  if (v.actions) {
+    const completion = [...(m.flag ? [`\tSetEvent ${m.flag}`] : []), ...v.events.map(event => `\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`)];
+    code.push(...renderInteractionSequence(v.actions, p, textPrefix, completion, "Action", m.version === 2), ...completion, `\tjp ${p}Finish`);
+    code.push(`${p}BagFull:`, ...print(`${textPrefix}BagFullText`), ...(m.version === 2 ? ["\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a"] : []), `\tjp ${p}Finish`);
+    return code;
+  }
   if (v.reward) code.push(`\tlb bc, ${v.reward.item}, ${v.reward.quantity}`, "\tcall GiveItem", `\tjp nc, ${p}BagFull`);
   if (v.pokemon) code.push(`\tlb bc, ${v.pokemon.species}, ${v.pokemon.level}`, "\tcall GivePokemon", `\tjp nc, ${p}BagFull`, "\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing");
   if (m.flag) code.push(`\tSetEvent ${m.flag}`);
@@ -363,13 +395,17 @@ function rewardCode(m: ManagedInteraction, textPrefix = m.prefix) {
 function render(m: ManagedInteraction, npcId: number | null, mapName: string, resumeState = 0, textPrefix = m.prefix) {
   const p = m.prefix, v = m.values;
   const code = [`${m.label}:`, "\ttext_asm", `\t; yellow-editor-interaction: ${JSON.stringify(m)}`];
+  const original = () => [...print(`${textPrefix}Original`), ...(m.version === 2 ? [
+    ...(!m.originalHasPrompt ? [`\tld hl, ${p}AdvanceText`, "\tcall PrintText_NoCreatingTextBox"] : []),
+    "\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a",
+  ] : [])];
   if (v.condition) code.push(`\tCheckEvent ${v.condition.event}`, `\tjp ${v.condition.set ? "z" : "nz"}, ${p}OriginalOnly`);
   if (m.flag) code.push(`\tCheckEvent ${m.flag}`, `\tjp nz, ${p}Already`);
   if (v.movement) {
     const slot = String(npcId!.toString(16)).padStart(2, "0").toUpperCase();
     // A background event has no NPC index: always name the selected object.
     code.push(`\tld a, [w${mapName}CurScript]`, "\tand a", `\tjp nz, ${p}OriginalOnly`, `\tld a, [wXCoord]`, `\tcp ${v.movement.playerX}`, `\tjp nz, ${p}OriginalOnly`, `\tld a, [wYCoord]`, `\tcp ${v.movement.playerY}`, `\tjp nz, ${p}OriginalOnly`, `\tld a, [wSprite${slot}StateData1MovementStatus]`, "\tand a", `\tjp z, ${p}OriginalOnly`);
-    if (v.showOriginal) code.push(...print(`${textPrefix}Original`));
+    if (v.showOriginal) code.push(...original());
     // Defer movement until the sign's text engine has closed its box.
     code.push("\tld a, $ff", "\tld [wJoyIgnore], a", `\tld a, ${m.arrival}`, `\tld [w${mapName}CurScript], a`, "\tjp TextScriptEnd", "");
     code.push(`${p}StartWalk:`, `\tld a, ${v.movement.npc}`, "\tldh [hSpriteIndex], a", `\tld de, ${p}Walk`, "\tcall MoveSprite", "\tret", "");
@@ -382,10 +418,11 @@ function render(m: ManagedInteraction, npcId: number | null, mapName: string, re
     code.push(`${p}CleanupState:`, "\tld a, [wStatusFlags5]", "\tbit BIT_SCRIPTED_NPC_MOVEMENT, a", "\tret nz", "\txor a", "\tld [wJoyIgnore], a", ...(resumeState ? [`\tld a, ${resumeState}`] : []), `\tld [w${mapName}CurScript], a`, "\tret", "");
     code.push(`${p}Walk:`, ...v.movement.steps.map(step => `\tdb NPC_MOVEMENT_${step}`), "\tdb -1", "", `${p}Return:`, ...v.movement.steps.slice().reverse().map(step => `\tdb NPC_MOVEMENT_${opposite[step]}`), "\tdb -1", "");
   } else {
-    if (v.showOriginal) code.push(...print(`${p}Original`));
+    if (v.showOriginal) code.push(...original());
     code.push(...rewardCode(m), `${p}Finish:`, "\tjp TextScriptEnd", "");
   }
   code.push(`${p}Already:`, ...print(`${textPrefix}AlreadyText`), "\tjp TextScriptEnd", `${p}OriginalOnly:`, ...print(`${textPrefix}Original`), "\tjp TextScriptEnd", "");
+  if (m.version === 2 && v.showOriginal && !m.originalHasPrompt) code.push(`${p}AdvanceText:`, "\ttext_promptbutton", "\ttext_end", "");
   return code.join("\n").replace(`\tld a, [w${mapName}CurScript]\n\tand a`, `\tld a, [w${mapName}CurScript]\n${resumeState ? `\tcp ${resumeState}` : "\tand a"}`);
 }
 const opposite: Record<string, string> = { UP: "DOWN", DOWN: "UP", LEFT: "RIGHT", RIGHT: "LEFT" };
@@ -440,6 +477,11 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   if (JSON.stringify(state.document.sources) !== JSON.stringify(document.sources)) throw new Error("Interaction sources changed. Reopen the editor before saving.");
   if (!state.document.canCreate) throw new Error(state.document.reason ?? "Cannot convert this entry safely.");
   if (typeof values.once !== "boolean" || typeof values.showOriginal !== "boolean" || !Array.isArray(values.events) || values.events.length > 16) throw new Error("Invalid interaction options.");
+  if (values.actions !== undefined) {
+    if (values.reward || values.pokemon || values.hideObject) throw new Error("Use reward actions inside the sequence rather than the legacy reward options.");
+    validateInteractionSequence(values.actions, state.document, values.once);
+    values = { ...values, actions: identifySequenceDialogue(values.actions) };
+  }
   if (values.reward && (!state.document.items.includes(values.reward.item) || !Number.isInteger(values.reward.quantity) || values.reward.quantity < 1 || values.reward.quantity > 99)) throw new Error("Choose an item and quantity from 1 to 99.");
   if (values.pokemon) {
     if (state.document.pokemonReason) throw new Error(state.document.pokemonReason);
@@ -454,12 +496,40 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   macro(state.byPath, "macros/scripts/events.asm", "SetEvent", "DEF event_byte = ((\\1) / 8)\nld hl, wEventFlags + event_byte\nset (\\1) % 8, [hl]");
   macro(state.byPath, "macros/scripts/events.asm", "ResetEvent", "DEF event_byte = ((\\1) / 8)\nld hl, wEventFlags + event_byte\nres (\\1) % 8, [hl]");
   for (const [name, body] of Object.entries({ text: "db TX_START, \\#", line: 'db "<LINE>", \\#', cont: 'db "<CONT>", \\#', done: 'db "<DONE>"' })) macro(state.byPath, "macros/scripts/text.asm", name, body);
+  if (values.actions) {
+    macro(state.byPath, "macros/scripts/text.asm", "prompt", 'db "<PROMPT>"');
+    macro(state.byPath, "macros/scripts/text.asm", "text_promptbutton", "db TX_PROMPT_BUTTON");
+    macro(state.byPath, "macros/scripts/text.asm", "text_end", "db TX_END");
+    const yellow = state.byPath.has("scripts/OaksLab_2.asm");
+    // Normalized source fingerprints for the native arrow, A/B wait and the
+    // no-redraw prompt used between original text and the composed actions.
+    const routines = [
+      ["home/text.asm", "PromptText", "828c746f8185e458a8eeda8d8256e98f0d1cfd9e16a3f07a7e997aea70a53422"],
+      ["home/text.asm", "TextCommand_PROMPT_BUTTON", "56de3caafd5557158429bb0ffe4a756fe5676f365836340b00e6858e88e33af8"],
+      ["home/joypad2.asm", "ManualTextScroll", yellow ? "cfc96944052e5c230bd8b1b4b1348ed1ee741ac195b91ad14f438ac3efc967bd" : "63da21b726ec844bc57408fe2e0840ea17dfb4efb531471e888dae74b2ceeed7"],
+      ["home/joypad2.asm", "WaitForTextScrollButtonPress", yellow ? "5082b91da23de3ae92264fc113d9430ece0466d635ba9ffca588b3263ad85e31" : "e841a577bc3043ae69d185f3c83a19eb28041ead142fe6c17dfb87456d477a67"],
+      ["home/window.asm", "PrintText_NoCreatingTextBox", "bfa77285701ebcc5bece51041fe728894ac03d83528ed9215d1545ea92830c3a"],
+    ];
+    for (const [path, label, fingerprint] of routines) {
+      const body = range(state.byPath.get(path) ?? "", label).body.map(clean).filter(Boolean).join("\n");
+      if (await hashText(body) !== fingerprint) throw new Error("Dialogue actions need the reviewed button-prompt and final text-wait routines.");
+    }
+    if (!/charmap "<PROMPT>",\s*\$58\b/i.test(state.byPath.get("constants/charmap.asm") ?? "")
+      || !/call PrintText_NoCreatingTextBox\s+ld a, \[wDoNotWaitForButtonPressAfterDisplayingText\]\s+and a\s+jr nz, HoldTextDisplayOpen/.test(state.byPath.get("home/text_script.asm") ?? "")) {
+      throw new Error("Dialogue actions need the reviewed button-prompt and final text-wait routines.");
+    }
+  }
   let prefix = state.old?.prefix ?? `${document.label}EditorInteraction`;
   if (!state.old) {
     let n = 1;
     while (state.files.some(file => file.contents.includes(prefix))) prefix = `${document.label}EditorInteraction${n++}`;
   }
   const m: ManagedInteraction = state.old ? { ...state.old, values } : { version: 1, label: document.label, prefix, flag: null, arrival: null, cleanup: null, arrivalId: null, cleanupId: null, values };
+  if (values.actions) {
+    m.version = 2;
+    const originalLeaves = await attachTextEditing({} as ProjectSession, source).getTextLeafDocuments(document.path, state.old ? `${prefix}Original` : document.label);
+    m.originalHasPrompt = originalLeaves.length === 1 && originalLeaves[0].terminator === "prompt";
+  }
   const changed = new Map<string, string>();
   const append = (path: string, block: string) => { const text = changed.get(path) ?? state.byPath.get(path)!; changed.set(path, text + (text.endsWith("\n") ? "\n" : "\n\n") + block.replace(/\n/g, text.includes("\r\n") ? "\r\n" : "\n")); };
   if (values.once && !m.flag) {
@@ -555,10 +625,25 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     script = replaceBlock(script, document.label, code + original.replace(/\r\n/g, "\n") + "\n");
   }
   for (const [suffix, input] of [["Dialogue", values.dialogue], ["BagFullText", values.bagFull], ["AlreadyText", values.already]] as const) {
-    const block = textBlock(`${prefix}${suffix}`, input, state);
+    const block = textBlock(`${prefix}${suffix}`, input, state, m.version === 2 && suffix === "BagFullText" ? "prompt" : undefined);
     script = state.old ? replaceBlock(script, `${prefix}${suffix}`, block + "\n") : script + block.replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n") + "\n";
     const parsed = await parseTextDocument(document.path, `${prefix}${suffix}`, script);
     if (!parsed.editable || parsed.segments.map(segment => segment.text).join("\n") !== input.join("\n")) throw new Error("Generated dialogue did not reparse correctly.");
+  }
+  // Action text remains independently editable through Edit text. Remove only
+  // the old action leaves and regenerate the new leaves, preserving their flow
+  // controls through reordering using each dialogue action's stable identity.
+  const prompts = values.actions ? sequenceDialoguePrompts(values.actions) : new Map();
+  const actionBlocks = (values.actions ? sequenceDialogue(values.actions) : []).map(block => ({ label: `${prefix}${block.key}Text`, lines: block.lines, terminator: prompts.get(block.key) ? "prompt" as const : "done" as const }));
+  const renderedBlocks = actionBlocks.map(block => ({ ...block, contents: textBlock(block.label, block.lines, state, block.terminator) }));
+  for (const block of state.old?.values.actions ? sequenceDialogue(state.old.values.actions) : []) {
+    const r = range(script, `${prefix}${block.key}Text`);
+    script = script.slice(0, r.from) + script.slice(r.to);
+  }
+  for (const block of renderedBlocks) {
+    script += block.contents.replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n") + "\n";
+    const parsed = await parseTextDocument(document.path, block.label, script);
+    if (!parsed.editable || parsed.terminator !== block.terminator || parsed.segments.map(segment => segment.text).join("\n") !== block.lines.join("\n")) throw new Error("Generated action dialogue did not reparse correctly.");
   }
   changed.set(document.path, script);
   const patchSource = { ...source, readText: async (path: string) => changed.get(path) ?? source.readText(path) };
