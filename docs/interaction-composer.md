@@ -13,7 +13,14 @@ the original dialogue, one-time setting, repeat dialogue, event requirements,
 success effects and approach/return route are retained.
 
 Add, remove and reorder actions. Dialogue supports the existing text row limits
-and name tokens. A **Yes/No choice** follows a question supplied by a dialogue
+and name tokens. Each dialogue shows the native arrow and waits for A or B
+before another action runs. A dialogue followed directly by a **Yes/No choice**
+flows into that menu, including a question at a branch join. The final dialogue
+requires one acknowledgement; the interaction suppresses the engine's extra
+closing wait. Original dialogue and failed-delivery messages are also readable.
+Existing beta sequences receive these fixes when reopened and saved; rebuild
+the ROM after saving. Independently edited text rows and flow controls survive.
+A **Yes/No choice** follows a question supplied by a dialogue
 action; B follows No. **Branch on event** exposes Then and Otherwise. Branches
 continue with the following action unless they contain **End interaction**.
 
@@ -25,7 +32,7 @@ mentor, map or Pokémon-specific generator.
 
 | Action | Behavior |
 | --- | --- |
-| Show dialogue | Print an editable game text block |
+| Show dialogue | Print text and wait for A/B; hand a following question to Yes/No directly |
 | Yes/No choice | Read `wCurrentMenuItem`; return carry is not the answer |
 | Branch on event | Check a project event; Then/Otherwise rejoin |
 | Change event | Set or reset the selected event at this point |
@@ -101,3 +108,9 @@ forms, engine drift, and independent dialogue edits. Full generated ROMs must
 assemble for both games. CPU probes execute the generated control flow;
 menus, inventory delivery, text, sound and healing are instrumented boundaries,
 so these checks do not claim full interactive gameplay validation.
+
+Additional prompt probes execute each game's native prompt, arrow-placement,
+manual-scroll and A/B polling routines while instrumenting text drawing and
+menus. They verify message retention until input, consecutive dialogue, branch
+joins, menu handoff, original dialogue and final-wait suppression, and reproduce
+the earlier `done`-terminator overwrite for comparison.

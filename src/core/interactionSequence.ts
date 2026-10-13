@@ -111,18 +111,34 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
   visit(actions, new Set([0]), 0);
 }
 
-export function renderInteractionSequence(actions: InteractionAction[], prefix: string, textPrefix: string, completion: string[], path = "Action"): string[] {
+// A question can flow directly into a menu even when it is the last action of
+// a branch that rejoins a choice in its parent sequence.
+export function sequenceDialoguePrompts(actions: InteractionAction[], following: InteractionAction["kind"] | null = null, path = "Action"): Map<string, boolean> {
+  const prompts = new Map<string, boolean>();
+  actions.forEach((action, i) => {
+    const key = `${path}${i + 1}`, next = actions[i + 1]?.kind ?? following;
+    if (action.kind === "dialogue") prompts.set(action.textId ?? key, next !== "choice");
+    else if (action.kind === "choice" || action.kind === "if-event") {
+      const branches = action.kind === "choice" ? [[action.yes, "Yes"], [action.no, "No"]] as const : [[action.then, "Then"], [action.otherwise, "Otherwise"]] as const;
+      for (const [entries, suffix] of branches) for (const [id, prompt] of sequenceDialoguePrompts(entries, next, `${key}${suffix}`)) prompts.set(id, prompt);
+    }
+  });
+  return prompts;
+}
+
+export function renderInteractionSequence(actions: InteractionAction[], prefix: string, textPrefix: string, completion: string[], path = "Action", acknowledge = false, prompts = sequenceDialoguePrompts(actions)): string[] {
   const print = (label: string) => [`\tld hl, ${label}`, "\tcall PrintText"];
+  const acknowledged = ["\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a"];
   return actions.flatMap((action, i): string[] => {
     const key = `${path}${i + 1}`, p = `${prefix}${key}`;
-    const branch = (condition: string[], yes: InteractionAction[], no: InteractionAction[], yesKey: string, noKey: string, jump = "nz") => [
+    const branch = (condition: string[], yes: InteractionAction[], no: InteractionAction[], yesKey: string, noKey: string, jump = "nz", entered: string[] = []) => [
       ...condition, `\tjp ${jump}, ${p}Other`,
-      ...renderInteractionSequence(yes, prefix, textPrefix, completion, `${key}${yesKey}`), `\tjp ${p}Join`,
-      `${p}Other:`, ...renderInteractionSequence(no, prefix, textPrefix, completion, `${key}${noKey}`), `${p}Join:`,
+      ...entered, ...renderInteractionSequence(yes, prefix, textPrefix, completion, `${key}${yesKey}`, acknowledge, prompts), `\tjp ${p}Join`,
+      `${p}Other:`, ...entered, ...renderInteractionSequence(no, prefix, textPrefix, completion, `${key}${noKey}`, acknowledge, prompts), `${p}Join:`,
     ];
     switch (action.kind) {
-      case "dialogue": return print(`${textPrefix}${action.textId ?? key}Text`);
-      case "choice": return branch(["\tcall YesNoChoice", "\tld a, [wCurrentMenuItem]", "\tand a"], action.yes, action.no, "Yes", "No");
+      case "dialogue": return [...print(`${textPrefix}${action.textId ?? key}Text`), ...(acknowledge && prompts.get(action.textId ?? key) ? acknowledged : [])];
+      case "choice": return branch(["\tcall YesNoChoice", "\tld a, [wCurrentMenuItem]", "\tand a"], action.yes, action.no, "Yes", "No", "nz", acknowledge ? acknowledged : []);
       case "if-event": return branch([`\tCheckEvent ${action.event}`], action.then, action.otherwise, "Then", "Otherwise", action.set ? "z" : "nz");
       case "event": return [`\t${action.set ? "SetEvent" : "ResetEvent"} ${action.event}`];
       case "wait": return [`\tld c, ${action.frames}`, "\tcall DelayFrames"];
