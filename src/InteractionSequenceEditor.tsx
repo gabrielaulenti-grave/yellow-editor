@@ -57,7 +57,8 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, d
           <button type="button" className="small-button" aria-label={`${path} move action ${i + 1} down`} disabled={busy || i === actions.length - 1} onClick={() => { const next = [...actions]; [next[i + 1], next[i]] = [next[i], next[i + 1]]; onChange(next); }}>Down</button>
           <button type="button" className="small-button" aria-label={`${path} remove action ${i + 1}`} disabled={busy} onClick={() => onChange(actions.filter((_, n) => n !== i))}>Remove</button>
         </div>
-        {action.kind === "dialogue" && <label>Dialogue<textarea aria-label={`${path} action ${i + 1} dialogue`} rows={3} disabled={busy} value={action.lines.join("\n")} onChange={e => update(i, { ...action, lines: e.target.value.split("\n") })} /></label>}
+        {action.kind === "dialogue" && <><label>Dialogue<textarea aria-label={`${path} action ${i + 1} dialogue`} rows={3} disabled={busy} value={action.lines.join("\n")} onChange={e => update(i, { ...action, lines: e.target.value.split("\n") })} /></label>
+          <p className="help-text">The player presses A or B to advance. A following Yes/No choice takes over directly.</p></>}
         {action.kind === "choice" && <>
           <p className="help-text">Show the question in a dialogue action before this choice. B follows No. Branches continue with the next action unless they end the interaction.</p>
           {branch("Yes", action.yes, yes => update(i, { ...action, yes }))}
