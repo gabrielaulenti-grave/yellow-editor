@@ -1,3 +1,4 @@
+import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "../src/core/scriptInteractions";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -15,6 +16,9 @@ const fixture = window as unknown as {
   dialogueDirty: boolean;
   dialogueBytes: Record<string, number[]>;
   mapSurface?: boolean;
+  sceneFixture?: boolean;
+  sceneActor?: string;
+  mapFocus?: string;
   openedScript?: { path: string; label?: string | null };
   interactionTargets: unknown[];
 };
@@ -62,11 +66,20 @@ function Fixture() {
   return <>
     <button onClick={() => setVersion(value => value + 1)}>Reload scripts</button>
     {fixture.mapSurface
-      ? <MapsTab key={version} project={project} encounters={[]} fishingDocument={null} pokemonIndex={[]} focusMapConstant="VIRIDIAN_CITY"
+      ? <MapsTab key={version} project={project} encounters={[]} fishingDocument={null} pokemonIndex={[]} focusMapConstant={fixture.mapFocus ?? "VIRIDIAN_CITY"}
           onOpenWalkingEncounter={() => {}} onOpenFishing={() => {}}
           onOpenScript={(path, label) => { fixture.openedScript = { path, label }; }}
           onDirtyChange={dirty => { fixture.dialogueDirty = dirty; }} />
       : <ScriptsTab key={version} project={project} focus={focus} onDirtyChange={dirty => { fixture.dialogueDirty = dirty; }} />}
   </>;
 }
-createRoot(window.document.getElementById("root")!).render(<Fixture />);
+async function start() {
+  if (fixture.sceneFixture) {
+    const doc = await loadMapNpcCreateDocument(source, "PALLET_TOWN");
+    const writes = await prepareMapNpcWrites(source, doc, { x: 8, y: 8, sprite: "SPRITE_OAK", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Hello there!"] } });
+    writes.forEach(write => { fixture.dialogueFiles[write.path] = write.contents; });
+    fixture.sceneActor = `PALLET_TOWN_EDITOR_NPC_${doc.objectId}`;
+  }
+  createRoot(window.document.getElementById("root")!).render(<Fixture />);
+}
+void start();

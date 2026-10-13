@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
 import type { InteractionDocument } from "./core/scriptInteractions";
 import { SearchableSelect } from "./editor/SearchableSelect";
@@ -6,11 +6,13 @@ import { SearchableSelect } from "./editor/SearchableSelect";
 const titles: Record<InteractionAction["kind"], string> = {
   dialogue: "Show dialogue", choice: "Yes/No choice", "if-event": "Branch on event",
   event: "Change event", wait: "Wait", heal: "Heal party", sound: "Play sound",
+  "walk-npc": "Walk NPC", "follow-npc": "Walk NPC with player following", visibility: "Show/hide NPC",
   item: "Give item", pokemon: "Give Pokémon", end: "End interaction",
 };
 
-export function InteractionSequenceEditor({ actions, document, busy, onChange, depth = 0, path = "Actions" }: {
+export function InteractionSequenceEditor({ actions, document, busy, onChange, onEnableScene, depth = 0, path = "Actions" }: {
   actions: InteractionAction[]; document: InteractionDocument; busy: boolean;
+  onEnableScene?(): void;
   onChange(actions: InteractionAction[]): void; depth?: number; path?: string;
 }) {
   const [kind, setKind] = useState<InteractionAction["kind"]>("dialogue");
@@ -23,7 +25,8 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, d
   const number = (title: string, value: number, max: number, change: (value: number) => void) => <label>{title}<input aria-label={`${path} ${title}`} type="number" min={1} max={max} value={value} disabled={busy} onChange={e => change(Number(e.target.value))} /></label>;
   const toggle = (title: string, value: boolean, change: (value: boolean) => void) => <label><input type="checkbox" disabled={busy} checked={value} onChange={e => change(e.target.checked)} />{title}</label>;
   const unavailable = (kind: InteractionAction["kind"]) =>
-    kind === "choice" && (Boolean(document.choiceReason) || depth >= 4)
+    (["walk-npc", "follow-npc", "visibility"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.actors.length))
+    || kind === "choice" && (Boolean(document.choiceReason) || depth >= 4)
     || kind === "if-event" && (!document.events.length || depth >= 4)
     || kind === "event" && !document.events.length
     || kind === "sound" && (Boolean(document.soundReason) || !document.sounds.length)
@@ -32,6 +35,8 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, d
   function add() {
     let action: InteractionAction;
     switch (kind) {
+      case "walk-npc": case "follow-npc": action = { kind, npc: document.scene.actors[0].constant, steps: ["DOWN"] }; onEnableScene?.(); break;
+      case "visibility": action = { kind, npc: document.scene.actors[0].constant, visible: true }; onEnableScene?.(); break;
       case "dialogue": action = { kind, lines: ["Hello!"], textId: newSequenceDialogueId() }; break;
       case "choice": action = { kind, yes: [], no: [{ kind: "end", complete: false }] }; break;
       case "if-event": action = { kind, event: document.events[0], set: true, then: [], otherwise: [] }; break;
@@ -48,7 +53,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, d
   return <div className="interaction-sequence" role="group" aria-label={path}>
     {actions.map((action, i) => {
       const branch = (title: string, entries: InteractionAction[], change: (entries: InteractionAction[]) => void) => <fieldset className="interaction-sequence-branch"><legend>{title}</legend>
-        <InteractionSequenceEditor actions={entries} document={document} busy={busy} onChange={change} depth={depth + 1} path={`${path} ${i + 1} ${title}`} />
+        <InteractionSequenceEditor actions={entries} document={document} busy={busy} onEnableScene={onEnableScene} onChange={change} depth={depth + 1} path={`${path} ${i + 1} ${title}`} />
       </fieldset>;
       return <div className="interaction-sequence-action" key={i}>
         <strong>{i + 1}. {titles[action.kind]}</strong>
@@ -75,7 +80,14 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, d
         {action.kind === "sound" && <>{options("Sound effect", action.sound, document.sounds, sound => update(i, { ...action, sound }))}{toggle("Wait for effect channels", action.wait, wait => update(i, { ...action, wait }))}<p className="help-text">Playback uses the game's current audio bank. The wait covers effect channels 5, 6 and 8; the low-health alarm can bypass it.</p></>}
         {action.kind === "item" && <>{options("Reward item", action.item, document.items, item => update(i, { ...action, item }))}{number("Reward quantity", action.quantity, 99, quantity => update(i, { ...action, quantity }))}</>}
         {action.kind === "pokemon" && <>{options("Gift Pokémon", action.species, document.pokemon, species => update(i, { ...action, species }))}{number("Gift level", action.level, 100, level => update(i, { ...action, level }))}</>}
-        {action.kind === "end" && <>{toggle("Mark interaction complete", action.complete, complete => update(i, { ...action, complete }))}<p className="help-text">An incomplete end allows a later retry. A complete end applies the success events and the one-time flag. Both return an approaching NPC.</p></>}
+        {(action.kind === "walk-npc" || action.kind === "follow-npc" || action.kind === "visibility") && <>
+          {options("Scene NPC", action.npc, document.scene.actors.map(actor => actor.constant), npc => update(i, { ...action, npc }))}
+          {action.kind === "visibility" ? toggle("Visible (uncheck to hide)", action.visible, visible => update(i, { ...action, visible })) : <>
+            <SceneRouteInput label={`${path} action ${i + 1} route`} steps={action.steps} busy={busy} onChange={steps => update(i, { ...action, steps })} />
+            <p className="help-text">UP, DOWN, LEFT or RIGHT; up to 32 steps. {action.kind === "follow-npc" ? "The player starts beside the NPC and follows into each vacated tile." : "The NPC stays at its destination until moved again or the map reloads."}</p>
+          </>}
+        </>}
+        {action.kind === "end" && <>{toggle("Mark interaction complete", action.complete, complete => update(i, { ...action, complete }))}<p className="help-text">An incomplete end allows a later retry. A complete end applies the success events and the one-time flag. Scenes restore player controls; an incomplete scene restores its starting visibility.</p></>}
       </div>;
     })}
     {!actions.length && <p className="help-text">This branch continues with the following action.</p>}
@@ -86,4 +98,11 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, d
       <button type="button" className="small-button" aria-label={`${path} add action`} disabled={busy || actions.length >= 64 || Boolean(unavailable(kind))} onClick={add}>Add action</button>
     </div>
   </div>;
+}
+
+function SceneRouteInput({ label, steps, busy, onChange }: { label: string; steps: string[]; busy: boolean; onChange(steps: string[]): void }) {
+  const [raw, setRaw] = useState(steps.join(", "));
+  const parse = (value: string) => value.toUpperCase().split(/[\s,]+/).filter(Boolean);
+  useEffect(() => { if (JSON.stringify(parse(raw)) !== JSON.stringify(steps)) setRaw(steps.join(", ")); }, [steps, raw]);
+  return <label>Route<textarea aria-label={label} rows={2} disabled={busy} value={raw} onChange={e => { setRaw(e.target.value); onChange(parse(e.target.value)); }} /></label>;
 }

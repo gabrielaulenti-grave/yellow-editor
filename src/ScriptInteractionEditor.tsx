@@ -48,6 +48,10 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
     finally { setBusy(false); }
   }
   const update = (patch: Partial<InteractionValues>) => setValues(current => current ? { ...current, ...patch } : null);
+  const enableScene = () => {
+    if (!values || !document || values.scene) return;
+    update({ scene: { trigger: "interaction", playerX: document.scene.defaultPlayer.x, playerY: document.scene.defaultPlayer.y, idleState: document.scene.idleStates[0]?.id ?? 0, hiddenNpcs: [] }, movement: null });
+  };
   const eventSelect = (value: string, onChange: (next: string) => void, title: string) => <SearchableSelect aria-label={title} value={value} disabled={busy} onChange={event => onChange(event.target.value)}>
     {document?.events.map(event => <option key={event} value={event}>{event.replace(/^EVENT_/, "").replace(/_/g, " ")}</option>)}
   </SearchableSelect>;
@@ -87,7 +91,17 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         }}>Compose action sequence</button>}
         {values.actions ? <>
           <p>Actions run in order. Yes/No and event branches can rejoin the next action or end early. Use one reward per path; failed delivery shows the no-room dialogue and leaves the interaction available for retry.</p>
-          <InteractionSequenceEditor actions={values.actions} document={document} busy={busy} onChange={actions => update({ actions })} />
+          <InteractionSequenceEditor actions={values.actions} document={document} busy={busy} onEnableScene={enableScene} onChange={actions => update({ actions })} />
+          <label><input type="checkbox" disabled={busy || Boolean(document.scene.reason) || Boolean(document.values.scene)} checked={Boolean(values.scene)} onChange={e => e.target.checked ? enableScene() : update({ scene: undefined })} />Use a walking or coordinate-triggered scene</label>
+          {document.scene.reason && <p className="help-text">{document.scene.reason}</p>}
+          {values.scene && <>
+            <label>Scene trigger<select aria-label="Scene trigger" disabled={busy} value={values.scene.trigger} onChange={e => update({ scene: { ...values.scene!, trigger: e.target.value as "interaction" | "coordinate" } })}><option value="interaction">Interact with this NPC or sign</option><option value="coordinate">Reach map coordinates</option></select></label>
+            <div className="interaction-coordinate-fields">{(["X", "Y"] as const).map(axis => <label key={axis}>Player {axis}<input aria-label={`Scene player ${axis}`} type="number" min={0} disabled={busy} value={axis === "X" ? values.scene!.playerX : values.scene!.playerY} onChange={e => update({ scene: { ...values.scene!, [axis === "X" ? "playerX" : "playerY"]: Number(e.target.value) } })} /></label>)}</div>
+            <label>Native idle state<select aria-label="Scene idle state" disabled={busy} value={values.scene.idleState} onChange={e => update({ scene: { ...values.scene!, idleState: Number(e.target.value) } })}>{document.scene.idleStates.map(state => <option key={state.id} value={state.id}>{state.id}: {state.label}</option>)}</select></label>
+            <strong>Initially hidden actors</strong>
+            {document.scene.actors.map(actor => <label key={actor.constant}><input type="checkbox" disabled={busy || Boolean(document.values.scene)} checked={values.scene!.hiddenNpcs.includes(actor.constant)} onChange={e => update({ scene: { ...values.scene!, hiddenNpcs: e.target.checked ? [...values.scene!.hiddenNpcs, actor.constant] : values.scene!.hiddenNpcs.filter(npc => npc !== actor.constant) } })} />{actor.constant.replace(/_/g, " ")} ({actor.x}, {actor.y})</label>)}
+            <p className="help-text">Coordinates are movement tiles, as shown in Maps. Show a hidden NPC before walking it. Coordinate scenes can use an event condition and run once per save. Declining requires leaving the trigger tile before retrying. Routes stay within this map.</p>
+          </>}
           <label>No room dialogue<textarea aria-label="No room dialogue" rows={3} disabled={busy} value={values.bagFull.join("\n")} onChange={e => update({ bagFull: e.target.value.split("\n") })} /></label>
           {document.choiceReason && <p className="help-text">{document.choiceReason}</p>}
           {document.soundReason && <p className="help-text">{document.soundReason}</p>}
@@ -108,9 +122,9 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
           {document.hideObject && <label><input type="checkbox" disabled={busy || !values.once || Boolean(values.movement)} checked={Boolean(values.hideObject)} onChange={event => update({ hideObject: event.target.checked ? document.hideObject : null })} />Hide the Poké Ball after delivery</label>}
         </>}
         </>}
-        <label><input type="checkbox" disabled={busy || Boolean(values.hideObject) || Boolean(document.movementReason) || document.npcs.length === 0} checked={Boolean(values.movement)} onChange={event => update({ movement: event.target.checked ? { npc: document.npcs[0].constant, steps: ["DOWN"], playerX: document.sign!.x, playerY: document.sign!.y + 1 } : null })} />Have an NPC approach</label>
-        {document.movementReason && <p className="help-text">{document.movementReason}</p>}
-        {!document.movementReason && !document.npcs.length && <p className="help-text">Add a stationary NPC near the sign before creating an approach sequence.</p>}
+        {!values.scene && <label><input type="checkbox" disabled={busy || Boolean(values.hideObject) || Boolean(document.movementReason) || document.npcs.length === 0} checked={Boolean(values.movement)} onChange={event => update({ movement: event.target.checked ? { npc: document.npcs[0].constant, steps: ["DOWN"], playerX: document.sign!.x, playerY: document.sign!.y + 1 } : null })} />Have an NPC approach</label>}
+        {!values.scene && document.movementReason && <p className="help-text">{document.movementReason}</p>}
+        {!values.scene && !document.movementReason && !document.npcs.length && <p className="help-text">Add a stationary NPC near the sign before creating an approach sequence.</p>}
         {values.movement && <>
           <label>NPC<SearchableSelect aria-label="Approaching NPC" value={values.movement.npc} disabled={busy} onChange={event => update({ movement: { ...values.movement!, npc: event.target.value } })}>{document.npcs.map(npc => <option key={npc.constant} value={npc.constant}>{npc.constant.replace(/_/g, " ")} ({npc.x}, {npc.y})</option>)}</SearchableSelect></label>
           <p className="help-text">Choose a nearby stationary NPC. The route must finish beside the player and stay on walkable tiles. Reading from another side shows the original dialogue.</p>
