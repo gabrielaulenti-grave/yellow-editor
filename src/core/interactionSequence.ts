@@ -10,11 +10,14 @@ export type InteractionAction =
   | { kind: "sound"; sound: string; wait: boolean }
   | { kind: "item"; item: string; quantity: number }
   | { kind: "pokemon"; species: string; level: number }
+  | { kind: "walk-npc" | "follow-npc"; npc: string; steps: string[] }
+  | { kind: "visibility"; npc: string; visible: boolean }
   | { kind: "end"; complete: boolean };
 
 export interface InteractionSequenceDomains {
   items: string[]; pokemon: string[]; events: string[]; sounds: string[];
   pokemonReason: string | null; choiceReason: string | null; soundReason: string | null;
+  scene?: { reason: string | null; actors: Array<{ constant: string }> };
 }
 
 export function newSequenceDialogueId(): string {
@@ -62,6 +65,17 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
       if (!entry || typeof entry !== "object") throw new Error("Invalid interaction action.");
       if (!paths.size) throw new Error("Remove actions after an unconditional end; they cannot run.");
       switch (entry.kind) {
+        case "walk-npc":
+        case "follow-npc":
+        case "visibility":
+          if (!domains.scene || domains.scene.reason) throw new Error(domains.scene?.reason ?? "This entry does not support scenes.");
+          if (!domains.scene.actors.some(actor => actor.constant === entry.npc)) throw new Error("Choose a stationary NPC from this map.");
+          if (entry.kind === "visibility") { if (typeof entry.visible !== "boolean") throw new Error("Choose whether the NPC is visible."); }
+          else {
+            if (!Array.isArray(entry.steps) || entry.steps.length < 1 || entry.steps.length > 32 || entry.steps.some(step => !["UP", "DOWN", "LEFT", "RIGHT"].includes(step))) throw new Error("Enter 1–32 UP, DOWN, LEFT or RIGHT steps.");
+            if (paths.has(1)) throw new Error("Walk before delivering rewards so interrupted movement cannot duplicate a gift.");
+          }
+          break;
         case "dialogue":
           if (!Array.isArray(entry.lines)) throw new Error("Enter dialogue rows.");
           if (entry.textId !== undefined) {
@@ -137,6 +151,7 @@ export function renderInteractionSequence(actions: InteractionAction[], prefix: 
       `${p}Other:`, ...entered, ...renderInteractionSequence(no, prefix, textPrefix, completion, `${key}${noKey}`, acknowledge, prompts), `${p}Join:`,
     ];
     switch (action.kind) {
+      case "walk-npc": case "follow-npc": case "visibility": throw new Error("Walking and visibility require a yielding scene.");
       case "dialogue": return [...print(`${textPrefix}${action.textId ?? key}Text`), ...(acknowledge && prompts.get(action.textId ?? key) ? acknowledged : [])];
       case "choice": return branch(["\tcall YesNoChoice", "\tld a, [wCurrentMenuItem]", "\tand a"], action.yes, action.no, "Yes", "No", "nz", acknowledge ? acknowledged : []);
       case "if-event": return branch([`\tCheckEvent ${action.event}`], action.then, action.otherwise, "Then", "Otherwise", action.set ? "z" : "nz");

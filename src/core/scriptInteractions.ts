@@ -1,3 +1,4 @@
+import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { hashText } from "./history";
 import { identifySequenceDialogue, renderInteractionSequence, sequenceDialogue, sequenceDialoguePrompts, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
@@ -8,6 +9,7 @@ import { applyTextDocumentEdits, attachTextEditing, parseTextDocument, type Text
 import type { ProjectSession, ProjectSource, TextWriteRequest } from "./types";
 
 export interface InteractionValues {
+  scene?: SceneOptions;
   actions?: InteractionAction[];
   showOriginal: boolean;
   once: boolean;
@@ -21,8 +23,9 @@ export interface InteractionValues {
   condition: { event: string; set: boolean } | null;
   events: Array<{ event: string; set: boolean }>;
 }
-interface ManagedInteraction {
-  version: 1 | 2;
+export interface ManagedInteraction {
+  scene?: ScenePlan;
+  version: 1 | 2 | 3;
   originalHasPrompt?: boolean;
   label: string;
   prefix: string;
@@ -53,6 +56,7 @@ export interface PokemonGiftDocument {
   hidesObject: boolean;
 }
 export interface InteractionDocument {
+  scene: SceneDomain;
   path: string;
   label: string;
   sources: Array<{ path: string; hash: string }>;
@@ -97,7 +101,7 @@ function managed(text: string, label: string): ManagedInteraction | null {
   const match = range(text, label).body.find(line => /^\s*; yellow-editor-interaction: /.test(line));
   if (!match) return null;
   const value = JSON.parse(match.replace(/^\s*; yellow-editor-interaction: /, "")) as ManagedInteraction;
-  if (![1, 2].includes(value.version) || value.label !== label || !namePattern.test(value.prefix)) throw new Error("Unsupported interaction format. Review its source before editing.");
+  if (![1, 2, 3].includes(value.version) || value.label !== label || !namePattern.test(value.prefix)) throw new Error("Unsupported interaction format. Review its source before editing.");
   return value;
 }
 function macro(files: Map<string, string>, path: string, name: string, body: string) {
@@ -201,7 +205,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const soundMacro = music.match(/MACRO music_const\s*\n([\s\S]*?)\nENDM/);
   const sounds = soundMacro && rows(soundMacro[1]).map(clean).filter(Boolean).join("\n") === 'DEF \\1 EQUS "((\\2 - SFX_Headers_1) / 3)"'
     ? [...music.matchAll(/^\s*music_const\s+(SFX_[A-Z0-9_]+),\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter((name, i, all) => all.indexOf(name) === i && name !== "SFX_STOP_ALL_MUSIC") : [];
-  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION\d*_DONE$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
+  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION.*(?:_DONE|_SCENE_LATCH|_VISIBILITY)$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
   const mapName = path.replace(/^scripts\//, "").replace(/(?:_2)?\.asm$/, "");
   const primaryPath = `scripts/${mapName}.asm`;
   const primary = byPath.get(primaryPath) ?? "";
@@ -281,6 +285,23 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     if (!stateCount || stateCount > 250 || !range(primary, `${mapName}_Script`).body.some(line => /^(?:jp|call) CallFunctionInTable$/.test(clean(line))) || !primary.includes(`[w${mapName}CurScript]`) || !byPath.get("ram/wram.asm")?.includes(`w${mapName}CurScript::`)) throw new Error("state");
     if (!sign || npcConstants.length !== objectRows.length) throw new Error("sign/object slots");
   } catch { movementReason = "NPC approach sequences need a sign and a map with an existing script-state table."; }
+  const map = (await parseMapIndex(source)).find(map => map.headerLabel === mapName);
+  const stateVariable = byPath.get("ram/wram.asm")?.includes(`w${mapName}CurScript::`) ? `w${mapName}CurScript` : null;
+  let idleStates: SceneDomain["idleStates"] = [{ id: 0, label: "Default" }];
+  if (stateVariable) {
+    try { idleStates = range(primary, `${mapName}_ScriptPointers`).body.map(clean).filter(Boolean).slice(1).flatMap((line, id) => {
+      const match = line.match(/^dw_const (\w+),\s*\w+$/);
+      return match && !match[1].includes("EditorInteraction") ? [{ id, label: match[1] }] : [];
+    }); } catch { idleStates = []; }
+  }
+  const scene: SceneDomain = {
+    reason: !map || map.isAlias || !map.width || !map.height || npcConstants.length !== objectRows.length || objectRows.length > 14 || !idleStates.length || idleStates.some(entry => entry.id >= 128)
+      ? "Scenes require a unique map header, ordinary object slots and a readable map script."
+      : !["npc-movement", "player-movement"].every(id => contracts.some(contract => contract.id === id && contract.sourceStatus === "reviewed-source")) ? "Scenes require the reviewed NPC and player movement routines." : null,
+    mapConstant: map?.constant ?? "", stateVariable, idleStates,
+    actors: npcs.map(npc => ({ ...npc, id: npcConstants.indexOf(npc.constant) + 1 })),
+    defaultPlayer: sign ? { x: sign.x, y: sign.y + 1 } : pointers && objectRows.find(row => row[6].trim() === pointers[1]) ? (() => { const row = objectRows.find(row => row[6].trim() === pointers[1])!; return { x: +row[1], y: +row[2] + 1 }; })() : { x: 0, y: 0 },
+  };
   const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
@@ -302,9 +323,10 @@ async function inspect(source: ProjectSource, path: string, label: string) {
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
+  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
+export type InteractionInspection = Awaited<ReturnType<typeof inspect>>;
 export async function loadScriptInteractionDocument(source: ProjectSource, path: string, label: string): Promise<InteractionDocument> {
   return (await inspect(source, path, label)).document;
 }
@@ -359,7 +381,7 @@ function textBlock(label: string, input: string[], state: Awaited<ReturnType<typ
   let originalBlock: string | null = null;
   if (state.old && new RegExp(`^${label}:{1,2}$`, "m").test(state.text.replace(/\r\n/g, "\n"))) {
     const existing = range(state.text, label);
-    originalBlock = state.text.slice(existing.from, existing.to).trimEnd() + "\n";
+    originalBlock = state.text.slice(existing.from, existing.to).replace(/\r\n/g, "\n").trimEnd() + "\n";
   }
   const controls = originalBlock ? rows(originalBlock).flatMap(row => {
     const match = row.match(/^\s*(text|next|line|cont|para|page)\s+"/);
@@ -532,7 +554,8 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   }
   const changed = new Map<string, string>();
   const append = (path: string, block: string) => { const text = changed.get(path) ?? state.byPath.get(path)!; changed.set(path, text + (text.endsWith("\n") ? "\n" : "\n\n") + block.replace(/\n/g, text.includes("\r\n") ? "\r\n" : "\n")); };
-  if (values.once && !m.flag) {
+  const reserved = new Set<number>();
+  const allocateFlag = (name: string) => {
     const capacity = state.symbols.get("NUM_EVENTS");
     const events = [...state.symbols].filter(([key]) => key.startsWith("EVENT_")).map(([, value]) => value);
     const high = Math.max(...projectConstantCatalogFromSources(state.files.filter(file => file.path === "constants/event_constants.asm")).constants.filter(entry => entry.symbol.startsWith("EVENT_") && entry.groupId !== null).map(entry => entry.value));
@@ -540,7 +563,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     // Reserve only the explicit, unused tail of the existing event array. Never renumber flags.
     const available = Array.from({ length: capacity - high - 1 }, (_, i) => capacity - 1 - i).find(value => {
       const numeric = `\\$${Math.floor(value / 8).toString(16)}`;
-      return !events.includes(value) && !state.files.some(file => new RegExp(`wEventFlags\\s*\\+\\s*(?:${numeric}|${Math.floor(value / 8)})\\b`, "i").test(file.contents)) && !state.files.some(file => !file.path.startsWith("macros/") && /(?:Set|Reset)EventRange\b/.test(file.contents) && rows(file.contents).some(line => {
+      return !events.includes(value) && !reserved.has(value) && !state.files.some(file => new RegExp(`wEventFlags\\s*\\+\\s*(?:${numeric}|${Math.floor(value / 8)})\\b`, "i").test(file.contents)) && !state.files.some(file => !file.path.startsWith("macros/") && /(?:Set|Reset)EventRange\b/.test(file.contents) && rows(file.contents).some(line => {
         const match = clean(line).match(/^(?:Set|Reset)EventRange\s+([^,]+),\s*([^,]+)(?:,.*)?$/);
         if (!match) return false;
         const start = state.number(match[1]), end = state.number(match[2]);
@@ -548,8 +571,35 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
       }));
     });
     if (available === undefined) throw new Error("No verified unused completion flag remains in the existing save layout.");
-    m.flag = `EVENT_${prefix.toUpperCase()}_DONE`;
-    append("constants/event_constants.asm", `DEF ${m.flag} EQU $${available.toString(16)}\n`);
+    reserved.add(available);
+    append("constants/event_constants.asm", `DEF ${name} EQU $${available.toString(16)}\n`);
+    return name;
+  };
+  if (values.once && !m.flag) m.flag = allocateFlag(`EVENT_${prefix.toUpperCase()}_DONE`);
+  if (values.scene || values.actions && needsScene(values.actions) || state.old?.version === 3) {
+    if (document.path !== state.primaryPath) throw new Error("Scene actions must use a primary map text entry.");
+    macro(state.byPath, "macros/scripts/maps.asm", "def_text_pointers", "const_def 1");
+    const dwConst = state.byPath.get("macros/const.asm")?.match(/^MACRO\?? dw_const\r?\n([\s\S]*?)^ENDM/m);
+    if (!dwConst || rows(dwConst[1]).map(clean).filter(Boolean).join("\n") !== "dw \\1\nconst \\2") throw new Error("Scene dialogue needs the reviewed dw_const macro.");
+    if (range(state.byPath.get("home/array2.asm") ?? "", "CallFunctionInTable").body.map(clean).filter(Boolean).join("\n") !== "push hl\npush de\npush bc\nadd a\nld d, 0\nld e, a\nadd hl, de\nld a, [hli]\nld h, [hl]\nld l, a\nld de, .returnAddress\npush de\njp hl\n.returnAddress\npop bc\npop de\npop hl\nret") throw new Error("Scenes require the reviewed 128-state dispatcher.");
+    m.version = 3;
+    m.scene = await buildScenePlan(source, state, m, allocateFlag);
+    await prepareSceneRuntime(state, m, changed);
+    let primary = changed.get(state.primaryPath) ?? state.primary;
+    const hook = sceneRootHook(prefix), nl = primary.includes("\r\n") ? "\r\n" : "\n";
+    if (state.old?.version === 3) {
+      if (!primary.includes(hook.replace(/\n/g, nl))) throw new Error("The map scene hook was changed in source.");
+    } else primary = primary.replace(new RegExp(`^${state.mapName}_Script:{1,2}\\r?\\n`, "m"), match => match + hook.replace(/\n/g, nl));
+    if (!primary.includes(hook.replace(/\n/g, nl))) throw new Error("Could not install the map scene hook.");
+    const r = range(primary, `${state.mapName}_TextPointers`);
+    const table = r.body.map(clean).filter(Boolean);
+    if (table[0] !== "def_text_pointers" || table.slice(1).some(line => !/^dw_const \w+,\s*\w+$/.test(line))) throw new Error("Scene dialogue needs the reviewed text pointer table.");
+    const oldSlots = state.old?.scene?.textSlots ?? 0;
+    for (let i = 0; i < oldSlots; i++) if (!table.includes(`dw_const ${prefix}SceneText${i}, TEXT_${prefix.toUpperCase()}_SCENE_${i}`)) throw new Error("Scene dialogue pointer slots were changed in source.");
+    if (table.length - 1 + m.scene.textSlots - oldSlots >= 0xf0) throw new Error("The map has no free native text slots for scene dialogue.");
+    const additions = Array.from({ length: m.scene.textSlots - oldSlots }, (_, i) => `\tdw_const ${prefix}SceneText${i + oldSlots}, TEXT_${prefix.toUpperCase()}_SCENE_${i + oldSlots}`).join(nl);
+    if (additions) primary = primary.slice(0, r.to).trimEnd() + nl + additions + nl + nl + primary.slice(r.to);
+    changed.set(state.primaryPath, primary);
   }
   // Disabling one-time behavior retains its reserved bit for future re-enabling.
   const movement = values.movement ? await validateMovement(source, state, values.movement) : null;
@@ -575,7 +625,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     changed.set(state.primaryPath, state.primary.slice(0, r.from) + originalTable.trimEnd() + "\n" + additions.replace(/\n/g, state.primary.includes("\r\n") ? "\r\n" : "\n") + state.primary.slice(r.to));
 
   }
-  if (state.old?.values.movement && !values.movement) throw new Error("An existing approach sequence must keep its movement enabled. Edit its NPC and route instead.");
+  if (state.old?.values.movement && !values.movement && m.version !== 3) throw new Error("An existing approach sequence must keep its movement enabled. Edit its NPC and route instead.");
   const renderPart = (model: ManagedInteraction, info: typeof movement, resumeState = 0, textPrefix = model.prefix) => {
     const prefix = model.prefix;
     const effective = { ...model, flag: model.values.once ? model.flag : null };
@@ -594,6 +644,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     return code;
   };
   const renderManaged = (model: ManagedInteraction, info: typeof movement) => {
+    if (model.version === 3) return renderScene(model);
     let code = renderPart(model, info);
     const dispatch: string[] = [];
     for (const [i, idle] of (model.idleStates ?? [0]).slice(1).entries()) {
@@ -625,7 +676,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     script = replaceBlock(script, document.label, code + original.replace(/\r\n/g, "\n") + "\n");
   }
   for (const [suffix, input] of [["Dialogue", values.dialogue], ["BagFullText", values.bagFull], ["AlreadyText", values.already]] as const) {
-    const block = textBlock(`${prefix}${suffix}`, input, state, m.version === 2 && suffix === "BagFullText" ? "prompt" : undefined);
+    const block = textBlock(`${prefix}${suffix}`, input, state, m.version >= 2 && suffix === "BagFullText" ? "prompt" : undefined);
     script = state.old ? replaceBlock(script, `${prefix}${suffix}`, block + "\n") : script + block.replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n") + "\n";
     const parsed = await parseTextDocument(document.path, `${prefix}${suffix}`, script);
     if (!parsed.editable || parsed.segments.map(segment => segment.text).join("\n") !== input.join("\n")) throw new Error("Generated dialogue did not reparse correctly.");
