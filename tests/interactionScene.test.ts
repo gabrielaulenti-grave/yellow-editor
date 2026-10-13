@@ -43,6 +43,25 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
   overlay.set(path, generated.replace("\tcall StartSimulatingJoypadStates", "\tcall DelayFrame"));
   const edited = await loadScriptInteractionDocument(source, path, label);
   await assert.rejects(() => prepareScriptInteractionWrites(source, edited, values), /generated logic was changed/); overlay.set(path, generated);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, again, { ...values, scene: { ...values.scene, hiddenNpcs: [] } }), /initial visibility/);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, again, { ...values, actions: identifySequenceDialogue([
+    { kind: "visibility", npc: actor, visible: true }, { kind: "choice", yes: [{ kind: "follow-npc", npc: actor, steps: ["LEFT"] }], no: [] },
+  ]) }), /Rejoining branches/);
+  const routeNpc = await loadMapNpcCreateDocument(source, "ROUTE_1");
+  (await prepareMapNpcWrites(source, routeNpc, { x: 6, y: 24, sprite: "SPRITE_YOUNGSTER", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["This way!"] } })).forEach(write => overlay.set(write.path, write.contents));
+  const routePath = "scripts/Route1.asm", routeLabel = `Route1EditorNpc${routeNpc.objectId}Text`;
+  const routeDoc = await loadScriptInteractionDocument(source, routePath, routeLabel);
+  assert.equal(routeDoc.scene.stateVariable, null);
+  const plainValues = { ...routeDoc.values, showOriginal: false, actions: identifySequenceDialogue([{ kind: "dialogue", lines: ["Ready?"] }]) };
+  (await prepareScriptInteractionWrites(source, routeDoc, plainValues)).forEach(write => overlay.set(write.path, write.contents));
+  const v2 = await loadScriptInteractionDocument(source, routePath, routeLabel);
+  const routeValues = { ...v2.values, actions: identifySequenceDialogue([{ kind: "follow-npc", npc: `ROUTE_1_EDITOR_NPC_${routeNpc.objectId}`, steps: ["RIGHT"] }]), scene: { trigger: "interaction" as const, playerX: 6, playerY: 25, idleState: 0, hiddenNpcs: [] } };
+  (await prepareScriptInteractionWrites(source, v2, routeValues)).forEach(write => overlay.set(write.path, write.contents));
+  assert.deepEqual((await loadScriptInteractionDocument(source, routePath, routeLabel)).values, routeValues);
+  const crlfSource = { ...source, readText: async (path: string) => (await source.readText(path)).replace(/\r?\n/g, "\r\n") };
+  const crlfDoc = await loadScriptInteractionDocument(crlfSource, path, label);
+  const crlfWrites = await prepareScriptInteractionWrites(crlfSource, crlfDoc, crlfDoc.values);
+  assert.equal(crlfWrites.find(write => write.path === path)!.contents.replace(/\r\n/g, "\n"), generated);
   if (rgbds && binjgb) {
     const temporary = await mkdtemp(resolve("node_modules/.scene-runtime-"));
     const run = (cmd: string, argv: string[], cwd = temporary) => {

@@ -41,6 +41,9 @@ mentor, map or Pokémon-specific generator.
 | Play sound | Request a project sound effect, optionally wait for effect channels |
 | Give item | Give 1–99 items; stop and leave completion unclaimed on a full bag |
 | Give Pokémon | Give a level 1–100 Pokémon using native naming and party/PC delivery |
+| Walk NPC | Walk a stationary map NPC along 1–32 cardinal steps, yielding between tiles |
+| Walk NPC with player following | Move the NPC, then move the player into its vacated tile |
+| Show/hide NPC | Stage an ordinary NPC using a persistent event bit |
 | End interaction | Exit early, optionally commit completion and success events |
 
 Reaching the end of the outer sequence completes it. **End interaction** with
@@ -58,7 +61,7 @@ delivery. Per-reward persistent progress is future work.
 
 The existing NPC approach is an outer scene: walk, yield until arrival, run
 the composed interaction, return, yield, restore facing/input/map state.
-Movement cannot be placed arbitrarily inside the synchronous action sequence.
+New walking actions use a resumable scene instead of the synchronous runner.
 Native Poké Ball interactions with a hide-after-delivery action retain their
 existing editor; they cannot upgrade to the composer yet.
 
@@ -83,23 +86,52 @@ can bypass the wait. Music replacement/restoration is not exposed here.
 An interaction supports up to 64 actions and four nested branches. Empty
 branches fall through. Actions after an unconditional end are rejected.
 
-## General scene authoring still needed
+## Walking and coordinate scenes
 
-This is a reusable interaction composer, not the complete scene editor.
-Map-entry/coordinate triggers, arbitrary player/NPC movement states, battles,
-general object staging, music transitions and persistent PC-session outcomes
-still need authoring interfaces and composition/runtime checks. The Lance/PC
-lesson is a regression fixture exercising these requirements; its generator
-and wizard live under `tests/`, outside the application session API and bundle.
-Existing lesson assembly remains accessible through normal script/source
-editing. This change does not convert previously generated lessons into
-composer sequences.
+Adding a walking or visibility action enables scene settings. Choose the player's
+starting X/Y movement tile, the trigger (interact or reach coordinates), and the
+native map state where the scene may start. Coordinate scenes also use the usual
+event requirement and one-time completion settings. Native map states and Oak's
+original scene remain intact. Maps without native script tables are supported.
+
+For an Oak-style entrance, create a stationary NPC in Maps, compose its actions,
+choose **Reach map coordinates**, and mark that NPC initially hidden. Add
+**Show/hide NPC** (visible), dialogue, and **Walk NPC with player following**.
+The player must start next to the actor for following. End with dialogue or a
+hide action. Use a Yes/No branch to allow declining. A declined coordinate scene
+stays latched until the player leaves the trigger tile.
+
+Routes use UP, DOWN, LEFT and RIGHT, separated by commas or whitespace. They
+stay within the map, avoid walls, signs, warps and other objects, and keep the
+leading actor on screen. Only ordinary stationary NPCs are route actors; trainers
+and item objects retain their native behavior. Dynamic blockers, including Yellow's
+Pikachu, abort before an occupied step. This initial version does not reroute.
+The NPC stays at its destination until moved again or the map reloads. Branches
+with different final staging must end separately rather than rejoin.
+
+Walking runs before rewards, so interrupted movement cannot duplicate a delivered
+gift. Successful exits retain authored visibility; incomplete exits restore the
+starting visibility. Initial visibility becomes fixed after the first save to
+avoid reinterpreting existing saved event bits. Scene visibility flags share the
+existing event array; native toggle IDs and save sizes are unchanged.
+
+The runtime borrows 49 bytes from a reviewed unused 56-byte reservation without
+moving any existing RAM symbol. Native movement buffers remain separate from
+scene bookkeeping. Input is enabled during native dialogue/menu sessions, and
+controls and NPC movement fields are restored on exit. Scene state is cleared
+on map entry. Each scene has at most 128 dispatcher states.
+
+Battles, music transitions, map-entry triggers, cross-map escorts and persistent
+PC-session outcomes still need authoring interfaces and runtime checks. The
+Lance/PC lesson remains a regression fixture outside the application bundle.
 
 ## Verification
 
 ```sh
 npm run test:interactions -- /path/to/pokered /path/to/pokeyellow
 npm run test:interactions -- /path/to/pokered /path/to/pokeyellow --rom /path/to/rgbds /path/to/binjgb
+npm run test:scenes -- /path/to/pokered /path/to/pokeyellow --rom /path/to/rgbds /path/to/binjgb
+npm run test:scenes:ui -- /path/to/pokered /path/to/pokeyellow
 npm run test:dialogue:ui -- /path/to/pokered /path/to/pokeyellow
 ```
 

@@ -381,7 +381,7 @@ function textBlock(label: string, input: string[], state: Awaited<ReturnType<typ
   let originalBlock: string | null = null;
   if (state.old && new RegExp(`^${label}:{1,2}$`, "m").test(state.text.replace(/\r\n/g, "\n"))) {
     const existing = range(state.text, label);
-    originalBlock = state.text.slice(existing.from, existing.to).trimEnd() + "\n";
+    originalBlock = state.text.slice(existing.from, existing.to).replace(/\r\n/g, "\n").trimEnd() + "\n";
   }
   const controls = originalBlock ? rows(originalBlock).flatMap(row => {
     const match = row.match(/^\s*(text|next|line|cont|para|page)\s+"/);
@@ -579,6 +579,9 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   if (values.scene || values.actions && needsScene(values.actions) || state.old?.version === 3) {
     if (document.path !== state.primaryPath) throw new Error("Scene actions must use a primary map text entry.");
     macro(state.byPath, "macros/scripts/maps.asm", "def_text_pointers", "const_def 1");
+    const dwConst = state.byPath.get("macros/const.asm")?.match(/^MACRO\?? dw_const\r?\n([\s\S]*?)^ENDM/m);
+    if (!dwConst || rows(dwConst[1]).map(clean).filter(Boolean).join("\n") !== "dw \\1\nconst \\2") throw new Error("Scene dialogue needs the reviewed dw_const macro.");
+    if (range(state.byPath.get("home/array2.asm") ?? "", "CallFunctionInTable").body.map(clean).filter(Boolean).join("\n") !== "push hl\npush de\npush bc\nadd a\nld d, 0\nld e, a\nadd hl, de\nld a, [hli]\nld h, [hl]\nld l, a\nld de, .returnAddress\npush de\njp hl\n.returnAddress\npop bc\npop de\npop hl\nret") throw new Error("Scenes require the reviewed 128-state dispatcher.");
     m.version = 3;
     m.scene = await buildScenePlan(source, state, m, allocateFlag);
     await prepareSceneRuntime(state, m, changed);

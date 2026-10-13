@@ -35,10 +35,10 @@ export async function sceneCpuProbes(root: string, temporary: string, rgbds: str
   const done = flag(model.flag), latch = flag(plan.latchFlag), visible = flag(plan.visibility[0].flag);
   const nativeTable = (await readFile(join(root, "home/array2.asm"), "utf8")).split("IsInArray::")[0];
   let count = 0;
-  for (const scenario of ["success", "decline", "wrong-tile", "busy-native-map", "blocked", ...(plan.follower ? ["pikachu"] : [])]) {
+  for (const scenario of ["success", "decline", "decline-rearm", "wrong-tile", "busy-native-map", "blocked", ...(plan.follower ? ["pikachu"] : [])]) {
     const starts = !["wrong-tile", "busy-native-map"].includes(scenario), success = scenario === "success";
     const setup = ["di", "ld sp, $dfff", "ld hl, $c000", "ld bc, $1000", ".clear", "xor a", "ld [hli], a", "dec bc", "ld a, b", "or c", "jr nz, .clear",
-      ...set("wXCoord", scenario === "wrong-tile" ? 9 : 8), ...set("wYCoord", 9), ...set("wCurMap", constants.get(plan.mapConstant)!), ...set("wJoyIgnore", 0x12), ...set("wOverrideSimulatedJoypadStatesMask", 0x34), ...set("wStatusFlags4", 5), ...set("$c003", scenario === "decline" ? 1 : 0)];
+      ...set("wXCoord", scenario === "wrong-tile" ? 9 : 8), ...set("wYCoord", 9), ...set("wCurMap", constants.get(plan.mapConstant)!), ...set("wJoyIgnore", 0x12), ...set("wOverrideSimulatedJoypadStatesMask", 0x34), ...set("wStatusFlags4", 5), ...set("$c003", scenario.startsWith("decline") ? 1 : 0)];
     if (plan.stateVariable) setup.push(...set(plan.stateVariable, scenario === "busy-native-map" ? 1 : 0));
     for (const id of plan.frozen) {
       const a = plan.actors.find(actor => actor.id === id);
@@ -65,11 +65,12 @@ export async function sceneCpuProbes(root: string, temporary: string, rgbds: str
     ];
     const asm = ['INCLUDE "macros/const.asm"', 'INCLUDE "macros/code.asm"', ...defs, events, await readFile(join(root, "macros/scripts/events.asm"), "utf8"),
       'SECTION "Header", ROM0[$100]', "jp Entry", "ds $150 - @, 0", 'SECTION "Code", ROM0[$150]', "Entry:", ...setup, "ld b, 120", ".frames", "push bc", "ld a, [wEditorSceneState]", "ld [$c006], a", "ld a, [$c004]", "ld c, a", "ld a, [$c005]", "or c", "ld [$c007], a", `call ${p}SceneFrame`,
-      "ld a, [$c007]", "and a", "jr z, .tick", "ld a, [wEditorSceneState]", "ld c, a", "ld a, [$c006]", "cp c", "jr z, .tick", "ld hl, $c00b", "inc [hl]", ".tick", "call Tick", "pop bc", "dec b", "jr nz, .frames", "ProbeDone:", "halt", "jr ProbeDone", nativeTable, code, runtime, ...stubs].join("\n");
+      "ld a, [$c007]", "and a", "jr z, .tick", "ld a, [wEditorSceneState]", "ld c, a", "ld a, [$c006]", "cp c", "jr z, .tick", "ld hl, $c00b", "inc [hl]", ".tick", "call Tick", "pop bc", "dec b", "jr nz, .frames", ...(scenario === "decline-rearm" ? [...set("wXCoord", 9), `call ${p}SceneFrame`, ...set("wXCoord", 8), "ld b, 40", ".rearm", "push bc", `call ${p}SceneFrame`, "call Tick", "pop bc", "dec b", "jr nz, .rearm"] : []), "ProbeDone:", "halt", "jr ProbeDone", nativeTable, code, runtime, ...stubs].join("\n");
     const file = join(temporary, "scene-probe.asm"), obj = join(temporary, "scene-probe.o"), rom = join(temporary, "scene-probe.gb"), sym = join(temporary, "scene-probe.sym");
     await writeFile(file, asm); run(join(rgbds, "rgbasm"), ["-I", `${root}/`, "-o", obj, file]); run(join(rgbds, "rgblink"), ["-n", sym, "-o", rom, obj]); run(join(rgbds, "rgbfix"), ["-v", "-p", "0", rom]);
     const stop = (await readFile(sym, "utf8")).match(/^00:([0-9a-f]+) ProbeDone$/mi)![1];
-    const checks = ["c00a=0", "c00b=0", `c000=${starts ? success ? 2 : 1 : 0}`, `c001=${success ? 2 : 0}`, `c002=${success ? 2 : 0}`, expected("wEditorSceneActive", 0), expected("wJoyIgnore", 0x12), expected("wOverrideSimulatedJoypadStatesMask", 0x34), expected("wStatusFlags4", 5), expected("wXCoord", success ? 7 : scenario === "wrong-tile" ? 9 : 8), expected("wYCoord", success ? 8 : 9)];
+    const checks = ["c00a=0", "c00b=0", `c000=${starts ? success || scenario === "decline-rearm" ? 2 : 1 : 0}`, `c001=${success ? 2 : 0}`, `c002=${success ? 2 : 0}`, expected("wEditorSceneActive", 0), expected("wJoyIgnore", 0x12), expected("wOverrideSimulatedJoypadStatesMask", 0x34), expected("wStatusFlags4", 5), expected("wXCoord", success ? 7 : scenario === "wrong-tile" ? 9 : 8), expected("wYCoord", success ? 8 : 9)];
+    if (success) checks.push(expected(actorVar(actor.id, "StateData2MapX"), 11), expected(actorVar(actor.id, "StateData2MapY"), 11));
     for (const id of plan.frozen) checks.push(expected(actorVar(id, "StateData2MovementByte1"), id === 2 ? 0xfe : 0xff), `${(vars.get("wMapSpriteData")! + (id - 1) * 2).toString(16)}=${(12 + id).toString(16)}`, `${(vars.get("wMapSpriteData")! + (id - 1) * 2 + 1).toString(16)}=${(64 + id).toString(16)}`);
     const bytes = new Map<number, number>();
     for (const bit of [done, latch, visible]) if (bit >= 0) bytes.set(0xc800 + Math.floor(bit / 8), 0);

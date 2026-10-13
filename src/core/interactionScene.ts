@@ -89,7 +89,10 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
         worlds = worlds.slice(0, 1);
       } else for (const world of worlds) {
         if (action.kind === "visibility") {
-          if (action.visible && same(world.actors[action.npc], world.player)) throw new Error("Cannot show an NPC on the player's tile.");
+          if (action.visible && (same(world.actors[action.npc], world.player) || state.objectRows.some((row, index) => {
+            const name = state.npcConstants[index];
+            return name !== action.npc && world.visible[name] !== false && same(world.actors[name] ?? { x: +row[1], y: +row[2] }, world.actors[action.npc]);
+          }))) throw new Error("Cannot show an NPC on an occupied tile.");
           world.visible[action.npc] = action.visible; continue;
         }
         if (action.kind !== "walk-npc" && action.kind !== "follow-npc") continue;
