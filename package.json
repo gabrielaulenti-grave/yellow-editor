@@ -27,7 +27,9 @@
     "test:scripts:layout": "node scripts/check-script-layout.mjs",
     "test:npcs:ui": "node scripts/check-npc-workflow.mjs",
     "test:scenes": "node scripts/check-interaction-scenes.mjs",
-    "test:scenes:ui": "node scripts/check-scene-workflow.mjs"
+    "test:scenes:ui": "node scripts/check-scene-workflow.mjs",
+    "test:npcs:edit": "node scripts/check-npc-editing.mjs",
+    "test:npcs:edit:ui": "node scripts/check-npc-edit-workflow.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

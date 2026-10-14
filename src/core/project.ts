@@ -34,6 +34,7 @@ import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
+import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "./npcEditing";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "./npcCreation";
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "./scriptInteractions";
 import {
@@ -872,6 +873,14 @@ export async function createProjectSession(
     createMapNpc: async (document, values) => {
       const changes = await prepareMapNpcWrites(source, document, values);
       const result = await history.save(`Add NPC to ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    getMapNpcEditDocument: (mapConstant, objectId) => loadMapNpcEditDocument(source, mapConstant, objectId),
+    saveMapNpc: async (document, values) => {
+      const changes = await prepareMapNpcEditWrites(source, document, values);
+      if (!changes.length) return history.getSummary();
+      const result = await history.save(`Edit NPC ${document.objectConstant}`, changes);
       invalidateNonTrainerReadModels(changes.map(change => change.path));
       return result;
     },

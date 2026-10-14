@@ -11,6 +11,7 @@ import type {
 } from "./core/types";
 import { invoke } from "./platform/compat";
 import { MapInteractionEditor } from "./MapInteractionEditor";
+import { MapNpcEditor } from "./MapNpcEditor";
 import { MapNpcWizard } from "./MapNpcWizard";
 
 type MapView = "map" | "blocks" | "tiles";
@@ -398,6 +399,7 @@ export function MapsTab({
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [npcWizardOpen, setNpcWizardOpen] = useState(false);
+  const [editingNpcId, setEditingNpcId] = useState<number | null>(null);
   const [mapRevision, setMapRevision] = useState(0);
   const newNpcSelection = useRef<{ map: string; id: number } | null>(null);
   const dirtyCallback = useRef(onDirtyChange);
@@ -412,6 +414,7 @@ export function MapsTab({
 
   useEffect(() => {
     setNpcWizardOpen(false);
+    setEditingNpcId(null);
     newNpcSelection.current = null;
     if (!project) {
       setMaps([]);
@@ -1244,7 +1247,7 @@ export function MapsTab({
                     <div>
                       <strong>NPCs</strong>
                       <small>
-                        Select a character to edit their dialogue and interaction, or add a new NPC.
+                        Select a character to edit their placement, appearance, dialogue and interaction, or add a new NPC.
                       </small>
                     </div>
                     <div className="world-map-npc-actions"><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button></div>
@@ -1257,6 +1260,16 @@ export function MapsTab({
                     onSaved={(id, history) => {
                       newNpcSelection.current = { map: visualization.map.constant, id };
                       setNpcWizardOpen(false);
+                      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                    }} />}
+                  {editingNpcId !== null && <MapNpcEditor key={`${project?.storageKey}:${visualization.map.constant}:${editingNpcId}`} mapConstant={visualization.map.constant} objectId={editingNpcId}
+                    renderPlacement={(x, y, onPlace) => <div className="npc-placement-map"><MapCanvas visualization={visualization} view="map" zoom={1}
+                      showGrid={true} showWarps={true} showSigns={true} showNpcs={true} selectedWarpId={null} selectedSignId={null} selectedNpcId={editingNpcId} arrivalWarpId={null}
+                      onSelectWarp={() => {}} onSelectSign={() => {}} onSelectNpc={() => {}} placement={{ x, y, onPlace }} /></div>}
+                    onClose={() => setEditingNpcId(null)} onDirtyChange={onDirtyChange}
+                    onSaved={(id, history) => {
+                      newNpcSelection.current = { map: visualization.map.constant, id };
+                      setEditingNpcId(null);
                       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
                     }} />}
                   <div className="world-map-npc-list" aria-label="Map NPCs">
@@ -1319,6 +1332,7 @@ export function MapsTab({
                         </dl>
                       </div>
 
+                      <div className="world-map-npc-actions"><button type="button" className="small-button" onClick={() => setEditingNpcId(selectedNpc.id)}>Edit NPC</button></div>
                       <div className="world-map-npc-dialogue">
                         <MapInteractionEditor
                           key={`npc:${selectedNpc.scriptPath}:${selectedNpc.id}:${selectedNpc.textLabel ?? selectedNpc.textConstant}`}

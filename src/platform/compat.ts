@@ -11,6 +11,8 @@ import type {
   ItemEditValues,
   MapNpcCreateDocument,
   MapNpcCreateValues,
+  MapNpcEditDocument,
+  MapNpcEditValues,
   PokemonBaseStatValues,
   PokemonEditSourceDocument,
   PokemonEditValues,
@@ -610,6 +612,12 @@ export async function invoke<T>(
       }
       return (await session.createMapNpc(args.document as MapNpcCreateDocument, args.values as MapNpcCreateValues)) as T;
     }
+
+    case "get_map_npc_edit_document":
+      return await session.getMapNpcEditDocument(stringArg(args, "mapConstant"), numberArg(args, "objectId")) as T;
+    case "save_map_npc":
+      if (!args?.document || !args.values) throw new Error("Missing NPC edit document or values.");
+      return await session.saveMapNpc(args.document as MapNpcEditDocument, args.values as MapNpcEditValues) as T;
 
     case "get_script_interaction_document":
       return await session.getScriptInteractionDocument(stringArg(args, "path"), stringArg(args, "label")) as T;
