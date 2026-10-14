@@ -84,6 +84,7 @@ for (const directory of args) test(`${directory}: existing NPC editing`, async (
   // Moving an unrelated actor into a walking route must be refused too.
   const blocker = await loadMapNpcEditDocument(source, "ROUTE_1", 2);
   await assert.rejects(() => prepareMapNpcEditWrites(source, blocker, { ...blocker.values, x: 7, y: 25 }), /interaction.*invalid/);
+  await assert.rejects(() => prepareMapNpcEditWrites(source, blocker, { ...blocker.values, x: 6, y: 26, movement: "STAY", direction: "DOWN" }), /player start or coordinate trigger/);
   if (rgbds) {
     const temporary = await mkdtemp(resolve("node_modules/.npc-edit-rom-"));
     try {

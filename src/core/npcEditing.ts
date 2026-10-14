@@ -89,6 +89,9 @@ export async function prepareMapNpcEditWrites(source: ProjectSource, document: M
       if (moved && values.moveSceneStart && d.linkedScenes.some(entry => entry.label === model.label) && next.scene) {
         next.scene.playerX += values.x - d.values.x; next.scene.playerY += values.y - d.values.y;
       }
+      if (moved && values.movement === "STAY" && next.scene && next.scene.playerX === values.x && next.scene.playerY === values.y && !next.scene.hiddenNpcs.includes(d.objectConstant)) {
+        throw new Error("The NPC would occupy this scene's player start or coordinate trigger.");
+      }
       for (const write of await prepareScriptInteractionWrites(overlay, sceneDoc, next)) changed.set(write.path, write.contents);
     } catch (error) { throw new Error(`Cannot save this NPC placement because interaction ${model.label} would be invalid: ${String(error)} Choose another position or adjust its scene first.`); }
   }
