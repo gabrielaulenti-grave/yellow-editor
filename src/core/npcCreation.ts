@@ -58,7 +58,7 @@ function checkMacros(text: string): void {
   }
 }
 
-async function load(source: ProjectSource, mapConstant: string) {
+export async function loadMapNpcSourceState(source: ProjectSource, mapConstant: string, editObjectId?: number) {
   const files = await readProjectRgbdsSources(source);
   if (files.some(file => file.readError)) throw new Error("Could not inspect all assembly sources for NPC symbol collisions.");
   const byPath = new Map(files.map(file => [file.path, file.contents]));
@@ -121,7 +121,7 @@ async function load(source: ProjectSource, mapConstant: string) {
   }
   // Sign IDs move upward when a new object occupies the old object/sign
   // boundary. Literal text dispatches cannot follow those symbolic changes.
-  if (pointers.length > events.length && /\bld\s+a,\s*(?:\$[\da-f]+|\d+)\s*(?:;[^\n]*)?\r?\n\s*(?:ldh?[^\n]*\r?\n\s*)?call\s+DisplayTextID\b/i.test(script + "\n" + (byPath.get(`scripts/${name}_2.asm`) ?? ""))) {
+  if (editObjectId === undefined && pointers.length > events.length && /\bld\s+a,\s*(?:\$[\da-f]+|\d+)\s*(?:;[^\n]*)?\r?\n\s*(?:ldh?[^\n]*\r?\n\s*)?call\s+DisplayTextID\b/i.test(script + "\n" + (byPath.get(`scripts/${name}_2.asm`) ?? ""))) {
     throw new Error("This map dispatches numeric text IDs; review those calls before adding an NPC.");
   }
   const constants = new Map(projectConstantCatalogFromSources(files.filter(file => file.path.startsWith("constants/"))).constants.map(entry => [entry.symbol, entry.value]));
@@ -132,8 +132,8 @@ async function load(source: ProjectSource, mapConstant: string) {
   };
   const follower = constants.get("PIKACHU_SPRITE_INDEX");
   const maxObjects = Math.min(number("MAX_OBJECT_EVENTS"), number("NUM_SPRITESTATEDATA_STRUCTS") - 1, follower === undefined ? Infinity : follower - 1);
-  if (events.length >= maxObjects) throw new Error(`This map already uses all ${maxObjects} available object slots.`);
-  if (pointers.length + 1 >= number("TRAINER")) throw new Error("This map has no free ordinary text IDs.");
+  if (editObjectId === undefined && events.length >= maxObjects) throw new Error(`This map already uses all ${maxObjects} available object slots.`);
+  if (editObjectId === undefined && pointers.length + 1 >= number("TRAINER")) throw new Error("This map has no free ordinary text IDs.");
   const fullSprites = [...read("data/sprites/sprites.asm").matchAll(/^\s*overworld_sprite\s+\w+,\s*12\s*;\s*(SPRITE_\w+)\s*$/gm)].map(match => match[1]).filter(value => constants.has(value) && !value.includes("UNUSED"));
   if (!fullSprites.length) throw new Error("Could not derive animated sprite graphics.");
   const sets = read("data/maps/sprite_sets.asm");
@@ -162,7 +162,7 @@ async function load(source: ProjectSource, mapConstant: string) {
     spriteNote = names.length > 1 ? "Sprites compatible with both areas of this outdoor map." : "Sprites already available in this outdoor map's shared set.";
   } else {
     const engine = read("engine/overworld/map_sprites.asm");
-    const used = new Set(events.map(event => event[2]).filter(value => fullSprites.includes(value)));
+    const used = new Set(events.filter((_, index) => index + 1 !== editObjectId).map(event => event[2]).filter(value => fullSprites.includes(value)));
     let capacity: number;
     if (follower !== undefined) {
       const match = engine.match(/ld de, wSpriteSet\s*\r?\n\s*ld b, (\d+)\s*\r?\n\s*call CheckIfPictureIDAlreadyLoaded/);
@@ -178,6 +178,7 @@ async function load(source: ProjectSource, mapConstant: string) {
     sprites = fullSprites.filter(sprite => used.has(sprite) || used.size < capacity);
     spriteNote = "Choices respect this indoor map's remaining sprite graphics slots.";
   }
+  if (editObjectId !== undefined && events[editObjectId - 1] && constants.has(events[editObjectId - 1][2]) && !sprites.includes(events[editObjectId - 1][2])) sprites.unshift(events[editObjectId - 1][2]);
   if (!sprites.length) throw new Error("This map has no compatible animated sprites available.");
   const dialogueOptions: MapNpcCreateDocument["dialogueOptions"] = [];
   // Reuse plain, context-free dialogue data, never the stateful wrapper that
@@ -210,7 +211,7 @@ async function load(source: ProjectSource, mapConstant: string) {
 }
 
 export async function loadMapNpcCreateDocument(source: ProjectSource, mapConstant: string): Promise<MapNpcCreateDocument> {
-  return (await load(source, mapConstant)).document;
+  return (await loadMapNpcSourceState(source, mapConstant)).document;
 }
 
 export function npcDialogueSegments(dialogueLines: string[]): TextSegment[] {
@@ -218,7 +219,7 @@ export function npcDialogueSegments(dialogueLines: string[]): TextSegment[] {
 }
 
 export async function prepareMapNpcWrites(source: ProjectSource, document: MapNpcCreateDocument, values: MapNpcCreateValues): Promise<TextWriteRequest[]> {
-  const state = await load(source, document.mapConstant);
+  const state = await loadMapNpcSourceState(source, document.mapConstant);
   const current = state.document;
   if (JSON.stringify(current.sources) !== JSON.stringify(document.sources)) throw new Error("NPC sources changed while the form was open. Reopen Add NPC before saving.");
   if (!Number.isInteger(values.x) || !Number.isInteger(values.y) || values.x < 0 || values.y < 0 || values.x >= Math.min(current.width, 252) || values.y >= Math.min(current.height, 252)) throw new Error("Choose a whole-number position inside this map.");

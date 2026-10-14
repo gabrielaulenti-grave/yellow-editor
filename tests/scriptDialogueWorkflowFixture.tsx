@@ -1,3 +1,4 @@
+import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "../src/core/npcEditing";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "../src/core/scriptInteractions";
 import { useState } from "react";
@@ -42,6 +43,8 @@ fixture.dialogueInvoke = async (command, args) => {
   switch (command) {
     case "get_map_index": return parseMapIndex(source);
     case "get_map_visualization": return loadMapVisualization(source, args!.mapConstant as string);
+    case "get_map_npc_edit_document": return loadMapNpcEditDocument(source, args!.mapConstant as string, args!.objectId as number);
+    case "save_map_npc": return session.saveTextChanges("Edit NPC", await prepareMapNpcEditWrites(source, args!.document as never, args!.values as never));
     case "get_script_interaction_document":
       fixture.interactionTargets.push(args);
       return loadScriptInteractionDocument(source, args!.path as string, args!.label as string);
