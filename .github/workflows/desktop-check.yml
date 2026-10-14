@@ -65,6 +65,12 @@ jobs:
       - name: Check reusable interaction composition and source guards
         run: npm run test:interactions -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check existing NPC editing and scene preservation
+        run: npm run test:npcs:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check NPC editing through Maps
+        run: npm run test:npcs:edit:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check walking scene sources and guards
         run: npm run test:scenes -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -103,6 +109,9 @@ jobs:
 
       - name: Assemble and execute walking scenes in Red and Yellow
         run: npm run test:scenes -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Assemble relocated NPCs and following scenes in Red and Yellow
+        run: npm run test:npcs:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
 
       - name: Assemble and execute the PC lesson regression scenario
         run: npm run test:pc-tutorial -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

@@ -11,3 +11,7 @@
 .npc-placement-map { max-height: 280px; overflow: auto; border: 1px solid var(--border); cursor: crosshair; }
 .npc-placement-marker { position: absolute; display: grid; place-items: center; box-sizing: border-box; background: #ffc83ccc; border: 2px solid #6a4300; color: #332200; font-weight: bold; pointer-events: none; }
 @media (max-width: 480px) { .npc-create-dialog { padding: 14px; } .npc-create-dialog .wizard-steps { gap: 4px; } .npc-create-dialog .wizard-steps span { padding: 6px; font-size: .8rem; } }
+
+.npc-create-fields .npc-edit-toggle { display: flex; align-items: flex-start; gap: 8px; }
+.npc-create-fields .npc-edit-toggle input { width: auto; flex: none; }
+.npc-create-fields ul { overflow-wrap: anywhere; padding-left: 20px; }
