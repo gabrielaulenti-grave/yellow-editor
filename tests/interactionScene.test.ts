@@ -117,7 +117,7 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
   const doorValues = { ...doorDoc.values, showOriginal: false, actions: identifySequenceDialogue([
     { kind: "walk-npc", npc: doorActor, steps: ["DOWN", "DOWN"] },
     { kind: "visibility", npc: doorActor, visible: false },
-  ]), scene: { trigger: "coordinate" as const, playerX: 6, playerY: 6, idleState: 0, hiddenNpcs: [] } };
+  ]), scene: { trigger: "coordinate" as const, playerX: 5, playerY: 6, idleState: 0, hiddenNpcs: [] } };
   const doorWrites = await prepareScriptInteractionWrites(source, doorDoc, doorValues);
   const doorModel = JSON.parse(doorWrites.find(write => write.path === doorPath)!.contents.match(/yellow-editor-interaction: (.*)/)![1]) as ManagedInteraction;
   assert.ok(doorModel.scene!.nodes.some(node => node.kind === "npc-start" && node.to?.x === 4 && node.to?.y === 7));
