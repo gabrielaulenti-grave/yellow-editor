@@ -66,6 +66,21 @@ try {
       const route = actions.getByLabel("Actions action 3 route", { exact: true });
       await route.fill(""); await route.pressSequentially("LEFT, UP");
       assert.equal(await route.inputValue(), "LEFT, UP", "Route editing preserves separators while typing");
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("choice");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      const yes = actions.getByRole("group", { name: "Actions 4 Yes", exact: true });
+      await yes.getByLabel("Actions 4 Yes action type", { exact: true }).selectOption("pokemon");
+      await yes.getByRole("button", { name: "Actions 4 Yes add action", exact: true }).click();
+      await yes.getByLabel("Actions 4 Yes Gift Pokémon", { exact: true }).selectOption("DRATINI");
+      await actions.getByRole("button", { name: "Actions 4 No or B remove action 1", exact: true }).click();
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("walk-npc");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await actions.getByLabel("Actions Scene NPC", { exact: true }).last().selectOption(actor);
+      await actions.getByLabel("Actions action 5 route", { exact: true }).fill("RIGHT");
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("visibility");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await actions.getByLabel("Actions Scene NPC", { exact: true }).last().selectOption(actor);
+      await actions.getByLabel("Visible (uncheck to hide)", { exact: true }).last().uncheck();
       await page.waitForFunction(() => window.dialogueDirty === true);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await dialog.getByRole("button", { name: "Save interaction", exact: true }).click();
@@ -75,14 +90,20 @@ try {
       assert.ok(saved.some(write => write.path === "engine/overworld/toggleable_objects.asm"));
       const metadata = JSON.parse(saved.find(write => write.path === "scripts/PalletTown.asm").contents.match(/yellow-editor-interaction: (.*)/)[1]);
       assert.equal(metadata.version, 3); assert.deepEqual(metadata.values.scene.hiddenNpcs, [actor]);
-      assert.deepEqual(metadata.values.actions.at(-1).steps, ["LEFT", "UP"]);
+      assert.deepEqual(metadata.values.actions[2].steps, ["LEFT", "UP"]);
+      assert.equal(metadata.values.actions[3].yes[0].species, "DRATINI");
+      assert.deepEqual(metadata.values.actions[4].steps, ["RIGHT"]);
+      assert.equal(metadata.values.actions[5].visible, false);
+      assert.ok(metadata.scene.giftFlag.endsWith("_GIFT_DELIVERED"));
       await page.locator(".world-map-npc-inspector").getByRole("button", { name: "Edit interaction", exact: true }).click();
       assert.equal(await dialog.getByLabel("Scene trigger", { exact: true }).inputValue(), "coordinate");
       assert.equal(await dialog.getByLabel("Actions action 3 route", { exact: true }).inputValue(), "LEFT, UP");
+      assert.equal(await dialog.getByLabel("Actions action 5 route", { exact: true }).inputValue(), "RIGHT");
+      assert.equal(await dialog.getByLabel("Actions 4 Yes Gift Pokémon", { exact: true }).inputValue(), "DRATINI");
       assert.equal(await page.evaluate(() => window.dialogueDirty), false);
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
       assert.deepEqual(errors, []);
-      console.log(`${root} ${width}px: map scene actions, route typing, hidden coordinate trigger, atomic save/reopen and responsive layout verified`);
+      console.log(`${root} ${width}px: hidden coordinate scene, conditional Pokémon gift, walking/hiding after delivery, atomic save/reopen and responsive layout verified`);
       await page.close();
     }
   }

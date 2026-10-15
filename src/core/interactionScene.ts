@@ -25,6 +25,9 @@ export interface ScenePlan {
   actors: SceneActor[]; frozen: number[]; nodes: Node[]; textNodes: number[]; textSlots: number;
   visibility: Array<{ npc: string; id: number; flag: string; hiddenInitially: boolean }>;
   latchFlag: string | null; follower: boolean;
+  // Optional so existing v3 source can still be verified before upgrading.
+  // One reward per path: one pending delivery covers all mutually exclusive gifts.
+  giftFlag?: string;
 }
 const delta: Record<string, Point> = { UP: { x: 0, y: -1 }, DOWN: { x: 0, y: 1 }, LEFT: { x: -1, y: 0 }, RIGHT: { x: 1, y: 0 } };
 const same = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
@@ -48,12 +51,15 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   const owner = state.old?.scene?.owner ?? Array.from({ length: 255 }, (_, i) => i + 1).find(id => !others.some(other => other.scene!.owner === id));
   if (!owner) throw new Error("No free scene identifier remains on this map.");
   const visibility = structuredClone(state.old?.scene?.visibility ?? []), staged = new Set(options.hiddenNpcs);
+  let hasGift = false;
   const visit = (actions: InteractionAction[]) => actions.forEach(action => {
     if (action.kind === "visibility") staged.add(action.npc);
+    else if (action.kind === "item" || action.kind === "pokemon") hasGift = true;
     else if (action.kind === "choice") { visit(action.yes); visit(action.no); }
     else if (action.kind === "if-event") { visit(action.then); visit(action.otherwise); }
   });
   visit(model.values.actions);
+  const giftFlag = state.old?.scene?.giftFlag ?? (hasGift ? allocate(`EVENT_${model.prefix.toUpperCase()}_GIFT_DELIVERED`) : undefined);
   for (const npc of staged) {
     const actor = domain.actors.find(actor => actor.constant === npc)!;
     const shared = others.flatMap(other => other.scene!.visibility).find(entry => entry.npc === npc);
@@ -149,7 +155,8 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   const textNodes = nodes.flatMap((node, i) => node.kind === "original" || node.kind === "op" && ["dialogue", "choice", "item", "pokemon"].includes(node.action!.kind) ? [i] : []);
   return { owner, mapConstant: domain.mapConstant, stateVariable: domain.stateVariable, actors: domain.actors, frozen: state.objectRows.map((_, i) => i + 1), nodes, textNodes,
     textSlots: Math.max(textNodes.length, state.old?.scene?.textSlots ?? 0), visibility, follower: state.byPath.has("scripts/OaksLab_2.asm"),
-    latchFlag: state.old?.scene?.latchFlag ?? (options.trigger === "coordinate" ? allocate(`EVENT_${model.prefix.toUpperCase()}_SCENE_LATCH`) : null) };
+    latchFlag: state.old?.scene?.latchFlag ?? (options.trigger === "coordinate" ? allocate(`EVENT_${model.prefix.toUpperCase()}_SCENE_LATCH`) : null),
+    ...(giftFlag ? { giftFlag } : {}) };
 }
 export function sceneRootHook(prefix: string) { return `\t; yellow-editor-scene-hook ${prefix}\n\tcall ${prefix}SceneFrame\n\tret c\n\t; yellow-editor-scene-hook-end ${prefix}\n`; }
 
@@ -194,7 +201,11 @@ export function renderScene(model: ManagedInteraction): string {
   plan.nodes.forEach((node, i) => {
     lines.push(`${p}State${i}:`);
     if (node.kind === "start") lines.push(...next(node.next!));
-    else if (node.kind === "finish") lines.push(...(node.complete ? [...(v.once && model.flag ? [`\tSetEvent ${model.flag}`] : []), ...v.events.map(event => `\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`), `\tjp ${p}Cleanup`] : [`\tjp ${p}Abort`]));
+    else if (node.kind === "finish") lines.push(...(node.complete ? [...(v.once && model.flag ? [`\tSetEvent ${model.flag}`] : []),
+      // Only normal completion retires the pending delivery. Aborts and map
+      // reloads retain it; a repeatable scene can give again after completing.
+      ...(plan.giftFlag ? [`\tResetEvent ${plan.giftFlag}`] : []),
+      ...v.events.map(event => `\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`), `\tjp ${p}Cleanup`] : [`\tjp ${p}Abort`]));
     else if (node.kind === "npc-start") {
       const id = actorId(node.npc!);
       lines.push(...location(sprite(id, "StateData2MapX"), sprite(id, "StateData2MapY"), node.from!, `${p}Abort`, 4), ...occupied(node.to!, id, `npc${i}`),
@@ -231,9 +242,12 @@ export function renderScene(model: ManagedInteraction): string {
     if (a?.kind === "choice") lines.push(...choose(node));
     else if (a?.kind === "dialogue" && plan.nodes[node.next!].action?.kind === "choice") { lines.push(...choose(plan.nodes[node.next!])); }
     else if (a?.kind === "item" || a?.kind === "pokemon") {
-      lines.push(`\tlb bc, ${a.kind === "item" ? `${a.item}, ${a.quantity}` : `${a.species}, ${a.level}`}`, `\tcall ${a.kind === "item" ? "GiveItem" : "GivePokemon"}`, "\tjr nc, .full",
+      lines.push(...(plan.giftFlag ? [`\tCheckEvent ${plan.giftFlag}`, "\tjr nz, .delivered"] : []),
+        `\tlb bc, ${a.kind === "item" ? `${a.item}, ${a.quantity}` : `${a.species}, ${a.level}`}`, `\tcall ${a.kind === "item" ? "GiveItem" : "GivePokemon"}`, "\tjr nc, .full",
+        // Commit immediately on carry success, before prompts or further steps.
+        ...(plan.giftFlag ? [`\tSetEvent ${plan.giftFlag}`] : []),
         ...(a.kind === "pokemon" ? ["\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing"] : ["\tld a, SFX_GET_ITEM_1", "\tcall PlaySound", "\tcall WaitForSoundToFinish"]),
-        `\tld a, ${node.next}`, "\tjr .selected", ".full", ...print("BagFullText"), "\tld a, 2", ".selected", "\tld [wEditorSceneState], a");
+        ...(plan.giftFlag ? [".delivered"] : []), `\tld a, ${node.next}`, "\tjr .selected", ".full", ...print("BagFullText"), "\tld a, 2", ".selected", "\tld [wEditorSceneState], a");
     } else lines.push(`\tld a, ${node.next}`, "\tld [wEditorSceneState], a");
     lines.push("\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a", "\tjp TextScriptEnd", "");
   });
