@@ -43,7 +43,7 @@ export async function prepareSceneBankSpace(state: InteractionInspection, change
     if ([path, dataPath, "home/hidden_events.asm"].includes(file.path)) continue;
     // Refuse new direct or indirect incoming references, rather than moving a
     // modified same-bank dependency and producing a ROM that merely links.
-    const source = code(file.contents).replace(/"(?:[^"\\]|\\.)*"/g, '""');
+    const source = code(file.contents);
     if (references.test(source)) throw new Error(`Cannot move hidden-event lookup: ${file.path} contains an unreviewed reference.`);
   }
   if (upgraded) return;

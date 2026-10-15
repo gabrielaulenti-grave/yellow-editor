@@ -32,6 +32,7 @@ export async function sceneBankSpaceChecks(root: string) {
   await assert.rejects(() => prepareSceneBankSpace(state(replace(files, "home/hidden_events.asm", "BANK(CheckForHiddenEvent)", "$11")), new Map()), /bank-switching dispatcher/);
   await assert.rejects(() => prepareSceneBankSpace(state(replace(files, "data/events/hidden_events.asm", "RARE_CANDY", "POTION")), new Map()), /reviewed hidden-event tables/);
   await assert.rejects(() => prepareSceneBankSpace(state([...files, { path: "scripts/Unreviewed.asm", contents: "Unreviewed:\n\tcall CheckForHiddenEvent\n" }]), new Map()), /unreviewed reference/);
+  await assert.rejects(() => prepareSceneBankSpace(state([...files, { path: "constants/Unreviewed.asm", contents: 'DEF HiddenLookupAlias EQUS "CheckForHiddenEvent"\n' }]), new Map()), /unreviewed reference/);
   await assert.rejects(() => prepareSceneBankSpace(state(replace(upgraded, path, "PUSHS", "PUSHS\nSECTION \"Wrong\", ROMX")), new Map()), /section was changed/);
   console.log(`${root}: bank-space upgrade preserves native dungeon callers; caller/data/code drift, unsafe references and CRLF guards pass`);
 }
