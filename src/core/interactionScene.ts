@@ -1,4 +1,5 @@
 import { hashText } from "./history";
+import { prepareSceneBankSpace } from "./sceneBankSpace";
 import { parseMapIndex } from "./mapVisualization";
 import type { InteractionAction } from "./interactionSequence";
 import type { ManagedInteraction, InteractionInspection } from "./scriptInteractions";
@@ -285,6 +286,7 @@ function body(text: string, label: string) {
   return match[1].split("\n").map(line => line.split(";", 1)[0].trim()).filter(Boolean).join("\n");
 }
 export async function prepareSceneRuntime(state: InteractionInspection, model: ManagedInteraction, changed: Map<string, string>) {
+  await prepareSceneBankSpace(state, changed);
   const existing = sceneModels(state.files), all = [...existing.filter(other => other.prefix !== model.prefix), model];
   const normalize = (text: string) => text.replace(/\r\n/g, "\n");
   const save = (path: string, text: string) => changed.set(path, text.replace(/\n/g, state.byPath.get(path)!.includes("\r\n") ? "\r\n" : "\n"));

@@ -10,11 +10,14 @@ import type { ProjectSource } from "../src/core/types";
 import { sceneCpuProbes } from "./sceneCpuProbes";
 import { sceneGiftCpuProbes } from "./sceneGiftCpuProbes";
 import { renderScene } from "../src/core/interactionScene";
+import { sceneBankSpaceChecks } from "./sceneBankSpaceChecks";
+import { sceneBankSpaceRomChecks } from "./sceneBankSpaceRomChecks";
 const args = process.argv.slice(2), at = args.indexOf("--rom");
 const rgbds = at < 0 ? null : resolve(args[at + 1]), binjgb = at < 0 ? null : resolve(args[at + 2]);
 if (at >= 0) args.splice(at, 3);
 for (const directory of args) test(`${directory}: walking scenes`, async () => {
   const root = resolve(directory), overlay = new Map<string, string>();
+  await sceneBankSpaceChecks(root);
   async function listFiles(folder = ""): Promise<string[]> {
     return (await Promise.all((await readdir(join(root, folder), { withFileTypes: true })).filter(entry => !entry.name.startsWith(".")).map(entry => entry.isDirectory() ? listFiles(join(folder, entry.name)) : [join(folder, entry.name)]))).flat();
   }
@@ -150,8 +153,11 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
       const target = root.includes("pokeyellow") ? "pokeyellow" : "pokered";
       run("make", ["clean"], game); run("make", ["-j2", `RGBDS=${rgbds}/`, `${target}.gbc`], game);
       const baseSymbols = await readFile(join(game, `${target}.sym`), "utf8");
+      const baseMap = await readFile(join(game, `${target}.map`), "utf8");
+      const baseRomSize = (await readFile(join(game, `${target}.gbc`))).length;
       for (const [path, text] of overlay) await writeFile(join(game, path), text);
       run("make", ["clean"], game); run("make", ["-j2", `RGBDS=${rgbds}/`, `${target}.gbc`], game);
+      if (target === "pokered") await sceneBankSpaceRomChecks(game, root, rgbds, baseMap, baseSymbols, baseRomSize, run);
       const modifiedSymbols = await readFile(join(game, `${target}.sym`), "utf8");
       const savedRam = (symbols: string) => [...symbols.matchAll(/^00:([cd][0-9a-f]{3}) (w\w+)$/gm)].map(match => [match[2], match[1]]);
       const modified = new Map(savedRam(modifiedSymbols));
