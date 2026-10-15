@@ -109,8 +109,18 @@ Pikachu, abort before an occupied step. This initial version does not reroute.
 The NPC stays at its destination until moved again or the map reloads. Branches
 with different final staging must end separately rather than rejoin.
 
-Walking runs before rewards, so interrupted movement cannot duplicate a delivered
-gift. Successful exits retain authored visibility; incomplete exits restore the
+Walking can run before or after rewards. A scene records successful delivery in
+a separate persistent event bit immediately after the gift succeeds. Interrupted
+scenes retain this checkpoint, including across map reloads and saved games;
+retrying skips delivery and continues the authored actions. Failed delivery sets
+no checkpoint and remains available for retry. All mutually exclusive reward
+branches share the checkpoint because only one reward per path is supported.
+Normal scene completion clears it; one-time scenes also set their completion
+flag, while repeatable scenes can give again on the next completed run. The
+checkpoint is internal and cannot be changed through authored event actions.
+Existing scenes upgrade when saved again; rebuild the ROM after saving.
+
+Successful exits retain authored visibility; incomplete exits restore the
 starting visibility. Initial visibility becomes fixed after the first save to
 avoid reinterpreting existing saved event bits. Scene visibility flags share the
 existing event array; native toggle IDs and save sizes are unchanged.

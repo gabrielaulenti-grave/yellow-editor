@@ -205,7 +205,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const soundMacro = music.match(/MACRO music_const\s*\n([\s\S]*?)\nENDM/);
   const sounds = soundMacro && rows(soundMacro[1]).map(clean).filter(Boolean).join("\n") === 'DEF \\1 EQUS "((\\2 - SFX_Headers_1) / 3)"'
     ? [...music.matchAll(/^\s*music_const\s+(SFX_[A-Z0-9_]+),\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter((name, i, all) => all.indexOf(name) === i && name !== "SFX_STOP_ALL_MUSIC") : [];
-  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION.*(?:_DONE|_SCENE_LATCH|_VISIBILITY)$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
+  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION.*(?:_DONE|_SCENE_LATCH|_VISIBILITY|_GIFT_DELIVERED)$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
   const mapName = path.replace(/^scripts\//, "").replace(/(?:_2)?\.asm$/, "");
   const primaryPath = `scripts/${mapName}.asm`;
   const primary = byPath.get(primaryPath) ?? "";
