@@ -23,6 +23,15 @@ test("dialogue prompts follow branch continuations and leave questions to the me
   assert.deepEqual([...sequenceDialoguePrompts(rejoin).values()], [false, false]);
 });
 test("sequences track reward retries across branches, joins and early ends", () => {
+  const sceneDomains = { ...domains, scene: { reason: null, actors: [{ constant: "NPC" }] } };
+  for (const once of [true, false]) {
+    assert.doesNotThrow(() => validateInteractionSequence([
+      { kind: "choice", yes: [item], no: [] }, { kind: "walk-npc", npc: "NPC", steps: ["UP"] },
+    ], sceneDomains, once));
+    assert.doesNotThrow(() => validateInteractionSequence([
+      { kind: "pokemon", species: "DRATINI", level: 5 }, { kind: "follow-npc", npc: "NPC", steps: ["UP"] },
+    ], sceneDomains, once));
+  }
   assert.doesNotThrow(() => validateInteractionSequence([{ kind: "choice", yes: [item], no: [{ kind: "end", complete: false }] }], domains, true));
   assert.throws(() => validateInteractionSequence([item, item], domains, true), /one reward per execution path/);
   assert.throws(() => validateInteractionSequence([{ kind: "choice", yes: [item], no: [] }, item], domains, true), /one reward/);

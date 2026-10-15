@@ -8,6 +8,8 @@ import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCr
 import { identifySequenceDialogue } from "../src/core/interactionSequence";
 import type { ProjectSource } from "../src/core/types";
 import { sceneCpuProbes } from "./sceneCpuProbes";
+import { sceneGiftCpuProbes } from "./sceneGiftCpuProbes";
+import { renderScene } from "../src/core/interactionScene";
 const args = process.argv.slice(2), at = args.indexOf("--rom");
 const rgbds = at < 0 ? null : resolve(args[at + 1]), binjgb = at < 0 ? null : resolve(args[at + 2]);
 if (at >= 0) args.splice(at, 3);
@@ -62,6 +64,51 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
   const crlfDoc = await loadScriptInteractionDocument(crlfSource, path, label);
   const crlfWrites = await prepareScriptInteractionWrites(crlfSource, crlfDoc, crlfDoc.values);
   assert.equal(crlfWrites.find(write => write.path === path)!.contents.replace(/\r\n/g, "\n"), generated);
+  const giftValues = { ...again.values, actions: identifySequenceDialogue([
+    { kind: "visibility", npc: actor, visible: true },
+    { kind: "walk-npc", npc: actor, steps: ["LEFT"] },
+    { kind: "dialogue", lines: ["Want a DRATINI?"] },
+    { kind: "choice", yes: [{ kind: "pokemon", species: "DRATINI", level: 5 }], no: [] },
+    { kind: "walk-npc", npc: actor, steps: ["RIGHT"] },
+    { kind: "visibility", npc: actor, visible: false },
+  ]) };
+  (await prepareScriptInteractionWrites(source, await loadScriptInteractionDocument(source, path, label), giftValues)).forEach(write => overlay.set(write.path, write.contents));
+  const giftScript = overlay.get(path)!, giftModel = JSON.parse(giftScript.match(/yellow-editor-interaction: (.*)/)![1]) as ManagedInteraction;
+  const giftFlag = giftModel.scene!.giftFlag!;
+  assert.ok(giftFlag.endsWith("_GIFT_DELIVERED"));
+  const giftDoc = await loadScriptInteractionDocument(source, path, label);
+  assert.deepEqual(giftDoc.values, giftValues);
+  assert.ok(!giftDoc.events.includes(giftFlag), "Authored actions cannot reset the internal delivery checkpoint");
+  await assert.rejects(() => prepareScriptInteractionWrites(source, giftDoc, {
+    ...giftDoc.values, events: [{ event: giftFlag, set: false }],
+  }), /existing project events/);
+  const alternateValues = structuredClone(giftValues);
+  const choice = alternateValues.actions.find(action => action.kind === "choice")!;
+  if (choice.kind === "choice") choice.no = [{ kind: "item", item: "POTION", quantity: 1 }];
+  const alternateWrites = await prepareScriptInteractionWrites(source, giftDoc, alternateValues);
+  const alternateGiftModel = JSON.parse(alternateWrites.find(write => write.path === path)!.contents.match(/yellow-editor-interaction: (.*)/)![1]) as ManagedInteraction;
+  assert.equal(alternateGiftModel.scene!.giftFlag, giftFlag);
+  const giftAgain = await prepareScriptInteractionWrites(source, giftDoc, giftDoc.values);
+  assert.equal(giftAgain.find(write => write.path === path)!.contents, giftScript);
+  assert.ok(!giftAgain.some(write => write.path === "constants/event_constants.asm"), "Reopening/saving retains the same reserved bit");
+  // Old v3 scenes verify against their original code, then acquire a checkpoint
+  // on save. No manual edits or source-guard bypass is needed to upgrade.
+  const legacy = structuredClone(giftModel);
+  delete legacy.scene!.giftFlag;
+  const oldCode = renderScene(legacy);
+  const start = giftScript.indexOf(`${label}:`), marker = `; yellow-editor-interaction-code-end ${label}`;
+  const end = giftScript.indexOf("\n", giftScript.indexOf(marker, start)) + 1;
+  const constantsPath = "constants/event_constants.asm", currentEvents = overlay.get(constantsPath)!;
+  overlay.set(path, giftScript.slice(0, start) + oldCode + giftScript.slice(end).replace(/^\n/, ""));
+  overlay.set(constantsPath, currentEvents.replace(new RegExp(`\\nDEF ${giftFlag} EQU \\$[a-f0-9]+\\n`), "\n"));
+  const legacyDoc = await loadScriptInteractionDocument(source, path, label);
+  const upgraded = await prepareScriptInteractionWrites(source, legacyDoc, legacyDoc.values);
+  assert.ok(upgraded.some(write => write.path === constantsPath && write.contents.includes(`DEF ${giftFlag} EQU`)));
+  assert.equal(upgraded.find(write => write.path === path)!.contents, giftScript);
+  overlay.set(path, giftScript); overlay.set(constantsPath, currentEvents);
+  const giftCrlfSource = { ...source, readText: async (path: string) => (await source.readText(path)).replace(/\r?\n/g, "\r\n") };
+  const giftCrlfDoc = await loadScriptInteractionDocument(giftCrlfSource, path, label);
+  assert.equal((await prepareScriptInteractionWrites(giftCrlfSource, giftCrlfDoc, giftCrlfDoc.values)).find(write => write.path === path)!.contents.replace(/\r\n/g, "\n"), giftScript);
   if (rgbds && binjgb) {
     const temporary = await mkdtemp(resolve("node_modules/.scene-runtime-"));
     const run = (cmd: string, argv: string[], cwd = temporary) => {
@@ -82,6 +129,7 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
       const cpu = join(temporary, "cpu");
       run("cc", ["-std=gnu11", "-O2", `-I${join(binjgb, "src")}`, resolve("tests/scriptRuntimeProbe.c"), ...["memory.c", "common.c", "emulator-debug.c"].map(file => join(binjgb, "src", file)), "-lm", "-o", cpu]);
       await sceneCpuProbes(root, temporary, rgbds, cpu, run, model, generated, overlay.get("constants/event_constants.asm")!, overlay.get("engine/overworld/toggleable_objects.asm")!);
+      await sceneGiftCpuProbes(root, temporary, rgbds, cpu, run, giftModel, alternateGiftModel, overlay.get("constants/event_constants.asm")!, overlay.get("engine/overworld/toggleable_objects.asm")!);
       console.log(`${root}: complete scene ROM builds and unchanged existing WRAM/save addresses verified`);
     } finally { await rm(temporary, { recursive: true, force: true }); }
   }

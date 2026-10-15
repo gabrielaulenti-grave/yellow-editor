@@ -73,7 +73,6 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
           if (entry.kind === "visibility") { if (typeof entry.visible !== "boolean") throw new Error("Choose whether the NPC is visible."); }
           else {
             if (!Array.isArray(entry.steps) || entry.steps.length < 1 || entry.steps.length > 32 || entry.steps.some(step => !["UP", "DOWN", "LEFT", "RIGHT"].includes(step))) throw new Error("Enter 1–32 UP, DOWN, LEFT or RIGHT steps.");
-            if (paths.has(1)) throw new Error("Walk before delivering rewards so interrupted movement cannot duplicate a gift.");
           }
           break;
         case "dialogue":
