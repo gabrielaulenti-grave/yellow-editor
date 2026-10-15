@@ -102,12 +102,18 @@ hide action. Use a Yes/No branch to allow declining. A declined coordinate scene
 stays latched until the player leaves the trigger tile.
 
 Routes use UP, DOWN, LEFT and RIGHT, separated by commas or whitespace. They
-stay within the map, avoid walls, signs, warps and other objects, and keep the
+stay within the map, avoid walls, signs and other objects, and keep the
 leading actor on screen. Only ordinary stationary NPCs are route actors; trainers
 and item objects retain their native behavior. Dynamic blockers, including Yellow's
 Pikachu, abort before an occupied step. This initial version does not reroute.
 The NPC stays at its destination until moved again or the map reloads. Branches
 with different final staging must end separately rather than rejoin.
+
+**Walk NPC** can enter a door or warp tile: native warps check the player's
+position and do not transfer an NPC to another map. Follow that walk with
+**Show/hide NPC** (hidden) to stage a departure. Player-following routes still
+reject warp tiles, as do scene player starts. Walls, occupied positions, map
+bounds and the on-screen route limit remain checked.
 
 Walking can run before or after rewards. A scene records successful delivery in
 a separate persistent event bit immediately after the gift succeeds. Interrupted

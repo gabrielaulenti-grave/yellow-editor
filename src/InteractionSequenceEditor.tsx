@@ -84,7 +84,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
           {options("Scene NPC", action.npc, document.scene.actors.map(actor => actor.constant), npc => update(i, { ...action, npc }))}
           {action.kind === "visibility" ? toggle("Visible (uncheck to hide)", action.visible, visible => update(i, { ...action, visible })) : <>
             <SceneRouteInput label={`${path} action ${i + 1} route`} steps={action.steps} busy={busy} onChange={steps => update(i, { ...action, steps })} />
-            <p className="help-text">UP, DOWN, LEFT or RIGHT; up to 32 steps. {action.kind === "follow-npc" ? "The player starts beside the NPC and follows into each vacated tile." : "The NPC stays at its destination until moved again or the map reloads."}</p>
+            <p className="help-text">UP, DOWN, LEFT or RIGHT; up to 32 steps. {action.kind === "follow-npc" ? "The player starts beside the NPC and follows into each vacated tile. Following routes cannot enter warps." : "The NPC can walk onto a door or warp tile without changing maps. Add Show/hide NPC afterward to make the character leave. Otherwise the NPC stays at its destination until moved again or the map reloads."}</p>
           </>}
         </>}
         {action.kind === "end" && <>{toggle("Mark interaction complete", action.complete, complete => update(i, { ...action, complete }))}<p className="help-text">An incomplete end allows a later retry. A complete end applies the success events and the one-time flag. Scenes restore player controls; an incomplete scene restores its starting visibility.</p></>}

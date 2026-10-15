@@ -109,6 +109,36 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
   const giftCrlfSource = { ...source, readText: async (path: string) => (await source.readText(path)).replace(/\r?\n/g, "\r\n") };
   const giftCrlfDoc = await loadScriptInteractionDocument(giftCrlfSource, path, label);
   assert.equal((await prepareScriptInteractionWrites(giftCrlfSource, giftCrlfDoc, giftCrlfDoc.values)).find(write => write.path === path)!.contents.replace(/\r\n/g, "\n"), giftScript);
+  const probeEngine = overlay.get("engine/overworld/toggleable_objects.asm")!;
+  const doorNpc = await loadMapNpcCreateDocument(source, "VIRIDIAN_POKECENTER");
+  (await prepareMapNpcWrites(source, doorNpc, { x: 4, y: 5, sprite: "SPRITE_GENTLEMAN", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Time to leave!"] } })).forEach(write => overlay.set(write.path, write.contents));
+  const doorActor = `VIRIDIAN_POKECENTER_EDITOR_NPC_${doorNpc.objectId}`, doorPath = "scripts/ViridianPokecenter.asm", doorLabel = `ViridianPokecenterEditorNpc${doorNpc.objectId}Text`;
+  const doorDoc = await loadScriptInteractionDocument(source, doorPath, doorLabel);
+  const doorValues = { ...doorDoc.values, showOriginal: false, actions: identifySequenceDialogue([
+    { kind: "walk-npc", npc: doorActor, steps: ["DOWN", "DOWN"] },
+    { kind: "visibility", npc: doorActor, visible: false },
+  ]), scene: { trigger: "coordinate" as const, playerX: 6, playerY: 6, idleState: 0, hiddenNpcs: [] } };
+  const doorWrites = await prepareScriptInteractionWrites(source, doorDoc, doorValues);
+  const doorModel = JSON.parse(doorWrites.find(write => write.path === doorPath)!.contents.match(/yellow-editor-interaction: (.*)/)![1]) as ManagedInteraction;
+  assert.ok(doorModel.scene!.nodes.some(node => node.kind === "npc-start" && node.to?.x === 4 && node.to?.y === 7));
+  assert.ok(doorModel.scene!.nodes.some(node => node.action?.kind === "visibility" && !node.action.visible));
+  const otherDoor = await prepareScriptInteractionWrites(source, doorDoc, { ...doorValues, actions: identifySequenceDialogue([
+    { kind: "walk-npc", npc: doorActor, steps: ["LEFT", "DOWN", "DOWN"] },
+    { kind: "visibility", npc: doorActor, visible: false },
+  ]) });
+  assert.ok(otherDoor.some(write => write.path === doorPath), "Both Pokémon Center door tiles permit NPC-only departures");
+  await assert.rejects(() => prepareScriptInteractionWrites(source, doorDoc, { ...doorValues, scene: { ...doorValues.scene, playerX: 4, playerY: 7 } }), /player start away from warps/);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, doorDoc, { ...doorValues, scene: { ...doorValues.scene, playerX: 4, playerY: 4 }, actions: identifySequenceDialogue([
+    { kind: "follow-npc", npc: doorActor, steps: ["DOWN", "DOWN"] },
+  ]) }), /Following routes cannot enter a warp/);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, doorDoc, { ...doorValues, actions: identifySequenceDialogue([
+    { kind: "walk-npc", npc: doorActor, steps: ["DOWN", "DOWN", "DOWN"] },
+  ]) }), /blocked at \(4, 8\)/);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, doorDoc, { ...doorValues, scene: { ...doorValues.scene, playerX: 4, playerY: 6 } }), /blocked at \(4, 6\)/);
+  doorWrites.forEach(write => overlay.set(write.path, write.contents));
+  const savedDoor = await loadScriptInteractionDocument(source, doorPath, doorLabel);
+  assert.deepEqual(savedDoor.values, doorValues);
+  console.log(`${root}: NPC door departures allow both exit warps; player starts, following, occupied tiles and map bounds remain guarded`);
   if (rgbds && binjgb) {
     const temporary = await mkdtemp(resolve("node_modules/.scene-runtime-"));
     const run = (cmd: string, argv: string[], cwd = temporary) => {
@@ -128,8 +158,8 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
       for (const [name, address] of savedRam(baseSymbols)) assert.equal(modified.get(name), address, `Existing WRAM address changed: ${name}`);
       const cpu = join(temporary, "cpu");
       run("cc", ["-std=gnu11", "-O2", `-I${join(binjgb, "src")}`, resolve("tests/scriptRuntimeProbe.c"), ...["memory.c", "common.c", "emulator-debug.c"].map(file => join(binjgb, "src", file)), "-lm", "-o", cpu]);
-      await sceneCpuProbes(root, temporary, rgbds, cpu, run, model, generated, overlay.get("constants/event_constants.asm")!, overlay.get("engine/overworld/toggleable_objects.asm")!);
-      await sceneGiftCpuProbes(root, temporary, rgbds, cpu, run, giftModel, alternateGiftModel, overlay.get("constants/event_constants.asm")!, overlay.get("engine/overworld/toggleable_objects.asm")!);
+      await sceneCpuProbes(root, temporary, rgbds, cpu, run, model, generated, overlay.get("constants/event_constants.asm")!, probeEngine);
+      await sceneGiftCpuProbes(root, temporary, rgbds, cpu, run, giftModel, alternateGiftModel, overlay.get("constants/event_constants.asm")!, probeEngine);
       console.log(`${root}: complete scene ROM builds and unchanged existing WRAM/save addresses verified`);
     } finally { await rm(temporary, { recursive: true, force: true }); }
   }
