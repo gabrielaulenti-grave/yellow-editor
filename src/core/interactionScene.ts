@@ -77,9 +77,16 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   const asset = graphics.slice(graphics.indexOf(`${tileset}_Block::`)).match(/INCBIN "([^"]+)"/)?.[1];
   if (!passable || passable.some(tile => tile === null) || !asset) throw new Error("Cannot prove the map's walking surfaces.");
   const [blocks, blockset] = await Promise.all([source.readBytes(`maps/${state.mapName}.blk`), source.readBytes(asset)]);
-  const barriers = [...state.objects.matchAll(/(?:warp_event|bg_event)\s+(\d+),\s*(\d+)/g)].map(match => ({ x: +match[1], y: +match[2] }));
-  const walkable = (p: Point) => p.x >= 0 && p.y >= 0 && p.x < map.width * 2 && p.y < map.height * 2
-    && passable.includes(blockset[blocks[Math.floor(p.y / 2) * map.width + Math.floor(p.x / 2)] * 16 + (p.y % 2 * 2 + 1) * 4 + p.x % 2 * 2]) && !barriers.some(other => same(other, p));
+  const coordinates = (event: string) => [...state.objects.matchAll(new RegExp(`^[ \\t]*${event}\\s+(\\d+),\\s*(\\d+)`, "gm"))].map(match => ({ x: +match[1], y: +match[2] }));
+  const warps = coordinates("warp_event"), signs = coordinates("bg_event");
+  const walkable = (p: Point, npcOnly = false) => {
+    if (p.x < 0 || p.y < 0 || p.x >= map.width * 2 || p.y >= map.height * 2 || signs.some(other => same(other, p))) return false;
+    // Native warps inspect player coordinates, not NPC positions. Scripted NPC
+    // movement can enter a door tile (even one absent from collision tiles).
+    // Never apply this exception to player starts or following routes.
+    if (warps.some(other => same(other, p))) return npcOnly;
+    return passable.includes(blockset[blocks[Math.floor(p.y / 2) * map.width + Math.floor(p.x / 2)] * 16 + (p.y % 2 * 2 + 1) * 4 + p.x % 2 * 2]);
+  };
   if (!walkable({ x: options.playerX, y: options.playerY })) throw new Error("Choose a walkable player start away from warps and signs.");
   interface World { player: Point; actors: Record<string, Point>; visible: Record<string, boolean> }
   const world: World = { player: { x: options.playerX, y: options.playerY }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
@@ -106,7 +113,8 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
         const route: NonNullable<ReturnType<typeof routes.get>> = [];
         for (const step of action.steps) {
           const from = { ...world.actors[action.npc] }, to = { x: from.x + delta[step].x, y: from.y + delta[step].y }, playerFrom = { ...world.player };
-          if (!walkable(to) || same(to, world.player) || state.objectRows.some((row, index) => {
+          if (action.kind === "follow-npc" && warps.some(warp => same(warp, to))) throw new Error(`Following routes cannot enter a warp at (${to.x}, ${to.y}). Use Walk NPC for an NPC-only departure.`);
+          if (!walkable(to, action.kind === "walk-npc") || same(to, world.player) || state.objectRows.some((row, index) => {
             const name = state.npcConstants[index];
             return name !== action.npc && world.visible[name] !== false && same(world.actors[name] ?? { x: +row[1], y: +row[2] }, to);
           })) throw new Error(`The NPC route is blocked at (${to.x}, ${to.y}).`);
