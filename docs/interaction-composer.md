@@ -126,6 +126,17 @@ flag, while repeatable scenes can give again on the next completed run. The
 checkpoint is internal and cannot be changed through authored event actions.
 Existing scenes upgrade when saved again; rebuild the ROM after saving.
 
+In Red/Blue, scene saving also separates the reviewed hidden-event lookup and
+its tables into a linker-allocated ROM section. This frees about 1.8 KB in the
+crowded map bank without moving its directly called dungeon-warp routine.
+The native dispatcher already selects the lookup's linked bank. Source guards
+verify the dispatcher, lookup, tables and incoming references before applying
+this update; the change shares the scene's undoable transaction. Existing scenes
+can apply it by reopening **Edit interaction**, choosing **Save interaction**,
+and rebuilding. Yellow already separates these routines and is left unchanged.
+ROM banks still have finite capacity; this change resolves the shared lookup
+allocation conflict rather than making scene size unlimited.
+
 Successful exits retain authored visibility; incomplete exits restore the
 starting visibility. Initial visibility becomes fixed after the first save to
 avoid reinterpreting existing saved event bits. Scene visibility flags share the
