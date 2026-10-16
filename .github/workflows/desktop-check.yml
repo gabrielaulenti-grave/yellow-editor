@@ -77,6 +77,9 @@ jobs:
       - name: Check walking scene authoring in Maps
         run: npm run test:scenes:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check music, fades and encounter authoring in Maps
+        run: npm run test:scenes:effects:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check sign and NPC dialogue editing through Scripts
         run: npm run test:dialogue:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 

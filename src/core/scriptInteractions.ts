@@ -1,5 +1,6 @@
 import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
 import { inspectSceneEmotes } from "./sceneEmotes";
+import { inspectSceneEffects, type SceneEffectsDomain } from "./sceneEffects";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { hashText } from "./history";
 import { identifySequenceDialogue, renderInteractionSequence, sequenceDialogue, sequenceDialoguePrompts, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
@@ -57,6 +58,7 @@ export interface PokemonGiftDocument {
   hidesObject: boolean;
 }
 export interface InteractionDocument {
+  effects: SceneEffectsDomain;
   scene: SceneDomain;
   path: string;
   label: string;
@@ -206,7 +208,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const soundMacro = music.match(/MACRO music_const\s*\n([\s\S]*?)\nENDM/);
   const sounds = soundMacro && rows(soundMacro[1]).map(clean).filter(Boolean).join("\n") === 'DEF \\1 EQUS "((\\2 - SFX_Headers_1) / 3)"'
     ? [...music.matchAll(/^\s*music_const\s+(SFX_[A-Z0-9_]+),\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter((name, i, all) => all.indexOf(name) === i && name !== "SFX_STOP_ALL_MUSIC") : [];
-  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION.*(?:_DONE|_SCENE_LATCH|_VISIBILITY|_GIFT_DELIVERED)$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
+  const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION.*(?:_DONE|_SCENE_LATCH|_VISIBILITY|_GIFT_DELIVERED|_BATTLE_WON|_BATTLE_CAUGHT)$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
   const mapName = path.replace(/^scripts\//, "").replace(/(?:_2)?\.asm$/, "");
   const primaryPath = `scripts/${mapName}.asm`;
   const primary = byPath.get(primaryPath) ?? "";
@@ -286,7 +288,10 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     if (!stateCount || stateCount > 250 || !range(primary, `${mapName}_Script`).body.some(line => /^(?:jp|call) CallFunctionInTable$/.test(clean(line))) || !primary.includes(`[w${mapName}CurScript]`) || !byPath.get("ram/wram.asm")?.includes(`w${mapName}CurScript::`)) throw new Error("state");
     if (!sign || npcConstants.length !== objectRows.length) throw new Error("sign/object slots");
   } catch { movementReason = "NPC approach sequences need a sign and a map with an existing script-state table."; }
-  const map = (await parseMapIndex(source)).find(map => map.headerLabel === mapName);
+  const mapIndex = await parseMapIndex(source), map = mapIndex.find(map => map.headerLabel === mapName);
+  const effects = await inspectSceneEffects(source, byPath);
+  const safariStart = mapIndex.find(map => map.constant === "SAFARI_ZONE_EAST")?.id, safariEnd = mapIndex.find(map => map.constant === "SAFARI_ZONE_CENTER_REST_HOUSE")?.id;
+  if (map && safariStart !== undefined && safariEnd !== undefined && map.id >= safariStart && map.id < safariEnd) effects.battleReason = "This map uses Safari battles. Normal scripted battles need a map outside the Safari Zone areas.";
   const stateVariable = byPath.get("ram/wram.asm")?.includes(`w${mapName}CurScript::`) ? `w${mapName}CurScript` : null;
   let idleStates: SceneDomain["idleStates"] = [{ id: 0, label: "Default" }];
   if (stateVariable) {
@@ -304,7 +309,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     actors: npcs.map(npc => ({ ...npc, id: npcConstants.indexOf(npc.constant) + 1 })),
     defaultPlayer: sign ? { x: sign.x, y: sign.y + 1 } : pointers && objectRows.find(row => row[6].trim() === pointers[1]) ? (() => { const row = objectRows.find(row => row[6].trim() === pointers[1])!; return { x: +row[1], y: +row[2] + 1 }; })() : { x: 0, y: 0 },
   };
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();
@@ -325,7 +330,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
+  const document: InteractionDocument = { effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
 export type InteractionInspection = Awaited<ReturnType<typeof inspect>>;

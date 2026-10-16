@@ -45,6 +45,10 @@ mentor, map or Pokémon-specific generator.
 | Walk NPC with player following | Move the NPC, then move the player into its vacated tile |
 | Show/hide NPC | Stage an ordinary NPC using a persistent event bit |
 | NPC emote | Show a native emotion bubble over a visible, on-screen NPC for 60 frames |
+| Change music | Play a project track in its audio bank, stop music, or restore the map's usual music |
+| Screen fade | Fade to black or fade back in; hide/show actors and wait while the screen stays dark |
+| Wild Pokémon encounter | Choose a species and level, optionally play its cry, then branch on defeat, capture or escape |
+| Trainer battle | Fight an existing trainer party and continue through its victory branch |
 | End interaction | Exit early, optionally commit completion and success events |
 
 Reaching the end of the outer sequence completes it. **End interaction** with
@@ -65,6 +69,45 @@ the composed interaction, return, yield, restore facing/input/map state.
 New walking actions use a resumable scene instead of the synchronous runner.
 Native Poké Ball interactions with a hide-after-delivery action retain their
 existing editor; they cannot upgrade to the composer yet.
+
+Music, screen effects and battles use resumable scenes. **Change music** resolves
+both the song and its bank from the project's music headers. Temporary changes
+return to the map's usual music on exit; **Keep music after normal scene
+completion** retains the selected cue until the game changes music again.
+Aborting restores map music. A battle reloads the map and its music, so put a new
+music action after the battle if the next part of the scene needs another cue.
+
+For Giovanni's disappearance effect, use **Screen fade: Fade to black**, then
+**Show/hide NPC: hidden**, then **Screen fade: Fade back in**. Wait, visibility,
+music and event actions can run while black. Restore the screen before dialogue,
+movement, rewards, emotes or battles. Branches that rejoin must agree on screen
+brightness as well as actor staging. Ending or aborting while black restores
+the previous map brightness, including a map darkened before the scene began.
+
+**Wild Pokémon encounter** uses normal wild-battle rules, including capture into
+the party or PC. Defeated and Caught branches rejoin the next action unless they
+explicitly end; Escaped defaults to an incomplete end so the encounter can be
+retried. Add a hide action after the successful branches to remove an overworld
+Pokémon. For a one-time Snorlax/Mewtwo-style encounter, keep **Run once per save
+file** enabled. **Trainer battle** selects an existing class/party; it uses its
+native roster, AI and prizes without claiming the original map trainer's defeat
+event. Add victory dialogue and success events in the composer.
+
+Battle launch yields to the native overworld battle dispatcher. Victory,
+capture and escape reload the map before the scene resumes, preserving authored
+stationary actor positions and visibility. Losing ends the scene without
+completion and lets the game's normal defeat/blackout handling continue. Normal
+scripted battles are unavailable in the four Safari battle maps. An empty or
+entirely fainted party cannot launch a battle.
+
+Each battle has a stable identity and separate persistent defeat/capture
+checkpoints. If a later reward fails or the scene is interrupted, retrying skips
+the resolved battle and continues through its recorded result, preventing a
+second capture. Escape records no resolved checkpoint. Normal scene completion
+retires these checkpoints; one-time scenes also retain their completion bit.
+Internal checkpoints are excluded from the editable event list. The additional
+runtime fields reuse six bytes of the existing unused reservation, preserving
+all existing WRAM/save addresses. Existing beta scenes migrate atomically on save.
 
 ## Source and editing guarantees
 

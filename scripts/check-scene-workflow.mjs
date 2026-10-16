@@ -50,7 +50,7 @@ try {
       const dialog = page.getByRole("dialog", { name: "Edit interaction", exact: true });
       await dialog.getByRole("button", { name: "Compose action sequence", exact: true }).click();
       await dialog.getByLabel("Show the original dialogue first", { exact: true }).uncheck();
-      await dialog.getByLabel("Use a walking or coordinate-triggered scene", { exact: true }).check();
+      await dialog.getByLabel("Use a scene for movement, effects, battles or coordinate triggers", { exact: true }).check();
       await dialog.getByLabel("Scene trigger", { exact: true }).selectOption("coordinate");
       assert.equal(await dialog.getByLabel("Scene player X", { exact: true }).inputValue(), "8");
       assert.equal(await dialog.getByLabel("Scene player Y", { exact: true }).inputValue(), "9");
