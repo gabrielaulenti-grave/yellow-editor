@@ -198,14 +198,14 @@ starting visibility. Initial visibility becomes fixed after the first save to
 avoid reinterpreting existing saved event bits. Scene visibility flags share the
 existing event array; native toggle IDs and save sizes are unchanged.
 
-The runtime borrows 49 bytes from a reviewed unused 56-byte reservation without
-moving any existing RAM symbol. Native movement buffers remain separate from
+The runtime uses a reviewed unused 56-byte reservation without moving any
+existing RAM symbol. Effects use six of the seven bytes reserved by older scenes. Native movement buffers remain separate from
 scene bookkeeping. Input is enabled during native dialogue/menu sessions, and
 controls and NPC movement fields are restored on exit. Scene state is cleared
-on map entry. Each scene has at most 128 dispatcher states.
+on unrelated map entry; native battle returns resume the pending scene. Each scene has at most 128 dispatcher states.
 
-Battles, music transitions, map-entry triggers, cross-map escorts and persistent
-PC-session outcomes still need authoring interfaces and runtime checks. The
+Cross-map escorts and persistent PC-session outcomes still need authoring
+interfaces and runtime checks. The
 Lance/PC lesson remains a regression fixture outside the application bundle.
 
 ## Verification

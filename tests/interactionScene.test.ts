@@ -194,6 +194,11 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
       run("make", ["clean"], game); run("make", ["-j2", `RGBDS=${rgbds}/`, `${target}.gbc`], game);
       if (target === "pokered") await sceneBankSpaceRomChecks(game, root, rgbds, baseMap, baseSymbols, baseRomSize, run);
       const modifiedSymbols = await readFile(join(game, `${target}.sym`), "utf8");
+      const linked = new Map([...modifiedSymbols.matchAll(/^([0-9a-f]+):([0-9a-f]+) (\S+)$/gm)].map(match => [match[3], { bank: parseInt(match[1], 16), address: parseInt(match[2], 16) }]));
+      const snapshot = linked.get("EditorSceneRecordBattleResult")!, boundary = linked.get("OverworldLoopLessDelay.battleOccurred")!, bankswitch = linked.get("Bankswitch")!;
+      const rom = await readFile(join(game, `${target}.gbc`));
+      assert.equal(boundary.bank, 0);
+      assert.deepEqual([...rom.subarray(boundary.address, boundary.address + 8)], [0x06, snapshot.bank, 0x21, snapshot.address & 255, snapshot.address >> 8, 0xcd, bankswitch.address & 255, bankswitch.address >> 8], "Battle result snapshot is linked at the native return label before map loading");
       const savedRam = (symbols: string) => [...symbols.matchAll(/^00:([cd][0-9a-f]{3}) (w\w+)$/gm)].map(match => [match[2], match[1]]);
       const modified = new Map(savedRam(modifiedSymbols));
       for (const [name, address] of savedRam(baseSymbols)) assert.equal(modified.get(name), address, `Existing WRAM address changed: ${name}`);

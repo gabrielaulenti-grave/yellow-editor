@@ -58,15 +58,33 @@ export function renderSceneEffectHelpers(model: ManagedInteraction): string[] {
 }
 
 export const effectScratchFields = "wEditorSceneBattle:: db\nwEditorSceneBattleResult:: db\nwEditorScenePalette:: db\nwEditorSceneMusic:: db\nwEditorSceneBattlePartyCount:: db\nwEditorSceneBattleBoxCount:: db\n\tds 1\n";
-// Snapshot before ClearVariablesOnEnterMap clears the battle menu union. Native
-// capture and running both return result 2; party/box growth distinguishes them
-// without patching the battle engine or mistaking a failed ball for a capture.
-export const effectEntryHook = [
+// Recognize the first effects entry hook for an atomic upgrade on save. New
+// scenes snapshot at the native battle-return boundary, before map loading.
+export const legacyEffectEntryHook = [
   "\tld a, [wEditorSceneBattle]", "\tcp 1", "\tjr nz, .editorSceneReset", "\tld a, [wEditorSceneMap]", "\tld b, a", "\tld a, [wCurMap]", "\tcp b", "\tjr nz, .editorSceneReset",
   "\tld a, [wBattleResult]", "\tand a", "\tjr nz, .editorSceneResult", "\tld a, [wTrainerClass]", "\tand a", "\tld a, 0", "\tjr nz, .editorSceneResult",
   "\tld a, [wEnemyMonHP]", "\tld b, a", "\tld a, [wEnemyMonHP + 1]", "\tor b", "\tld a, 0", "\tjr z, .editorSceneResult", "\tld a, 2", ".editorSceneResult",
   "\tld [wEditorSceneBattleResult], a", "\tld a, [wPartyCount]", "\tld b, a", "\tld a, [wEditorSceneBattlePartyCount]", "\tcp b", "\tjr nz, .editorSceneCaught",
   "\tld a, [wBoxCount]", "\tld b, a", "\tld a, [wEditorSceneBattleBoxCount]", "\tcp b", "\tjr z, .editorSceneReturned", ".editorSceneCaught", "\tld a, 3", "\tld [wEditorSceneBattleResult], a",
   ".editorSceneReturned", "\tld a, 2", "\tld [wEditorSceneBattle], a", "\tld a, 1", "\tld [wEditorSceneActive], a", "\t; restore editor battle staging", "\tjr .editorSceneEntryDone", ".editorSceneReset",
+  "\txor a", "\tld [wEditorSceneBattle], a", "\tld [wEditorScenePalette], a", "\tld [wEditorSceneMusic], a",
+].join("\n") + "\n";
+
+export const sceneBattleReturnHook = "\t; yellow-editor-scene-battle-return-hook\n\tfarcall EditorSceneRecordBattleResult\n\t; yellow-editor-scene-battle-return-hook-end\n";
+// Capture and running both return result 2; party/box growth distinguishes them.
+// Enemy Teleport/Roar can return zero while leaving the enemy alive.
+export const battleSnapshotRuntime = [
+  "\tPUSHS", 'SECTION "Editor Scene Battle Result", ROMX', "EditorSceneRecordBattleResult::",
+  "\tld a, [wEditorSceneBattle]", "\tcp 1", "\tret nz",
+  "\tld a, [wBattleResult]", "\tand a", "\tjr nz, .result", "\tld a, [wTrainerClass]", "\tand a", "\tld a, 0", "\tjr nz, .result",
+  "\tld a, [wEnemyMonHP]", "\tld b, a", "\tld a, [wEnemyMonHP + 1]", "\tor b", "\tld a, 0", "\tjr z, .result", "\tld a, 2", ".result", "\tld [wEditorSceneBattleResult], a",
+  "\tld a, [wPartyCount]", "\tld b, a", "\tld a, [wEditorSceneBattlePartyCount]", "\tcp b", "\tjr nz, .caught",
+  "\tld a, [wBoxCount]", "\tld b, a", "\tld a, [wEditorSceneBattleBoxCount]", "\tcp b", "\tret z", ".caught", "\tld a, 3", "\tld [wEditorSceneBattleResult], a", "\tret", "\tPOPS",
+].join("\n") + "\n";
+// Preserve the recorded result across map/graphics loading. Latches remain set
+// for this battle reentry, preventing a repeatable scene from relaunching at once.
+export const effectEntryHook = [
+  "\tld a, [wEditorSceneBattle]", "\tcp 1", "\tjr nz, .editorSceneReset", "\tld a, [wEditorSceneMap]", "\tld b, a", "\tld a, [wCurMap]", "\tcp b", "\tjr nz, .editorSceneReset",
+  "\tld a, 2", "\tld [wEditorSceneBattle], a", "\tld a, 1", "\tld [wEditorSceneActive], a", "\t; restore editor battle staging", "\tjr .editorSceneEntryDone", ".editorSceneReset",
   "\txor a", "\tld [wEditorSceneBattle], a", "\tld [wEditorScenePalette], a", "\tld [wEditorSceneMusic], a",
 ].join("\n") + "\n";

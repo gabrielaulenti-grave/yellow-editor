@@ -1,6 +1,7 @@
 import { hashText } from "./history";
 import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import type { ProjectSource } from "./types";
+import { sceneBattleReturnHook } from "./sceneEffectRuntime";
 
 export interface SceneEffectsDomain {
   music: Array<{ id: string; header: string }>;
@@ -23,6 +24,7 @@ export async function inspectSceneEffects(source: ProjectSource, byPath: Map<str
   const yellow = byPath.has("scripts/OaksLab_2.asm"), reviewed = { audio: true, fade: true, battle: true };
   await Promise.all(contracts.map(async contract => {
     let text = (byPath.get(yellow && contract.yellowPath ? contract.yellowPath : contract.path) ?? "").replace(/\r\n/g, "\n");
+    if (contract.path === "home/overworld.asm") text = text.replace(sceneBattleReturnHook, "");
     if (contract.start) text = text.includes(contract.start) ? text.slice(text.indexOf(contract.start)) : "";
     if (contract.end) text = text.includes(contract.end) ? text.slice(0, text.indexOf(contract.end)) : "";
     if (await hashText(code(text)) !== contract.hashes[yellow ? 1 : 0]) reviewed[contract.id] = false;

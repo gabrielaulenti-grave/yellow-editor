@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites, type ManagedInteraction } from "../src/core/scriptInteractions";
 import { identifySequenceDialogue, type InteractionAction } from "../src/core/interactionSequence";
+import { effectEntryHook, legacyEffectEntryHook, battleSnapshotRuntime, sceneBattleReturnHook } from "../src/core/sceneEffectRuntime";
 import type { ProjectSource } from "../src/core/types";
 
 export async function sceneEffectChecks(source: ProjectSource, overlay: Map<string, string>, path: string, label: string, npc: string) {
@@ -37,6 +38,30 @@ export async function sceneEffectChecks(source: ProjectSource, overlay: Map<stri
   assert.equal(unchanged.find(write => write.path === path)!.contents, generated);
   assert.equal(unchanged.find(write => write.path === "engine/overworld/clear_variables.asm")!.contents, overlay.get("engine/overworld/clear_variables.asm"));
   assert.ok(overlay.get("ram/wram.asm")!.includes("scene-scratch: 2"));
+  assert.ok(overlay.get("home/overworld.asm")!.includes("\n.battleOccurred\n" + sceneBattleReturnHook));
+  assert.ok(overlay.get("engine/overworld/toggleable_objects.asm")!.includes("scene-runtime: 2"));
+  // Upgrade the first effects runtime without changing authored scene metadata.
+  const sharedPaths = ["engine/overworld/clear_variables.asm", "engine/overworld/toggleable_objects.asm", "home/overworld.asm"];
+  const current = new Map(sharedPaths.map(path => [path, overlay.get(path)!]));
+  const clear = current.get(sharedPaths[0])!;
+  const staging = clear.match(/\tld \[wEditorSceneActive\], a\n([\s\S]*?)\tjp \.editorSceneEntryDone/)![1].trimEnd();
+  const embed = (hook: string) => hook.replace("\t; restore editor battle staging", staging).replace(/\tjr /g, "\tjp ");
+  assert.ok(clear.includes(embed(effectEntryHook)));
+  overlay.set(sharedPaths[0], clear.replace(embed(effectEntryHook), embed(legacyEffectEntryHook)));
+  overlay.set(sharedPaths[1], current.get(sharedPaths[1])!.replace(battleSnapshotRuntime, "").replace("scene-runtime: 2", "scene-runtime: 1"));
+  overlay.set(sharedPaths[2], current.get(sharedPaths[2])!.replace(sceneBattleReturnHook, ""));
+  const legacyDoc = await loadScriptInteractionDocument(source, path, label);
+  const upgraded = await prepareScriptInteractionWrites(source, legacyDoc, legacyDoc.values);
+  for (const shared of sharedPaths) assert.equal(upgraded.find(write => write.path === shared)?.contents, current.get(shared));
+  current.forEach((contents, path) => overlay.set(path, contents));
+  overlay.set(sharedPaths[2], current.get(sharedPaths[2])!.replace("farcall EditorSceneRecordBattleResult", "farcall MissingBattleResult"));
+  const changedReturn = await loadScriptInteractionDocument(source, path, label);
+  assert.ok(changedReturn.effects.battleReason);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, changedReturn, values), /reviewed/);
+  overlay.set(sharedPaths[2], current.get(sharedPaths[2])!.replace(sceneBattleReturnHook, "") + sceneBattleReturnHook);
+  const movedHook = await loadScriptInteractionDocument(source, path, label);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, movedHook, values), /shared battle-return hook/);
+  overlay.set(sharedPaths[2], current.get(sharedPaths[2])!);
   const crlf = { ...source, readText: async (path: string) => (await source.readText(path)).replace(/\r?\n/g, "\r\n") };
   const crlfDoc = await loadScriptInteractionDocument(crlf, path, label);
   assert.equal((await prepareScriptInteractionWrites(crlf, crlfDoc, crlfDoc.values)).find(write => write.path === path)!.contents.replace(/\r\n/g, "\n"), generated);

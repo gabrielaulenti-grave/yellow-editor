@@ -1,6 +1,6 @@
 import { hashText } from "./history";
 import { prepareSceneBankSpace } from "./sceneBankSpace";
-import { renderSceneEffect, renderSceneEffectHelpers, effectScratchFields, effectEntryHook } from "./sceneEffectRuntime";
+import { renderSceneEffect, renderSceneEffectHelpers, effectScratchFields, effectEntryHook, legacyEffectEntryHook, sceneBattleReturnHook, battleSnapshotRuntime } from "./sceneEffectRuntime";
 import { parseMapIndex } from "./mapVisualization";
 import { interactionBranches, isBattle, type InteractionAction } from "./interactionSequence";
 import type { ManagedInteraction, InteractionInspection } from "./scriptInteractions";
@@ -314,7 +314,7 @@ export function renderScene(model: ManagedInteraction): string {
 
 const visibilityHook = "\t; yellow-editor-scene-visibility-hook\n\tpush bc\n\tpush de\n\tpush hl\n\tcall EditorSceneObjectHidden\n\tpop hl\n\tpop de\n\tpop bc\n\tret c\n\t; yellow-editor-scene-visibility-hook-end\n";
 const entryHook = "\t; yellow-editor-scene-map-entry-hook\n\txor a\n\tld [wEditorSceneActive], a\n\t; yellow-editor-scene-map-entry-hook-end\n";
-function sceneEntryHook(models: ManagedInteraction[]) {
+function sceneEntryHook(models: ManagedInteraction[], snapshot = true) {
   const latches = [...new Set(models.flatMap(model => model.scene?.latchFlag ? [model.scene.latchFlag] : []))].sort().map(flag => `\tResetEvent ${flag}\n`).join("");
   // EnterMap runs before JoypadOverworld's first map-script tick. Rearm each
   // coordinate latch here, including departure directly through its warp tile.
@@ -323,18 +323,19 @@ function sceneEntryHook(models: ManagedInteraction[]) {
     "\tld a, [wEditorSceneMap]", `\tcp ${model.scene!.mapConstant}`, `\tjr nz, .editorBattleNext${i}`, "\tld a, [wEditorSceneOwner]", `\tcp ${model.scene!.owner}`, `\tjr nz, .editorBattleNext${i}`,
     `\tfarcall ${model.prefix}RestoreBattleStaging`, `.editorBattleNext${i}`,
   ]).join("\n");
-  return entryHook.replace("\txor a", (extended ? effectEntryHook.replace("\t; restore editor battle staging", restoreStaging).replace(/\tjr /g, "\tjp ") : "") + "\txor a").replace("\t; yellow-editor-scene-map-entry-hook-end", latches + (extended ? ".editorSceneEntryDone\n" : "") + "\t; yellow-editor-scene-map-entry-hook-end");
+  return entryHook.replace("\txor a", (extended ? (snapshot ? effectEntryHook : legacyEffectEntryHook).replace("\t; restore editor battle staging", restoreStaging).replace(/\tjr /g, "\tjp ") : "") + "\txor a").replace("\t; yellow-editor-scene-map-entry-hook-end", latches + (extended ? ".editorSceneEntryDone\n" : "") + "\t; yellow-editor-scene-map-entry-hook-end");
 }
 // Replace a reviewed 56-byte unused reservation, preserving its exact size and
 // every existing WRAM/save address. Native movement/menu unions cannot hold this.
 const scratch = "; yellow-editor-scene-scratch: 1\nwEditorSceneDirections:: ds 14\nwEditorSceneMovements:: ds 14\nwEditorSceneVisibility:: ds 14\nwEditorSceneJoyIgnore:: db\nwEditorSceneOverride:: db\nwEditorSceneFlags4:: db\nwEditorSceneMap:: db\nwEditorSceneOwner:: db\nwEditorSceneState:: db\nwEditorSceneActive:: db\n\tds 7\n; yellow-editor-scene-scratch-end\n";
 const extendedScratch = scratch.replace("scratch: 1", "scratch: 2").replace("\tds 7\n", effectScratchFields);
-function runtime(models: ManagedInteraction[]) {
+function runtime(models: ManagedInteraction[], snapshot = true) {
   const entries = new Map<string, { map: string; entry: ScenePlan["visibility"][number] }>();
   models.forEach(model => model.scene!.visibility.forEach(entry => entries.set(`${model.scene!.mapConstant}:${entry.npc}`, { map: model.scene!.mapConstant, entry })));
-  return "; yellow-editor-scene-runtime: 1\nEditorSceneObjectHidden:\n" + [...entries.values()].sort((a, b) => `${a.map}:${a.entry.npc}`.localeCompare(`${b.map}:${b.entry.npc}`)).map(({ map, entry }, i) => [
+  const battle = snapshot && models.some(model => model.scene!.nodes.some(node => node.kind === "battle-start"));
+  return `; yellow-editor-scene-runtime: ${battle ? 2 : 1}\nEditorSceneObjectHidden:\n` + [...entries.values()].sort((a, b) => `${a.map}:${a.entry.npc}`.localeCompare(`${b.map}:${b.entry.npc}`)).map(({ map, entry }, i) => [
     "\tld a, [wCurMap]", `\tcp ${map}`, `\tjr nz, .next${i}`, "\tldh a, [hCurrentSpriteOffset]", `\tcp ${entry.id * 16}`, `\tjr nz, .next${i}`, `\tCheckEvent ${entry.flag}`, "\tld a, 0", `\tjr ${entry.hiddenInitially ? "nz" : "z"}, .result${i}`, "\tinc a", `.result${i}`, "\tldh [hIsToggleableObjectOff], a", "\tscf", "\tret", `.next${i}`,
-  ].join("\n")).join("\n") + "\n\tand a\n\tret\n; yellow-editor-scene-runtime-end\n";
+  ].join("\n")).join("\n") + "\n\tand a\n\tret\n" + (battle ? battleSnapshotRuntime : "") + "; yellow-editor-scene-runtime-end\n";
 }
 function body(text: string, label: string) {
   const match = text.match(new RegExp(`^${label}:{1,2}\\n([\\s\\S]*?)(?=^[A-Za-z_]\\w*:{1,2}|$(?![\\s\\S]))`, "m"));
@@ -350,20 +351,27 @@ export async function prepareSceneRuntime(state: InteractionInspection, model: M
   let text = normalize(state.byPath.get(visibilityPath)!);
   const extended = all.some(model => model.scene?.effects);
   if (existing.length) {
-    const old = runtime(existing);
-    if (!text.endsWith(old) || !text.includes(visibilityHook)) throw new Error("The shared scene visibility runtime was changed in source.");
+    const old = [runtime(existing), runtime(existing, false)].find(previous => text.endsWith(previous));
+    if (!old || !text.includes(visibilityHook)) throw new Error("The shared scene visibility runtime was changed in source.");
     text = text.slice(0, -old.length) + runtime(all);
   } else {
     if (await hashText(body(text, "IsObjectHidden")) !== "f78a101337f2f157e91014ea8ad83876e16bc65120172c6cf098c16215ac7008") throw new Error("Scene visibility needs the reviewed native IsObjectHidden routine.");
     text = text.replace("IsObjectHidden:\n", "IsObjectHidden:\n" + visibilityHook) + "\n" + runtime(all);
   }
   save(visibilityPath, text);
+  const overworldPath = "home/overworld.asm", overworld = normalize(state.byPath.get(overworldPath)!);
+  const hasBattles = all.some(model => model.scene!.nodes.some(node => node.kind === "battle-start"));
+  if (overworld.includes("yellow-editor-scene-battle-return-hook") && (overworld.split(sceneBattleReturnHook).length !== 2 || !overworld.includes("\n.battleOccurred\n" + sceneBattleReturnHook))) throw new Error("The shared battle-return hook was changed in source.");
+  if (hasBattles && !overworld.includes(sceneBattleReturnHook)) {
+    if (!overworld.includes("\n.battleOccurred\n")) throw new Error("The native battle return boundary is missing.");
+    save(overworldPath, overworld.replace("\n.battleOccurred\n", "\n.battleOccurred\n" + sceneBattleReturnHook));
+  } else if (!hasBattles && overworld.includes(sceneBattleReturnHook)) save(overworldPath, overworld.replace(sceneBattleReturnHook, ""));
   const ram = normalize(state.byPath.get("ram/wram.asm")!), clear = normalize(state.byPath.get("engine/overworld/clear_variables.asm")!);
   if (existing.length) {
-    const previous = sceneEntryHook(existing);
-    if (!ram.includes(scratch) && !ram.includes(extendedScratch) || !clear.includes(previous) && (existing.some(model => model.scene?.effects) || !clear.includes(entryHook))) throw new Error("The scene scratch or map-entry hook was changed in source.");
+    const previous = [sceneEntryHook(existing), sceneEntryHook(existing, false), ...(existing.some(model => model.scene?.effects) ? [] : [entryHook])].find(hook => clear.includes(hook));
+    if (!ram.includes(scratch) && !ram.includes(extendedScratch) || !previous) throw new Error("The scene scratch or map-entry hook was changed in source.");
     if (extended && ram.includes(scratch)) save("ram/wram.asm", ram.replace(scratch, extendedScratch));
-    save("engine/overworld/clear_variables.asm", clear.replace(clear.includes(previous) ? previous : entryHook, sceneEntryHook(all)));
+    save("engine/overworld/clear_variables.asm", clear.replace(previous, sceneEntryHook(all)));
   } else {
     const reservation = "wGameProgressFlagsEnd::\n\n\tds 56\n";
     if (ram.split(reservation).length !== 2 || /wEditorScene\w+/.test(ram)) throw new Error("Scene storage requires the reviewed unused 56-byte WRAM reservation.");

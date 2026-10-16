@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { projectConstantCatalogFromSources } from "../src/core/projectConstants";
 import { renderScene } from "../src/core/interactionScene";
 import { sequenceDialogue } from "../src/core/interactionSequence";
+import { sceneBattleReturnHook } from "../src/core/sceneEffectRuntime";
 import type { ManagedInteraction } from "../src/core/scriptInteractions";
 
 // Execute generated scenes with native NewBattle/control gates, AnyPartyAlive,
@@ -35,6 +36,8 @@ export async function sceneEffectCpuProbes(root: string, temporary: string, rgbd
     .replaceAll("\tpredef ", "\tcall ").replaceAll("\tfarcall ", "\tcall ");
   const entry = (await read("engine/overworld/clear_variables.asm")).replaceAll("\tfarcall ", "\tcall ");
   const overworld = await read("home/overworld.asm"), audio = await read("home/audio.asm");
+  assert.ok(overworld.includes("\n.battleOccurred\n" + sceneBattleReturnHook));
+  const battleReturn = sceneBattleReturnHook.replaceAll("\tfarcall ", "\tcall ");
   const native = [
     extract(overworld, "NewBattle::", "; function to make bikes twice as fast as walking").replace("farjp InitBattle", "jp InitBattle"),
     extract(await read("home/npc_movement.asm"), "IsPlayerCharacterBeingControlledByGame::", "RunNPCMovementScript::"),
@@ -51,7 +54,7 @@ export async function sceneEffectCpuProbes(root: string, temporary: string, rgbd
     const symbol = physical.get(match[2]);
     if (symbol) constants.set(match[1], Math.trunc((symbol.address - headerBase) / 3));
   }
-  const runtime = extract(await read("engine/overworld/toggleable_objects.asm"), "; yellow-editor-scene-runtime: 1");
+  const runtime = extract(await read("engine/overworld/toggleable_objects.asm"), "; yellow-editor-scene-runtime: ");
   const all = source + native + playMusic + runtime;
   const caps = new Set([...all.matchAll(/\b[A-Z][A-Z0-9_]+\b/g)].map(match => match[0]));
   for (const name of caps) if (constants.has(name) && !name.startsWith("EVENT_") && !name.startsWith("TEXT_")) defs.push(`DEF ${name} EQU ${constants.get(name)}`);
@@ -97,7 +100,10 @@ export async function sceneEffectCpuProbes(root: string, temporary: string, rgbd
       "InitBattle:", "ld hl, $c000", "inc [hl]", "ld a, [wJoyIgnore]", "ld [$c00d], a", "ld a, [wCurOpponent]", "ld [$c010], a", "ld a, [wCurEnemyLevel]", "ld [$c011], a", "ld a, [wTrainerNo]", "ld [$c012], a",
       "xor a", "ld [wCurOpponent], a", "ld [wIsInBattle], a", ...set("wBattleResult", lost ? 1 : caught || scenario === "escaped" ? 2 : 0), ...set("wTrainerClass", trainer ? 1 : 0), ...set("wEnemyMonHP", scenario === "enemy-fled" ? 10 : 0),
       ...(caught ? [scenario === "caught-box" ? "ld hl, wBoxCount" : "ld hl, wPartyCount", "inc [hl]"] : []),
+      battleReturn,
       ...(lost ? [...set("wIsInBattle", 255), `call ${p}SceneFrame`, ...set("wIsInBattle", 0), ...set("wXCoord", model.values.scene!.playerX + 2)] : []),
+      // Battle temporaries are reused by map/graphics loading after the snapshot.
+      ...set("wBattleResult", 1), ...set("wEnemyMonHP", 255), ...set("wTrainerClass", 0),
       // Map reload recreates objects. Its entry hook must restore staging before
       // the first post-battle sprite draw, and preserve the coordinate latch.
       ...set(field(actor.id, "StateData2MapX"), actor.x + 4), ...set(field(actor.id, "StateData2MapY"), actor.y + 4),
