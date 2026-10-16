@@ -50,7 +50,7 @@ try {
       const dialog = page.getByRole("dialog", { name: "Edit interaction", exact: true });
       await dialog.getByRole("button", { name: "Compose action sequence", exact: true }).click();
       const actions = dialog.getByRole("group", { name: "Actions", exact: true });
-      await actions.getByLabel("Actions action 1 dialogue", { exact: true }).fill("A challenger appears!");
+      await actions.getByLabel("Actions action 1 dialogue", { exact: true }).fill("A challenger!");
       async function add(kind) {
         await actions.getByLabel("Actions action type", { exact: true }).selectOption(kind);
         await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
@@ -83,7 +83,8 @@ try {
       await dialog.getByLabel("Scene player Y", { exact: true }).fill("7");
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await dialog.getByRole("button", { name: "Save interaction", exact: true }).click();
-      await dialog.waitFor({ state: "hidden" });
+      try { await dialog.waitFor({ state: "hidden" }); }
+      catch (error) { throw new Error(`${root} ${width}px: save failed: ${(await dialog.getByRole("alert").allTextContents()).join("; ") || String(error)}`); }
       const saved = await page.evaluate(() => window.dialogueSaves);
       assert.equal(saved.length, 1, "Actions, runtime, texts and checkpoint flags save atomically");
       const generated = saved[0].find(write => write.path === "scripts/ViridianPokecenter.asm").contents;
