@@ -78,10 +78,11 @@ function Fixture() {
 }
 async function start() {
   if (fixture.sceneFixture) {
-    const doc = await loadMapNpcCreateDocument(source, "PALLET_TOWN");
-    const writes = await prepareMapNpcWrites(source, doc, { x: 8, y: 8, sprite: "SPRITE_OAK", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Hello there!"] } });
+    const center = fixture.mapFocus === "VIRIDIAN_POKECENTER", map = center ? "VIRIDIAN_POKECENTER" : "PALLET_TOWN";
+    const doc = await loadMapNpcCreateDocument(source, map);
+    const writes = await prepareMapNpcWrites(source, doc, { x: center ? 4 : 8, y: center ? 5 : 8, sprite: "SPRITE_OAK", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Hello there!"] } });
     writes.forEach(write => { fixture.dialogueFiles[write.path] = write.contents; });
-    fixture.sceneActor = `PALLET_TOWN_EDITOR_NPC_${doc.objectId}`;
+    fixture.sceneActor = `${map}_EDITOR_NPC_${doc.objectId}`;
   }
   createRoot(window.document.getElementById("root")!).render(<Fixture />);
 }

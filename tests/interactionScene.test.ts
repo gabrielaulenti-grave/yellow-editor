@@ -12,6 +12,7 @@ import { sceneGiftCpuProbes } from "./sceneGiftCpuProbes";
 import { renderScene } from "../src/core/interactionScene";
 import { sceneBankSpaceChecks } from "./sceneBankSpaceChecks";
 import { sceneBankSpaceRomChecks } from "./sceneBankSpaceRomChecks";
+import { sceneEmoteCpuProbes } from "./sceneEmoteCpuProbes";
 const args = process.argv.slice(2), at = args.indexOf("--rom");
 const rgbds = at < 0 ? null : resolve(args[at + 1]), binjgb = at < 0 ? null : resolve(args[at + 2]);
 if (at >= 0) args.splice(at, 3);
@@ -27,9 +28,11 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
   const actor = `PALLET_TOWN_EDITOR_NPC_${npc.objectId}`, path = "scripts/PalletTown.asm", label = `PalletTownEditorNpc${npc.objectId}Text`;
   const document = await loadScriptInteractionDocument(source, path, label);
   assert.equal(document.scene.reason, null);
+  assert.equal(document.scene.emoteReason, null);
+  assert.equal(document.scene.emotes.length, root.includes("pokeyellow") ? 8 : 3);
   const before = await source.readText(path), nativeOak = before.slice(before.indexOf("PalletTownDefaultScript:"), before.indexOf("PalletTown_TextPointers:"));
   const values = { ...document.values, showOriginal: false, actions: identifySequenceDialogue([
-    { kind: "visibility", npc: actor, visible: true }, { kind: "dialogue", lines: ["Follow me?"] },
+    { kind: "visibility", npc: actor, visible: true }, { kind: "emote", npc: actor, bubble: "EXCLAMATION_BUBBLE" }, { kind: "dialogue", lines: ["Follow me?"] },
     { kind: "choice", yes: [{ kind: "follow-npc", npc: actor, steps: ["LEFT", "UP"] }, { kind: "visibility", npc: actor, visible: false }, { kind: "dialogue", lines: ["We arrived!"] }], no: [{ kind: "visibility", npc: actor, visible: false }, { kind: "end", complete: false }] },
   ]), scene: { trigger: "coordinate" as const, playerX: 8, playerY: 9, idleState: 0, hiddenNpcs: [actor] } };
   (await prepareScriptInteractionWrites(source, document, values)).forEach(write => overlay.set(write.path, write.contents));
@@ -42,7 +45,15 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
   assert.equal(unchanged.find(write => write.path.includes("toggleable_objects"))!.contents, overlay.get("engine/overworld/toggleable_objects.asm"));
   await assert.rejects(() => prepareScriptInteractionWrites(source, again, { ...values, actions: identifySequenceDialogue([{ kind: "follow-npc", npc: actor, steps: ["DOWN"] }]) }), /Show the hidden NPC/);
   await assert.rejects(() => prepareScriptInteractionWrites(source, again, { ...values, actions: identifySequenceDialogue([{ kind: "visibility", npc: actor, visible: true }, { kind: "follow-npc", npc: actor, steps: ["DOWN"] }]) }), /blocked/);
-  await assert.rejects(() => prepareScriptInteractionWrites(source, again, { ...values, scene: { ...values.scene, playerX: 7, playerY: 9 } }), /warps and signs/);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, again, { ...values, scene: { ...values.scene, playerX: 7, playerY: 9 } }), /walkable player start/);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, again, { ...values, actions: [{ kind: "emote", npc: actor, bubble: "EXCLAMATION_BUBBLE" }] }), /Show the hidden NPC before making it emote/);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, again, { ...values, actions: [{ kind: "emote", npc: actor, bubble: "INVALID_BUBBLE" }] }), /supported by this game/);
+  const emotionPath = "engine/overworld/emotion_bubbles.asm", emotion = await source.readText(emotionPath);
+  overlay.set(emotionPath, emotion.replace("EmotionBubble:", "EmotionBubble:\n\tnop"));
+  const drift = await loadScriptInteractionDocument(source, path, label);
+  assert.ok(drift.scene.emoteReason);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, drift, values), /reviewed emotion-bubble/);
+  overlay.delete(emotionPath);
   overlay.set(path, generated + "\n; external change\n");
   await assert.rejects(() => prepareScriptInteractionWrites(source, again, values), /sources changed/); overlay.set(path, generated);
   overlay.set(path, generated.replace("\tcall StartSimulatingJoypadStates", "\tcall DelayFrame"));
@@ -130,7 +141,7 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
     { kind: "visibility", npc: doorActor, visible: false },
   ]) });
   assert.ok(otherDoor.some(write => write.path === doorPath), "Both Pokémon Center door tiles permit NPC-only departures");
-  await assert.rejects(() => prepareScriptInteractionWrites(source, doorDoc, { ...doorValues, scene: { ...doorValues.scene, playerX: 4, playerY: 7 } }), /player start away from warps/);
+  await assert.rejects(() => prepareScriptInteractionWrites(source, doorDoc, { ...doorValues, scene: { ...doorValues.scene, trigger: "interaction", playerX: 4, playerY: 7 } }), /Warp starts require a coordinate scene/);
   await assert.rejects(() => prepareScriptInteractionWrites(source, doorDoc, { ...doorValues, scene: { ...doorValues.scene, playerX: 4, playerY: 4 }, actions: identifySequenceDialogue([
     { kind: "follow-npc", npc: doorActor, steps: ["DOWN", "DOWN"] },
   ]) }), /Following routes cannot enter a warp/);
@@ -141,7 +152,27 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
   doorWrites.forEach(write => overlay.set(write.path, write.contents));
   const savedDoor = await loadScriptInteractionDocument(source, doorPath, doorLabel);
   assert.deepEqual(savedDoor.values, doorValues);
-  console.log(`${root}: NPC door departures allow both exit warps; player starts, following, occupied tiles and map bounds remain guarded`);
+  const warpValues = { ...doorValues, once: false, scene: { ...doorValues.scene, playerX: 4, playerY: 7 }, actions: identifySequenceDialogue([
+    ...doorDoc.scene.emotes.map(bubble => ({ kind: "emote" as const, npc: doorActor, bubble })),
+  ]) };
+  const warpWrites = await prepareScriptInteractionWrites(source, savedDoor, warpValues);
+  const warpModel = JSON.parse(warpWrites.find(write => write.path === doorPath)!.contents.match(/yellow-editor-interaction: (.*)/)![1]) as ManagedInteraction;
+  warpWrites.forEach(write => overlay.set(write.path, write.contents));
+  assert.deepEqual((await loadScriptInteractionDocument(source, doorPath, doorLabel)).values, warpValues);
+  assert.ok(overlay.get("engine/overworld/clear_variables.asm")!.includes(`ResetEvent ${warpModel.scene!.latchFlag}`), "Map entry rearms a repeatable scene even after exiting directly through its trigger warp");
+  const entryPath = "engine/overworld/clear_variables.asm", entry = overlay.get(entryPath)!;
+  overlay.set(entryPath, entry.replace(new RegExp(`^\\tResetEvent ${warpModel.scene!.latchFlag}\\n`, "m"), ""));
+  await assert.rejects(async () => prepareScriptInteractionWrites(source, await loadScriptInteractionDocument(source, doorPath, doorLabel), warpValues), /map-entry hook was changed/);
+  overlay.set(entryPath, entry);
+  // Beta projects with the original entry hook acquire latch rearming on save.
+  overlay.set(entryPath, entry.replace(/(\t; yellow-editor-scene-map-entry-hook\n)[\s\S]*?(\t; yellow-editor-scene-map-entry-hook-end\n)/, "$1\txor a\n\tld [wEditorSceneActive], a\n$2"));
+  const migratedEntry = await prepareScriptInteractionWrites(source, await loadScriptInteractionDocument(source, doorPath, doorLabel), warpValues);
+  assert.equal(migratedEntry.find(write => write.path === entryPath)!.contents, entry);
+  overlay.set(entryPath, entry);
+  const palletAfterCenter = await loadScriptInteractionDocument(source, path, label);
+  const reorderedSave = await prepareScriptInteractionWrites(source, palletAfterCenter, palletAfterCenter.values);
+  assert.equal(reorderedSave.find(write => write.path === entryPath)!.contents, entry, "Entry hooks stay stable when scenes are edited out of file order");
+  console.log(`${root}: coordinate scenes accept arrival warps; repeatable map-entry latches, emotion bubbles and source guards verified`);
   if (rgbds && binjgb) {
     const temporary = await mkdtemp(resolve("node_modules/.scene-runtime-"));
     const run = (cmd: string, argv: string[], cwd = temporary) => {
@@ -165,6 +196,7 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
       const cpu = join(temporary, "cpu");
       run("cc", ["-std=gnu11", "-O2", `-I${join(binjgb, "src")}`, resolve("tests/scriptRuntimeProbe.c"), ...["memory.c", "common.c", "emulator-debug.c"].map(file => join(binjgb, "src", file)), "-lm", "-o", cpu]);
       await sceneCpuProbes(root, temporary, rgbds, cpu, run, model, generated, overlay.get("constants/event_constants.asm")!, probeEngine);
+      await sceneEmoteCpuProbes(game, temporary, rgbds, cpu, run, warpModel, overlay.get("constants/event_constants.asm")!, entry);
       await sceneGiftCpuProbes(root, temporary, rgbds, cpu, run, giftModel, alternateGiftModel, overlay.get("constants/event_constants.asm")!, probeEngine);
       console.log(`${root}: complete scene ROM builds and unchanged existing WRAM/save addresses verified`);
     } finally { await rm(temporary, { recursive: true, force: true }); }

@@ -60,6 +60,7 @@ export async function sceneCpuProbes(root: string, temporary: string, rgbds: str
       "MoveSprite:", "ld a, [de]", "cp NPC_MOVEMENT_LEFT", "jr nz, .up", `ld hl, ${actorVar(actor.id, "StateData2MapX")}`, "dec [hl]", "jr .finish", ".up", `ld hl, ${actorVar(actor.id, "StateData2MapY")}`, "dec [hl]", ".finish", "ld a, 3", "ld [$c004], a", "ld hl, $c001", "inc [hl]", "ld hl, wStatusFlags5", "set BIT_SCRIPTED_NPC_MOVEMENT, [hl]", "ret",
       "StartSimulatingJoypadStates:", "ld a, [wSimulatedJoypadStatesEnd]", "cp PAD_UP", "jr nz, .left", "ld hl, wYCoord", "dec [hl]", "jr .finish", ".left", "ld hl, wXCoord", "dec [hl]", ".finish", "xor a", "ld [wOverrideSimulatedJoypadStatesMask], a", "ld a, 3", "ld [$c005], a", "ld a, 2", "ld [wWalkCounter], a", "ld hl, $c002", "inc [hl]", "ld hl, wStatusFlags5", "set BIT_SCRIPTED_MOVEMENT_STATE, [hl]", "ret",
       "IsObjectHidden:", "call EditorSceneObjectHidden", "ret c", "xor a", "ldh [hIsToggleableObjectOff], a", "ret",
+      "EmotionBubble:", "ld hl, $c00c", "inc [hl]", "ld a, [wEmotionBubbleSpriteIndex]", "ld [$c00d], a", "ld a, [wWhichEmotionBubble]", "ld [$c00e], a", "ret",
       "UpdateSprites:", "TextScriptEnd:", "GiveItem:", "GivePokemon:", "WaitForTextScrollButtonPress:", "EnableAutoTextBoxDrawing:", "WaitForSoundToFinish:", "PlaySound:", "ret",
       ...["Original", "AlreadyText", "BagFullText", ...plan.nodes.flatMap(node => node.textKey ? [`${node.textKey}Text`] : [])].map(suffix => `${p}${suffix}:\ndb 0`), ...tick,
     ];
@@ -70,6 +71,8 @@ export async function sceneCpuProbes(root: string, temporary: string, rgbds: str
     await writeFile(file, asm); run(join(rgbds, "rgbasm"), ["-I", `${root}/`, "-o", obj, file]); run(join(rgbds, "rgblink"), ["-n", sym, "-o", rom, obj]); run(join(rgbds, "rgbfix"), ["-v", "-p", "0", rom]);
     const stop = (await readFile(sym, "utf8")).match(/^00:([0-9a-f]+) ProbeDone$/mi)![1];
     const checks = ["c00a=0", "c00b=0", `c000=${starts ? success || scenario === "decline-rearm" ? 2 : 1 : 0}`, `c001=${success ? 2 : 0}`, `c002=${success ? 2 : 0}`, expected("wEditorSceneActive", 0), expected("wJoyIgnore", 0x12), expected("wOverrideSimulatedJoypadStatesMask", 0x34), expected("wStatusFlags4", 5), expected("wXCoord", success ? 7 : scenario === "wrong-tile" ? 9 : 8), expected("wYCoord", success ? 8 : 9)];
+    checks.push(`c00c=${starts ? scenario === "decline-rearm" ? 2 : 1 : 0}`);
+    if (starts) checks.push(`c00d=${actor.id.toString(16)}`, "c00e=0");
     if (success) checks.push(expected(actorVar(actor.id, "StateData2MapX"), 11), expected(actorVar(actor.id, "StateData2MapY"), 11));
     for (const id of plan.frozen) checks.push(expected(actorVar(id, "StateData2MovementByte1"), id === 2 ? 0xfe : 0xff), `${(vars.get("wMapSpriteData")! + (id - 1) * 2).toString(16)}=${(12 + id).toString(16)}`, `${(vars.get("wMapSpriteData")! + (id - 1) * 2 + 1).toString(16)}=${(64 + id).toString(16)}`);
     const bytes = new Map<number, number>();

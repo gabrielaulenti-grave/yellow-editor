@@ -15,6 +15,7 @@ export interface SceneDomain {
   reason: string | null; mapConstant: string; actors: SceneActor[];
   idleStates: Array<{ id: number; label: string }>; stateVariable: string | null;
   defaultPlayer: Point;
+  emotes: string[]; emoteReason: string | null;
 }
 interface Node {
   kind: "start" | "finish" | "original" | "op" | "npc-start" | "npc-wait" | "player-start" | "player-wait";
@@ -37,7 +38,7 @@ export function sceneModels(files: Array<{ contents: string }>): ManagedInteract
   return files.flatMap(file => [...file.contents.matchAll(/^\s*; yellow-editor-interaction: (.*)$/gm)].map(match => JSON.parse(match[1]) as ManagedInteraction)).filter(model => model.version === 3 && model.scene);
 }
 export function needsScene(actions: InteractionAction[]): boolean {
-  return actions.some(action => ["walk-npc", "follow-npc", "visibility"].includes(action.kind)
+  return actions.some(action => ["walk-npc", "follow-npc", "visibility", "emote"].includes(action.kind)
     || action.kind === "choice" && (needsScene(action.yes) || needsScene(action.no))
     || action.kind === "if-event" && (needsScene(action.then) || needsScene(action.otherwise)));
 }
@@ -84,11 +85,11 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     if (p.x < 0 || p.y < 0 || p.x >= map.width * 2 || p.y >= map.height * 2 || signs.some(other => same(other, p))) return false;
     // Native warps inspect player coordinates, not NPC positions. Scripted NPC
     // movement can enter a door tile (even one absent from collision tiles).
-    // Never apply this exception to player starts or following routes.
+    // Following routes still use ordinary player collision rules.
     if (warps.some(other => same(other, p))) return npcOnly;
     return passable.includes(blockset[blocks[Math.floor(p.y / 2) * map.width + Math.floor(p.x / 2)] * 16 + (p.y % 2 * 2 + 1) * 4 + p.x % 2 * 2]);
   };
-  if (!walkable({ x: options.playerX, y: options.playerY })) throw new Error("Choose a walkable player start away from warps and signs.");
+  if (!walkable({ x: options.playerX, y: options.playerY }, options.trigger === "coordinate")) throw new Error("Choose a walkable player start away from signs. Warp starts require a coordinate scene.");
   interface World { player: Point; actors: Record<string, Point>; visible: Record<string, boolean> }
   const world: World = { player: { x: options.playerX, y: options.playerY }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
   const routes = new Map<string, Array<{ from: Point; to: Point; step: string; playerFrom: Point; playerTo: Point; playerStep?: string }>>();
@@ -108,6 +109,12 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
             return name !== action.npc && world.visible[name] !== false && same(world.actors[name] ?? { x: +row[1], y: +row[2] }, world.actors[action.npc]);
           }))) throw new Error("Cannot show an NPC on an occupied tile.");
           world.visible[action.npc] = action.visible; continue;
+        }
+        if (action.kind === "emote") {
+          if (!world.visible[action.npc]) throw new Error("Show the hidden NPC before making it emote.");
+          const actor = world.actors[action.npc];
+          if (Math.abs(actor.x - world.player.x) > 4 || Math.abs(actor.y - world.player.y) > 3) throw new Error("Keep an emoting NPC on screen.");
+          continue;
         }
         if (action.kind !== "walk-npc" && action.kind !== "follow-npc") continue;
         if (!world.visible[action.npc]) throw new Error("Show the hidden NPC before walking it.");
@@ -182,7 +189,7 @@ export function renderScene(model: ManagedInteraction): string {
     "\tld a, [wStatusFlags5]", "\tand (1 << BIT_SCRIPTED_NPC_MOVEMENT) | (1 << BIT_SCRIPTED_MOVEMENT_STATE)", `\tjp nz, ${fallback}`,
     "\tld a, [wNPCMovementScriptPointerTableNum]", "\tand a", `\tjp nz, ${fallback}`,
     ...location("wXCoord", "wYCoord", { x: options.playerX, y: options.playerY }, fallback),
-    ...plan.actors.filter(actor => plan.nodes.some(node => node.npc === actor.constant || node.action?.kind === "visibility" && node.action.npc === actor.constant)).flatMap(actor => location(sprite(actor.id, "StateData2MapX"), sprite(actor.id, "StateData2MapY"), actor, fallback, 4)),
+    ...plan.actors.filter(actor => plan.nodes.some(node => node.npc === actor.constant || (node.action?.kind === "visibility" || node.action?.kind === "emote") && node.action.npc === actor.constant)).flatMap(actor => location(sprite(actor.id, "StateData2MapX"), sprite(actor.id, "StateData2MapY"), actor, fallback, 4)),
   ];
   const lines = [`${model.label}:`, "\ttext_asm", `\t; yellow-editor-interaction: ${JSON.stringify(model)}`];
   if (options.trigger === "interaction") lines.push(...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, `\tjp nz, ${p}Already`] : []), ...condition(`${p}OriginalOnly`),
@@ -235,6 +242,12 @@ export function renderScene(model: ManagedInteraction): string {
         else if (a.kind === "wait") lines.push(`\tld c, ${a.frames}`, "\tcall DelayFrames");
         else if (a.kind === "heal") lines.push("\tpredef HealParty");
         else if (a.kind === "sound") lines.push(`\tld a, ${a.sound}`, "\tcall PlaySound", ...(a.wait ? ["\tcall WaitForSoundToFinish"] : []));
+        else if (a.kind === "emote") {
+          const id = actorId(a.npc);
+          lines.push(`\tld a, [${sprite(id, "StateData1PictureID")}]`, "\tand a", `\tjp z, ${p}Abort`,
+            `\tld a, ${id * 16}`, "\tldh [hCurrentSpriteOffset], a", "\tpredef IsObjectHidden", "\tldh a, [hIsToggleableObjectOff]", "\tand a", `\tjp nz, ${p}Abort`,
+            `\tld a, ${id}`, "\tld [wEmotionBubbleSpriteIndex], a", `\tld a, ${a.bubble}`, "\tld [wWhichEmotionBubble], a", "\tpredef EmotionBubble");
+        }
         lines.push(...next(node.next!));
       }
     }
@@ -270,6 +283,12 @@ export function renderScene(model: ManagedInteraction): string {
 
 const visibilityHook = "\t; yellow-editor-scene-visibility-hook\n\tpush bc\n\tpush de\n\tpush hl\n\tcall EditorSceneObjectHidden\n\tpop hl\n\tpop de\n\tpop bc\n\tret c\n\t; yellow-editor-scene-visibility-hook-end\n";
 const entryHook = "\t; yellow-editor-scene-map-entry-hook\n\txor a\n\tld [wEditorSceneActive], a\n\t; yellow-editor-scene-map-entry-hook-end\n";
+function sceneEntryHook(models: ManagedInteraction[]) {
+  const latches = [...new Set(models.flatMap(model => model.scene?.latchFlag ? [model.scene.latchFlag] : []))].sort().map(flag => `\tResetEvent ${flag}\n`).join("");
+  // EnterMap runs before JoypadOverworld's first map-script tick. Rearm each
+  // coordinate latch here, including departure directly through its warp tile.
+  return entryHook.replace("\t; yellow-editor-scene-map-entry-hook-end", latches + "\t; yellow-editor-scene-map-entry-hook-end");
+}
 // Replace a reviewed 56-byte unused reservation, preserving its exact size and
 // every existing WRAM/save address. Native movement/menu unions cannot hold this.
 const scratch = "; yellow-editor-scene-scratch: 1\nwEditorSceneDirections:: ds 14\nwEditorSceneMovements:: ds 14\nwEditorSceneVisibility:: ds 14\nwEditorSceneJoyIgnore:: db\nwEditorSceneOverride:: db\nwEditorSceneFlags4:: db\nwEditorSceneMap:: db\nwEditorSceneOwner:: db\nwEditorSceneState:: db\nwEditorSceneActive:: db\n\tds 7\n; yellow-editor-scene-scratch-end\n";
@@ -303,12 +322,14 @@ export async function prepareSceneRuntime(state: InteractionInspection, model: M
   save(visibilityPath, text);
   const ram = normalize(state.byPath.get("ram/wram.asm")!), clear = normalize(state.byPath.get("engine/overworld/clear_variables.asm")!);
   if (existing.length) {
-    if (!ram.includes(scratch) || !clear.includes(entryHook)) throw new Error("The scene scratch or map-entry hook was changed in source.");
+    const previous = sceneEntryHook(existing);
+    if (!ram.includes(scratch) || !clear.includes(previous) && !clear.includes(entryHook)) throw new Error("The scene scratch or map-entry hook was changed in source.");
+    save("engine/overworld/clear_variables.asm", clear.replace(clear.includes(previous) ? previous : entryHook, sceneEntryHook(all)));
   } else {
     const reservation = "wGameProgressFlagsEnd::\n\n\tds 56\n";
     if (ram.split(reservation).length !== 2 || /wEditorScene\w+/.test(ram)) throw new Error("Scene storage requires the reviewed unused 56-byte WRAM reservation.");
     if (await hashText(body(clear, "ClearVariablesOnEnterMap")) !== "86ee2041b20584e3b9df2c0ee987347ebc8f201797e1b09e1349747b6d985296") throw new Error("Scene cleanup needs the reviewed map-entry routine.");
     save("ram/wram.asm", ram.replace(reservation, "wGameProgressFlagsEnd::\n\n" + scratch));
-    save("engine/overworld/clear_variables.asm", clear.replace("ClearVariablesOnEnterMap::\n", "ClearVariablesOnEnterMap::\n" + entryHook));
+    save("engine/overworld/clear_variables.asm", clear.replace("ClearVariablesOnEnterMap::\n", "ClearVariablesOnEnterMap::\n" + sceneEntryHook(all)));
   }
 }

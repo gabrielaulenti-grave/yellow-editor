@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
 import type { InteractionDocument } from "./core/scriptInteractions";
 import { SearchableSelect } from "./editor/SearchableSelect";
+import { NPC_EMOTES } from "./core/sceneEmotes";
 
 const titles: Record<InteractionAction["kind"], string> = {
   dialogue: "Show dialogue", choice: "Yes/No choice", "if-event": "Branch on event",
   event: "Change event", wait: "Wait", heal: "Heal party", sound: "Play sound",
   "walk-npc": "Walk NPC", "follow-npc": "Walk NPC with player following", visibility: "Show/hide NPC",
+  emote: "NPC emote",
   item: "Give item", pokemon: "Give Pokémon", end: "End interaction",
 };
 
@@ -25,7 +27,8 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   const number = (title: string, value: number, max: number, change: (value: number) => void) => <label>{title}<input aria-label={`${path} ${title}`} type="number" min={1} max={max} value={value} disabled={busy} onChange={e => change(Number(e.target.value))} /></label>;
   const toggle = (title: string, value: boolean, change: (value: boolean) => void) => <label><input type="checkbox" disabled={busy} checked={value} onChange={e => change(e.target.checked)} />{title}</label>;
   const unavailable = (kind: InteractionAction["kind"]) =>
-    (["walk-npc", "follow-npc", "visibility"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.actors.length))
+    (["walk-npc", "follow-npc", "visibility", "emote"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.actors.length))
+    || kind === "emote" && (Boolean(document.scene.emoteReason) || !document.scene.emotes.length)
     || kind === "choice" && (Boolean(document.choiceReason) || depth >= 4)
     || kind === "if-event" && (!document.events.length || depth >= 4)
     || kind === "event" && !document.events.length
@@ -37,6 +40,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
     switch (kind) {
       case "walk-npc": case "follow-npc": action = { kind, npc: document.scene.actors[0].constant, steps: ["DOWN"] }; onEnableScene?.(); break;
       case "visibility": action = { kind, npc: document.scene.actors[0].constant, visible: true }; onEnableScene?.(); break;
+      case "emote": action = { kind, npc: document.scene.actors[0].constant, bubble: document.scene.emotes[0] }; onEnableScene?.(); break;
       case "dialogue": action = { kind, lines: ["Hello!"], textId: newSequenceDialogueId() }; break;
       case "choice": action = { kind, yes: [], no: [{ kind: "end", complete: false }] }; break;
       case "if-event": action = { kind, event: document.events[0], set: true, then: [], otherwise: [] }; break;
@@ -80,9 +84,15 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
         {action.kind === "sound" && <>{options("Sound effect", action.sound, document.sounds, sound => update(i, { ...action, sound }))}{toggle("Wait for effect channels", action.wait, wait => update(i, { ...action, wait }))}<p className="help-text">Playback uses the game's current audio bank. The wait covers effect channels 5, 6 and 8; the low-health alarm can bypass it.</p></>}
         {action.kind === "item" && <>{options("Reward item", action.item, document.items, item => update(i, { ...action, item }))}{number("Reward quantity", action.quantity, 99, quantity => update(i, { ...action, quantity }))}</>}
         {action.kind === "pokemon" && <>{options("Gift Pokémon", action.species, document.pokemon, species => update(i, { ...action, species }))}{number("Gift level", action.level, 100, level => update(i, { ...action, level }))}</>}
-        {(action.kind === "walk-npc" || action.kind === "follow-npc" || action.kind === "visibility") && <>
+        {(action.kind === "walk-npc" || action.kind === "follow-npc" || action.kind === "visibility" || action.kind === "emote") && <>
           {options("Scene NPC", action.npc, document.scene.actors.map(actor => actor.constant), npc => update(i, { ...action, npc }))}
-          {action.kind === "visibility" ? toggle("Visible (uncheck to hide)", action.visible, visible => update(i, { ...action, visible })) : <>
+          {action.kind === "emote" ? <>
+            <label>Emotion bubble<select aria-label={`${path} action ${i + 1} emotion bubble`} disabled={busy} value={action.bubble} onChange={e => update(i, { ...action, bubble: e.target.value })}>
+              {document.scene.emotes.map(bubble => <option key={bubble} value={bubble}>{NPC_EMOTES[bubble]}</option>)}
+            </select></label>
+            <p className="help-text">Show a reaction above a visible NPC for about one second, then continue. Use Play sound separately to add a cue.</p>
+            {document.scene.emoteReason && <p className="help-text">{document.scene.emoteReason}</p>}
+          </> : action.kind === "visibility" ? toggle("Visible (uncheck to hide)", action.visible, visible => update(i, { ...action, visible })) : <>
             <SceneRouteInput label={`${path} action ${i + 1} route`} steps={action.steps} busy={busy} onChange={steps => update(i, { ...action, steps })} />
             <p className="help-text">UP, DOWN, LEFT or RIGHT; up to 32 steps. {action.kind === "follow-npc" ? "The player starts beside the NPC and follows into each vacated tile. Following routes cannot enter warps." : "The NPC can walk onto a door or warp tile without changing maps. Add Show/hide NPC afterward to make the character leave. Otherwise the NPC stays at its destination until moved again or the map reloads."}</p>
           </>}
@@ -92,6 +102,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
     })}
     {!actions.length && <p className="help-text">This branch continues with the following action.</p>}
     <div className="interaction-sequence-add">
+      {kind === "emote" && document.scene.emoteReason && <p className="help-text">{document.scene.emoteReason}</p>}
       <label>Action type<select aria-label={`${path} action type`} value={kind} disabled={busy} onChange={e => setKind(e.target.value as InteractionAction["kind"])}>
         {Object.entries(titles).map(([kind, title]) => <option key={kind} value={kind} disabled={Boolean(unavailable(kind as InteractionAction["kind"]))}>{title}</option>)}
       </select></label>

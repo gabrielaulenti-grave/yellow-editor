@@ -1,4 +1,5 @@
 import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
+import { inspectSceneEmotes } from "./sceneEmotes";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { hashText } from "./history";
 import { identifySequenceDialogue, renderInteractionSequence, sequenceDialogue, sequenceDialoguePrompts, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
@@ -295,6 +296,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     }); } catch { idleStates = []; }
   }
   const scene: SceneDomain = {
+    ...await inspectSceneEmotes(byPath, symbols),
     reason: !map || map.isAlias || !map.width || !map.height || npcConstants.length !== objectRows.length || objectRows.length > 14 || !idleStates.length || idleStates.some(entry => entry.id >= 128)
       ? "Scenes require a unique map header, ordinary object slots and a readable map script."
       : !["npc-movement", "player-movement"].every(id => contracts.some(contract => contract.id === id && contract.sourceStatus === "reviewed-source")) ? "Scenes require the reviewed NPC and player movement routines." : null,

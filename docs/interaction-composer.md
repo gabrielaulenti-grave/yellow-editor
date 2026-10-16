@@ -44,6 +44,7 @@ mentor, map or Pokémon-specific generator.
 | Walk NPC | Walk a stationary map NPC along 1–32 cardinal steps, yielding between tiles |
 | Walk NPC with player following | Move the NPC, then move the player into its vacated tile |
 | Show/hide NPC | Stage an ordinary NPC using a persistent event bit |
+| NPC emote | Show a native emotion bubble over a visible, on-screen NPC for 60 frames |
 | End interaction | Exit early, optionally commit completion and success events |
 
 Reaching the end of the outer sequence completes it. **End interaction** with
@@ -99,7 +100,7 @@ choose **Reach map coordinates**, and mark that NPC initially hidden. Add
 **Show/hide NPC** (visible), dialogue, and **Walk NPC with player following**.
 The player must start next to the actor for following. End with dialogue or a
 hide action. Use a Yes/No branch to allow declining. A declined coordinate scene
-stays latched until the player leaves the trigger tile.
+stays latched until the player leaves the trigger tile or re-enters the map.
 
 Routes use UP, DOWN, LEFT and RIGHT, separated by commas or whitespace. They
 stay within the map, avoid walls, signs and other objects, and keep the
@@ -112,8 +113,20 @@ with different final staging must end separately rather than rejoin.
 **Walk NPC** can enter a door or warp tile: native warps check the player's
 position and do not transfer an NPC to another map. Follow that walk with
 **Show/hide NPC** (hidden) to stage a departure. Player-following routes still
-reject warp tiles, as do scene player starts. Walls, occupied positions, map
+reject warp tiles. Coordinate-triggered scenes can start on the player's arrival
+warp: choose **Reach map coordinates** and enter that warp's X/Y. The scene runs
+before the next player input; it does not move the player or disable normal
+warp behavior. Interaction-triggered scenes still require an ordinary player
+start. Walls, occupied positions, map
 bounds and the on-screen route limit remain checked.
+
+**NPC emote** offers exclamation, question and smile bubbles in Red. Yellow also
+offers skull, heart, lightning bolt, sleep and fish bubbles. The native routine
+holds the bubble for about one second and restores sprite updates before the
+next action. Show a hidden actor before emoting, and keep it on screen. Add a
+separate **Play sound** action for an audio cue. The picker disables emotes when
+the project's emotion-bubble routine or bubble constants differ from reviewed
+source; saving checks those dependencies again.
 
 Walking can run before or after rewards. A scene records successful delivery in
 a separate persistent event bit immediately after the gift succeeds. Interrupted
