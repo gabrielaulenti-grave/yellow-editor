@@ -1,7 +1,8 @@
 import { hashText } from "./history";
 import { prepareSceneBankSpace } from "./sceneBankSpace";
+import { renderSceneEffect, renderSceneEffectHelpers, effectScratchFields, effectEntryHook, legacyEffectEntryHook, sceneBattleReturnHook, battleSnapshotRuntime } from "./sceneEffectRuntime";
 import { parseMapIndex } from "./mapVisualization";
-import type { InteractionAction } from "./interactionSequence";
+import { interactionBranches, isBattle, type InteractionAction } from "./interactionSequence";
 import type { ManagedInteraction, InteractionInspection } from "./scriptInteractions";
 import type { ProjectSource } from "./types";
 
@@ -17,11 +18,13 @@ export interface SceneDomain {
   defaultPlayer: Point;
   emotes: string[]; emoteReason: string | null;
 }
-interface Node {
-  kind: "start" | "finish" | "original" | "op" | "npc-start" | "npc-wait" | "player-start" | "player-wait";
+export interface SceneNode {
+  kind: "start" | "finish" | "original" | "op" | "npc-start" | "npc-wait" | "player-start" | "player-wait" | "battle-start" | "battle-return";
   next?: number; other?: number; action?: InteractionAction; textKey?: string;
   npc?: string; step?: string; from?: Point; to?: Point; complete?: boolean;
+  caught?: number; staging?: SceneActor[];
 }
+type Node = SceneNode;
 export interface ScenePlan {
   owner: number; mapConstant: string; stateVariable: string | null;
   actors: SceneActor[]; frozen: number[]; nodes: Node[]; textNodes: number[]; textSlots: number;
@@ -30,6 +33,7 @@ export interface ScenePlan {
   // Optional so existing v3 source can still be verified before upgrading.
   // One reward per path: one pending delivery covers all mutually exclusive gifts.
   giftFlag?: string;
+  effects?: { music: Array<{ id: string; header: string }>; battles: Record<string, { won: string; caught?: string }> };
 }
 const delta: Record<string, Point> = { UP: { x: 0, y: -1 }, DOWN: { x: 0, y: 1 }, LEFT: { x: -1, y: 0 }, RIGHT: { x: 1, y: 0 } };
 const same = (a: Point, b: Point) => a.x === b.x && a.y === b.y;
@@ -38,9 +42,8 @@ export function sceneModels(files: Array<{ contents: string }>): ManagedInteract
   return files.flatMap(file => [...file.contents.matchAll(/^\s*; yellow-editor-interaction: (.*)$/gm)].map(match => JSON.parse(match[1]) as ManagedInteraction)).filter(model => model.version === 3 && model.scene);
 }
 export function needsScene(actions: InteractionAction[]): boolean {
-  return actions.some(action => ["walk-npc", "follow-npc", "visibility", "emote"].includes(action.kind)
-    || action.kind === "choice" && (needsScene(action.yes) || needsScene(action.no))
-    || action.kind === "if-event" && (needsScene(action.then) || needsScene(action.otherwise)));
+  return actions.some(action => ["walk-npc", "follow-npc", "visibility", "emote", "music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)
+    || interactionBranches(action).some(([branch]) => needsScene(branch)));
 }
 export async function buildScenePlan(source: ProjectSource, state: InteractionInspection, model: ManagedInteraction, allocate: (name: string) => string): Promise<ScenePlan> {
   const domain = state.document.scene, options = model.values.scene;
@@ -54,11 +57,18 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   if (!owner) throw new Error("No free scene identifier remains on this map.");
   const visibility = structuredClone(state.old?.scene?.visibility ?? []), staged = new Set(options.hiddenNpcs);
   let hasGift = false;
+  let hasEffects = false;
+  const usedMusic = new Set<string>(), battles = structuredClone(state.old?.scene?.effects?.battles ?? {});
   const visit = (actions: InteractionAction[]) => actions.forEach(action => {
     if (action.kind === "visibility") staged.add(action.npc);
     else if (action.kind === "item" || action.kind === "pokemon") hasGift = true;
-    else if (action.kind === "choice") { visit(action.yes); visit(action.no); }
-    else if (action.kind === "if-event") { visit(action.then); visit(action.otherwise); }
+    if (["music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)) hasEffects = true;
+    if (action.kind === "music" && action.mode === "play") usedMusic.add(action.track);
+    if (isBattle(action) && !battles[action.battleId!]) battles[action.battleId!] = {
+      won: allocate(`EVENT_${model.prefix.toUpperCase()}_${action.battleId!.toUpperCase()}_BATTLE_WON`),
+      ...(action.kind === "wild-battle" ? { caught: allocate(`EVENT_${model.prefix.toUpperCase()}_${action.battleId!.toUpperCase()}_BATTLE_CAUGHT`) } : {}),
+    };
+    interactionBranches(action).forEach(([branch]) => visit(branch));
   });
   visit(model.values.actions);
   const giftFlag = state.old?.scene?.giftFlag ?? (hasGift ? allocate(`EVENT_${model.prefix.toUpperCase()}_GIFT_DELIVERED`) : undefined);
@@ -90,19 +100,23 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     return passable.includes(blockset[blocks[Math.floor(p.y / 2) * map.width + Math.floor(p.x / 2)] * 16 + (p.y % 2 * 2 + 1) * 4 + p.x % 2 * 2]);
   };
   if (!walkable({ x: options.playerX, y: options.playerY }, options.trigger === "coordinate")) throw new Error("Choose a walkable player start away from signs. Warp starts require a coordinate scene.");
-  interface World { player: Point; actors: Record<string, Point>; visible: Record<string, boolean> }
-  const world: World = { player: { x: options.playerX, y: options.playerY }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
+  interface World { player: Point; actors: Record<string, Point>; visible: Record<string, boolean>; dark: boolean }
+  const world: World = { dark: false, player: { x: options.playerX, y: options.playerY }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
+  const battleStaging = new Map<string, SceneActor[]>();
   const routes = new Map<string, Array<{ from: Point; to: Point; step: string; playerFrom: Point; playerTo: Point; playerStep?: string }>>();
   function validate(actions: InteractionAction[], worlds: World[], path = "Action"): World[] {
     for (const [i, action] of actions.entries()) {
       const key = `${path}${i + 1}`;
       if (action.kind === "end") return [];
-      if (action.kind === "choice" || action.kind === "if-event") {
-        const branches = action.kind === "choice" ? [[action.yes, "Yes"], [action.no, "No"]] as const : [[action.then, "Then"], [action.otherwise, "Otherwise"]] as const;
+      if (worlds.some(world => world.dark) && ["dialogue", "choice", "emote", "wild-battle", "trainer-battle", "item", "pokemon", "walk-npc", "follow-npc"].includes(action.kind)) throw new Error("Restore the screen before dialogue, movement, rewards or battles.");
+      if (isBattle(action)) battleStaging.set(key, domain.actors.map(actor => ({ ...actor, ...worlds[0].actors[actor.constant] })));
+      const branches = interactionBranches(action);
+      if (branches.length) {
         worlds = branches.flatMap(([entries, suffix]) => validate(entries, structuredClone(worlds), `${key}${suffix}`));
         if (worlds.some(world => JSON.stringify(world) !== JSON.stringify(worlds[0]))) throw new Error("Rejoining branches must have the same player, actor positions and visibility. End differently staged branches separately.");
         worlds = worlds.slice(0, 1);
       } else for (const world of worlds) {
+        if (action.kind === "fade") { world.dark = action.mode === "out"; continue; }
         if (action.kind === "visibility") {
           if (action.visible && (same(world.actors[action.npc], world.player) || state.objectRows.some((row, index) => {
             const name = state.npcConstants[index];
@@ -148,7 +162,13 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     for (let i = actions.length - 1; i >= 0; i--) {
       const action = actions[i], key = `${path}${i + 1}`;
       if (action.kind === "end") { next = action.complete ? success : failed; continue; }
-      if (action.kind === "choice" || action.kind === "if-event") {
+      if (isBattle(action)) {
+        const won = compile(action.won, next, `${key}Won`);
+        const caught = action.kind === "wild-battle" ? compile(action.caught, next, `${key}Caught`) : undefined;
+        const escaped = action.kind === "wild-battle" ? compile(action.escaped, next, `${key}Escaped`) : failed;
+        const returned = add({ kind: "battle-return", action, next: won, other: escaped, caught, staging: battleStaging.get(key) });
+        next = add({ kind: "battle-start", action, next: returned, other: won, caught });
+      } else if (action.kind === "choice" || action.kind === "if-event") {
         const branches = action.kind === "choice" ? [[action.yes, "Yes"], [action.no, "No"]] as const : [[action.then, "Then"], [action.otherwise, "Otherwise"]] as const;
         const a = compile(branches[0][0], next, `${key}${branches[0][1]}`), b = compile(branches[1][0], next, `${key}${branches[1][1]}`);
         next = add({ kind: "op", action, next: a, other: b });
@@ -172,7 +192,8 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   return { owner, mapConstant: domain.mapConstant, stateVariable: domain.stateVariable, actors: domain.actors, frozen: state.objectRows.map((_, i) => i + 1), nodes, textNodes,
     textSlots: Math.max(textNodes.length, state.old?.scene?.textSlots ?? 0), visibility, follower: state.byPath.has("scripts/OaksLab_2.asm"),
     latchFlag: state.old?.scene?.latchFlag ?? (options.trigger === "coordinate" ? allocate(`EVENT_${model.prefix.toUpperCase()}_SCENE_LATCH`) : null),
-    ...(giftFlag ? { giftFlag } : {}) };
+    ...(giftFlag ? { giftFlag } : {}),
+    ...(hasEffects || state.old?.scene?.effects ? { effects: { music: state.document.effects.music.filter(track => usedMusic.has(track.id)), battles } } : {}) };
 }
 export function sceneRootHook(prefix: string) { return `\t; yellow-editor-scene-hook ${prefix}\n\tcall ${prefix}SceneFrame\n\tret c\n\t; yellow-editor-scene-hook-end ${prefix}\n`; }
 
@@ -201,9 +222,12 @@ export function renderScene(model: ManagedInteraction): string {
     ...condition(`${p}Inactive`), ...guards(`${p}Inactive`), `\tSetEvent ${plan.latchFlag}`, `\tcall ${p}Launch`);
   else lines.push("\tjp .inactive");
   lines.push(".active", "\tld a, [wEditorSceneMap]", `\tcp ${plan.mapConstant}`, "\tjp nz, .inactive", "\tld a, [wEditorSceneOwner]", `\tcp ${plan.owner}`, "\tjp nz, .inactive",
+    ...(plan.effects ? ["\tld a, [wEditorSceneBattle]", "\tand a", "\tjr z, .dispatch", "\tld a, [wIsInBattle]", "\tcp LOST_BATTLE", `\tjp z, ${p}BattleLost`, "\tld a, [wEditorSceneBattle]", "\tcp 1", "\tjr nz, .dispatch", "\txor a", "\tld [wJoyIgnore], a", "\tscf", "\tret", ".dispatch"] : []),
     "\tld a, $ff", "\tld [wJoyIgnore], a", `\tld hl, ${p}ScenePointers`, "\tld a, [wEditorSceneState]", `\tcp ${plan.nodes.length}`, `\tjp nc, ${p}Abort`, "\tcall CallFunctionInTable", "\tscf", "\tret", ".inactive", "\tand a", "\tret", `${p}Inactive:`, "\tand a", "\tret", "");
   if (plan.latchFlag) lines.push(`${p}ClearLatch:`, `\tResetEvent ${plan.latchFlag}`, "\tand a", "\tret", "");
+  if (plan.effects) lines.push(`${p}BattleLost:`, `\tcall ${p}Abort`, "\tscf", "\tret", "");
   lines.push(`${p}Launch:`, "\tld a, [wJoyIgnore]", "\tld [wEditorSceneJoyIgnore], a", "\tld a, [wOverrideSimulatedJoypadStatesMask]", "\tld [wEditorSceneOverride], a", "\tld a, [wStatusFlags4]", "\tld [wEditorSceneFlags4], a",
+    ...(plan.effects ? ["\txor a", "\tld [wEditorSceneBattle], a", "\tld [wEditorScenePalette], a", "\tld [wEditorSceneMusic], a"] : []),
     ...plan.visibility.flatMap((entry, i) => [`\tCheckEvent ${entry.flag}`, "\tld a, 0", `\tjr z, .visibility${i}`, "\tinc a", `.visibility${i}`, `\tld [wEditorSceneVisibility + ${i}], a`]),
     ...plan.frozen.flatMap((id, i) => [`\tld a, [wMapSpriteData + ${(id - 1) * 2}]`, `\tld [wEditorSceneDirections + ${i}], a`, `\tld a, [${sprite(id, "StateData2MovementByte1")}]`, `\tld [wEditorSceneMovements + ${i}], a`, "\tld a, STAY", `\tld [${sprite(id, "StateData2MovementByte1")}], a`]),
     "\tld hl, wStatusFlags4", "\tset BIT_NO_BATTLES, [hl]", `\tld a, ${plan.mapConstant}`, "\tld [wEditorSceneMap], a", `\tld a, ${plan.owner}`, "\tld [wEditorSceneOwner], a", "\txor a", "\tld [wEditorSceneState], a", "\tld a, 1", "\tld [wEditorSceneActive], a", "\tld a, $ff", "\tld [wJoyIgnore], a", "\txor a", "\tldh [hJoyHeld], a", "\tret", "", `${p}ScenePointers:`, ...plan.nodes.map((_, i) => `\tdw ${p}State${i}`), "");
@@ -216,11 +240,14 @@ export function renderScene(model: ManagedInteraction): string {
   ];
   plan.nodes.forEach((node, i) => {
     lines.push(`${p}State${i}:`);
-    if (node.kind === "start") lines.push(...next(node.next!));
+    const effect = renderSceneEffect(node, model, next);
+    if (effect) lines.push(...effect);
+    else if (node.kind === "start") lines.push(...next(node.next!));
     else if (node.kind === "finish") lines.push(...(node.complete ? [...(v.once && model.flag ? [`\tSetEvent ${model.flag}`] : []),
       // Only normal completion retires the pending delivery. Aborts and map
       // reloads retain it; a repeatable scene can give again after completing.
       ...(plan.giftFlag ? [`\tResetEvent ${plan.giftFlag}`] : []),
+      ...(plan.effects ? Object.values(plan.effects.battles).flatMap(flags => [flags.won, ...(flags.caught ? [flags.caught] : [])].map(flag => `\tResetEvent ${flag}`)) : []),
       ...v.events.map(event => `\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`), `\tjp ${p}Cleanup`] : [`\tjp ${p}Abort`]));
     else if (node.kind === "npc-start") {
       const id = actorId(node.npc!);
@@ -274,8 +301,12 @@ export function renderScene(model: ManagedInteraction): string {
     lines.push("\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a", "\tjp TextScriptEnd", "");
   });
   for (let i = plan.textNodes.length; i < plan.textSlots; i++) lines.push(`${p}SceneText${i}:`, "\ttext_asm", "\tjp TextScriptEnd", "");
-  lines.push(`${p}AdvanceText:`, "\ttext_promptbutton", "\ttext_end", "", `${p}Abort:`, ...plan.visibility.flatMap((entry, i) => [`\tld a, [wEditorSceneVisibility + ${i}]`, "\tand a", `\tjr z, .restore${i}`, `\tSetEvent ${entry.flag}`, `\tjr .next${i}`, `.restore${i}`, `\tResetEvent ${entry.flag}`, `.next${i}`]),
+  if (plan.effects) lines.push(...renderSceneEffectHelpers(model));
+  lines.push(`${p}AdvanceText:`, "\ttext_promptbutton", "\ttext_end", "", `${p}Abort:`,
+    ...(plan.effects ? ["\tld a, [wEditorSceneMusic]", "\tcp 2", "\tjr nz, .restoreVisibility", "\tld a, 1", "\tld [wEditorSceneMusic], a", ".restoreVisibility"] : []),
+    ...plan.visibility.flatMap((entry, i) => [`\tld a, [wEditorSceneVisibility + ${i}]`, "\tand a", `\tjr z, .restore${i}`, `\tSetEvent ${entry.flag}`, `\tjr .next${i}`, `.restore${i}`, `\tResetEvent ${entry.flag}`, `.next${i}`]),
     `${p}Cleanup:`, ...plan.frozen.flatMap((id, i) => [`\tld a, [wEditorSceneDirections + ${i}]`, `\tld [wMapSpriteData + ${(id - 1) * 2}], a`, `\tld a, [wEditorSceneMovements + ${i}]`, `\tld [${sprite(id, "StateData2MovementByte1")}], a`]),
+    ...(plan.effects ? [`\tcall ${p}FadeIn`, "\tld a, [wEditorSceneMusic]", "\tcp 1", `\tcall z, ${p}RestoreMusic`, "\txor a", "\tld [wEditorSceneMusic], a", "\tld [wEditorSceneBattle], a"] : []),
     "\tld a, [wEditorSceneJoyIgnore]", "\tld [wJoyIgnore], a", "\tld a, [wEditorSceneOverride]", "\tld [wOverrideSimulatedJoypadStatesMask], a", "\tld a, [wEditorSceneFlags4]", "\tand 1 << BIT_NO_BATTLES", "\tld b, a", "\tld a, [wStatusFlags4]", "\tand ~(1 << BIT_NO_BATTLES)", "\tor b", "\tld [wStatusFlags4], a", "\txor a", "\tld [wEditorSceneActive], a", "\tld [wSimulatedJoypadStatesIndex], a", "\tld [wSimulatedJoypadStatesEnd], a", "\tld [wUnusedOverrideSimulatedJoypadStatesIndex], a", "\tldh [hJoyHeld], a", "\tret", "");
   if (model.arrival) for (const idle of model.idleStates ?? [0]) for (const kind of ["Start", "Arrive", "Cleanup"]) lines.push(`${p}${idle ? `Resume${idle}` : ""}${kind}State:`, `\tld a, ${idle}`, `\tld [${plan.stateVariable}], a`, "\tret", "");
   return lines.join("\n") + `; yellow-editor-interaction-code-end ${model.label}\n\n`;
@@ -283,21 +314,28 @@ export function renderScene(model: ManagedInteraction): string {
 
 const visibilityHook = "\t; yellow-editor-scene-visibility-hook\n\tpush bc\n\tpush de\n\tpush hl\n\tcall EditorSceneObjectHidden\n\tpop hl\n\tpop de\n\tpop bc\n\tret c\n\t; yellow-editor-scene-visibility-hook-end\n";
 const entryHook = "\t; yellow-editor-scene-map-entry-hook\n\txor a\n\tld [wEditorSceneActive], a\n\t; yellow-editor-scene-map-entry-hook-end\n";
-function sceneEntryHook(models: ManagedInteraction[]) {
+function sceneEntryHook(models: ManagedInteraction[], snapshot = true) {
   const latches = [...new Set(models.flatMap(model => model.scene?.latchFlag ? [model.scene.latchFlag] : []))].sort().map(flag => `\tResetEvent ${flag}\n`).join("");
   // EnterMap runs before JoypadOverworld's first map-script tick. Rearm each
   // coordinate latch here, including departure directly through its warp tile.
-  return entryHook.replace("\t; yellow-editor-scene-map-entry-hook-end", latches + "\t; yellow-editor-scene-map-entry-hook-end");
+  const extended = models.some(model => model.scene?.effects);
+  const restoreStaging = models.filter(model => model.scene!.nodes.some(node => node.kind === "battle-return")).sort((a, b) => a.prefix.localeCompare(b.prefix)).flatMap((model, i) => [
+    "\tld a, [wEditorSceneMap]", `\tcp ${model.scene!.mapConstant}`, `\tjr nz, .editorBattleNext${i}`, "\tld a, [wEditorSceneOwner]", `\tcp ${model.scene!.owner}`, `\tjr nz, .editorBattleNext${i}`,
+    `\tfarcall ${model.prefix}RestoreBattleStaging`, `.editorBattleNext${i}`,
+  ]).join("\n");
+  return entryHook.replace("\txor a", (extended ? (snapshot ? effectEntryHook : legacyEffectEntryHook).replace("\t; restore editor battle staging", restoreStaging).replace(/\tjr /g, "\tjp ") : "") + "\txor a").replace("\t; yellow-editor-scene-map-entry-hook-end", latches + (extended ? ".editorSceneEntryDone\n" : "") + "\t; yellow-editor-scene-map-entry-hook-end");
 }
 // Replace a reviewed 56-byte unused reservation, preserving its exact size and
 // every existing WRAM/save address. Native movement/menu unions cannot hold this.
 const scratch = "; yellow-editor-scene-scratch: 1\nwEditorSceneDirections:: ds 14\nwEditorSceneMovements:: ds 14\nwEditorSceneVisibility:: ds 14\nwEditorSceneJoyIgnore:: db\nwEditorSceneOverride:: db\nwEditorSceneFlags4:: db\nwEditorSceneMap:: db\nwEditorSceneOwner:: db\nwEditorSceneState:: db\nwEditorSceneActive:: db\n\tds 7\n; yellow-editor-scene-scratch-end\n";
-function runtime(models: ManagedInteraction[]) {
+const extendedScratch = scratch.replace("scratch: 1", "scratch: 2").replace("\tds 7\n", effectScratchFields);
+function runtime(models: ManagedInteraction[], snapshot = true) {
   const entries = new Map<string, { map: string; entry: ScenePlan["visibility"][number] }>();
   models.forEach(model => model.scene!.visibility.forEach(entry => entries.set(`${model.scene!.mapConstant}:${entry.npc}`, { map: model.scene!.mapConstant, entry })));
-  return "; yellow-editor-scene-runtime: 1\nEditorSceneObjectHidden:\n" + [...entries.values()].sort((a, b) => `${a.map}:${a.entry.npc}`.localeCompare(`${b.map}:${b.entry.npc}`)).map(({ map, entry }, i) => [
+  const battle = snapshot && models.some(model => model.scene!.nodes.some(node => node.kind === "battle-start"));
+  return `; yellow-editor-scene-runtime: ${battle ? 2 : 1}\nEditorSceneObjectHidden:\n` + [...entries.values()].sort((a, b) => `${a.map}:${a.entry.npc}`.localeCompare(`${b.map}:${b.entry.npc}`)).map(({ map, entry }, i) => [
     "\tld a, [wCurMap]", `\tcp ${map}`, `\tjr nz, .next${i}`, "\tldh a, [hCurrentSpriteOffset]", `\tcp ${entry.id * 16}`, `\tjr nz, .next${i}`, `\tCheckEvent ${entry.flag}`, "\tld a, 0", `\tjr ${entry.hiddenInitially ? "nz" : "z"}, .result${i}`, "\tinc a", `.result${i}`, "\tldh [hIsToggleableObjectOff], a", "\tscf", "\tret", `.next${i}`,
-  ].join("\n")).join("\n") + "\n\tand a\n\tret\n; yellow-editor-scene-runtime-end\n";
+  ].join("\n")).join("\n") + "\n\tand a\n\tret\n" + (battle ? battleSnapshotRuntime : "") + "; yellow-editor-scene-runtime-end\n";
 }
 function body(text: string, label: string) {
   const match = text.match(new RegExp(`^${label}:{1,2}\\n([\\s\\S]*?)(?=^[A-Za-z_]\\w*:{1,2}|$(?![\\s\\S]))`, "m"));
@@ -311,25 +349,34 @@ export async function prepareSceneRuntime(state: InteractionInspection, model: M
   const save = (path: string, text: string) => changed.set(path, text.replace(/\n/g, state.byPath.get(path)!.includes("\r\n") ? "\r\n" : "\n"));
   const visibilityPath = "engine/overworld/toggleable_objects.asm";
   let text = normalize(state.byPath.get(visibilityPath)!);
+  const extended = all.some(model => model.scene?.effects);
   if (existing.length) {
-    const old = runtime(existing);
-    if (!text.endsWith(old) || !text.includes(visibilityHook)) throw new Error("The shared scene visibility runtime was changed in source.");
+    const old = [runtime(existing), runtime(existing, false)].find(previous => text.endsWith(previous));
+    if (!old || !text.includes(visibilityHook)) throw new Error("The shared scene visibility runtime was changed in source.");
     text = text.slice(0, -old.length) + runtime(all);
   } else {
     if (await hashText(body(text, "IsObjectHidden")) !== "f78a101337f2f157e91014ea8ad83876e16bc65120172c6cf098c16215ac7008") throw new Error("Scene visibility needs the reviewed native IsObjectHidden routine.");
     text = text.replace("IsObjectHidden:\n", "IsObjectHidden:\n" + visibilityHook) + "\n" + runtime(all);
   }
   save(visibilityPath, text);
+  const overworldPath = "home/overworld.asm", overworld = normalize(state.byPath.get(overworldPath)!);
+  const hasBattles = all.some(model => model.scene!.nodes.some(node => node.kind === "battle-start"));
+  if (overworld.includes("yellow-editor-scene-battle-return-hook") && (overworld.split(sceneBattleReturnHook).length !== 2 || !overworld.includes("\n.battleOccurred\n" + sceneBattleReturnHook))) throw new Error("The shared battle-return hook was changed in source.");
+  if (hasBattles && !overworld.includes(sceneBattleReturnHook)) {
+    if (!overworld.includes("\n.battleOccurred\n")) throw new Error("The native battle return boundary is missing.");
+    save(overworldPath, overworld.replace("\n.battleOccurred\n", "\n.battleOccurred\n" + sceneBattleReturnHook));
+  } else if (!hasBattles && overworld.includes(sceneBattleReturnHook)) save(overworldPath, overworld.replace(sceneBattleReturnHook, ""));
   const ram = normalize(state.byPath.get("ram/wram.asm")!), clear = normalize(state.byPath.get("engine/overworld/clear_variables.asm")!);
   if (existing.length) {
-    const previous = sceneEntryHook(existing);
-    if (!ram.includes(scratch) || !clear.includes(previous) && !clear.includes(entryHook)) throw new Error("The scene scratch or map-entry hook was changed in source.");
-    save("engine/overworld/clear_variables.asm", clear.replace(clear.includes(previous) ? previous : entryHook, sceneEntryHook(all)));
+    const previous = [sceneEntryHook(existing), sceneEntryHook(existing, false), ...(existing.some(model => model.scene?.effects) ? [] : [entryHook])].find(hook => clear.includes(hook));
+    if (!ram.includes(scratch) && !ram.includes(extendedScratch) || !previous) throw new Error("The scene scratch or map-entry hook was changed in source.");
+    if (extended && ram.includes(scratch)) save("ram/wram.asm", ram.replace(scratch, extendedScratch));
+    save("engine/overworld/clear_variables.asm", clear.replace(previous, sceneEntryHook(all)));
   } else {
     const reservation = "wGameProgressFlagsEnd::\n\n\tds 56\n";
     if (ram.split(reservation).length !== 2 || /wEditorScene\w+/.test(ram)) throw new Error("Scene storage requires the reviewed unused 56-byte WRAM reservation.");
     if (await hashText(body(clear, "ClearVariablesOnEnterMap")) !== "86ee2041b20584e3b9df2c0ee987347ebc8f201797e1b09e1349747b6d985296") throw new Error("Scene cleanup needs the reviewed map-entry routine.");
-    save("ram/wram.asm", ram.replace(reservation, "wGameProgressFlagsEnd::\n\n" + scratch));
+    save("ram/wram.asm", ram.replace(reservation, "wGameProgressFlagsEnd::\n\n" + (extended ? extendedScratch : scratch)));
     save("engine/overworld/clear_variables.asm", clear.replace("ClearVariablesOnEnterMap::\n", "ClearVariablesOnEnterMap::\n" + sceneEntryHook(all)));
   }
 }

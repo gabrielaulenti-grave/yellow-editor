@@ -92,7 +92,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         {values.actions ? <>
           <p>Actions run in order. Yes/No and event branches can rejoin the next action or end early. Use one reward per path; failed delivery shows the no-room dialogue and leaves the interaction available for retry. Scenes remember a successful gift if later movement is interrupted, so retrying skips that gift.</p>
           <InteractionSequenceEditor actions={values.actions} document={document} busy={busy} onEnableScene={enableScene} onChange={actions => update({ actions })} />
-          <label><input type="checkbox" disabled={busy || Boolean(document.scene.reason) || Boolean(document.values.scene)} checked={Boolean(values.scene)} onChange={e => e.target.checked ? enableScene() : update({ scene: undefined })} />Use a walking or coordinate-triggered scene</label>
+          <label><input type="checkbox" disabled={busy || Boolean(document.scene.reason) || Boolean(document.values.scene)} checked={Boolean(values.scene)} onChange={e => e.target.checked ? enableScene() : update({ scene: undefined })} />Use a scene for movement, effects, battles or coordinate triggers</label>
           {document.scene.reason && <p className="help-text">{document.scene.reason}</p>}
           {values.scene && <>
             <label>Scene trigger<select aria-label="Scene trigger" disabled={busy} value={values.scene.trigger} onChange={e => update({ scene: { ...values.scene!, trigger: e.target.value as "interaction" | "coordinate" } })}><option value="interaction">Interact with this NPC or sign</option><option value="coordinate">Reach map coordinates</option></select></label>

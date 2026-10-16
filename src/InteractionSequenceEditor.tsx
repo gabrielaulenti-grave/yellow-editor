@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
+import { newSequenceDialogueId, newSequenceBattleId, type InteractionAction } from "./core/interactionSequence";
 import type { InteractionDocument } from "./core/scriptInteractions";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { NPC_EMOTES } from "./core/sceneEmotes";
@@ -9,6 +9,7 @@ const titles: Record<InteractionAction["kind"], string> = {
   event: "Change event", wait: "Wait", heal: "Heal party", sound: "Play sound",
   "walk-npc": "Walk NPC", "follow-npc": "Walk NPC with player following", visibility: "Show/hide NPC",
   emote: "NPC emote",
+  music: "Change music", fade: "Screen fade", "wild-battle": "Wild Pokémon encounter", "trainer-battle": "Trainer battle",
   item: "Give item", pokemon: "Give Pokémon", end: "End interaction",
 };
 
@@ -21,7 +22,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   const update = (index: number, action: InteractionAction) => onChange(actions.map((old, i) => i === index ? action : old));
   const options = (title: string, value: string, values: string[], change: (value: string) => void) => <label>{title}
     <SearchableSelect aria-label={`${path} ${title}`} value={value} disabled={busy} onChange={e => change(e.target.value)}>
-      {values.map(value => <option key={value} value={value}>{value.replace(/^(EVENT_|SFX_)/, "").replace(/_/g, " ")}</option>)}
+      {values.map(value => <option key={value} value={value}>{value.replace(/^(EVENT_|SFX_|MUSIC_)/, "").replace(/_/g, " ")}</option>)}
     </SearchableSelect>
   </label>;
   const number = (title: string, value: number, max: number, change: (value: number) => void) => <label>{title}<input aria-label={`${path} ${title}`} type="number" min={1} max={max} value={value} disabled={busy} onChange={e => change(Number(e.target.value))} /></label>;
@@ -29,6 +30,11 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   const unavailable = (kind: InteractionAction["kind"]) =>
     (["walk-npc", "follow-npc", "visibility", "emote"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.actors.length))
     || kind === "emote" && (Boolean(document.scene.emoteReason) || !document.scene.emotes.length)
+    || ["music", "fade", "wild-battle", "trainer-battle"].includes(kind) && Boolean(document.scene.reason)
+    || kind === "music" && Boolean(document.effects.musicReason)
+    || kind === "fade" && Boolean(document.effects.fadeReason)
+    || kind === "wild-battle" && (Boolean(document.effects.battleReason) || !document.pokemon.length || depth >= 4)
+    || kind === "trainer-battle" && (Boolean(document.effects.battleReason) || !document.effects.trainers.length || depth >= 4)
     || kind === "choice" && (Boolean(document.choiceReason) || depth >= 4)
     || kind === "if-event" && (!document.events.length || depth >= 4)
     || kind === "event" && !document.events.length
@@ -41,6 +47,10 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
       case "walk-npc": case "follow-npc": action = { kind, npc: document.scene.actors[0].constant, steps: ["DOWN"] }; onEnableScene?.(); break;
       case "visibility": action = { kind, npc: document.scene.actors[0].constant, visible: true }; onEnableScene?.(); break;
       case "emote": action = { kind, npc: document.scene.actors[0].constant, bubble: document.scene.emotes[0] }; onEnableScene?.(); break;
+      case "music": action = { kind, mode: "play", track: document.effects.music[0].id, persist: false }; onEnableScene?.(); break;
+      case "fade": action = { kind, mode: "out" }; onEnableScene?.(); break;
+      case "wild-battle": action = { kind, battleId: newSequenceBattleId(), species: document.pokemon.includes("SNORLAX") ? "SNORLAX" : document.pokemon[0], level: 30, cry: true, won: [], caught: [], escaped: [{ kind: "end", complete: false }] }; onEnableScene?.(); break;
+      case "trainer-battle": action = { kind, battleId: newSequenceBattleId(), trainer: document.effects.trainers[0].id, won: [] }; onEnableScene?.(); break;
       case "dialogue": action = { kind, lines: ["Hello!"], textId: newSequenceDialogueId() }; break;
       case "choice": action = { kind, yes: [], no: [{ kind: "end", complete: false }] }; break;
       case "if-event": action = { kind, event: document.events[0], set: true, then: [], otherwise: [] }; break;
@@ -82,6 +92,36 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
         {action.kind === "event" && <>{options("Changed event", action.event, document.events, event => update(i, { ...action, event }))}{toggle("Set event (uncheck to clear)", action.set, set => update(i, { ...action, set }))}</>}
         {action.kind === "wait" && number("Wait frames", action.frames, 255, frames => update(i, { ...action, frames }))}
         {action.kind === "sound" && <>{options("Sound effect", action.sound, document.sounds, sound => update(i, { ...action, sound }))}{toggle("Wait for effect channels", action.wait, wait => update(i, { ...action, wait }))}<p className="help-text">Playback uses the game's current audio bank. The wait covers effect channels 5, 6 and 8; the low-health alarm can bypass it.</p></>}
+        {action.kind === "music" && <>
+          <label>Music operation<select aria-label={`${path} action ${i + 1} music operation`} disabled={busy} value={action.mode} onChange={e => update(i, { ...action, mode: e.target.value as typeof action.mode })}>
+            <option value="play">Play track</option><option value="stop">Stop music</option><option value="restore">Restore map music</option>
+          </select></label>
+          {action.mode === "play" && options("Music track", action.track, document.effects.music.map(track => track.id), track => update(i, { ...action, track }))}
+          {action.mode !== "restore" && toggle("Keep music after normal scene completion", action.persist, persist => update(i, { ...action, persist }))}
+          <p className="help-text">Temporary music returns to the map's usual music when the scene ends. Music also returns after a battle; add another music action afterward to change it again.</p>
+        </>}
+        {action.kind === "fade" && <>
+          <label>Screen effect<select aria-label={`${path} action ${i + 1} screen effect`} disabled={busy} value={action.mode} onChange={e => update(i, { ...action, mode: e.target.value as "out" | "in" })}>
+            <option value="out">Fade to black</option><option value="in">Fade back in</option>
+          </select></label>
+          <p className="help-text">To make a character disappear: fade to black, hide the NPC, then fade back in. The screen stays dark between those actions.</p>
+        </>}
+        {action.kind === "wild-battle" && <>
+          {options("Encounter Pokémon", action.species, document.pokemon, species => update(i, { ...action, species }))}
+          {number("Encounter level", action.level, 100, level => update(i, { ...action, level }))}
+          {toggle("Play Pokémon cry", action.cry, cry => update(i, { ...action, cry }))}
+          <p className="help-text">Defeated and caught paths continue with the next action unless ended here. Escape defaults to allowing a retry. Losing follows the game's usual defeat flow. Resolved encounters are remembered until the scene completes, so a retry continues from that result. Add a hide action after a resolved encounter to remove its overworld NPC.</p>
+          {branch("Defeated", action.won, won => update(i, { ...action, won }))}
+          {branch("Caught", action.caught, caught => update(i, { ...action, caught }))}
+          {branch("Escaped", action.escaped, escaped => update(i, { ...action, escaped }))}
+        </>}
+        {action.kind === "trainer-battle" && <>
+          <label>Trainer party<SearchableSelect aria-label={`${path} action ${i + 1} trainer party`} disabled={busy} value={action.trainer} onChange={e => update(i, { ...action, trainer: e.target.value })}>
+            {document.effects.trainers.map(trainer => <option key={trainer.id} value={trainer.id}>{trainer.label}</option>)}
+          </SearchableSelect></label>
+          <p className="help-text">Fight an existing trainer party. Victory continues here; losing follows the game's usual defeat flow. This encounter has its own completion settings.</p>
+          {branch("Victory", action.won, won => update(i, { ...action, won }))}
+        </>}
         {action.kind === "item" && <>{options("Reward item", action.item, document.items, item => update(i, { ...action, item }))}{number("Reward quantity", action.quantity, 99, quantity => update(i, { ...action, quantity }))}</>}
         {action.kind === "pokemon" && <>{options("Gift Pokémon", action.species, document.pokemon, species => update(i, { ...action, species }))}{number("Gift level", action.level, 100, level => update(i, { ...action, level }))}</>}
         {(action.kind === "walk-npc" || action.kind === "follow-npc" || action.kind === "visibility" || action.kind === "emote") && <>
@@ -103,6 +143,10 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
     {!actions.length && <p className="help-text">This branch continues with the following action.</p>}
     <div className="interaction-sequence-add">
       {kind === "emote" && document.scene.emoteReason && <p className="help-text">{document.scene.emoteReason}</p>}
+      {document.effects.musicReason && <p className="help-text">Music unavailable: {document.effects.musicReason}</p>}
+      {document.effects.fadeReason && <p className="help-text">Screen fades unavailable: {document.effects.fadeReason}</p>}
+      {document.effects.battleReason && <p className="help-text">Battles unavailable: {document.effects.battleReason}</p>}
+      {!document.effects.battleReason && !document.effects.trainers.length && <p className="help-text">Trainer battles need readable trainer party tables.</p>}
       <label>Action type<select aria-label={`${path} action type`} value={kind} disabled={busy} onChange={e => setKind(e.target.value as InteractionAction["kind"])}>
         {Object.entries(titles).map(([kind, title]) => <option key={kind} value={kind} disabled={Boolean(unavailable(kind as InteractionAction["kind"]))}>{title}</option>)}
       </select></label>
