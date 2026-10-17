@@ -1,3 +1,4 @@
+import { validateNpcSpriteMovement } from "./npcSprites";
 import { hashText } from "./history";
 import { loadMapNpcSourceState } from "./npcCreation";
 import { evaluateRgbdsExpression, projectConstantCatalogFromSources } from "./projectConstants";
@@ -15,7 +16,8 @@ async function inspect(source: ProjectSource, mapConstant: string, objectId: num
   const objectConstant = [...state.objects.matchAll(/^\s*const_export (\w+)\s*$/gm)][objectId - 1]?.[1];
   if (!objectConstant) throw new Error("This object has no stable map ID.");
   const models = [...state.script.matchAll(/^\s*; yellow-editor-interaction: (.*)$/gm)].map(match => JSON.parse(match[1]) as ManagedInteraction);
-  const linked = models.filter(model => model.version === 3 && (model.scene?.nodes.some(node => node.npc === objectConstant || node.action?.kind === "visibility" && node.action.npc === objectConstant) || model.values.scene?.hiddenNpcs.includes(objectConstant)));
+  const ownerLabel = state.pointers.find(pointer => pointer.constant === row[5])?.label;
+  const linked = models.filter(model => model.version === 3 && model.scene && (model.label === ownerLabel || model.scene.nodes.some(node => node.npc === objectConstant || (node.action?.kind === "visibility" || node.action?.kind === "emote") && node.action.npc === objectConstant) || model.values.scene?.hiddenNpcs.includes(objectConstant)));
   const nativeRefs = state.files.filter(file => /^(scripts|engine|home)\//.test(file.path) && new RegExp(`\\b${objectConstant}\\b`).test(ownedCode(file.contents).split(/\r?\n/).map(line => line.split(";", 1)[0]).join("\n")));
   const legacy = models.some(model => model.version !== 3 && model.values.movement?.npc === objectConstant);
   const validDirection = row[3] === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"].includes(row[4]) : row[3] === "WALK" && ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"].includes(row[4]);
@@ -46,7 +48,7 @@ async function inspect(source: ProjectSource, mapConstant: string, objectId: num
   const binaryHashes = await Promise.all([[blockPath, blocks], [asset, blockset]].map(async ([path, bytes]) => ({ path: path as string, hash: await hashText(Array.from(bytes as Uint8Array).join(",")) })));
   const document: MapNpcEditDocument = {
     mapConstant, mapName: base.mapName, objectId, objectConstant, width: base.width, height: base.height,
-    sprites: base.sprites, spriteNote: base.spriteNote, occupied, walkable, reason,
+    sprites: base.sprites, stationarySprites: base.stationarySprites, spriteNote: base.spriteNote, occupied, walkable, reason,
     linkedScenes: linked.map(model => ({ label: model.label, playerX: model.values.scene!.playerX, playerY: model.values.scene!.playerY })),
     values: { x: +row[0], y: +row[1], sprite: row[2], movement: row[3] as "STAY" | "WALK", direction: row[4], moveSceneStart: linked.length > 0 },
     sources: [...hashes, ...binaryHashes],
@@ -65,6 +67,7 @@ export async function prepareMapNpcEditWrites(source: ProjectSource, document: M
   if (moved && !d.walkable.some(point => point.x === values.x && point.y === values.y)) throw new Error("Choose walkable ground for the NPC.");
   if (moved && d.occupied.some(point => point.x === values.x && point.y === values.y)) throw new Error("This position contains an object, warp or sign.");
   if (!d.sprites.includes(values.sprite)) throw new Error("Choose a sprite compatible with this map.");
+  validateNpcSpriteMovement(d.stationarySprites, values.sprite, values.movement, values.direction);
   const directions = values.movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : values.movement === "WALK" ? ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"] : [];
   if (!directions.includes(values.direction) || typeof values.moveSceneStart !== "boolean") throw new Error("Choose a supported movement and facing direction.");
   if (d.linkedScenes.length && values.movement !== "STAY") throw new Error("An NPC used in walking or visibility scenes must stay stationary.");

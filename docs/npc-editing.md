@@ -3,6 +3,9 @@
 In **Maps**, select an NPC marker or card and choose **Edit NPC**. Click/tap
 walkable ground in the placement preview or enter X/Y movement-tile coordinates.
 You can also change the compatible character sprite, facing or wandering mode.
+Static sprites such as Snorlax have one pose and stay in place. They use a
+separate graphics pool; repeated images share a slot. They can speak, emote, hide
+and initiate encounters, but cannot wander or take walking actions.
 Use **Save NPC** to update the same object; its ID, dialogue pointer and interaction
 remain attached. Saving refreshes the map and retains the selected NPC.
 
@@ -34,3 +37,7 @@ npm run test:npcs:edit -- /path/to/pokered /path/to/pokeyellow
 npm run test:npcs:edit -- /path/to/pokered /path/to/pokeyellow --rom /path/to/rgbds
 npm run test:npcs:edit:ui -- /path/to/pokered /path/to/pokeyellow
 ```
+
+An unfinished interaction can be closed as a draft before using Edit NPC.
+Reopen the interaction and choose Resume draft; the current map is inspected
+again. If the project changed, review the scene and use Check scene before saving.

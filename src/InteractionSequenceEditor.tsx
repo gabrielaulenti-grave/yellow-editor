@@ -13,10 +13,10 @@ const titles: Record<InteractionAction["kind"], string> = {
   item: "Give item", pokemon: "Give Pokémon", end: "End interaction",
 };
 
-export function InteractionSequenceEditor({ actions, document, busy, onChange, onEnableScene, depth = 0, path = "Actions" }: {
+export function InteractionSequenceEditor({ actions, document, busy, onChange, onEnableScene, depth = 0, path = "Actions", actionPrefix = "Action", diagnosticPath }: {
   actions: InteractionAction[]; document: InteractionDocument; busy: boolean;
   onEnableScene?(): void;
-  onChange(actions: InteractionAction[]): void; depth?: number; path?: string;
+  onChange(actions: InteractionAction[]): void; depth?: number; path?: string; actionPrefix?: string; diagnosticPath?: string;
 }) {
   const [kind, setKind] = useState<InteractionAction["kind"]>("dialogue");
   const update = (index: number, action: InteractionAction) => onChange(actions.map((old, i) => i === index ? action : old));
@@ -27,8 +27,10 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   </label>;
   const number = (title: string, value: number, max: number, change: (value: number) => void) => <label>{title}<input aria-label={`${path} ${title}`} type="number" min={1} max={max} value={value} disabled={busy} onChange={e => change(Number(e.target.value))} /></label>;
   const toggle = (title: string, value: boolean, change: (value: boolean) => void) => <label><input type="checkbox" disabled={busy} checked={value} onChange={e => change(e.target.checked)} />{title}</label>;
+  const walkingActors = document.scene.actors.filter(actor => actor.canWalk !== false);
   const unavailable = (kind: InteractionAction["kind"]) =>
     (["walk-npc", "follow-npc", "visibility", "emote"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.actors.length))
+    || ["walk-npc", "follow-npc"].includes(kind) && !walkingActors.length
     || kind === "emote" && (Boolean(document.scene.emoteReason) || !document.scene.emotes.length)
     || ["music", "fade", "wild-battle", "trainer-battle"].includes(kind) && Boolean(document.scene.reason)
     || kind === "music" && Boolean(document.effects.musicReason)
@@ -44,7 +46,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   function add() {
     let action: InteractionAction;
     switch (kind) {
-      case "walk-npc": case "follow-npc": action = { kind, npc: document.scene.actors[0].constant, steps: ["DOWN"] }; onEnableScene?.(); break;
+      case "walk-npc": case "follow-npc": action = { kind, npc: walkingActors[0].constant, steps: ["DOWN"] }; onEnableScene?.(); break;
       case "visibility": action = { kind, npc: document.scene.actors[0].constant, visible: true }; onEnableScene?.(); break;
       case "emote": action = { kind, npc: document.scene.actors[0].constant, bubble: document.scene.emotes[0] }; onEnableScene?.(); break;
       case "music": action = { kind, mode: "play", track: document.effects.music[0].id, persist: false }; onEnableScene?.(); break;
@@ -67,9 +69,9 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   return <div className="interaction-sequence" role="group" aria-label={path}>
     {actions.map((action, i) => {
       const branch = (title: string, entries: InteractionAction[], change: (entries: InteractionAction[]) => void) => <fieldset className="interaction-sequence-branch"><legend>{title}</legend>
-        <InteractionSequenceEditor actions={entries} document={document} busy={busy} onEnableScene={onEnableScene} onChange={change} depth={depth + 1} path={`${path} ${i + 1} ${title}`} />
+        <InteractionSequenceEditor actions={entries} document={document} busy={busy} onEnableScene={onEnableScene} onChange={change} depth={depth + 1} path={`${path} ${i + 1} ${title}`} actionPrefix={`${actionPrefix}${i + 1}${({ Yes: "Yes", "No or B": "No", Then: "Then", Otherwise: "Otherwise", Defeated: "Won", Victory: "Won", Caught: "Caught", Escaped: "Escaped" } as Record<string, string>)[title]}`} diagnosticPath={diagnosticPath} />
       </fieldset>;
-      return <div className="interaction-sequence-action" key={i}>
+      return <div className={`interaction-sequence-action${diagnosticPath === `${actionPrefix}${i + 1}` ? " interaction-action-problem" : ""}`} key={i} data-scene-action={`${actionPrefix}${i + 1}`} tabIndex={-1}>
         <strong>{i + 1}. {titles[action.kind]}</strong>
         <div className="interaction-sequence-controls">
           <button type="button" className="small-button" aria-label={`${path} move action ${i + 1} up`} disabled={busy || i === 0} onClick={() => { const next = [...actions]; [next[i - 1], next[i]] = [next[i], next[i - 1]]; onChange(next); }}>Up</button>
@@ -125,7 +127,8 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
         {action.kind === "item" && <>{options("Reward item", action.item, document.items, item => update(i, { ...action, item }))}{number("Reward quantity", action.quantity, 99, quantity => update(i, { ...action, quantity }))}</>}
         {action.kind === "pokemon" && <>{options("Gift Pokémon", action.species, document.pokemon, species => update(i, { ...action, species }))}{number("Gift level", action.level, 100, level => update(i, { ...action, level }))}</>}
         {(action.kind === "walk-npc" || action.kind === "follow-npc" || action.kind === "visibility" || action.kind === "emote") && <>
-          {options("Scene NPC", action.npc, document.scene.actors.map(actor => actor.constant), npc => update(i, { ...action, npc }))}
+          {options("Scene NPC", action.npc, document.scene.actors.filter(actor => !["walk-npc", "follow-npc"].includes(action.kind) || actor.canWalk !== false || actor.constant === action.npc).map(actor => actor.constant), npc => update(i, { ...action, npc }))}
+          {(["walk-npc", "follow-npc"].includes(action.kind) && document.scene.actors.find(actor => actor.constant === action.npc)?.canWalk === false) && <p role="alert">This actor has a stationary sprite. Choose an animated actor or change its sprite in Edit NPC.</p>}
           {action.kind === "emote" ? <>
             <label>Emotion bubble<select aria-label={`${path} action ${i + 1} emotion bubble`} disabled={busy} value={action.bubble} onChange={e => update(i, { ...action, bubble: e.target.value })}>
               {document.scene.emotes.map(bubble => <option key={bubble} value={bubble}>{NPC_EMOTES[bubble]}</option>)}

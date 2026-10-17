@@ -36,7 +36,7 @@ import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation"
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "./npcEditing";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "./npcCreation";
-import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "./scriptInteractions";
+import { checkScriptInteraction, loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "./scriptInteractions";
 import {
   loadScriptCatalog,
   loadScriptDocument,
@@ -884,6 +884,7 @@ export async function createProjectSession(
       invalidateNonTrainerReadModels(changes.map(change => change.path));
       return result;
     },
+    checkScriptInteraction: (document, values) => checkScriptInteraction(source, document, values),
     getScriptInteractionDocument: (path, label) => loadScriptInteractionDocument(source, path, label),
     saveScriptInteraction: async (document, values) => {
       const changes = await prepareScriptInteractionWrites(source, document, values);

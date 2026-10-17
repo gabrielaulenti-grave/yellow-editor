@@ -1,5 +1,6 @@
 // Structured interaction actions. Branches rejoin the following action unless
 // they explicitly end the interaction. Movement remains in yielding map states.
+import { actionValidationError } from "./interactionValidation";
 import type { SceneEffectsDomain } from "./sceneEffects";
 export type InteractionAction =
   | { kind: "dialogue"; lines: string[]; textId?: string }
@@ -23,7 +24,7 @@ export type InteractionAction =
 export interface InteractionSequenceDomains {
   items: string[]; pokemon: string[]; events: string[]; sounds: string[];
   pokemonReason: string | null; choiceReason: string | null; soundReason: string | null;
-  scene?: { reason: string | null; actors: Array<{ constant: string }>; emotes?: string[]; emoteReason?: string | null };
+  scene?: { reason: string | null; actors: Array<{ constant: string; canWalk?: boolean }>; emotes?: string[]; emoteReason?: string | null };
   effects?: SceneEffectsDomain;
 }
 
@@ -80,10 +81,12 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
   // Track deliveries on each possible path, including branches that rejoin.
   // A single attempt cannot partially deliver several gifts and duplicate the
   // earlier one on retry. Per-action persistent progress is a later extension.
-  function visit(entries: InteractionAction[], incoming: Set<number>, depth: number): Set<number> {
+  function visit(entries: InteractionAction[], incoming: Set<number>, depth: number, prefix = "Action"): Set<number> {
     if (!Array.isArray(entries) || depth > 4) throw new Error("Use at most four nested action branches.");
     let paths = incoming;
-    for (const entry of entries) {
+    for (const [index, entry] of entries.entries()) {
+      const key = `${prefix}${index + 1}`;
+      try {
       if (++count > 64) throw new Error("Use at most 64 actions in an interaction.");
       if (!entry || typeof entry !== "object") throw new Error("Invalid interaction action.");
       if (!paths.size) throw new Error("Remove actions after an unconditional end; they cannot run.");
@@ -106,7 +109,7 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
             battleIds.add(entry.battleId);
             if (entry.kind === "wild-battle" && (!domains.pokemon.includes(entry.species) || !Number.isInteger(entry.level) || entry.level < 1 || entry.level > 100 || typeof entry.cry !== "boolean")) throw new Error("Choose an encounter Pokémon and level from 1 to 100.");
             if (entry.kind === "trainer-battle" && !domains.effects.trainers.some(trainer => trainer.id === entry.trainer)) throw new Error("Choose an existing trainer party.");
-            paths = new Set(interactionBranches(entry).flatMap(([branch]) => [...visit(branch, paths, depth + 1)]));
+            paths = new Set(interactionBranches(entry).flatMap(([branch, suffix]) => [...visit(branch, paths, depth + 1, `${key}${suffix}`)]));
           }
           break;
         case "walk-npc":
@@ -120,6 +123,7 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
             if (domains.scene.emoteReason) throw new Error(domains.scene.emoteReason);
             if (!domains.scene.emotes?.includes(entry.bubble)) throw new Error("Choose an emotion bubble supported by this game.");
           } else {
+            if (domains.scene.actors.find(actor => actor.constant === entry.npc)?.canWalk === false) throw new Error("This stationary sprite cannot walk. Choose an animated actor or change this action.");
             if (!Array.isArray(entry.steps) || entry.steps.length < 1 || entry.steps.length > 32 || entry.steps.some(step => !["UP", "DOWN", "LEFT", "RIGHT"].includes(step))) throw new Error("Enter 1–32 UP, DOWN, LEFT or RIGHT steps.");
           }
           break;
@@ -132,11 +136,11 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
           break;
         case "choice":
           if (domains.choiceReason) throw new Error(domains.choiceReason);
-          paths = new Set([...visit(entry.yes, paths, depth + 1), ...visit(entry.no, paths, depth + 1)]);
+          paths = new Set([...visit(entry.yes, paths, depth + 1, `${key}Yes`), ...visit(entry.no, paths, depth + 1, `${key}No`)]);
           break;
         case "if-event":
           if (!domains.events.includes(entry.event) || typeof entry.set !== "boolean") throw new Error("Choose an existing event for the branch.");
-          paths = new Set([...visit(entry.then, paths, depth + 1), ...visit(entry.otherwise, paths, depth + 1)]);
+          paths = new Set([...visit(entry.then, paths, depth + 1, `${key}Then`), ...visit(entry.otherwise, paths, depth + 1, `${key}Otherwise`)]);
           break;
         case "event":
           if (!domains.events.includes(entry.event) || typeof entry.set !== "boolean") throw new Error("Choose an existing event for the action.");
@@ -166,6 +170,7 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
           break;
         default: throw new Error("Unsupported interaction action.");
       }
+      } catch (error) { throw actionValidationError(error, key, entry && typeof entry === "object" && "npc" in entry ? entry.npc : undefined); }
     }
     return paths;
   }

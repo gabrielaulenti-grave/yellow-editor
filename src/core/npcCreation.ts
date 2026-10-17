@@ -1,3 +1,4 @@
+import { npcSpriteCatalog, indoorSpriteBudget, validateNpcSpriteMovement } from "./npcSprites";
 import { hashText } from "./history";
 import { parseMapIndex } from "./mapVisualization";
 import { projectConstantCatalogFromSources, readProjectRgbdsSources } from "./projectConstants";
@@ -134,8 +135,8 @@ export async function loadMapNpcSourceState(source: ProjectSource, mapConstant: 
   const maxObjects = Math.min(number("MAX_OBJECT_EVENTS"), number("NUM_SPRITESTATEDATA_STRUCTS") - 1, follower === undefined ? Infinity : follower - 1);
   if (editObjectId === undefined && events.length >= maxObjects) throw new Error(`This map already uses all ${maxObjects} available object slots.`);
   if (editObjectId === undefined && pointers.length + 1 >= number("TRAINER")) throw new Error("This map has no free ordinary text IDs.");
-  const fullSprites = [...read("data/sprites/sprites.asm").matchAll(/^\s*overworld_sprite\s+\w+,\s*12\s*;\s*(SPRITE_\w+)\s*$/gm)].map(match => match[1]).filter(value => constants.has(value) && !value.includes("UNUSED"));
-  if (!fullSprites.length) throw new Error("Could not derive animated sprite graphics.");
+  const { entries: catalog, boundary } = npcSpriteCatalog(read("data/sprites/sprites.asm"), constants, read("constants/sprite_constants.asm"));
+  const allSprites = catalog.map(entry => entry.id), stationarySprites = catalog.filter(entry => !entry.canWalk).map(entry => entry.id);
   const sets = read("data/maps/sprite_sets.asm");
   const outdoor = table(sets, "MapSpriteSets");
   const indoorBoundary = read("constants/map_constants.asm").split(/DEF FIRST_INDOOR_MAP EQU const_value/)[0].match(/^\s*map_const\s+/gm)?.length;
@@ -158,28 +159,20 @@ export async function loadMapNpcSourceState(source: ProjectSource, mapConstant: 
       if (start < 0 || start + size > setRows.length) throw new Error("Invalid shared sprite set index.");
       return setRows.slice(start, start + size);
     });
-    sprites = fullSprites.filter(sprite => choices.every(set => set.includes(sprite)));
+    sprites = allSprites.filter(sprite => choices.every(set => set.includes(sprite)));
     spriteNote = names.length > 1 ? "Sprites compatible with both areas of this outdoor map." : "Sprites already available in this outdoor map's shared set.";
   } else {
-    const engine = read("engine/overworld/map_sprites.asm");
-    const used = new Set(events.filter((_, index) => index + 1 !== editObjectId).map(event => event[2]).filter(value => fullSprites.includes(value)));
-    let capacity: number;
-    if (follower !== undefined) {
-      const match = engine.match(/ld de, wSpriteSet\s*\r?\n\s*ld b, (\d+)\s*\r?\n\s*call CheckIfPictureIDAlreadyLoaded/);
-      if (!match || !/ld a, SPRITE_PIKACHU[^\n]*\n\s*ld \[wSpriteSet\], a/.test(engine)) throw new Error("Unknown indoor sprite loading limits.");
-      capacity = Number(match[1]);
-      used.add("SPRITE_PIKACHU");
-    } else {
-      const match = engine.match(/\.findNextVRAMSlotLoop[\s\S]*?cp (\d+)\s*;/);
-      if (!match) throw new Error("Unknown indoor sprite loading limits.");
-      capacity = Number(match[1]) - 2; // Player slot 1, NPC slots 2 through threshold - 1.
-    }
-    if (events.some(event => !constants.has(event[2]))) throw new Error("Unknown existing sprite IDs prevent a graphics budget check.");
-    sprites = fullSprites.filter(sprite => used.has(sprite) || used.size < capacity);
-    spriteNote = "Choices respect this indoor map's remaining sprite graphics slots.";
+    const budget = await indoorSpriteBudget(read("engine/overworld/map_sprites.asm"), follower !== undefined);
+    const used = new Set(events.filter((_, index) => index + 1 !== editObjectId).map(event => event[2]));
+    if (follower !== undefined) used.add("SPRITE_PIKACHU");
+    if ([...used].some(sprite => !constants.has(sprite) || !allSprites.includes(sprite) && !sprite.includes("UNUSED"))) throw new Error("Unknown existing sprites prevent a graphics budget check.");
+    const animated = [...used].filter(sprite => !stationarySprites.includes(sprite) && constants.get(sprite)! < boundary).length;
+    const stationary = [...used].filter(sprite => constants.get(sprite)! >= boundary).length;
+    sprites = catalog.filter(entry => used.has(entry.id) || (entry.canWalk ? animated < budget.animated : stationary < budget.stationary)).map(entry => entry.id);
+    spriteNote = `Graphics in use: ${animated}/${budget.animated} animated${follower !== undefined ? " (including Pikachu)" : ""}, ${stationary}/${budget.stationary} stationary. Repeated characters share graphics.`;
   }
   if (editObjectId !== undefined && events[editObjectId - 1] && constants.has(events[editObjectId - 1][2]) && !sprites.includes(events[editObjectId - 1][2])) sprites.unshift(events[editObjectId - 1][2]);
-  if (!sprites.length) throw new Error("This map has no compatible animated sprites available.");
+  if (!sprites.length) throw new Error("This map has no compatible sprites available.");
   const dialogueOptions: MapNpcCreateDocument["dialogueOptions"] = [];
   // Reuse plain, context-free dialogue data, never the stateful wrapper that
   // originally selected it. Local labels and RAM-dependent text are excluded.
@@ -200,7 +193,7 @@ export async function loadMapNpcSourceState(source: ProjectSource, mapConstant: 
   const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || ["data/maps/map_header_pointers.asm", "data/maps/sprite_sets.asm", "data/sprites/sprites.asm", "engine/overworld/map_sprites.asm", map.headerPath, objectPath, scriptPath, `scripts/${name}_2.asm`, ...reusablePaths].includes(file.path));
   const document: MapNpcCreateDocument = {
     mapConstant, mapName: map.displayName, width: map.width * 2, height: map.height * 2,
-    objectId: events.length + 1, maxObjects, sprites, spriteNote, dialogueOptions,
+    objectId: events.length + 1, maxObjects, sprites, stationarySprites, spriteNote, dialogueOptions,
     occupied: objectBody.filter(line => /^(object_event|warp_event)\s+/.test(line)).map(line => {
       const xy = line.replace(/^\w+\s+/, "").split(",");
       return { x: Number(xy[0]), y: Number(xy[1]) };
@@ -225,6 +218,7 @@ export async function prepareMapNpcWrites(source: ProjectSource, document: MapNp
   if (!Number.isInteger(values.x) || !Number.isInteger(values.y) || values.x < 0 || values.y < 0 || values.x >= Math.min(current.width, 252) || values.y >= Math.min(current.height, 252)) throw new Error("Choose a whole-number position inside this map.");
   if (current.occupied.some(point => point.x === values.x && point.y === values.y)) throw new Error("This position already contains an object or warp.");
   if (!current.sprites.includes(values.sprite)) throw new Error("Choose a sprite compatible with this map.");
+  validateNpcSpriteMovement(current.stationarySprites, values.sprite, values.movement, values.direction);
   const directions = values.movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : values.movement === "WALK" ? ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"] : [];
   if (!directions.includes(values.direction)) throw new Error("Choose a supported facing or wandering direction.");
   let suffix = current.objectId;

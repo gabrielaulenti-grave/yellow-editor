@@ -14,6 +14,7 @@ import { sceneBankSpaceChecks } from "./sceneBankSpaceChecks";
 import { sceneBankSpaceRomChecks } from "./sceneBankSpaceRomChecks";
 import { sceneEmoteCpuProbes } from "./sceneEmoteCpuProbes";
 import { sceneEffectChecks } from "./sceneEffectChecks";
+import { stationaryNpcChecks } from "./stationaryNpcChecks";
 import { sceneEffectCpuProbes } from "./sceneEffectCpuProbes";
 const args = process.argv.slice(2), at = args.indexOf("--rom");
 const rgbds = at < 0 ? null : resolve(args[at + 1]), binjgb = at < 0 ? null : resolve(args[at + 2]);
@@ -25,6 +26,7 @@ for (const directory of args) test(`${directory}: walking scenes`, async () => {
     return (await Promise.all((await readdir(join(root, folder), { withFileTypes: true })).filter(entry => !entry.name.startsWith(".")).map(entry => entry.isDirectory() ? listFiles(join(folder, entry.name)) : [join(folder, entry.name)]))).flat();
   }
   const source: ProjectSource = { listFiles, readText: async path => overlay.get(path) ?? readFile(join(root, path), "utf8"), readBytes: async path => new Uint8Array(await readFile(join(root, path))), exists: async path => { try { await readFile(join(root, path)); return true; } catch { return false; } } };
+  await stationaryNpcChecks(source);
   const npc = await loadMapNpcCreateDocument(source, "PALLET_TOWN");
   (await prepareMapNpcWrites(source, npc, { x: 8, y: 8, sprite: "SPRITE_OAK", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Hello there!"] } })).forEach(write => overlay.set(write.path, write.contents));
   const actor = `PALLET_TOWN_EDITOR_NPC_${npc.objectId}`, path = "scripts/PalletTown.asm", label = `PalletTownEditorNpc${npc.objectId}Text`;

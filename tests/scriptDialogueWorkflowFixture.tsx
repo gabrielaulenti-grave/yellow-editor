@@ -1,6 +1,6 @@
 import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "../src/core/npcEditing";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
-import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "../src/core/scriptInteractions";
+import { checkScriptInteraction, loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "../src/core/scriptInteractions";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ScriptsTab } from "../src/ScriptsTab";
@@ -20,12 +20,14 @@ const fixture = window as unknown as {
   sceneFixture?: boolean;
   sceneActor?: string;
   mapFocus?: string;
+  projectKey?: string;
   openedScript?: { path: string; label?: string | null };
   interactionTargets: unknown[];
 };
 fixture.dialogueSaves = [];
 fixture.interactionTargets = [];
 const source = {
+  storageKey: fixture.projectKey ?? "dialogue-fixture",
   readText: async (path: string) => {
     if (!(path in fixture.dialogueFiles)) throw new Error(`Missing fixture: ${path}`);
     return fixture.dialogueFiles[path];
@@ -45,6 +47,7 @@ fixture.dialogueInvoke = async (command, args) => {
     case "get_map_visualization": return loadMapVisualization(source, args!.mapConstant as string);
     case "get_map_npc_edit_document": return loadMapNpcEditDocument(source, args!.mapConstant as string, args!.objectId as number);
     case "save_map_npc": return session.saveTextChanges("Edit NPC", await prepareMapNpcEditWrites(source, args!.document as never, args!.values as never));
+    case "check_script_interaction": return checkScriptInteraction(source, args!.document as never, args!.values as never);
     case "get_script_interaction_document":
       fixture.interactionTargets.push(args);
       return loadScriptInteractionDocument(source, args!.path as string, args!.label as string);
@@ -62,7 +65,7 @@ fixture.dialogueInvoke = async (command, args) => {
     default: throw new Error(`Unexpected dialogue UI command: ${command}`);
   }
 };
-const project = { path: "fixture", storageKey: "fixture", valid: true, projectName: "pokemon" };
+const project = { path: "fixture", storageKey: source.storageKey, valid: true, projectName: "pokemon" };
 const focus = { path: "scripts/ViridianCity.asm", routineLabel: "ViridianCitySignText" };
 function Fixture() {
   const [version, setVersion] = useState(0);

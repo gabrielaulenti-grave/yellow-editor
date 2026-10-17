@@ -1,4 +1,6 @@
 import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
+import { InteractionValidationError, type InteractionCheckReport } from "./interactionValidation";
+import { npcSpriteCatalog } from "./npcSprites";
 import { inspectSceneEmotes } from "./sceneEmotes";
 import { inspectSceneEffects, type SceneEffectsDomain } from "./sceneEffects";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
@@ -58,6 +60,7 @@ export interface PokemonGiftDocument {
   hidesObject: boolean;
 }
 export interface InteractionDocument {
+  projectKey: string;
   effects: SceneEffectsDomain;
   scene: SceneDomain;
   path: string;
@@ -278,7 +281,8 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     if (toggleMap === mapConstant && boundObjects.length === 1 && boundObjects[0] === object[1] && object[2] === "ON" && npcConstants.length === objectRows.length && symbols.get(toggle) === toggleIndex && toggleIndex < 256) hideObject = toggle;
     toggleIndex++;
   }
-  const npcs = objectRows.flatMap((m, i) => m[4] === "STAY" && npcConstants[i] && !m[6].includes(",") ? [{ constant: npcConstants[i], x: Number(m[1]), y: Number(m[2]) }] : []);
+  const { entries: spriteCatalog } = npcSpriteCatalog(byPath.get("data/sprites/sprites.asm") ?? "", symbols, byPath.get("constants/sprite_constants.asm") ?? "");
+  const npcs = objectRows.flatMap((m, i) => m[4] === "STAY" && npcConstants[i] && !m[6].includes(",") ? [{ constant: npcConstants[i], x: Number(m[1]), y: Number(m[2]), canWalk: spriteCatalog.find(sprite => sprite.id === m[3])?.canWalk ?? false }] : []);
   let movementReason: string | null = null;
   let stateCount = 0;
   try {
@@ -309,7 +313,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     actors: npcs.map(npc => ({ ...npc, id: npcConstants.indexOf(npc.constant) + 1 })),
     defaultPlayer: sign ? { x: sign.x, y: sign.y + 1 } : pointers && objectRows.find(row => row[6].trim() === pointers[1]) ? (() => { const row = objectRows.find(row => row[6].trim() === pointers[1])!; return { x: +row[1], y: +row[2] + 1 }; })() : { x: 0, y: 0 },
   };
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();
@@ -330,12 +334,17 @@ async function inspect(source: ProjectSource, path: string, label: string) {
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs, movementReason, sign };
+  const document: InteractionDocument = { projectKey: source.storageKey, effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs: npcs.filter(npc => npc.canWalk), movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
 export type InteractionInspection = Awaited<ReturnType<typeof inspect>>;
 export async function loadScriptInteractionDocument(source: ProjectSource, path: string, label: string): Promise<InteractionDocument> {
   return (await inspect(source, path, label)).document;
+}
+
+export async function checkScriptInteraction(source: ProjectSource, document: InteractionDocument, values: InteractionValues): Promise<InteractionCheckReport> {
+  try { await prepareScriptInteractionWrites(source, document, values); return { valid: true, issues: [] }; }
+  catch (error) { return { valid: false, issues: [error instanceof InteractionValidationError ? error.detail : { message: error instanceof Error ? error.message : String(error) }] }; }
 }
 
 export async function prepareScriptRewardWrite(source: ProjectSource, document: InteractionDocument, item: string, quantity: number, fixBagFull: boolean): Promise<TextWriteRequest[]> {

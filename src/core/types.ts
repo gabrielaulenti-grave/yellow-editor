@@ -1,3 +1,4 @@
+import type { InteractionCheckReport } from "./interactionValidation";
 import type { InteractionDocument, InteractionValues } from "./scriptInteractions";
 export interface ProjectInfo {
   path: string;
@@ -26,6 +27,7 @@ export interface MapNpcCreateDocument {
   objectId: number;
   maxObjects: number;
   sprites: string[];
+  stationarySprites: string[];
   spriteNote: string;
   dialogueOptions: Array<{ id: string; path: string; label: string; preview: string }>;
   occupied: Array<{ x: number; y: number }>;
@@ -48,7 +50,7 @@ export interface MapNpcEditValues {
 }
 export interface MapNpcEditDocument {
   mapConstant: string; mapName: string; objectId: number; objectConstant: string;
-  width: number; height: number; sprites: string[]; spriteNote: string;
+  width: number; height: number; sprites: string[]; stationarySprites: string[]; spriteNote: string;
   occupied: Array<{ x: number; y: number }>;
   walkable: Array<{ x: number; y: number }>;
   values: MapNpcEditValues;
@@ -1574,6 +1576,7 @@ export interface ProjectSession {
   createMapNpc(document: MapNpcCreateDocument, values: MapNpcCreateValues): Promise<HistorySummary>;
   getMapNpcEditDocument(mapConstant: string, objectId: number): Promise<MapNpcEditDocument>;
   saveMapNpc(document: MapNpcEditDocument, values: MapNpcEditValues): Promise<HistorySummary>;
+  checkScriptInteraction(document: InteractionDocument, values: InteractionValues): Promise<InteractionCheckReport>;
   getScriptInteractionDocument(path: string, label: string): Promise<InteractionDocument>;
   saveScriptInteraction(document: InteractionDocument, values: InteractionValues): Promise<HistorySummary>;
   saveScriptReward(document: InteractionDocument, item: string, quantity: number, fixBagFull: boolean): Promise<HistorySummary>;

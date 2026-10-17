@@ -229,3 +229,25 @@ manual-scroll and A/B polling routines while instrumenting text drawing and
 menus. They verify message retention until input, consecutive dialogue, branch
 joins, menu handoff, original dialogue and final-wait suppression, and reproduce
 the earlier `done`-terminator overwrite for comparison.
+
+## Draft recovery and scene review
+
+Edits are kept in project/interaction-scoped device storage, separately from
+assembly source and undo history. Closing keeps even invalid or unfinished
+interactions. Reopen the same project and interaction and choose **Resume draft**;
+page reloads retain the draft. **Use saved interaction** or **Discard draft**
+requires confirmation before deleting it. A successful project save clears the
+draft. Drafts do not sync between devices or stable/beta channels.
+
+Recovery always loads a fresh interaction document. A changed-source notice
+means actors, routes, triggers and text must be reviewed against the current map;
+normal source and engine guards still apply on save. Storage errors are shown,
+and Close leaves the editor open when it cannot keep your changes.
+
+**Scene review** shows the player start, trigger type, required native map state
+and event condition. **Check scene** runs the same source preparation as Save
+without writing files. Invalid actions are named, **Go to action** focuses their
+card, and blocked tiles are marked red on the map preview. Clicking the preview
+sets the player start; X/Y fields remain available. Passing checks proves the
+source is valid, not that an existing player's save meets its story-state/event
+requirements.

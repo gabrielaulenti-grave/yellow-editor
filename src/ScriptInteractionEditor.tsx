@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { SearchableSelect } from "./editor/SearchableSelect";
+import { SceneReview } from "./SceneReview";
+import { InteractionValidationError, type InteractionCheckReport } from "./core/interactionValidation";
 import { InteractionSequenceEditor } from "./InteractionSequenceEditor";
 import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
+import { readInteractionDraft, writeInteractionDraft, deleteInteractionDraft, interactionDraftBaseline, type InteractionDraft, type InteractionDraftData } from "./platform/interactionDraftStore";
 import { invoke } from "./platform/compat";
 import type { InteractionDocument, InteractionValues } from "./core/scriptInteractions";
 import type { HistorySummary } from "./core/types";
@@ -22,29 +25,97 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
   const [fixBagFull, setFixBagFull] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const currentValues = useRef(values); currentValues.current = values;
+  const checkTask = useRef(0);
+  const dialogRef = useRef<HTMLElement>(null);
+  const [checkReport, setCheckReport] = useState<InteractionCheckReport | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [diagnosticPath, setDiagnosticPath] = useState<string>();
+  useEffect(() => { setCheckReport(null); setDiagnosticPath(undefined); }, [values]);
+  const [draftReady, setDraftReady] = useState(false);
+  const [pendingDraft, setPendingDraft] = useState<InteractionDraft | null>(null);
+  const [draftStatus, setDraftStatus] = useState("");
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [draftChangedSources, setDraftChangedSources] = useState(false);
+  const draftRevision = useRef(0);
   const callback = useRef(onEditStateChange); callback.current = onEditStateChange;
   const dirty = Boolean(document && (JSON.stringify(values) !== JSON.stringify(document.values) || document.reward && (item !== document.reward.item || quantity !== document.reward.quantity || fixBagFull) || document.gift && (species !== document.gift.species || level !== document.gift.level)));
   useEffect(() => { callback.current?.(open, dirty); }, [open, dirty]);
   useEffect(() => () => callback.current?.(false, false), []);
+  const draftData = values ? { values, item, quantity, species, level, fixBagFull, routeText } : null;
+  useEffect(() => {
+    if (!open || !document || !draftData || busy || pendingDraft || !draftReady) return;
+    if (!dirty) { void deleteInteractionDraft(document).then(() => setDraftStatus(""), error => setDraftError(`Could not clear the old draft: ${String(error)}`)); return; }
+    const revision = ++draftRevision.current;
+    setDraftStatus("Keeping draft…");
+    void writeInteractionDraft(document, draftData).then(() => {
+      if (revision === draftRevision.current) { setDraftStatus("Draft kept on this device"); setDraftError(null); }
+    }, error => { if (revision === draftRevision.current) { setDraftStatus(""); setDraftError(`Could not keep draft: ${String(error)}. Keep this editor open until you can save.`); } });
+  }, [open, document, values, item, quantity, species, level, fixBagFull, routeText, dirty, busy, pendingDraft, draftReady]);
+  function applyDraft(data: InteractionDraftData) {
+    setValues(structuredClone(data.values)); setItem(data.item); setQuantity(data.quantity); setSpecies(data.species); setLevel(data.level); setFixBagFull(data.fixBagFull); setRouteText(data.routeText);
+  }
   async function begin() {
-    setOpen(true); setBusy(true); setError(null); setDocument(null);
+    ++checkTask.current; setChecking(false); setCheckReport(null);
+    ++draftRevision.current;
+    setOpen(true); setBusy(true); setDraftReady(false); setError(null); setDocument(null); setPendingDraft(null); setDraftStatus(""); setDraftError(null); setDraftChangedSources(false);
     try {
       const next = await invoke<InteractionDocument>("get_script_interaction_document", { path, label });
-      setDocument(next); setValues(structuredClone(next.values)); setItem(next.reward?.item ?? ""); setQuantity(next.reward?.quantity ?? 1); setFixBagFull(false); setRouteText(next.values.movement?.steps.join(", ") ?? "DOWN");
-      setSpecies(next.gift?.species ?? ""); setLevel(next.gift?.level ?? 5);
+      const baseline = interactionDraftBaseline(next);
+      let draft: InteractionDraft | null = null;
+      try { draft = await readInteractionDraft(next); setDraftReady(true); }
+      catch (error) { setDraftError(`Draft recovery is unavailable: ${String(error)}`); }
+      if (draft && JSON.stringify(draft.data) === JSON.stringify(baseline)) { await deleteInteractionDraft(next).catch(() => undefined); draft = null; }
+      setDocument(next); applyDraft(baseline); setPendingDraft(draft);
     } catch (e) { setError(String(e)); }
     finally { setBusy(false); }
   }
-  function close() { if (dirty && !window.confirm("Discard the unsaved interaction changes?")) return; setOpen(false); setDocument(null); }
+  async function close() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (dirty && document && draftData && !pendingDraft) { if (!draftReady) await readInteractionDraft(document); await writeInteractionDraft(document, draftData); }
+      ++checkTask.current; setChecking(false); ++draftRevision.current; setOpen(false); setDocument(null);
+    } catch (error) { setDraftError(`Could not keep draft: ${String(error)}. Your editor is still open.`); }
+    finally { setBusy(false); }
+  }
+  function resumeDraft() {
+    if (!pendingDraft || !document) return;
+    setDraftChangedSources(JSON.stringify(pendingDraft.sources) !== JSON.stringify(document.sources));
+    applyDraft(pendingDraft.data); setPendingDraft(null); setDraftStatus("Draft recovered");
+  }
+  async function discardDraft() {
+    if (!document || !window.confirm("Discard this unfinished interaction draft and use the saved project version?")) return;
+    setBusy(true);
+    try { await deleteInteractionDraft(document); ++draftRevision.current; applyDraft(interactionDraftBaseline(document)); setDraftReady(true); setPendingDraft(null); setDraftStatus(""); setDraftError(null); setDraftChangedSources(false); }
+    catch (error) { setDraftError(String(error)); }
+    finally { setBusy(false); }
+  }
+  async function checkScene() {
+    if (!document || !values) return;
+    const task = ++checkTask.current, requested = values;
+    setChecking(true);
+    try { const report = await invoke<InteractionCheckReport>("check_script_interaction", { document, values }); if (task === checkTask.current && currentValues.current === requested) setCheckReport(report); }
+    catch (error) { if (task === checkTask.current && currentValues.current === requested) setCheckReport({ valid: false, issues: [{ message: String(error) }] }); }
+    finally { if (task === checkTask.current) setChecking(false); }
+  }
+  function locateAction(path: string) {
+    setDiagnosticPath(path);
+    requestAnimationFrame(() => {
+      const target = [...(dialogRef.current?.querySelectorAll<HTMLElement>("[data-scene-action]") ?? [])].find(element => element.dataset.sceneAction === path);
+      target?.scrollIntoView({ block: "center" }); target?.focus({ preventScroll: true });
+    });
+  }
   async function save(kind: "reward" | "pokemon" | "interaction") {
     if (!document || !values) return;
     setBusy(true); setError(null);
     try {
       const history = await invoke<HistorySummary>(kind === "reward" ? "save_script_reward" : kind === "pokemon" ? "save_script_pokemon_gift" : "save_script_interaction",
         kind === "reward" ? { document, item, quantity, fixBagFull } : kind === "pokemon" ? { document, species, level } : { document, values });
-      setOpen(false); setDocument(null); onSaved?.(history);
+      await deleteInteractionDraft(document).catch(() => undefined);
+      ++checkTask.current; setChecking(false); ++draftRevision.current; setOpen(false); setDocument(null); onSaved?.(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
-    } catch (e) { setError(String(e)); }
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)); if (e instanceof InteractionValidationError && values.scene) { setError(null); setCheckReport({ valid: false, issues: [e.detail] }); } }
     finally { setBusy(false); }
   }
   const update = (patch: Partial<InteractionValues>) => setValues(current => current ? { ...current, ...patch } : null);
@@ -57,11 +128,23 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
   </SearchableSelect>;
   return <>
     <button type="button" className="small-button" disabled={disabled} onClick={() => void begin()}>Edit interaction</button>
-    {open && <div className="text-editor-backdrop" role="presentation"><section className="text-editor-dialog" role="dialog" aria-modal="true" aria-label="Edit interaction">
-      <div className="text-editor-dialog-heading"><h3>Edit interaction</h3><button className="small-button" disabled={busy} onClick={close}>Close</button></div>
+    {open && <div className="text-editor-backdrop" role="presentation"><section ref={dialogRef} className="text-editor-dialog" role="dialog" aria-modal="true" aria-label="Edit interaction">
+      <div className="text-editor-dialog-heading"><h3>Edit interaction</h3><button className="small-button" disabled={busy} onClick={() => void close()}>Close</button></div>
       {busy && !document && <p>Loading interaction…</p>}
+      {pendingDraft && <div className="interaction-draft-notice" role="status">
+        <p>An unfinished draft was kept {new Date(pendingDraft.updatedAt).toLocaleString()}.</p>
+        <button className="small-button primary-action" disabled={busy} onClick={resumeDraft}>Resume draft</button>{" "}
+        <button className="small-button" disabled={busy} onClick={() => void discardDraft()}>Use saved interaction</button>
+      </div>}
+      {document && !pendingDraft && <div className="interaction-draft-notice">
+        <p className="help-text">Changes are kept as a draft on this device. Close to fix an NPC or map, then reopen this interaction to resume. Use Save to apply changes to the project.</p>
+        {draftStatus && <p role="status">{draftStatus}</p>}
+        {(dirty || draftStatus || draftError) && <button className="small-button" disabled={busy} onClick={() => void discardDraft()}>Discard draft</button>}
+      </div>}
+      {draftChangedSources && <p role="status" className="help-text">The project changed while this draft was closed. Review the scene against the current map; saving rechecks its actors, routes and source.</p>}
+      {draftError && <p role="alert" className="text-editor-error">{draftError}</p>}
       {error && <p className="text-editor-error" role="alert">{error}</p>}
-      {document?.reward && <div className="interaction-fields">
+      {document?.reward && <div className="interaction-fields" inert={Boolean(pendingDraft)}>
         <p>Edit this interaction's item reward. Use <strong>Edit text</strong> to choose and edit its dialogue paths.</p>
         <label>Reward item<SearchableSelect aria-label="Reward item" value={item} disabled={busy} onChange={event => setItem(event.target.value)}>{document.items.map(value => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</SearchableSelect></label>
         <label>Quantity<input aria-label="Reward quantity" type="number" min={1} max={99} disabled={busy} value={quantity} onChange={event => setQuantity(Number(event.target.value))} /></label>
@@ -69,7 +152,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         {document.reward.earlyFlag && <p className="help-text">The existing script marks this gift claimed before checking bag space. Selecting this option moves that flag update after successful delivery.</p>}
         <button className="small-button primary-action" disabled={busy || !dirty} onClick={() => void save("reward")}>{busy ? "Saving…" : "Save reward"}</button>
       </div>}
-      {document?.gift && <div className="interaction-fields">
+      {document?.gift && <div className="interaction-fields" inert={Boolean(pendingDraft)}>
         <p>Edit this existing Pokémon gift. Use <strong>Edit text</strong> to change any available associated dialogue.</p>
         <label>Gift Pokémon<SearchableSelect aria-label="Gift Pokémon" value={species} disabled={busy} onChange={event => setSpecies(event.target.value)}>{document.pokemon.map(value => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</SearchableSelect></label>
         <label>Gift level<input aria-label="Gift level" type="number" min={1} max={100} disabled={busy} value={level} onChange={event => setLevel(Number(event.target.value))} /></label>
@@ -77,7 +160,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         <button className="small-button primary-action" disabled={busy || !dirty} onClick={() => void save("pokemon")}>{busy ? "Saving…" : "Save Pokémon gift"}</button>
       </div>}
       {document && !document.canCreate && !document.reward && !document.gift && <p>{document.reason}</p>}
-      {document?.canCreate && values && <div className="interaction-fields">
+      {document?.canCreate && values && <div className="interaction-fields" inert={Boolean(pendingDraft)}>
         <p>Choose what happens when the player interacts. Gifts remain available if delivery fails; approach sequences return the NPC to its starting tile.</p>
         <label><input type="checkbox" disabled={busy} checked={values.showOriginal} onChange={event => update({ showOriginal: event.target.checked })} />Show the original dialogue first</label>
         <label><input type="checkbox" disabled={busy} checked={values.once} onChange={event => update({ once: event.target.checked, hideObject: event.target.checked ? values.hideObject : null })} />Run once per save file</label>
@@ -91,10 +174,11 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         }}>Compose action sequence</button>}
         {values.actions ? <>
           <p>Actions run in order. Yes/No and event branches can rejoin the next action or end early. Use one reward per path; failed delivery shows the no-room dialogue and leaves the interaction available for retry. Scenes remember a successful gift if later movement is interrupted, so retrying skips that gift.</p>
-          <InteractionSequenceEditor actions={values.actions} document={document} busy={busy} onEnableScene={enableScene} onChange={actions => update({ actions })} />
+          <InteractionSequenceEditor actions={values.actions} document={document} busy={busy} onEnableScene={enableScene} diagnosticPath={diagnosticPath} onChange={actions => update({ actions })} />
           <label><input type="checkbox" disabled={busy || Boolean(document.scene.reason) || Boolean(document.values.scene)} checked={Boolean(values.scene)} onChange={e => e.target.checked ? enableScene() : update({ scene: undefined })} />Use a scene for movement, effects, battles or coordinate triggers</label>
           {document.scene.reason && <p className="help-text">{document.scene.reason}</p>}
           {values.scene && <>
+            <SceneReview document={document} values={values} report={checkReport} checking={checking || busy} onCheck={() => void checkScene()} onLocate={locateAction} onPlayerStart={(x, y) => update({ scene: { ...values.scene!, playerX: x, playerY: y } })} />
             <label>Scene trigger<select aria-label="Scene trigger" disabled={busy} value={values.scene.trigger} onChange={e => update({ scene: { ...values.scene!, trigger: e.target.value as "interaction" | "coordinate" } })}><option value="interaction">Interact with this NPC or sign</option><option value="coordinate">Reach map coordinates</option></select></label>
             <div className="interaction-coordinate-fields">{(["X", "Y"] as const).map(axis => <label key={axis}>Player {axis}<input aria-label={`Scene player ${axis}`} type="number" min={0} disabled={busy} value={axis === "X" ? values.scene!.playerX : values.scene!.playerY} onChange={e => update({ scene: { ...values.scene!, [axis === "X" ? "playerX" : "playerY"]: Number(e.target.value) } })} /></label>)}</div>
             <label>Native idle state<select aria-label="Scene idle state" disabled={busy} value={values.scene.idleState} onChange={e => update({ scene: { ...values.scene!, idleState: Number(e.target.value) } })}>{document.scene.idleStates.map(state => <option key={state.id} value={state.id}>{state.id}: {state.label}</option>)}</select></label>
@@ -148,7 +232,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
           <button className="small-button" disabled={busy} onClick={() => update({ events: values.events.filter((_, n) => n !== i) })}>Remove event change</button>
         </div>)}
         <button className="small-button" disabled={busy || !document.events.length || values.events.length >= 16} onClick={() => update({ events: [...values.events, { event: document.events[0], set: true }] })}>Add event change</button>
-        <div className="text-editor-actions"><button className="small-button" disabled={busy} onClick={close}>Cancel</button><button className="small-button primary-action" disabled={busy} onClick={() => void save("interaction")}>{busy ? "Saving…" : "Save interaction"}</button></div>
+        <div className="text-editor-actions"><button className="small-button" disabled={busy} onClick={() => void close()}>Close and keep draft</button><button className="small-button primary-action" disabled={busy} onClick={() => void save("interaction")}>{busy ? "Saving…" : "Save interaction"}</button></div>
       </div>}
     </section></div>}
   </>;

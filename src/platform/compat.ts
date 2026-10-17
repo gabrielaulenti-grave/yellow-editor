@@ -619,6 +619,9 @@ export async function invoke<T>(
       if (!args?.document || !args.values) throw new Error("Missing NPC edit document or values.");
       return await session.saveMapNpc(args.document as MapNpcEditDocument, args.values as MapNpcEditValues) as T;
 
+    case "check_script_interaction":
+      if (!args?.document || !args.values) throw new Error("Missing interaction check document or values.");
+      return await session.checkScriptInteraction(args.document as InteractionDocument, args.values as InteractionValues) as T;
     case "get_script_interaction_document":
       return await session.getScriptInteractionDocument(stringArg(args, "path"), stringArg(args, "label")) as T;
     case "save_script_interaction":

@@ -90,11 +90,12 @@ export function MapNpcWizard({ mapConstant, renderPlacement, onClose, onSaved }:
             <label>Y<input type="number" value={Number.isNaN(y) ? "" : y} min={0} max={Math.min(document.height - 1, 251)} onChange={event => setY(event.target.valueAsNumber)} /></label>
           </div>
           <small>Map grid: {document.width} × {document.height}</small>
-          <label>Character<SearchableSelect aria-label="Character" value={sprite} onChange={event => setSprite(event.target.value)}>{document.sprites.map(value => <option key={value} value={value}>{nameOf(value)}</option>)}</SearchableSelect></label>
+          <label>Character<SearchableSelect aria-label="Character" value={sprite} onChange={event => { const next = event.target.value; setSprite(next); if (document.stationarySprites.includes(next)) { setMovement("STAY"); setDirection("DOWN"); } }}>{document.sprites.map(value => <option key={value} value={value}>{nameOf(value)}</option>)}</SearchableSelect></label>
           <small>{document.spriteNote}</small>
+          {document.stationarySprites.includes(sprite) && <p className="help-text">Stationary sprite: one pose, no walking animation. Dialogue, visibility, emotes and battles are available.</p>}
           <div className="npc-create-grid">
-            <label>Movement<select aria-label="Movement" value={movement} onChange={event => { const next = event.target.value as "STAY" | "WALK"; setMovement(next); setDirection(next === "STAY" ? "DOWN" : "ANY_DIR"); }}><option value="STAY">Stay in place</option><option value="WALK">Wander</option></select></label>
-            <label>{movement === "STAY" ? "Facing" : "Wandering"}<select aria-label={movement === "STAY" ? "Facing" : "Wandering"} value={direction} onChange={event => setDirection(event.target.value)}>{(movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"]).map(value => <option key={value} value={value}>{({ ANY_DIR: "Any direction", UP_DOWN: "Up and down", LEFT_RIGHT: "Left and right" } as Record<string, string>)[value] ?? value.toLowerCase()}</option>)}</select></label>
+            <label>Movement<select aria-label="Movement" value={movement} onChange={event => { const next = event.target.value as "STAY" | "WALK"; setMovement(next); setDirection(next === "STAY" ? "DOWN" : "ANY_DIR"); }}><option value="STAY">Stay in place</option><option value="WALK" disabled={document.stationarySprites.includes(sprite)}>Wander</option></select></label>
+            <label>{movement === "STAY" ? "Facing" : "Wandering"}<select aria-label={movement === "STAY" ? "Facing" : "Wandering"} value={direction} onChange={event => setDirection(event.target.value)}>{(document.stationarySprites.includes(sprite) ? ["DOWN"] : movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"]).map(value => <option key={value} value={value}>{({ ANY_DIR: "Any direction", UP_DOWN: "Up and down", LEFT_RIGHT: "Left and right" } as Record<string, string>)[value] ?? value.toLowerCase()}</option>)}</select></label>
           </div>
           {placementError && <p role="alert">{placementError}</p>}
         </div>}

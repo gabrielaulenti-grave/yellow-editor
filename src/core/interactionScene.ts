@@ -1,3 +1,4 @@
+import { InteractionValidationError, actionValidationError } from "./interactionValidation";
 import { hashText } from "./history";
 import { prepareSceneBankSpace } from "./sceneBankSpace";
 import { renderSceneEffect, renderSceneEffectHelpers, effectScratchFields, effectEntryHook, legacyEffectEntryHook, sceneBattleReturnHook, battleSnapshotRuntime } from "./sceneEffectRuntime";
@@ -11,7 +12,7 @@ export interface SceneOptions {
   playerX: number; playerY: number; idleState: number; hiddenNpcs: string[];
 }
 interface Point { x: number; y: number }
-export interface SceneActor extends Point { constant: string; id: number }
+export interface SceneActor extends Point { constant: string; id: number; canWalk?: boolean }
 export interface SceneDomain {
   reason: string | null; mapConstant: string; actors: SceneActor[];
   idleStates: Array<{ id: number; label: string }>; stateVariable: string | null;
@@ -99,7 +100,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     if (warps.some(other => same(other, p))) return npcOnly;
     return passable.includes(blockset[blocks[Math.floor(p.y / 2) * map.width + Math.floor(p.x / 2)] * 16 + (p.y % 2 * 2 + 1) * 4 + p.x % 2 * 2]);
   };
-  if (!walkable({ x: options.playerX, y: options.playerY }, options.trigger === "coordinate")) throw new Error("Choose a walkable player start away from signs. Warp starts require a coordinate scene.");
+  if (!walkable({ x: options.playerX, y: options.playerY }, options.trigger === "coordinate")) throw new InteractionValidationError({ message: "Choose a walkable player start away from signs. Warp starts require a coordinate scene.", tile: { x: options.playerX, y: options.playerY } });
   interface World { player: Point; actors: Record<string, Point>; visible: Record<string, boolean>; dark: boolean }
   const world: World = { dark: false, player: { x: options.playerX, y: options.playerY }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
   const battleStaging = new Map<string, SceneActor[]>();
@@ -107,6 +108,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   function validate(actions: InteractionAction[], worlds: World[], path = "Action"): World[] {
     for (const [i, action] of actions.entries()) {
       const key = `${path}${i + 1}`;
+      try {
       if (action.kind === "end") return [];
       if (worlds.some(world => world.dark) && ["dialogue", "choice", "emote", "wild-battle", "trainer-battle", "item", "pokemon", "walk-npc", "follow-npc"].includes(action.kind)) throw new Error("Restore the screen before dialogue, movement, rewards or battles.");
       if (isBattle(action)) battleStaging.set(key, domain.actors.map(actor => ({ ...actor, ...worlds[0].actors[actor.constant] })));
@@ -135,11 +137,11 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
         const route: NonNullable<ReturnType<typeof routes.get>> = [];
         for (const step of action.steps) {
           const from = { ...world.actors[action.npc] }, to = { x: from.x + delta[step].x, y: from.y + delta[step].y }, playerFrom = { ...world.player };
-          if (action.kind === "follow-npc" && warps.some(warp => same(warp, to))) throw new Error(`Following routes cannot enter a warp at (${to.x}, ${to.y}). Use Walk NPC for an NPC-only departure.`);
+          if (action.kind === "follow-npc" && warps.some(warp => same(warp, to))) throw new InteractionValidationError({ message: `Following routes cannot enter a warp at (${to.x}, ${to.y}). Use Walk NPC for an NPC-only departure.`, tile: to });
           if (!walkable(to, action.kind === "walk-npc") || same(to, world.player) || state.objectRows.some((row, index) => {
             const name = state.npcConstants[index];
             return name !== action.npc && world.visible[name] !== false && same(world.actors[name] ?? { x: +row[1], y: +row[2] }, to);
-          })) throw new Error(`The NPC route is blocked at (${to.x}, ${to.y}).`);
+          })) throw new InteractionValidationError({ message: `The NPC route is blocked at (${to.x}, ${to.y}).`, tile: to });
           if (Math.abs(to.x - world.player.x) > 4 || Math.abs(to.y - world.player.y) > 3) throw new Error("Keep walking NPCs on screen; use following for longer routes.");
           let playerStep: string | undefined;
           if (action.kind === "follow-npc") {
@@ -152,6 +154,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
         }
         routes.set(key, route);
       }
+      } catch (error) { throw actionValidationError(error, key, "npc" in action ? action.npc : undefined); }
     }
     return worlds;
   }
