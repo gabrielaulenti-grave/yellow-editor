@@ -125,6 +125,8 @@ try {
       await dialog.getByLabel("Actions action 1 dialogue", { exact: true }).fill("Still keep this!");
       await dialog.getByText(/Could not keep draft/).waitFor();
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await page.waitForFunction(() => { const close = document.querySelector('.text-editor-dialog-heading button'); return close && !close.disabled; });
+      assert.equal(await dialog.isVisible(), true, "A failed Close keeps the interaction open");
       await dialog.getByText(/Your editor is still open/).waitFor();
       await page.evaluate(() => { IDBObjectStore.prototype.put = window.originalDraftPut; });
       await dialog.getByRole("button", { name: "Close", exact: true }).click(); await dialog.waitFor({ state: "hidden" });
