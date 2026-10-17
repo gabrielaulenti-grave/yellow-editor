@@ -50,7 +50,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
     setDraftStatus("Keeping draft…");
     void writeInteractionDraft(document, draftData).then(() => {
       if (revision === draftRevision.current) { setDraftStatus("Draft kept on this device"); setDraftError(null); }
-    }, error => { if (revision === draftRevision.current) { setDraftStatus(""); setDraftError(`Could not keep draft: ${String(error)}. Keep this editor open until you can save.`); } });
+    }, error => { if (revision === draftRevision.current) { setDraftStatus(""); setDraftError(`Could not keep draft: ${String(error)}. Your editor is still open. Save the interaction or try closing again.`); } });
   }, [open, document, values, item, quantity, species, level, fixBagFull, routeText, dirty, busy, pendingDraft, draftReady]);
   function applyDraft(data: InteractionDraftData) {
     setValues(structuredClone(data.values)); setItem(data.item); setQuantity(data.quantity); setSpecies(data.species); setLevel(data.level); setFixBagFull(data.fixBagFull); setRouteText(data.routeText);
