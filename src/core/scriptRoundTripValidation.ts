@@ -37,7 +37,7 @@ export function scriptSemanticNodeShape(node: MapScriptSemanticNode): string {
     case "opponent":
       return "opponent";
     case "wait":
-      return "wait";
+      return node.contractId ? `wait:${node.contractId}:${node.mode}` : "wait";
     case "event":
       return `event:${node.action}`;
     case "condition":
@@ -47,7 +47,7 @@ export function scriptSemanticNodeShape(node: MapScriptSemanticNode): string {
     case "object":
       return `object:${node.action}`;
     case "music":
-      return "music";
+      return node.action ? `music:${node.action}` : "music";
     case "map-edit":
       return `map-edit:${node.action}`;
     case "indexed-event":

@@ -1,4 +1,4 @@
-export const SCRIPT_SEMANTIC_IR_VERSION = "1.1";
+export const SCRIPT_SEMANTIC_IR_VERSION = "1.2";
 
 export type ScriptSemanticFamilyId =
   | "dialogue"
@@ -128,10 +128,6 @@ export const SCRIPT_ENGINE_INTERNAL_CALLS = new Set([
   "EnableAutoTextBoxDrawing",
   "FillMemory",
   "UpdateSprites",
-  "WaitForSoundToFinish",
-  "PlaySound",
-  "PlaySoundWaitForCurrent",
-  "StopAllMusic",
   "GBFadeOutToBlack",
   "GBFadeInFromBlack",
   "GBFadeOutToWhite",

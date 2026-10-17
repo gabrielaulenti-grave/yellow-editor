@@ -34,6 +34,9 @@ import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
+import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "./npcEditing";
+import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "./npcCreation";
+import { checkScriptInteraction, loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "./scriptInteractions";
 import {
   loadScriptCatalog,
   loadScriptDocument,
@@ -713,6 +716,10 @@ export async function createProjectSession(
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
     invalidateScriptReadModels(paths);
+    if (paths.some(path => path.startsWith("data/maps/") || path.startsWith("scripts/") || path.startsWith("constants/") || path.startsWith("gfx/tilesets") || path === "maps.asm")) {
+      mapIndexPromise = null;
+      mapVisualizationPromises.clear();
+    }
     if (paths.some((path) => path.startsWith("data/pokemon/base_stats/"))) {
       pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
@@ -862,6 +869,41 @@ export async function createProjectSession(
     },
     getMapIndex,
     getMapVisualization,
+    getMapNpcCreateDocument: mapConstant => loadMapNpcCreateDocument(source, mapConstant),
+    createMapNpc: async (document, values) => {
+      const changes = await prepareMapNpcWrites(source, document, values);
+      const result = await history.save(`Add NPC to ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    getMapNpcEditDocument: (mapConstant, objectId) => loadMapNpcEditDocument(source, mapConstant, objectId),
+    saveMapNpc: async (document, values) => {
+      const changes = await prepareMapNpcEditWrites(source, document, values);
+      if (!changes.length) return history.getSummary();
+      const result = await history.save(`Edit NPC ${document.objectConstant}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    checkScriptInteraction: (document, values) => checkScriptInteraction(source, document, values),
+    getScriptInteractionDocument: (path, label) => loadScriptInteractionDocument(source, path, label),
+    saveScriptInteraction: async (document, values) => {
+      const changes = await prepareScriptInteractionWrites(source, document, values);
+      const result = await history.save(`Edit interaction ${document.label}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    saveScriptReward: async (document, item, quantity, fixBagFull) => {
+      const changes = await prepareScriptRewardWrite(source, document, item, quantity, fixBagFull);
+      const result = await history.save(`Edit reward ${document.label}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    saveScriptPokemonGift: async (document, species, level) => {
+      const changes = await prepareScriptPokemonGiftWrite(source, document, species, level);
+      const result = await history.save(`Edit Pokémon gift ${document.label}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
     getScriptCatalog,
     getScriptAudit,
     runScriptRoundTripRegression,

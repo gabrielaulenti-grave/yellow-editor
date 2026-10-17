@@ -44,6 +44,7 @@ export interface TextDocument {
   displayParts: TextDisplayPart[];
   terminator: TextTerminator;
   editable: boolean;
+  canEditStructure?: boolean;
   warnings: string[];
 }
 
@@ -236,6 +237,32 @@ export function textDocumentSegmentMetrics(
   return textSegmentMetrics(document.displayParts, segments, document.terminator);
 }
 
+// Validate rows whose text changes. Some vanilla rows already exceed our
+// conservative runtime-width estimate; preserving their exact source must not
+// prevent an unchanged save or an edit to an independent row.
+export function textDocumentEditErrors(
+  document: Pick<TextDocument, "displayParts" | "segments" | "terminator">,
+  segments: TextSegment[],
+): (string | null)[] {
+  const errors = textDocumentSegmentMetrics(document, segments).map(metric => metric.error);
+  const sameStructure = segments.length === document.segments.length
+    && segments.every((segment, index) => segment.control === document.segments[index]?.control);
+  if (!sameStructure) return errors;
+  let row: number[] = [];
+  const flush = () => {
+    if (row.every(index => segments[index]?.text === document.segments[index]?.text)) {
+      for (const index of row) errors[index] = null;
+    }
+    row = [];
+  };
+  for (const part of document.displayParts) {
+    if (part.type === "break") flush();
+    else if (part.type === "segment") row.push(part.segmentIndex);
+  }
+  flush();
+  return errors;
+}
+
 function labelDefinitions(lines: string[]): { label: string; index: number; global: boolean }[] {
   let scope = "";
   return lines.flatMap<{ label: string; index: number; global: boolean }>((line, index) => {
@@ -272,6 +299,23 @@ function findGlobalLabelRange(lines: string[], label: string): LabelRange {
   return labelRange(lines, label, true);
 }
 
+// Text bytecode runs through the text engine, not the CPU's normal call/ret
+// convention. Route by the entry instruction, never by a label's spelling.
+export function scriptTextEntryKind(contents: string, label: string): "text" | "assembly" | null {
+  const lines = contents.split(/\r?\n/);
+  let range: LabelRange;
+  try { range = findLabelRange(lines, label); } catch { return null; }
+  for (const raw of lines.slice(range.start + 1, range.end)) {
+    const clean = raw.split(";", 1)[0].trim();
+    if (!clean) continue;
+    if (/^text_asm\b/i.test(clean)) return "assembly";
+    return FAR_TEXT_PATTERN.test(clean) || TEXT_LINE_PATTERN.test(raw)
+      || TERMINATOR_PATTERN.test(clean) || /^text_start\b/i.test(clean)
+      || runtimeTextCommandPreview(clean) !== null ? "text" : null;
+  }
+  return null;
+}
+
 function scopedTarget(lines: string[], index: number, target: string): string {
   if (!target.startsWith(".")) return target;
   const globals = labelDefinitions(lines).filter((entry) => entry.global && entry.index <= index);
@@ -291,7 +335,7 @@ export function qualifiedTextLabel(contents: string, target: string, sourceLine:
 function parseBlock(
   lines: string[],
   range: LabelRange,
-): Pick<TextDocument, "segments" | "displayParts" | "terminator" | "editable" | "warnings"> {
+): Pick<TextDocument, "segments" | "displayParts" | "terminator" | "editable" | "canEditStructure" | "warnings"> {
   const segments: TextSegment[] = [];
   const displayParts: TextDisplayPart[] = [];
   const warnings: string[] = [];
@@ -360,8 +404,33 @@ function parseBlock(
     displayParts,
     terminator,
     editable: warnings.length === 0 && segments.length > 0,
+    canEditStructure: dialogueStructureRows(lines, range) !== null,
     warnings,
   };
+}
+
+// Restructure only a contiguous run of ordinary quoted rows. Keep sounds,
+// endings, comments and the rest of the source in their original positions.
+function dialogueStructureRows(lines: string[], range: LabelRange): number[] | null {
+  const indices: number[] = [];
+  let ended = false;
+  let terminators = 0;
+  for (let i = range.start + 1; i < range.end; i++) {
+    const raw = lines[i], text = raw.match(TEXT_LINE_PATTERN);
+    if (text) {
+      if (ended || text[3].includes("@") || (indices.length === 0 ? text[2] !== "text" : !["line", "next", "cont", "para"].includes(text[2]))) return null;
+      indices.push(i); continue;
+    }
+    const clean = raw.split(";", 1)[0].trim();
+    if (!clean) continue;
+    if (!indices.length && clean === "text_start") continue;
+    if (indices.length && /^(?:done|prompt|text_end|sound_get_item_[12])$/.test(clean)) {
+      if (/^(?:done|prompt|text_end)$/.test(clean) && ++terminators > 1) return null;
+      ended = true; continue;
+    }
+    return null;
+  }
+  return indices.length && terminators === 1 ? indices : null;
 }
 
 function textPointerCandidates(contents: string, label: string): string[] {
@@ -374,6 +443,20 @@ function textPointerCandidates(contents: string, label: string): string[] {
       const scoped = scopedTarget(lines, index, candidate);
       if (!labels.includes(scoped)) labels.push(scoped);
     }
+  }
+  // Managed approach interactions print their receipt from a later map state,
+  // beyond the entry's call graph. Their metadata names the concrete text leaves.
+  const marker = lines.slice(range.start + 1, range.end).find(line => /^\s*; yellow-editor-interaction: /.test(line));
+  if (marker && contents.split(/\r?\n/).includes(`; yellow-editor-interaction-code-end ${label}`)) {
+    try {
+      const metadata = JSON.parse(marker.replace(/^\s*; yellow-editor-interaction: /, ""));
+      if (metadata.version === 1 && metadata.label === label && typeof metadata.prefix === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(metadata.prefix)) {
+        for (const suffix of ["Original", "Dialogue", "BagFullText", "AlreadyText"]) {
+          const candidate = `${metadata.prefix}${suffix}`;
+          if (containsLabel(contents, candidate) && !labels.includes(candidate)) labels.push(candidate);
+        }
+      }
+    } catch { /* Fall back to the source-derived pointers for unknown metadata. */ }
   }
   return labels;
 }
@@ -625,11 +708,10 @@ export function applyTextDocumentEdits(
     );
   }
 
-  const displayParts = current.terminator === "dex"
+  const displayParts = current.terminator === "dex" || current.canEditStructure
     ? textSegmentsDisplayParts(segments)
     : current.displayParts;
-  const metrics = textSegmentMetrics(displayParts, segments, current.terminator);
-  const firstMetricError = metrics.find((metric) => metric.error)?.error;
+  const firstMetricError = textDocumentEditErrors({ ...current, displayParts }, segments).find(Boolean);
   if (firstMetricError) {
     throw new Error(`${firstMetricError} Shorten the affected displayed row before saving.`);
   }
@@ -638,6 +720,29 @@ export function applyTextDocumentEdits(
     && segments.every((segment, index) => segment.control === current.segments[index]?.control);
 
   if (!sameStructure) {
+    if (current.canEditStructure) {
+      if (!segments.length || segments.length > 64 || segments[0].control !== "text" || segments.slice(1).some(segment => !["line", "next", "cont", "para"].includes(segment.control)) || segments.some(segment => /[\r\n@]/.test(segment.text))) throw new Error("Dialogue must start with Start text and use separate line, continue, or paragraph rows.");
+      const indices = dialogueStructureRows(lines, range)!;
+      const last = indices[indices.length - 1];
+      const indent = lines[indices[0]].match(TEXT_LINE_PATTERN)![1];
+      const edits: { start: number; end: number; text: string }[] = [];
+      for (const [i, index] of indices.entries()) {
+        const match = lines[index].match(TEXT_LINE_PATTERN)!;
+        const next = segments[i];
+        const replacement = next ? `${match[1]}${next.control} "${encodeAsmString(next.text)}"${match[4]}` : (match[4].trim() ? `${match[1]}${match[4].trim()}` : "");
+        edits.push({ start: offsets[index], end: offsets[index] + lines[index].length, text: replacement });
+      }
+      if (segments.length > indices.length) {
+        const at = offsets[last] + lines[last].length;
+        edits.push({ start: at, end: at, text: segments.slice(indices.length).map(segment => `${newline}${indent}${segment.control} "${encodeAsmString(segment.text)}"`).join("") });
+      }
+      let rewritten = contents;
+      for (const edit of edits.sort((a, b) => b.start - a.start)) rewritten = rewritten.slice(0, edit.start) + edit.text + rewritten.slice(edit.end);
+      const reparsedLines = rewritten.split(/\r?\n/);
+      const reparsed = parseBlock(reparsedLines, findLabelRange(reparsedLines, label));
+      if (!reparsed.editable || reparsed.terminator !== current.terminator || JSON.stringify(reparsed.segments) !== JSON.stringify(segments)) throw new Error("The updated dialogue did not reparse correctly.");
+      return rewritten;
+    }
     if (current.terminator !== "dex") {
       throw new Error(
         `Text label '${label}' changed structure while it was being edited. Reload it before saving.`,

@@ -40,6 +40,9 @@ jobs:
       - name: Check script editor layouts
         run: npm run test:scripts:layout
 
+      - name: Check NPC creation workflow
+        run: npm run test:npcs:ui
+
       - name: Checkout Yellow script fixtures
         uses: actions/checkout@v6
         with:
@@ -56,8 +59,35 @@ jobs:
           path: .script-fixtures/pokered
           persist-credentials: false
 
+      - name: Check scene drafts, stationary sprites and diagnostics
+        run: npm run test:scenes:readiness:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check disassembly script round trips
         run: npm run test:scripts -- .script-fixtures/pokeyellow .script-fixtures/pokered
+
+      - name: Check reusable interaction composition and source guards
+        run: npm run test:interactions -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check existing NPC editing and scene preservation
+        run: npm run test:npcs:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check NPC editing through Maps
+        run: npm run test:npcs:edit:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check walking scene sources and guards
+        run: npm run test:scenes -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check walking scene authoring in Maps
+        run: npm run test:scenes:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check music, fades and encounter authoring in Maps
+        run: npm run test:scenes:effects:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check sign and NPC dialogue editing through Scripts
+        run: npm run test:dialogue:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check NPC and sign interaction editing through Maps
+        run: npm run test:maps:interactions -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
       - name: Checkout script probe CPU
         uses: actions/checkout@v6
@@ -76,6 +106,27 @@ jobs:
 
       - name: Assemble edited ROMs and execute script probes
         run: npm run test:scripts:rom -- .script-fixtures/rgbds .script-fixtures/binjgb .script-fixtures/pokeyellow .script-fixtures/pokered
+
+      - name: Check reviewed script engine contracts on the CPU
+        run: npm run test:scripts:contracts -- .script-fixtures/rgbds .script-fixtures/binjgb .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Assemble and execute composed interactions in Red and Yellow
+        run: npm run test:interactions -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Assemble and execute walking scenes in Red and Yellow
+        run: npm run test:scenes -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Play native encounters and reload battery saves in Red and Yellow
+        run: npm run test:scenes:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Assemble relocated NPCs and following scenes in Red and Yellow
+        run: npm run test:npcs:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
+
+      - name: Assemble and execute the PC lesson regression scenario
+        run: npm run test:pc-tutorial -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Check PC lesson fixture editing and atomic undo in the browser
+        run: npm run test:pc-tutorial:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
       - name: Prepare shared WASM tools
         run: |

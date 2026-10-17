@@ -1,0 +1,152 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { createServer } from "node:http";
+import { build } from "esbuild";
+import { chromium } from "playwright";
+
+const roots = process.argv.slice(2);
+assert.ok(roots.length, "Supply Red/Yellow source directories.");
+const directory = await mkdtemp(join("node_modules", ".scene-workflow-"));
+const server = createServer((_request, response) => response.end('<!doctype html><div id="root"></div>'));
+let browser;
+try {
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const outfile = join(directory, "fixture.js");
+  await build({ entryPoints: ["tests/scriptDialogueWorkflowFixture.tsx"], outfile, bundle: true, platform: "browser", jsx: "automatic",
+    loader: { ".css": "empty" }, plugins: [{ name: "fixture-session", setup(builder) {
+      builder.onResolve({ filter: /platform\/compat$/ }, () => ({ path: "fixture-session", namespace: "fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const invoke = (command, args) => window.dialogueInvoke(command, args);" }));
+    } }] });
+  const script = await readFile(outfile, "utf8");
+  const styles = (await Promise.all(["App.css", "MapNpcWizard.css", "MapScriptPreview.css", "TextEditor.css", "editor/SearchableSelect.css"]
+    .map(path => readFile(join("src", path), "utf8")))).join("\n");
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    args: process.env.PLAYWRIGHT_CHROMIUM_ARGS ? JSON.parse(process.env.PLAYWRIGHT_CHROMIUM_ARGS) : undefined });
+  for (const root of roots) {
+    const files = {}, bytes = {};
+    async function collect(folder = "") {
+      for (const entry of await readdir(join(root, folder), { withFileTypes: true })) {
+        if (entry.name.startsWith(".")) continue;
+        const path = join(folder, entry.name);
+        if (entry.isDirectory()) await collect(path);
+        else if (path.endsWith(".asm")) files[path] = await readFile(join(root, path), "utf8");
+        else if (path.endsWith(".blk") || path.endsWith(".bst") || /^gfx\/tilesets\/.*\.png$/.test(path)) bytes[path] = Array.from(await readFile(join(root, path)));
+      }
+    }
+    await collect();
+    for (const width of [320, 375, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      const errors = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${server.address().port}`);
+      await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
+      await page.evaluate(({ files, bytes }) => { window.dialogueFiles = files; window.dialogueBytes = bytes; window.mapSurface = true; window.sceneFixture = true; window.mapFocus = "PALLET_TOWN"; }, { files, bytes });
+      await page.addScriptTag({ content: script });
+      await page.locator(".world-map-title h3").filter({ hasText: /^Pallet Town$/ }).waitFor();
+      await page.locator(".world-map-npc-list button").last().click();
+      const inspector = page.locator(".world-map-npc-inspector");
+      await inspector.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "Edit interaction", exact: true });
+      await dialog.getByRole("button", { name: "Compose action sequence", exact: true }).click();
+      await dialog.getByLabel("Show the original dialogue first", { exact: true }).uncheck();
+      await dialog.getByLabel("Use a scene for movement, effects, battles or coordinate triggers", { exact: true }).check();
+      await dialog.getByLabel("Scene trigger", { exact: true }).selectOption("coordinate");
+      assert.equal(await dialog.getByLabel("Scene player X", { exact: true }).inputValue(), "8");
+      assert.equal(await dialog.getByLabel("Scene player Y", { exact: true }).inputValue(), "9");
+      const actor = await page.evaluate(() => window.sceneActor);
+      await dialog.getByLabel(/PALLET TOWN EDITOR NPC/).check();
+      const actions = dialog.getByRole("group", { name: "Actions", exact: true });
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("visibility");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await actions.getByLabel("Actions Scene NPC", { exact: true }).selectOption(actor);
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("follow-npc");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await actions.getByLabel("Actions Scene NPC", { exact: true }).last().selectOption(actor);
+      const route = actions.getByLabel("Actions action 3 route", { exact: true });
+      await route.fill(""); await route.pressSequentially("LEFT, UP");
+      assert.equal(await route.inputValue(), "LEFT, UP", "Route editing preserves separators while typing");
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("choice");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      const yes = actions.getByRole("group", { name: "Actions 4 Yes", exact: true });
+      await yes.getByLabel("Actions 4 Yes action type", { exact: true }).selectOption("pokemon");
+      await yes.getByRole("button", { name: "Actions 4 Yes add action", exact: true }).click();
+      await yes.getByLabel("Actions 4 Yes Gift Pokémon", { exact: true }).selectOption("DRATINI");
+      await actions.getByRole("button", { name: "Actions 4 No or B remove action 1", exact: true }).click();
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("walk-npc");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await actions.getByLabel("Actions Scene NPC", { exact: true }).last().selectOption(actor);
+      await actions.getByLabel("Actions action 5 route", { exact: true }).fill("RIGHT");
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("visibility");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await actions.getByLabel("Actions Scene NPC", { exact: true }).last().selectOption(actor);
+      await actions.getByLabel("Visible (uncheck to hide)", { exact: true }).last().uncheck();
+      await actions.getByLabel("Actions action type", { exact: true }).selectOption("emote");
+      await actions.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await actions.getByLabel("Actions Scene NPC", { exact: true }).last().selectOption(actor);
+      const bubble = root.includes("pokeyellow") ? "HEART_BUBBLE" : "EXCLAMATION_BUBBLE";
+      const bubbles = actions.getByLabel("Actions action 7 emotion bubble", { exact: true });
+      assert.equal(await bubbles.locator("option").count(), root.includes("pokeyellow") ? 8 : 3);
+      await bubbles.selectOption(bubble);
+      await actions.getByRole("button", { name: "Actions move action 7 up", exact: true }).click();
+      await page.waitForFunction(() => window.dialogueDirty === true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await dialog.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      const saved = await page.evaluate(() => window.dialogueSaves.at(-1));
+      assert.ok(saved.some(write => write.path === "ram/wram.asm"));
+      assert.ok(saved.some(write => write.path === "engine/overworld/toggleable_objects.asm"));
+      const metadata = JSON.parse(saved.find(write => write.path === "scripts/PalletTown.asm").contents.match(/yellow-editor-interaction: (.*)/)[1]);
+      assert.equal(metadata.version, 3); assert.deepEqual(metadata.values.scene.hiddenNpcs, [actor]);
+      assert.deepEqual(metadata.values.actions[2].steps, ["LEFT", "UP"]);
+      assert.equal(metadata.values.actions[3].yes[0].species, "DRATINI");
+      assert.deepEqual(metadata.values.actions[4].steps, ["RIGHT"]);
+      assert.deepEqual(metadata.values.actions[5], { kind: "emote", npc: actor, bubble });
+      assert.equal(metadata.values.actions[6].visible, false);
+      assert.ok(metadata.scene.giftFlag.endsWith("_GIFT_DELIVERED"));
+      await page.locator(".world-map-npc-inspector").getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await dialog.getByLabel("Scene trigger", { exact: true }).inputValue(), "coordinate");
+      assert.equal(await dialog.getByLabel("Actions action 3 route", { exact: true }).inputValue(), "LEFT, UP");
+      assert.equal(await dialog.getByLabel("Actions action 5 route", { exact: true }).inputValue(), "RIGHT");
+      assert.equal(await dialog.getByLabel("Actions 4 Yes Gift Pokémon", { exact: true }).inputValue(), "DRATINI");
+      assert.equal(await dialog.getByLabel("Actions action 6 emotion bubble", { exact: true }).inputValue(), bubble);
+      assert.equal(await page.evaluate(() => window.dialogueDirty), false);
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      assert.deepEqual(errors, []);
+      console.log(`${root} ${width}px: hidden coordinate scene, conditional Pokémon gift, walking/hiding after delivery, atomic save/reopen and responsive layout verified`);
+      await page.close();
+      const warpPage = await browser.newPage({ viewport: { width, height: 900 } });
+      warpPage.on("pageerror", error => errors.push(error.message));
+      await warpPage.goto(`http://127.0.0.1:${server.address().port}`);
+      await warpPage.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
+      await warpPage.evaluate(({ files, bytes }) => { window.dialogueFiles = files; window.dialogueBytes = bytes; window.mapSurface = true; window.sceneFixture = true; window.mapFocus = "VIRIDIAN_POKECENTER"; }, { files, bytes });
+      await warpPage.addScriptTag({ content: script });
+      await warpPage.locator(".world-map-title h3").filter({ hasText: /Viridian/i }).waitFor();
+      await warpPage.locator(".world-map-npc-list button").last().click();
+      await warpPage.locator(".world-map-npc-inspector").getByRole("button", { name: "Edit interaction", exact: true }).click();
+      const warpDialog = warpPage.getByRole("dialog", { name: "Edit interaction", exact: true });
+      await warpDialog.getByRole("button", { name: "Compose action sequence", exact: true }).click();
+      await warpDialog.getByLabel("Actions action type", { exact: true }).selectOption("emote");
+      await warpDialog.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await warpDialog.getByLabel("Actions Scene NPC", { exact: true }).selectOption(await warpPage.evaluate(() => window.sceneActor));
+      await warpDialog.getByLabel("Scene trigger", { exact: true }).selectOption("coordinate");
+      await warpDialog.getByLabel("Scene player X", { exact: true }).fill("4");
+      await warpDialog.getByLabel("Scene player Y", { exact: true }).fill("7");
+      await warpDialog.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await warpDialog.waitFor({ state: "hidden" });
+      await warpPage.locator(".world-map-npc-inspector").getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await warpDialog.getByLabel("Scene player X", { exact: true }).inputValue(), "4");
+      assert.equal(await warpDialog.getByLabel("Scene player Y", { exact: true }).inputValue(), "7");
+      assert.equal(await warpDialog.getByLabel("Actions action 2 emotion bubble", { exact: true }).inputValue(), "EXCLAMATION_BUBBLE");
+      assert.equal(await warpPage.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+      await warpDialog.getByRole("button", { name: "Close", exact: true }).click();
+      assert.deepEqual(errors, []);
+      console.log(`${root} ${width}px: emote selection/reordering and arrival-warp scene save/reopen verified`);
+      await warpPage.close();
+    }
+  }
+} finally {
+  await browser?.close();
+  await new Promise(resolve => server.close(resolve));
+  await rm(directory, { recursive: true, force: true });
+}

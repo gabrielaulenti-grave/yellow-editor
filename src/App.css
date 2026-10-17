@@ -2519,6 +2519,18 @@ pre {
   min-width: 0;
 }
 
+.world-map-object-editors {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.world-map-interaction-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 760px) {
   .world-map-npc-inspector {
     grid-template-columns: 1fr;
@@ -2748,3 +2760,6 @@ pre {
     flex-direction: column;
   }
 }
+
+.world-map-npc-heading { flex-wrap: wrap; }
+.world-map-npc-heading > .world-map-npc-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }

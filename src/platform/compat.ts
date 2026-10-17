@@ -1,3 +1,4 @@
+import type { InteractionDocument, InteractionValues } from "../core/scriptInteractions";
 import type {
   BuildProgressListener,
   BuildTarget,
@@ -8,6 +9,10 @@ import type {
   ItemCreateValues,
   ItemEditDocument,
   ItemEditValues,
+  MapNpcCreateDocument,
+  MapNpcCreateValues,
+  MapNpcEditDocument,
+  MapNpcEditValues,
   PokemonBaseStatValues,
   PokemonEditSourceDocument,
   PokemonEditValues,
@@ -598,6 +603,36 @@ export async function invoke<T>(
         stringArg(args, "mapConstant"),
       )) as T;
 
+    case "get_map_npc_create_document":
+      return (await session.getMapNpcCreateDocument(stringArg(args, "mapConstant"))) as T;
+
+    case "create_map_npc": {
+      if (!args?.document || typeof args.document !== "object" || !args.values || typeof args.values !== "object") {
+        throw new Error("Missing NPC creation document or values.");
+      }
+      return (await session.createMapNpc(args.document as MapNpcCreateDocument, args.values as MapNpcCreateValues)) as T;
+    }
+
+    case "get_map_npc_edit_document":
+      return await session.getMapNpcEditDocument(stringArg(args, "mapConstant"), numberArg(args, "objectId")) as T;
+    case "save_map_npc":
+      if (!args?.document || !args.values) throw new Error("Missing NPC edit document or values.");
+      return await session.saveMapNpc(args.document as MapNpcEditDocument, args.values as MapNpcEditValues) as T;
+
+    case "check_script_interaction":
+      if (!args?.document || !args.values) throw new Error("Missing interaction check document or values.");
+      return await session.checkScriptInteraction(args.document as InteractionDocument, args.values as InteractionValues) as T;
+    case "get_script_interaction_document":
+      return await session.getScriptInteractionDocument(stringArg(args, "path"), stringArg(args, "label")) as T;
+    case "save_script_interaction":
+      if (!args?.document || !args.values) throw new Error("Missing interaction document or values.");
+      return await session.saveScriptInteraction(args.document as InteractionDocument, args.values as InteractionValues) as T;
+    case "save_script_reward":
+      if (!args?.document) throw new Error("Missing reward document.");
+      return await session.saveScriptReward(args.document as InteractionDocument, stringArg(args, "item"), numberArg(args, "quantity"), args.fixBagFull === true) as T;
+    case "save_script_pokemon_gift":
+      if (!args?.document) throw new Error("Missing Pokémon gift document.");
+      return await session.saveScriptPokemonGift(args.document as InteractionDocument, stringArg(args, "species"), numberArg(args, "level")) as T;
     case "get_script_catalog":
       return (await session.getScriptCatalog()) as T;
 
