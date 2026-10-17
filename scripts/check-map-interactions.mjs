@@ -57,9 +57,11 @@ try {
       const dialog = page.getByRole("dialog", { name: "Edit interaction", exact: true });
       await dialog.getByRole("button", { name: "Compose action sequence", exact: true }).click();
       await page.waitForFunction(() => window.dialogueDirty === true);
-      page.once("dialog", confirmation => confirmation.dismiss());
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
-      assert.equal(await dialog.isVisible(), true, "Refused discard must keep the interaction open");
+      await dialog.waitFor({ state: "hidden" });
+      await edit.click();
+      await dialog.getByRole("button", { name: "Resume draft", exact: true }).click();
+      await dialog.getByRole("group", { name: "Actions", exact: true }).waitFor();
       await dialog.getByRole("button", { name: "Save interaction", exact: true }).click();
       await dialog.waitFor({ state: "hidden" });
       inspector = page.locator(".world-map-npc-inspector");
@@ -90,7 +92,7 @@ try {
       assert.deepEqual(await page.evaluate(() => window.openedScript), { path: "scripts/ViridianCity.asm", label: "ViridianCitySignText" });
       assert.equal(await page.evaluate(() => window.dialogueSaves.length), 3);
       assert.deepEqual(errors, []);
-      console.log(`${root} ${width}px: map NPC/sign composition, original entry routing, unsupported fallback, dirty discard, save/reopen and selection verified`);
+      console.log(`${root} ${width}px: map NPC/sign composition, original entry routing, unsupported fallback, draft recovery, save/reopen and selection verified`);
       await page.close();
     }
   }

@@ -41,5 +41,11 @@ export async function stationaryNpcChecks(original: ProjectSource) {
   const budgetEngine = await source.readText("engine/overworld/map_sprites.asm");
   overlay.set("engine/overworld/map_sprites.asm", budgetEngine.replace("cp 11", "cp 12"));
   await assert.rejects(() => loadMapNpcCreateDocument(source, map), /reviewed indoor sprite loader/);
+  overlay.set("engine/overworld/map_sprites.asm", budgetEngine);
+  const sprites = await source.readText("data/sprites/sprites.asm");
+  overlay.set("data/sprites/sprites.asm", sprites.replace(/overworld_sprite SnorlaxSprite, 4/, "overworld_sprite SnorlaxSprite, 12"));
+  const plain = await loadScriptInteractionDocument(source, path, `ViridianPokecenterEditorNpc${second.objectId}Text`);
+  assert.equal(plain.canCreate, true); assert.match(plain.scene.reason!, /sprite definitions/);
+  assert.ok((await prepareScriptInteractionWrites(source, plain, { ...plain.values, showOriginal: false, actions: [{ kind: "dialogue", lines: ["Still editable!"] }] })).length > 0, "Unknown sprite metadata must not disable ordinary dialogue editing");
   console.log("Stationary NPCs: Snorlax in a Center, separate graphics pools, image reuse, movement refusals, encounter/hide round trip, linked editing and source guards passed");
 }

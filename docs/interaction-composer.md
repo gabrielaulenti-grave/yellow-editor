@@ -251,3 +251,14 @@ card, and blocked tiles are marked red on the map preview. Clicking the preview
 sets the player start; X/Y fields remain available. Passing checks proves the
 source is valid, not that an existing player's save meets its story-state/event
 requirements.
+
+The full-game smoke test (`npm run test:scenes:gameplay -- /path/to/pokered
+/path/to/pokeyellow --rom /path/to/rgbds /path/to/binjgb`) assembles complete ROMs
+with a test-only new-game party/map setup. A joypad controller plays native wild
+and trainer battles, captures into the party and PC, escapes twice across a
+rearmed trigger, and loses through both blackout paths. Success runs native
+SaveGameData, restarts the emulator with its battery RAM and chooses Continue.
+It checks species, ball consumption, prizes, hidden sprites, input/palette cleanup
+and persistent completion. Native rendering shows Snorlax before the encounter
+and removes it afterward. Setup/save-marker hooks exist only in the test ROM;
+no battle, capture, save/load or graphics routine is replaced.

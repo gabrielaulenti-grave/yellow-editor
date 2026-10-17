@@ -115,7 +115,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
       const branches = interactionBranches(action);
       if (branches.length) {
         worlds = branches.flatMap(([entries, suffix]) => validate(entries, structuredClone(worlds), `${key}${suffix}`));
-        if (worlds.some(world => JSON.stringify(world) !== JSON.stringify(worlds[0]))) throw new Error("Rejoining branches must have the same player, actor positions and visibility. End differently staged branches separately.");
+        if (worlds.some(world => JSON.stringify(world) !== JSON.stringify(worlds[0]))) throw new Error("Rejoining branches must have the same player, actor positions, visibility and screen brightness. End differently staged branches separately.");
         worlds = worlds.slice(0, 1);
       } else for (const world of worlds) {
         if (action.kind === "fade") { world.dark = action.mode === "out"; continue; }

@@ -9,7 +9,7 @@ const roots = process.argv.slice(2);
 assert.ok(roots.length, "Supply Red/Yellow source directories.");
 const directory = await mkdtemp(join("node_modules", ".scene-readiness-workflow-"));
 const server = createServer((_request, response) => response.end('<!doctype html><div id="root"></div>'));
-let browser;
+let browser, activePage;
 try {
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const outfile = join(directory, "fixture.js");
@@ -36,7 +36,7 @@ try {
     }
     await collect();
     for (const width of [320, 375, 1280]) {
-      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      const page = activePage = await browser.newPage({ viewport: { width, height: 900 } });
       const errors = [];
       page.on("pageerror", error => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${server.address().port}`);
@@ -50,6 +50,7 @@ try {
       await inspector.getByRole("button", { name: "Edit NPC", exact: true }).click();
       let npc = page.getByRole("dialog", { name: /Edit NPC/ });
       await npc.getByLabel("NPC character", { exact: true }).selectOption("SPRITE_SNORLAX");
+      await npc.getByText("Stationary sprite: one pose, no walking animation. Dialogue, visibility, emotes and battles are available.", { exact: true }).waitFor();
       assert.equal(await npc.getByLabel("NPC movement", { exact: true }).inputValue(), "STAY");
       assert.equal(await npc.getByLabel("NPC movement", { exact: true }).locator('option[value="WALK"]').isDisabled(), true);
       await npc.getByRole("button", { name: "Save NPC", exact: true }).click(); await npc.waitFor({ state: "hidden" });
@@ -141,6 +142,9 @@ try {
       await page.close();
     }
   }
+} catch (error) {
+  if (activePage) console.error((await activePage.locator("body").innerText().catch(() => "Page unavailable")).slice(-7000));
+  throw error;
 } finally {
   await browser?.close();
   await new Promise(resolve => server.close(resolve));

@@ -168,9 +168,10 @@ try {
       await sequence.getByRole("textbox", { name: "Actions action 4 dialogue", exact: true }).fill("Want a partner?");
       for (const i of [4, 3, 2]) await sequence.getByRole("button", { name: `Actions move action ${i} up`, exact: true }).click();
       await page.waitForFunction(() => window.dialogueDirty === true);
-      page.once("dialog", async confirmation => { await confirmation.dismiss(); });
       await interaction.getByRole("button", { name: "Close", exact: true }).click();
-      assert.equal(await interaction.isVisible(), true);
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("button", { name: "Resume draft", exact: true }).click();
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Nested action composer fits phone and desktop widths");
       await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
       await interaction.waitFor({ state: "hidden" });

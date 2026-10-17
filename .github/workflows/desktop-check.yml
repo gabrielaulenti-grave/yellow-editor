@@ -116,6 +116,9 @@ jobs:
       - name: Assemble and execute walking scenes in Red and Yellow
         run: npm run test:scenes -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
+      - name: Play native encounters and reload battery saves in Red and Yellow
+        run: npm run test:scenes:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
       - name: Assemble relocated NPCs and following scenes in Red and Yellow
         run: npm run test:npcs:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
 

@@ -281,7 +281,9 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     if (toggleMap === mapConstant && boundObjects.length === 1 && boundObjects[0] === object[1] && object[2] === "ON" && npcConstants.length === objectRows.length && symbols.get(toggle) === toggleIndex && toggleIndex < 256) hideObject = toggle;
     toggleIndex++;
   }
-  const { entries: spriteCatalog } = npcSpriteCatalog(byPath.get("data/sprites/sprites.asm") ?? "", symbols, byPath.get("constants/sprite_constants.asm") ?? "");
+  let spriteCatalog: Array<{ id: string; canWalk: boolean }> = [], spriteReason: string | null = null;
+  try { spriteCatalog = npcSpriteCatalog(byPath.get("data/sprites/sprites.asm") ?? "", symbols, byPath.get("constants/sprite_constants.asm") ?? "").entries; }
+  catch { spriteReason = "Scene actors require readable animated/stationary sprite definitions. Plain dialogue and reward editing remain available."; }
   const npcs = objectRows.flatMap((m, i) => m[4] === "STAY" && npcConstants[i] && !m[6].includes(",") ? [{ constant: npcConstants[i], x: Number(m[1]), y: Number(m[2]), canWalk: spriteCatalog.find(sprite => sprite.id === m[3])?.canWalk ?? false }] : []);
   let movementReason: string | null = null;
   let stateCount = 0;
@@ -308,7 +310,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     ...await inspectSceneEmotes(byPath, symbols),
     reason: !map || map.isAlias || !map.width || !map.height || npcConstants.length !== objectRows.length || objectRows.length > 14 || !idleStates.length || idleStates.some(entry => entry.id >= 128)
       ? "Scenes require a unique map header, ordinary object slots and a readable map script."
-      : !["npc-movement", "player-movement"].every(id => contracts.some(contract => contract.id === id && contract.sourceStatus === "reviewed-source")) ? "Scenes require the reviewed NPC and player movement routines." : null,
+      : !["npc-movement", "player-movement"].every(id => contracts.some(contract => contract.id === id && contract.sourceStatus === "reviewed-source")) ? "Scenes require the reviewed NPC and player movement routines." : spriteReason,
     mapConstant: map?.constant ?? "", stateVariable, idleStates,
     actors: npcs.map(npc => ({ ...npc, id: npcConstants.indexOf(npc.constant) + 1 })),
     defaultPlayer: sign ? { x: sign.x, y: sign.y + 1 } : pointers && objectRows.find(row => row[6].trim() === pointers[1]) ? (() => { const row = objectRows.find(row => row[6].trim() === pointers[1])!; return { x: +row[1], y: +row[2] + 1 }; })() : { x: 0, y: 0 },
