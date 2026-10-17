@@ -52,7 +52,7 @@ try {
       await npc.getByLabel("NPC character", { exact: true }).selectOption("SPRITE_SNORLAX");
       await npc.getByText("Stationary sprite: one pose, no walking animation. Dialogue, visibility, emotes and battles are available.", { exact: true }).waitFor();
       assert.equal(await npc.getByLabel("NPC movement", { exact: true }).inputValue(), "STAY");
-      assert.equal(await npc.getByLabel("NPC movement", { exact: true }).locator('option[value="WALK"]').isDisabled(), true);
+      assert.equal(await npc.getByLabel("NPC movement", { exact: true }).locator('option[value="WALK"]').evaluate(option => option.disabled), true);
       await npc.getByRole("button", { name: "Save NPC", exact: true }).click(); await npc.waitFor({ state: "hidden" });
       await inspector.getByRole("button", { name: "Edit interaction", exact: true }).click();
       let dialog = page.getByRole("dialog", { name: "Edit interaction", exact: true });
@@ -143,7 +143,7 @@ try {
     }
   }
 } catch (error) {
-  if (activePage) console.error((await activePage.locator("body").innerText().catch(() => "Page unavailable")).slice(-7000));
+  if (activePage) console.error((await activePage.locator('[role="dialog"]:visible, dialog[open]').allTextContents().catch(() => ["Page unavailable"])).join("\n").slice(-7000));
   throw error;
 } finally {
   await browser?.close();
