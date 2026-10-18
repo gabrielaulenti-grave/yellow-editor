@@ -72,7 +72,7 @@ for (const directory of args) test(`${directory}: reusable interaction generatio
   ]);
   const values = { ...document.values, showOriginal: false, bagFull: ["Make room first!"], actions, events: [{ event: "EVENT_GOT_POKEBALLS_FROM_OAK", set: true }] };
   const writes = await prepareScriptInteractionWrites(source, document, values);
-  assert.equal(writes.length, 2); writes.forEach(w => overlay.set(w.path, w.contents));
+  assert.equal(writes.length, root.includes("pokeyellow") ? 2 : 3); writes.forEach(w => overlay.set(w.path, w.contents));
   const original = await readFile(join(root, path), "utf8"), generated = overlay.get(path)!;
   assert.ok(generated.includes("\tcall YesNoChoice\n\tld a, [wCurrentMenuItem]\n\tand a"));
   assert.ok(generated.includes("\tjp nc,")); assert.ok(generated.includes("\tpredef HealParty"));

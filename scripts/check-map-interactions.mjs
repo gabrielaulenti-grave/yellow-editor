@@ -91,8 +91,31 @@ try {
       await inspector.getByRole("button", { name: "View script", exact: true }).click();
       assert.deepEqual(await page.evaluate(() => window.openedScript), { path: "scripts/ViridianCity.asm", label: "ViridianCitySignText" });
       assert.equal(await page.evaluate(() => window.dialogueSaves.length), 3);
+      await page.locator(".world-map-npc-list button").first().click();
+      inspector = page.locator(".world-map-npc-inspector");
+      await inspector.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await dialog.getByLabel("Run once per save file", { exact: true }).uncheck();
+      await dialog.getByLabel("Actions action type", { exact: true }).selectOption("item");
+      await dialog.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await dialog.getByLabel("Actions Reward item", { exact: true }).selectOption("REPEL");
+      await dialog.getByLabel("Actions Reward quantity", { exact: true }).fill("99");
+      await dialog.getByRole("button", { name: "Save interaction", exact: true }).click(); await dialog.waitFor({ state: "hidden" });
+      const yellow = root.includes("pokeyellow");
+      assert.equal(await page.evaluate(() => window.dialogueSaves.at(-1).some(write => write.path === "engine/items/inventory.asm")), !yellow);
+      // An existing beta interaction must acquire the engine fix simply by
+      // reopening and saving, without changing or rebuilding its action list.
+      await page.evaluate(original => { window.dialogueFiles["engine/items/inventory.asm"] = original; }, files["engine/items/inventory.asm"]);
+      await inspector.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await dialog.getByLabel("Actions Reward item", { exact: true }).inputValue(), "REPEL");
+      assert.equal(await dialog.getByLabel("Actions Reward quantity", { exact: true }).inputValue(), "99");
+      assert.equal(await page.evaluate(() => window.dialogueDirty), false);
+      assert.equal(await dialog.getByRole("button", { name: "Save interaction", exact: true }).isEnabled(), true);
+      await dialog.getByRole("button", { name: "Save interaction", exact: true }).click(); await dialog.waitFor({ state: "hidden" });
+      assert.equal(await page.evaluate(() => window.dialogueSaves.at(-1).some(write => write.path === "engine/items/inventory.asm")), !yellow);
+      assert.equal(await page.evaluate(() => window.dialogueFiles["engine/items/inventory.asm"].includes(".addAnotherStackOfItem")), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.deepEqual(errors, []);
-      console.log(`${root} ${width}px: map NPC/sign composition, original entry routing, unsupported fallback, draft recovery, save/reopen and selection verified`);
+      console.log(`${root} ${width}px: map NPC/sign composition, routing, draft recovery, repeatable 99-Repel gift and existing gift engine repair save/reopen verified`);
       await page.close();
     }
   }

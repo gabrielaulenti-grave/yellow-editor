@@ -113,6 +113,9 @@ jobs:
           echo "3e19e50ea602e316be709160acaf0a708b1fa6d32d219ec541f244442895dbb7  .script-fixtures/rgbds.tar.xz" | sha256sum --check
           tar --no-same-owner -xf .script-fixtures/rgbds.tar.xz -C .script-fixtures/rgbds
 
+      - name: Check repeated item gifts and inventory map boundaries
+        run: npm run test:items:gifts -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
       - name: Assemble edited ROMs and execute script probes
         run: npm run test:scripts:rom -- .script-fixtures/rgbds .script-fixtures/binjgb .script-fixtures/pokeyellow .script-fixtures/pokered
 

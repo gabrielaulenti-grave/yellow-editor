@@ -35,7 +35,8 @@
     "test:scenes:gameplay": "node scripts/check-scene-gameplay.mjs",
     "test:scenes:partner": "node scripts/check-scene-partner.mjs",
     "test:scenes:partner:ui": "node scripts/check-scene-partner-workflow.mjs",
-    "test:scenes:starts": "node scripts/check-scene-starts.mjs"
+    "test:scenes:starts": "node scripts/check-scene-starts.mjs",
+    "test:items:gifts": "node scripts/check-item-gifts.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

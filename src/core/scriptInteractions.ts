@@ -1,4 +1,5 @@
 import { inspectScenePartner } from "./scenePartner";
+import { hasItemReward, itemInventoryPath, prepareItemDeliveryWrites } from "./itemDelivery";
 import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./interactionValidation";
 import { npcSpriteCatalog } from "./npcSprites";
@@ -317,7 +318,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     actors: npcs.map(npc => ({ ...npc, id: npcConstants.indexOf(npc.constant) + 1 })),
     defaultPlayer: sign ? { x: sign.x, y: sign.y + 1 } : pointers && objectRows.find(row => row[6].trim() === pointers[1]) ? (() => { const row = objectRows.find(row => row[6].trim() === pointers[1])!; return { x: +row[1], y: +row[2] + 1 }; })() : { x: 0, y: 0 },
   };
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/pikachu/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/pikachu/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, itemInventoryPath, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();
@@ -371,7 +372,7 @@ export async function prepareScriptRewardWrite(source: ProjectSource, document: 
   const patchedSource = { ...source, readText: async (path: string) => path === reward.path ? text : source.readText(path) };
   const reparsed = await inspect(patchedSource, document.path, document.label);
   if (reparsed.document.reward?.item !== item || reparsed.document.reward.quantity !== quantity) throw new Error("The edited reward did not reparse correctly.");
-  return [{ path: reward.path, contents: text, expectedHash: reward.sourceHash }];
+  return [{ path: reward.path, contents: text, expectedHash: reward.sourceHash }, ...await prepareItemDeliveryWrites(current.byPath)];
 }
 
 export async function prepareScriptPokemonGiftWrite(source: ProjectSource, document: InteractionDocument, species: string, level: number): Promise<TextWriteRequest[]> {
@@ -573,6 +574,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     m.originalHasPrompt = originalLeaves.length === 1 && originalLeaves[0].terminator === "prompt";
   }
   const changed = new Map<string, string>();
+  if (values.reward || hasItemReward(values.actions ?? [])) for (const write of await prepareItemDeliveryWrites(state.byPath)) changed.set(write.path, write.contents);
   const append = (path: string, block: string) => { const text = changed.get(path) ?? state.byPath.get(path)!; changed.set(path, text + (text.endsWith("\n") ? "\n" : "\n\n") + block.replace(/\n/g, text.includes("\r\n") ? "\r\n" : "\n")); };
   const reserved = new Set<number>();
   const allocateFlag = (name: string) => {

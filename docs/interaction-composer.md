@@ -64,6 +64,15 @@ later failure would allow an earlier reward to be duplicated on retry. A
 one-time gift path must complete; an incomplete early end belongs before
 delivery. Per-reward persistent progress is future work.
 
+Saving an item gift also repairs Red/Blue's native end-of-bag stack scan. Without
+that correction, adding more of the last item when its stack overflows can scan
+past the inventory and overwrite map/save data. Yellow already checks this
+boundary and stays unchanged. The repair is included in the same undoable save
+for ordinary rewards, nested item actions and scenes, and adds no ROM bytes or
+RAM fields. Existing item-giving interactions receive it when reopened and
+saved; rebuild the ROM afterward. It prevents further corruption but does not
+restore data already changed in a save file.
+
 The existing NPC approach is an outer scene: walk, yield until arrival, run
 the composed interaction, return, yield, restore facing/input/map state.
 New walking actions use a resumable scene instead of the synchronous runner.
