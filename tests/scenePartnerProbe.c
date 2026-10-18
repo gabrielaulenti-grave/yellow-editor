@@ -33,7 +33,7 @@ int main(int argc,char** argv){
     if((mode==0||mode==7||mode==8)&&(!parked||!looked))break;
     if((mode==1||mode==2||mode==4||mode==5)&&rd(e,"wSpritePikachuStateData1ImageIndex")!=255)break;
     if(mode==7&&rd(e,"wSpritePikachuStateData1ImageIndex")!=255)break;
-    if(mode>=8&&!saw_battle)break;
+    if((mode==8||mode==9)&&!saw_battle)break;
     if(mode==9&&!emulator_read_u8_raw(e,sym("wPartyMon1HP").address)&&!emulator_read_u8_raw(e,sym("wPartyMon1HP").address+1))break;
     shot(e,argv[6]);parked=1;
     if(mode!=0&&mode!=7&&mode!=8){finished=1;break;}phase=1;

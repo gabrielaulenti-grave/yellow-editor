@@ -17,12 +17,12 @@ export async function inspectScenePartner(files: Map<string, string>, symbols: M
   }
   const ram = (files.get("ram/wram.asm") ?? "").split(/\r?\n/).map(line => line.split(";", 1)[0].trim()).filter(Boolean).join("\n");
   if (!/wPikachuFollowCommandBufferSize:: db\nwPikachuFollowCommandBuffer:: ds 16(?:\n|$)/.test(ram)) return { name: "Pikachu", reason: "Partner actions require the reviewed native following buffer layout." };
-  const values = { PIKACHU_SPRITE_INDEX: 15, PIKAMOVEMENT_DELAY: 0, PIKAMOVEMENT_STEP_DOWN: 0x1d, PIKAMOVEMENT_STEP_UP: 0x1e, PIKAMOVEMENT_STEP_LEFT: 0x1f, PIKAMOVEMENT_STEP_RIGHT: 0x20, PIKAMOVEMENT_LOOK_DOWN: 0x35, PIKAMOVEMENT_LOOK_UP: 0x36, PIKAMOVEMENT_LOOK_LEFT: 0x37, PIKAMOVEMENT_LOOK_RIGHT: 0x38, PIKAMOVEMENT_END: 0x3f };
+  const values = { PIKACHU_SPRITE_INDEX: 15, BIT_PIKACHU_SPAWN_STARTER: 7, PIKAMOVEMENT_DELAY: 0, PIKAMOVEMENT_STEP_DOWN: 0x1d, PIKAMOVEMENT_STEP_UP: 0x1e, PIKAMOVEMENT_STEP_LEFT: 0x1f, PIKAMOVEMENT_STEP_RIGHT: 0x20, PIKAMOVEMENT_LOOK_DOWN: 0x35, PIKAMOVEMENT_LOOK_UP: 0x36, PIKAMOVEMENT_LOOK_LEFT: 0x37, PIKAMOVEMENT_LOOK_RIGHT: 0x38, PIKAMOVEMENT_END: 0x3f };
   return { name: "Pikachu", reason: Object.entries(values).some(([key, value]) => symbols.get(key) !== value) ? "Partner sprite and movement constants differ from Yellow's reviewed layout." : null };
 }
 
 export function partnerDetection(prefix: string): string[] {
-  return [`${prefix}PartnerPresent:`, `\tcall ${prefix}PartnerVisible`, "\tret nc", "\tld a, [wEditorSceneActive]", "\tbit 7, a", "\tjr nz, .owned", "\tcall CheckPikachuFollowingPlayer", "\tjr nz, .absent", ".owned", "\tscf", "\tret", ".absent", "\tand a", "\tret", "",
+  return [`${prefix}PartnerPresent:`, `\tcall ${prefix}PartnerVisible`, "\tret nc", "\tld a, [wPikachuSpawnStateFlags]", "\tbit BIT_PIKACHU_SPAWN_STARTER, a", "\tjr z, .absent", "\tld a, [wEditorSceneActive]", "\tbit 7, a", "\tjr nz, .owned", "\tcall CheckPikachuFollowingPlayer", "\tjr nz, .absent", ".owned", "\tscf", "\tret", ".absent", "\tand a", "\tret", "",
     `${prefix}PartnerVisible:`, "\tfarcall ShouldPikachuSpawn", "\tret nc",
     "\tld a, [wPikachuOverworldStateFlags]", "\tbit 3, a", "\tjr nz, .absent",
     "\tld a, [wSpritePikachuStateData1PictureID]", "\tand a", "\tjr z, .absent",
