@@ -276,8 +276,9 @@ disable these actions without blocking ordinary interactions.
 **Move following partner** chooses an X/Y destination. The scene reads Pikachu's
 actual starting tile, waits for an in-progress step, then uses Yellow's native
 movement commands along a checked route of up to 16 steps. Choose clear floor on
-screen, away from the player, NPCs, signs and warps. A partner starting on an
-arrival warp can leave that tile. Choose a final facing direction to make him watch a character or doorway.
+screen, away from the player, NPCs, signs and warps. Pikachu can cross door/warp tiles without changing maps, including leaving
+a blocked arrival doorway across its neighboring warp. The destination must
+still be ordinary clear floor. Choose a final facing direction to make him watch a character or doorway.
 An absent partner is skipped. A blocked or
 unreachable move ends the attempt without marking the scene complete.
 

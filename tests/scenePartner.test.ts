@@ -24,10 +24,10 @@ for (const rootArg of roots) {
   (await prepareMapNpcWrites(source, npc, { x: 4, y: 4, sprite: "SPRITE_OAK", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Hello!"] } })).forEach(write => overlay.set(write.path, write.contents));
   const path = "scripts/ViridianPokecenter.asm", label = `ViridianPokecenterEditorNpc${npc.objectId}Text`, actor = `VIRIDIAN_POKECENTER_EDITOR_NPC_${npc.objectId}`;
   const doc = await loadScriptInteractionDocument(source, path, label), yellow = doc.scene.partner?.reason === null;
-  const actions: InteractionAction[] = [{ kind: "if-partner", following: [{ kind: "event", event: "EVENT_PARTNER_FOLLOWING", set: true }, { kind: "partner-move", x: 3, y: 5, facing: "UP" }], absent: [{ kind: "event", event: "EVENT_PARTNER_ABSENT", set: true }] }, { kind: "if-event", event: "EVENT_PARTNER_BATTLE", set: true, then: [{ kind: "if-event", event: "EVENT_PARTNER_LOSS", set: true,
+  const actions: InteractionAction[] = [{ kind: "if-partner", following: [{ kind: "event", event: "EVENT_PARTNER_FOLLOWING", set: true }, { kind: "partner-move", x: 3, y: 5, facing: "RIGHT" }], absent: [{ kind: "event", event: "EVENT_PARTNER_ABSENT", set: true }] }, { kind: "if-event", event: "EVENT_PARTNER_BATTLE", set: true, then: [{ kind: "if-event", event: "EVENT_PARTNER_LOSS", set: true,
     then: [{ kind: "wild-battle", species: "SNORLAX", level: 30, cry: false, won: [], caught: [], escaped: [{ kind: "end", complete: false }] }],
     otherwise: [{ kind: "wild-battle", species: "MAGIKARP", level: 2, cry: false, won: [], caught: [], escaped: [{ kind: "end", complete: false }] }],
-  }, { kind: "partner-move", x: 3, y: 5, facing: "UP" }], otherwise: [] }, { kind: "walk-npc", npc: actor, steps: ["DOWN", "RIGHT"] }, { kind: "visibility", npc: actor, visible: false }];
+  }, { kind: "partner-move", x: 3, y: 5, facing: "RIGHT" }], otherwise: [] }, { kind: "walk-npc", npc: actor, steps: ["DOWN", "RIGHT"] }, { kind: "visibility", npc: actor, visible: false }];
   const values = { ...doc.values, once: false, showOriginal: false, actions: identifySequenceDialogue(actions), scene: { trigger: "coordinate" as const, playerX: 4, playerY: 6, idleState: 0, hiddenNpcs: [] } };
   if (!yellow) {
     assert.match(doc.scene.partner!.reason!, /no supported following partner/);
@@ -59,6 +59,7 @@ for (const rootArg of roots) {
   const move = model.scene!.nodes.find(node => node.action?.kind === "partner-move")!;
   assert.ok(move.partnerRoute!.some(cell => cell.x === 4 && cell.y === 5 && cell.toX === 3 && cell.toY === 5));
   assert.ok(!move.partnerRoute!.some(cell => cell.toX === 4 && cell.toY === 6));
+  assert.ok(move.partnerRoute!.some(cell => cell.x === 4 && cell.y === 7 && cell.toX === 3 && cell.toY === 7), "Leave a blocked doorway across its neighboring warp tile without moving the player");
   assert.equal(model.scene!.partner, true);
   const crlf = { ...source, readText: async (path: string) => (await source.readText(path)).replace(/\r?\n/g, "\r\n") };
   const crlfDoc = await loadScriptInteractionDocument(crlf, path, label);
@@ -67,7 +68,7 @@ for (const rootArg of roots) {
   const moved = await prepareMapNpcEditWrites(source, edit, { ...edit.values, x: 5, y: 4, moveSceneStart: true });
   const movedModel = JSON.parse(moved.find(write => write.path === path)!.contents.match(/yellow-editor-interaction: (.*)/)![1]) as ManagedInteraction;
   const movedBranch = movedModel.values.actions![0]; assert.equal(movedBranch.kind, "if-partner");
-  if (movedBranch.kind === "if-partner") assert.deepEqual(movedBranch.following[1], { kind: "partner-move", x: 4, y: 5, facing: "UP" });
+  if (movedBranch.kind === "if-partner") assert.deepEqual(movedBranch.following[1], { kind: "partner-move", x: 4, y: 5, facing: "RIGHT" });
   assert.equal(movedModel.values.scene!.playerX, 5);
   console.log(`${root}: native contracts, partner branch joins, parking/route conflicts, action/tile errors, CRLF and source round trip passed`);
   if (!rgbds || !cpu) continue;
@@ -91,7 +92,7 @@ for (const rootArg of roots) {
   // hidden states after loading, as an ordinary story script would do.
   await patch(path, text => text.replace("ViridianPokecenter_Script:\n", "ViridianPokecenter_Script:\n\tcall PartnerFixtureState\n") + ["", "PartnerFixtureState:",
     "\tld a, [wUnusedPlayerDataByte]", "\tcp 3", "\tcall z, DisablePikachuFollowingPlayer", "\tcp 4", "\tcall z, DisablePikachuOverworldSpriteDrawing",
-    "\tld a, [wUnusedPlayerDataByte]", "\tcp 7", "\tjr nz, .notRejoin", "\tld a, [wSpritePikachuStateData2MapX]", "\tcp 7", "\tret nz", "\tld a, [wSpritePikachuStateData2MapY]", "\tcp 9", "\tret nz", "\tld a, 7", "\tld [wSprite02StateData2MapX], a", "\tld a, 10", "\tld [wSprite02StateData2MapY], a", "\tret", ".notRejoin", "\tld a, [wUnusedPlayerDataByte]", "\tcp 6", "\tret nz", "\tld a, 7", "\tld [wSprite02StateData2MapX], a", "\tld a, 9", "\tld [wSprite02StateData2MapY], a", "\tret", ""].join("\n"));
+    "\tld a, [wUnusedPlayerDataByte]", "\tcp 7", "\tjr nz, .notRejoin", "\tld a, [wSpritePikachuStateData2MapX]", "\tcp 7", "\tret nz", "\tld a, [wSpritePikachuStateData2MapY]", "\tcp 9", "\tret nz", `\tld a, [wSprite${String(npc.objectId).padStart(2, "0")}StateData2MapX]`, "\tcp 9", "\tret nz", `\tld a, [wSprite${String(npc.objectId).padStart(2, "0")}StateData2MapY]`, "\tcp 9", "\tret nz", "\tld a, 8", "\tld [wSprite02StateData2MapX], a", "\tld a, 9", "\tld [wSprite02StateData2MapY], a", "\tret", ".notRejoin", "\tld a, [wUnusedPlayerDataByte]", "\tcp 6", "\tret nz", "\tld a, 7", "\tld [wSprite02StateData2MapX], a", "\tld a, 9", "\tld [wSprite02StateData2MapY], a", "\tret", ""].join("\n"));
   await patch("data/maps/special_warps.asm", text => text.replace("special_warp_spec REDS_HOUSE_2F, 3, 6, REDS_HOUSE_2", "special_warp_spec VIRIDIAN_POKECENTER, 4, 6, POKECENTER"));
   const run = (command: string, args: string[], cwd = folder) => { const result = spawnSync(command, args, { cwd, encoding: "utf8", maxBuffer: 20 * 1024 * 1024 }); assert.equal(result.status, 0, `${command}: ${result.stderr.slice(-8000)}\n${result.stdout.slice(-2000)}`); return result.stdout; };
   run("make", ["-j2", `RGBDS=${rgbds}/`, "pokeyellow.gbc"], game);

@@ -86,8 +86,10 @@ function partnerResume(plan: ScenePlan, p: string): string[] {
     "\tld hl, wPikachuFollowCommandBuffer", "\tpush de", "\tld e, d", "\tld d, 0", "\tadd hl, de", "\tpop de", "\tld [hl], a",
     "\tld a, d", "\tld [wPikachuFollowCommandBufferSize], a", "\tinc d", "\tjp .route", ".unsafe", "\tpop af", ".fallback",
     // If live actors obstruct the rejoin route, native respawning avoids walking
-    // through them. No old movement command is replayed and following is enabled.
-    "\tld a, $ff", "\tld [wPikachuFollowCommandBufferSize], a", "\tcall EnablePikachuFollowingPlayer", "\tfarcall SchedulePikachuSpawnForAfterText", "\tret", ".ready", "\tcall EnablePikachuFollowingPlayer", "\tret", "",
+    // through them. Preserve the loaded VRAM slot: the native scheduler normally
+    // runs before map graphics loading and clears that field with the sprite.
+    // No old movement command is replayed and following is enabled.
+    "\tld a, $ff", "\tld [wPikachuFollowCommandBufferSize], a", "\tcall EnablePikachuFollowingPlayer", "\tld a, [wSpritePikachuStateData2ImageBaseOffset]", "\tpush af", "\tfarcall SchedulePikachuSpawnForAfterText", "\tpop af", "\tld [wSpritePikachuStateData2ImageBaseOffset], a", "\tret", ".ready", "\tcall EnablePikachuFollowingPlayer", "\tret", "",
     `${p}PartnerReturnTileClear:`, "\tld a, [wXCoord]", "\tadd 4", "\tcp b", "\tjr nz, .objects", "\tld a, [wYCoord]", "\tadd 4", "\tcp c", "\tjr nz, .objects", "\tscf", "\tret", ".objects", `\tjp ${p}PartnerTileClear`, "",
     `${p}PartnerReturnDirection:`,
     ...(plan.partnerReturns ?? []).flatMap((entry, i) => ["\tld a, [wXCoord]", `\tcp ${entry.x}`, `\tjr nz, .next${i}`, "\tld a, [wYCoord]", `\tcp ${entry.y}`, `\tjr nz, .next${i}`, `\tld hl, ${p}PartnerReturn${i}`, "\tjp .cell", `.next${i}`]),

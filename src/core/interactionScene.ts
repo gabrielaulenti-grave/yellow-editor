@@ -139,7 +139,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
           const onScreen = (point: Point) => Math.abs(point.x - world.player.x) <= 4 && Math.abs(point.y - world.player.y) <= 3;
           if (!walkable(target) || !onScreen(target) || occupied(target)) throw new InteractionValidationError({ message: "Choose a clear, walkable partner destination on screen, away from warps, signs, the player and visible NPCs.", tile: target });
           // Reverse shortest-path field: the follower's actual start is read at
-          // runtime. Warps are allowed only as starting leaves, never crossed.
+          // runtime. Like NPC steps, Pikachu can cross door tiles without warping.
           const queue = [{ ...target, distance: 0 }], seen = new Set([`${target.x},${target.y}`]), cells: PartnerRouteCell[] = [];
           for (let at = 0; at < queue.length; at++) {
             const to = queue[at]; if (to.distance >= 16) continue;
@@ -147,7 +147,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
               const from = { x: to.x - d.x, y: to.y - d.y }, id = `${from.x},${from.y}`;
               if (seen.has(id) || !onScreen(from) || !walkable(from, true) || occupied(from)) continue;
               seen.add(id); cells.push({ ...from, toX: to.x, toY: to.y, step });
-              if (!warps.some(warp => same(warp, from))) queue.push({ ...from, distance: to.distance + 1 });
+              queue.push({ ...from, distance: to.distance + 1 });
             }
           }
           partnerRoutes.set(key, cells);
@@ -206,7 +206,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
         const from = { x: to.x - d.x, y: to.y - d.y }, id = `${from.x},${from.y}`;
         if (seen.has(id) || Math.abs(from.x - player.x) > 4 || Math.abs(from.y - player.y) > 3 || !walkable(from, true)) continue;
         seen.add(id); steps[(from.y - player.y + 3) * 9 + from.x - player.x + 4] = ({ DOWN: 1, UP: 2, LEFT: 3, RIGHT: 4 } as Record<string, number>)[step];
-        if (!warps.some(warp => same(warp, from))) queue.push({ ...from, distance: to.distance + 1 });
+        queue.push({ ...from, distance: to.distance + 1 });
       }
     }
     return { ...player, steps };

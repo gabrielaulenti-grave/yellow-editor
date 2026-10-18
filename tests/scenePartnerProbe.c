@@ -21,7 +21,7 @@ int main(int argc,char** argv){
  for(int frame=0;frame<10000;frame++){
   if(rd(e,"wIsInBattle"))saw_battle=1;
   if(rd(e,"wCurMap")==map&&rd(e,"wPartyCount"))entered=1;
-  if(entered&&rd(e,"wEditorSceneActive")){active=1;if(rd(e,"wSpritePikachuStateData2MapX")==7&&rd(e,"wSpritePikachuStateData2MapY")==9){parked=1;if(rd(e,"wSpritePikachuStateData1FacingDirection")==8)looked=1;}if(!saw_start&&rd(e,"wSpritePikachuStateData1PictureID")){saw_start=1;fprintf(stderr,"mode %d initial partner %u,%u status %u image %u\n",mode,rd(e,"wSpritePikachuStateData2MapX"),rd(e,"wSpritePikachuStateData2MapY"),rd(e,"wSpritePikachuStateData1MovementStatus"),rd(e,"wSpritePikachuStateData1ImageIndex"));}}
+  if(entered&&rd(e,"wEditorSceneActive")){active=1;if(rd(e,"wSpritePikachuStateData2MapX")==7&&rd(e,"wSpritePikachuStateData2MapY")==9){parked=1;if(rd(e,"wSpritePikachuStateData1FacingDirection")==12)looked=1;}if(!saw_start&&rd(e,"wSpritePikachuStateData1PictureID")){saw_start=1;fprintf(stderr,"mode %d initial partner %u,%u status %u image %u\n",mode,rd(e,"wSpritePikachuStateData2MapX"),rd(e,"wSpritePikachuStateData2MapY"),rd(e,"wSpritePikachuStateData1MovementStatus"),rd(e,"wSpritePikachuStateData1ImageIndex"));}}
   int blocked=mode==6;
   int done=active&&!rd(e,"wEditorSceneActive")&&!rd(e,"wJoyIgnore")&&(mode==9?rd(e,"wCurMap")!=map&&saw_battle:rd(e,actorX)==(blocked?8:9)&&rd(e,actorY)==(blocked?8:9));
   if(done)settled++;else settled=0;
@@ -32,6 +32,7 @@ int main(int argc,char** argv){
     if((rd(e,"wPikachuOverworldStateFlags")&2)!=(mode==3?2:0))break;
     if((mode==0||mode==7||mode==8)&&(!parked||!looked))break;
     if((mode==1||mode==2||mode==4||mode==5)&&rd(e,"wSpritePikachuStateData1ImageIndex")!=255)break;
+    if(mode==7&&rd(e,"wSpritePikachuStateData1ImageIndex")!=255)break;
     if(mode>=8&&!saw_battle)break;
     if(mode==9&&!emulator_read_u8_raw(e,sym("wPartyMon1HP").address)&&!emulator_read_u8_raw(e,sym("wPartyMon1HP").address+1))break;
     shot(e,argv[6]);parked=1;
