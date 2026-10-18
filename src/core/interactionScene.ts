@@ -11,8 +11,13 @@ import type { ProjectSource } from "./types";
 export interface SceneOptions {
   trigger: "interaction" | "coordinate";
   playerX: number; playerY: number; idleState: number; hiddenNpcs: string[];
+  additionalStarts?: Array<{ x: number; y: number }>;
 }
 interface Point { x: number; y: number }
+export const maximumSceneStarts = 8;
+export function scenePlayerStarts(options: SceneOptions): Point[] {
+  return [{ x: options.playerX, y: options.playerY }, ...(options.additionalStarts ?? [])];
+}
 export interface SceneActor extends Point { constant: string; id: number; canWalk?: boolean }
 export interface SceneDomain {
   reason: string | null; mapConstant: string; actors: SceneActor[];
@@ -36,6 +41,7 @@ export interface ScenePlan {
   // Optional so existing v3 source can still be verified before upgrading.
   // One reward per path: one pending delivery covers all mutually exclusive gifts.
   giftFlag?: string;
+  starts?: Array<Point & { next: number }>;
   partner?: true;
   partnerReturns?: Array<{ x: number; y: number; steps: number[] }>;
   effects?: { music: Array<{ id: string; header: string }>; battles: Record<string, { won: string; caught?: string }> };
@@ -57,6 +63,10 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   if (!["interaction", "coordinate"].includes(options.trigger) || !Number.isInteger(options.playerX) || !Number.isInteger(options.playerY)
     || !domain.idleStates.some(entry => entry.id === options.idleState) || !Array.isArray(options.hiddenNpcs)
     || options.hiddenNpcs.some(npc => !domain.actors.some(actor => actor.constant === npc))) throw new Error("Choose valid scene coordinates, idle state and actors.");
+  if (options.additionalStarts !== undefined && (!Array.isArray(options.additionalStarts) || options.additionalStarts.some(point => !point || !Number.isInteger(point.x) || !Number.isInteger(point.y)))) throw new Error("Choose whole-number X/Y coordinates for every player start.");
+  const starts = scenePlayerStarts(options);
+  if (starts.length > maximumSceneStarts) throw new Error(`Use at most ${maximumSceneStarts} player starts in one scene.`);
+  if (new Set(starts.map(point => `${point.x},${point.y}`)).size !== starts.length) throw new Error("Each player start must use a different tile.");
   const others = sceneModels(state.files).filter(other => other.prefix !== model.prefix && other.scene!.mapConstant === domain.mapConstant);
   const owner = state.old?.scene?.owner ?? Array.from({ length: 255 }, (_, i) => i + 1).find(id => !others.some(other => other.scene!.owner === id));
   if (!owner) throw new Error("No free scene identifier remains on this map.");
@@ -105,12 +115,14 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     if (warps.some(other => same(other, p))) return npcOnly;
     return passable.includes(blockset[blocks[Math.floor(p.y / 2) * map.width + Math.floor(p.x / 2)] * 16 + (p.y % 2 * 2 + 1) * 4 + p.x % 2 * 2]);
   };
-  if (!walkable({ x: options.playerX, y: options.playerY }, options.trigger === "coordinate")) throw new InteractionValidationError({ message: "Choose a walkable player start away from signs. Warp starts require a coordinate scene.", tile: { x: options.playerX, y: options.playerY } });
+  for (const [i, point] of starts.entries()) {
+    if (!walkable(point, options.trigger === "coordinate")) throw new InteractionValidationError({ message: `${starts.length > 1 ? `Player start ${i + 1}: ` : ""}Choose a walkable player start away from signs. Warp starts require a coordinate scene.`, tile: point });
+    if (starts.length > 1 && state.objectRows.some((row, index) => !options.hiddenNpcs.includes(state.npcConstants[index]) && same(point, { x: +row[1], y: +row[2] }))) throw new InteractionValidationError({ message: `Player start ${i + 1} is occupied by a visible NPC.`, tile: point });
+  }
   interface World { player: Point; actors: Record<string, Point>; visible: Record<string, boolean>; dark: boolean; partner?: Point | null }
-  const world: World = { dark: false, player: { x: options.playerX, y: options.playerY }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
   const showPoints = new Map<string, Point>();
   const partnerRoutes = new Map<string, PartnerRouteCell[]>();
-  const partnerPlayers = new Map([[`${options.playerX},${options.playerY}`, { x: options.playerX, y: options.playerY }]]);
+  const partnerPlayers = new Map(starts.map(point => [`${point.x},${point.y}`, point]));
   const battleStaging = new Map<string, SceneActor[]>();
   const routes = new Map<string, Array<{ from: Point; to: Point; step: string; playerFrom: Point; playerTo: Point; playerStep?: string }>>();
   function validate(actions: InteractionAction[], worlds: World[], path = "Action"): World[] {
@@ -197,8 +209,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     }
     return worlds;
   }
-  validate(model.values.actions, [world]);
-  const partnerReturns = hasPartner ? [...partnerPlayers.values()].map(player => {
+  function buildPartnerReturns() { return hasPartner ? [...partnerPlayers.values()].map(player => {
     const steps = Array<number>(63).fill(0), queue = [{ ...player, distance: 0 }], seen = new Set([`${player.x},${player.y}`]);
     for (let at = 0; at < queue.length; at++) {
       const to = queue[at]; if (to.distance >= 16) continue;
@@ -210,8 +221,15 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
       }
     }
     return { ...player, steps };
-  }) : undefined;
-  const nodes: Node[] = [{ kind: "start" }], add = (node: Node) => { nodes.push(node); return nodes.length - 1; };
+  }) : undefined; }
+  const nodes: Node[] = [{ kind: "start" }], shared = new Map<string, number>();
+  // Compile each starting world separately, then share identical tails. The
+  // first following step can differ by approach side; completion flags cannot.
+  const add = (node: Node) => {
+    const key = JSON.stringify(node), existing = starts.length > 1 ? shared.get(key) : undefined;
+    if (existing !== undefined) return existing;
+    nodes.push(node); shared.set(key, nodes.length - 1); return nodes.length - 1;
+  };
   const success = add({ kind: "finish", complete: true }), failed = add({ kind: "finish", complete: false });
   function compile(actions: InteractionAction[], next: number, path = "Action"): number {
     for (let i = actions.length - 1; i >= 0; i--) {
@@ -240,14 +258,26 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     }
     return next;
   }
-  const first = compile(model.values.actions, success);
-  nodes[0].next = model.values.showOriginal ? add({ kind: "original", next: first }) : first;
+  const entries = starts.map((player, i) => {
+    showPoints.clear(); partnerRoutes.clear(); battleStaging.clear(); routes.clear();
+    const world: World = { dark: false, player: { ...player }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
+    try { validate(model.values.actions!, [world]); }
+    catch (error) {
+      if (starts.length === 1) throw error;
+      const detail = error instanceof InteractionValidationError ? error.detail : { message: String(error) };
+      throw new InteractionValidationError({ ...detail, message: `From player start ${i + 1} (${player.x}, ${player.y}): ${detail.message}` });
+    }
+    const first = compile(model.values.actions!, success);
+    return { ...player, next: model.values.showOriginal ? add({ kind: "original", next: first }) : first };
+  });
+  nodes[0].next = entries[0].next;
   if (nodes.length > 128) throw new Error("The scene exceeds the 128-state dispatcher. Shorten its routes or actions.");
   const textNodes = nodes.flatMap((node, i) => node.kind === "original" || node.kind === "op" && ["dialogue", "choice", "item", "pokemon"].includes(node.action!.kind) ? [i] : []);
   return { owner, mapConstant: domain.mapConstant, stateVariable: domain.stateVariable, actors: domain.actors, frozen: state.objectRows.map((_, i) => i + 1), nodes, textNodes,
     textSlots: Math.max(textNodes.length, state.old?.scene?.textSlots ?? 0), visibility, follower: state.byPath.has("scripts/OaksLab_2.asm"),
+    ...(starts.length > 1 ? { starts: entries } : {}),
     latchFlag: state.old?.scene?.latchFlag ?? (options.trigger === "coordinate" ? allocate(`EVENT_${model.prefix.toUpperCase()}_SCENE_LATCH`) : null),
-    ...(giftFlag ? { giftFlag } : {}), ...(hasPartner ? { partner: true as const, partnerReturns } : {}),
+    ...(giftFlag ? { giftFlag } : {}), ...(hasPartner ? { partner: true as const, partnerReturns: buildPartnerReturns() } : {}),
     ...(hasEffects || state.old?.scene?.effects ? { effects: { music: state.document.effects.music.filter(track => usedMusic.has(track.id)), battles } } : {}) };
 }
 export function sceneRootHook(prefix: string) { return `\t; yellow-editor-scene-hook ${prefix}\n\tcall ${prefix}SceneFrame\n\tret c\n\t; yellow-editor-scene-hook-end ${prefix}\n`; }
@@ -259,12 +289,16 @@ export function renderScene(model: ManagedInteraction): string {
   const print = (suffix: string) => [`\tld hl, ${p}${suffix}`, "\tcall PrintText"];
   const condition = (target: string) => v.condition ? [`\tCheckEvent ${v.condition.event}`, `\tjp ${v.condition.set ? "z" : "nz"}, ${target}`] : [];
   const location = (x: string, y: string, point: Point, target: string, offset = 0) => [`\tld a, [${x}]`, `\tcp ${point.x + offset}`, `\tjp nz, ${target}`, `\tld a, [${y}]`, `\tcp ${point.y + offset}`, `\tjp nz, ${target}`];
+  const playerLocations = (fallback: string, label: string) => plan.starts ? [
+    ...plan.starts.flatMap((point, i) => [...location("wXCoord", "wYCoord", point, `.${label}${i}`), `\tjp .${label}Matched`, `.${label}${i}`]),
+    `\tjp ${fallback}`, `.${label}Matched`,
+  ] : location("wXCoord", "wYCoord", { x: options.playerX, y: options.playerY }, fallback);
   const guards = (fallback: string) => [
     ...(plan.stateVariable ? [`\tld a, [${plan.stateVariable}]`, `\tcp ${options.idleState}`, `\tjp nz, ${fallback}`] : []),
     "\tld a, [wWalkCounter]", "\tand a", `\tjp nz, ${fallback}`, "\tld a, [wLinkState]", "\tand a", `\tjp nz, ${fallback}`,
     "\tld a, [wStatusFlags5]", "\tand (1 << BIT_SCRIPTED_NPC_MOVEMENT) | (1 << BIT_SCRIPTED_MOVEMENT_STATE)", `\tjp nz, ${fallback}`,
     "\tld a, [wNPCMovementScriptPointerTableNum]", "\tand a", `\tjp nz, ${fallback}`,
-    ...location("wXCoord", "wYCoord", { x: options.playerX, y: options.playerY }, fallback),
+    ...playerLocations(fallback, "guardPosition"),
     ...plan.actors.filter(actor => plan.nodes.some(node => node.npc === actor.constant || (node.action?.kind === "visibility" || node.action?.kind === "emote") && node.action.npc === actor.constant)).flatMap(actor => location(sprite(actor.id, "StateData2MapX"), sprite(actor.id, "StateData2MapY"), actor, fallback, 4)),
   ];
   const lines = [`${model.label}:`, "\ttext_asm", `\t; yellow-editor-interaction: ${JSON.stringify(model)}`];
@@ -272,7 +306,7 @@ export function renderScene(model: ManagedInteraction): string {
     "\tld a, [wEditorSceneActive]", "\tand a", `\tjp nz, ${p}OriginalOnly`, ...guards(`${p}OriginalOnly`), `\tcall ${p}Launch`, "\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a", "\tjp TextScriptEnd");
   else lines.push(`\tjp ${p}OriginalOnly`);
   lines.push(`${p}Already:`, ...print("AlreadyText"), "\tjp TextScriptEnd", `${p}OriginalOnly:`, ...print("Original"), "\tjp TextScriptEnd", "", `${p}SceneFrame:`, "\tld a, [wEditorSceneActive]", "\tand a", "\tjp nz, .active");
-  if (options.trigger === "coordinate") lines.push(...location("wXCoord", "wYCoord", { x: options.playerX, y: options.playerY }, `${p}ClearLatch`),
+  if (options.trigger === "coordinate") lines.push(...playerLocations(`${p}ClearLatch`, "triggerPosition"),
     `\tCheckEvent ${plan.latchFlag}`, "\tjp nz, .inactive", ...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, "\tjp nz, .inactive"] : []),
     ...condition(`${p}Inactive`), ...guards(`${p}Inactive`), `\tSetEvent ${plan.latchFlag}`, `\tcall ${p}Launch`);
   else lines.push("\tjp .inactive");
@@ -297,7 +331,9 @@ export function renderScene(model: ManagedInteraction): string {
     lines.push(`${p}State${i}:`);
     const effect = renderSceneEffect(node, model, next);
     if (effect) lines.push(...effect);
-    else if (node.kind === "start") lines.push(...next(node.next!));
+    else if (node.kind === "start") lines.push(...(plan.starts ? [
+      ...plan.starts.flatMap((entry, index) => [...location("wXCoord", "wYCoord", entry, `.start${index}`), ...next(entry.next), `.start${index}`]), `\tjp ${p}Abort`,
+    ] : next(node.next!)));
     else if (node.kind === "finish") lines.push(...(node.complete ? [...(v.once && model.flag ? [`\tSetEvent ${model.flag}`] : []),
       // Only normal completion retires the pending delivery. Aborts and map
       // reloads retain it; a repeatable scene can give again after completing.

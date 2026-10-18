@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { SceneReview } from "./SceneReview";
+import { maximumSceneStarts, scenePlayerStarts } from "./core/interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./core/interactionValidation";
 import { InteractionSequenceEditor } from "./InteractionSequenceEditor";
 import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
@@ -31,6 +32,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
   const [checkReport, setCheckReport] = useState<InteractionCheckReport | null>(null);
   const [checking, setChecking] = useState(false);
   const [diagnosticPath, setDiagnosticPath] = useState<string>();
+  const [selectedStart, setSelectedStart] = useState(0);
   useEffect(() => { setCheckReport(null); setDiagnosticPath(undefined); }, [values]);
   const [draftReady, setDraftReady] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<InteractionDraft | null>(null);
@@ -56,6 +58,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
     setValues(structuredClone(data.values)); setItem(data.item); setQuantity(data.quantity); setSpecies(data.species); setLevel(data.level); setFixBagFull(data.fixBagFull); setRouteText(data.routeText);
   }
   async function begin() {
+    setSelectedStart(0);
     ++checkTask.current; setChecking(false); setCheckReport(null);
     ++draftRevision.current;
     setOpen(true); setBusy(true); setDraftReady(false); setError(null); setDocument(null); setPendingDraft(null); setDraftStatus(""); setDraftError(null); setDraftChangedSources(false);
@@ -178,13 +181,35 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
           <label><input type="checkbox" disabled={busy || Boolean(document.scene.reason) || Boolean(document.values.scene)} checked={Boolean(values.scene)} onChange={e => e.target.checked ? enableScene() : update({ scene: undefined })} />Use a scene for movement, effects, battles or coordinate triggers</label>
           {document.scene.reason && <p className="help-text">{document.scene.reason}</p>}
           {values.scene && <>
-            <SceneReview document={document} values={values} report={checkReport} checking={checking || busy} onCheck={() => void checkScene()} onLocate={locateAction} onPlayerStart={(x, y) => { if (!busy) update({ scene: { ...values.scene!, playerX: x, playerY: y } }); }} />
+            <SceneReview document={document} values={values} selectedStart={Math.min(selectedStart, values.scene.additionalStarts?.length ?? 0)} report={checkReport} checking={checking || busy} onCheck={() => void checkScene()} onLocate={locateAction} onPlayerStart={(x, y) => {
+              if (busy) return;
+              const index = Math.min(selectedStart, values.scene!.additionalStarts?.length ?? 0);
+              update({ scene: index === 0 ? { ...values.scene!, playerX: x, playerY: y } : { ...values.scene!, additionalStarts: values.scene!.additionalStarts!.map((point, i) => i === index - 1 ? { x, y } : point) } });
+            }} />
             <label>Scene trigger<select aria-label="Scene trigger" disabled={busy} value={values.scene.trigger} onChange={e => update({ scene: { ...values.scene!, trigger: e.target.value as "interaction" | "coordinate" } })}><option value="interaction">Interact with this NPC or sign</option><option value="coordinate">Reach map coordinates</option></select></label>
-            <div className="interaction-coordinate-fields">{(["X", "Y"] as const).map(axis => <label key={axis}>Player {axis}<input aria-label={`Scene player ${axis}`} type="number" min={0} disabled={busy} value={axis === "X" ? values.scene!.playerX : values.scene!.playerY} onChange={e => update({ scene: { ...values.scene!, [axis === "X" ? "playerX" : "playerY"]: Number(e.target.value) } })} /></label>)}</div>
+            {scenePlayerStarts(values.scene).map((point, index) => <div key={index} role="group" aria-label={`Player start ${index + 1}`}>
+              <strong>Player start {index + 1}</strong>
+              <div className="interaction-coordinate-fields">{(["X", "Y"] as const).map(axis => <label key={axis}>Player {axis}<input aria-label={index === 0 ? `Scene player ${axis}` : `Scene start ${index + 1} player ${axis}`} type="number" min={0} disabled={busy} value={point[axis === "X" ? "x" : "y"]} onChange={e => {
+                const coordinate = { ...point, [axis === "X" ? "x" : "y"]: Number(e.target.value) };
+                update({ scene: index === 0 ? { ...values.scene!, playerX: coordinate.x, playerY: coordinate.y } : { ...values.scene!, additionalStarts: values.scene!.additionalStarts!.map((entry, i) => i === index - 1 ? coordinate : entry) } });
+              }} /></label>)}</div>
+              <button type="button" className="small-button" disabled={busy} aria-pressed={Math.min(selectedStart, values.scene!.additionalStarts?.length ?? 0) === index} onClick={() => setSelectedStart(index)}>Edit start {index + 1} on map</button>
+              {index > 0 && <button type="button" className="small-button" disabled={busy} onClick={() => {
+                const additionalStarts = values.scene!.additionalStarts!.filter((_, i) => i !== index - 1);
+                const scene = { ...values.scene! }; if (additionalStarts.length) scene.additionalStarts = additionalStarts; else delete scene.additionalStarts;
+                setSelectedStart(0); update({ scene });
+              }}>Remove start {index + 1}</button>}
+            </div>)}
+            <button type="button" className="small-button" disabled={busy || scenePlayerStarts(values.scene).length >= maximumSceneStarts} onClick={() => {
+              const starts = scenePlayerStarts(values.scene!);
+              let x = values.scene!.playerX + 1; while (starts.some(point => point.x === x && point.y === values.scene!.playerY)) x++;
+              setSelectedStart(starts.length); update({ scene: { ...values.scene!, additionalStarts: [...(values.scene!.additionalStarts ?? []), { x, y: values.scene!.playerY }] } });
+            }}>Add player start</button>
+            <p className="help-text">The same scene can start from any listed tile (up to {maximumSceneStarts}). For interaction triggers, choose tiles from which the player can address this NPC or sign. Check scene validates every start. Completion and gifts are shared across all starts.</p>
             <label>Native idle state<select aria-label="Scene idle state" disabled={busy} value={values.scene.idleState} onChange={e => update({ scene: { ...values.scene!, idleState: Number(e.target.value) } })}>{document.scene.idleStates.map(state => <option key={state.id} value={state.id}>{state.id}: {state.label}</option>)}</select></label>
             <strong>Initially hidden actors</strong>
             {document.scene.actors.map(actor => <label key={actor.constant}><input type="checkbox" disabled={busy || Boolean(document.values.scene)} checked={values.scene!.hiddenNpcs.includes(actor.constant)} onChange={e => update({ scene: { ...values.scene!, hiddenNpcs: e.target.checked ? [...values.scene!.hiddenNpcs, actor.constant] : values.scene!.hiddenNpcs.filter(npc => npc !== actor.constant) } })} />{actor.constant.replace(/_/g, " ")} ({actor.x}, {actor.y})</label>)}
-            <p className="help-text">Coordinates are movement tiles, as shown in Maps. A coordinate trigger can use the arrival warp to start when the player enters. Show a hidden NPC before walking or emoting. Coordinate scenes can use an event condition and run once per save. Declining requires leaving the trigger tile or re-entering the map before retrying. Routes stay within this map.</p>
+            <p className="help-text">Coordinates are movement tiles, as shown in Maps. A coordinate trigger can use the arrival warp to start when the player enters. Show a hidden NPC before walking or emoting. Coordinate scenes can use an event condition and run once per save. Declining requires leaving all trigger tiles or re-entering the map before retrying. Routes stay within this map.</p>
           </>}
           <label>No room dialogue<textarea aria-label="No room dialogue" rows={3} disabled={busy} value={values.bagFull.join("\n")} onChange={e => update({ bagFull: e.target.value.split("\n") })} /></label>
           {document.choiceReason && <p className="help-text">{document.choiceReason}</p>}

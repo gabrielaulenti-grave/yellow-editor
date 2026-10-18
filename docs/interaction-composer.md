@@ -138,12 +138,29 @@ native map state where the scene may start. Coordinate scenes also use the usual
 event requirement and one-time completion settings. Native map states and Oak's
 original scene remain intact. Maps without native script tables are supported.
 
+Use **Add player start** to let the same scene begin from several coordinates,
+including different sides of an NPC. Keep the original X/Y and add the other
+tiles from which the player can address that NPC or sign. Up to eight starts
+are supported for both interaction and coordinate triggers. **Edit start N on
+map** selects the marker changed by clicking the preview; every start also has
+X/Y fields and additional starts can be removed.
+
+**Check scene** validates the complete sequence separately from every start and
+names the failing start if a route is blocked or out of view. The first player
+step in a following action adapts to the selected starting side. NPC routes
+remain the authored directions and must work from every listed tile. All starts
+share completion, gift and battle checkpoints. Adding starts does not grant an
+extra reward. A repeatable coordinate scene rearms after leaving all listed
+trigger tiles, or re-entering the map. Starts and partner destinations shift
+together when linked NPC placement moves them. Additional starts may use more
+of the existing scene-state and native text-slot budgets.
+
 For an Oak-style entrance, create a stationary NPC in Maps, compose its actions,
 choose **Reach map coordinates**, and mark that NPC initially hidden. Add
 **Show/hide NPC** (visible), dialogue, and **Walk NPC with player following**.
 The player must start next to the actor for following. End with dialogue or a
 hide action. Use a Yes/No branch to allow declining. A declined coordinate scene
-stays latched until the player leaves the trigger tile or re-enters the map.
+stays latched until the player leaves all trigger tiles or re-enters the map.
 
 Routes use UP, DOWN, LEFT and RIGHT, separated by commas or whitespace. They
 stay within the map, avoid walls, signs and other objects, and keep the
@@ -244,11 +261,11 @@ means actors, routes, triggers and text must be reviewed against the current map
 normal source and engine guards still apply on save. Storage errors are shown,
 and Close leaves the editor open when it cannot keep your changes.
 
-**Scene review** shows the player start, trigger type, required native map state
+**Scene review** shows all player starts, trigger type, required native map state
 and event condition. **Check scene** runs the same source preparation as Save
 without writing files. Invalid actions are named, **Go to action** focuses their
 card, and blocked tiles are marked red on the map preview. Clicking the preview
-sets the player start; X/Y fields remain available. Passing checks proves the
+sets the selected player start; X/Y fields remain available. Passing checks proves the
 source is valid, not that an existing player's save meets its story-state/event
 requirements.
 

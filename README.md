@@ -72,3 +72,5 @@ Select an ordinary NPC or sign in **Maps** and use **Edit interaction → Compos
 The [Viridian PC lesson](docs/pc-tutorial.md) is a regression scenario for the scripting tools. It is not a dedicated product button. Coordinate and arrival-warp triggers, movement and battles are available through the general composer. Cross-map escorts and persistent PC-session tracking remain future work.
 
 Interaction edits are kept as recoverable drafts on the current device, separately from project source. Close an invalid scene to repair an NPC, then reopen and choose Resume draft. Scene review shows trigger/state requirements; Check scene validates without writing assembly and identifies affected actions and blocked tiles. Save applies the validated interaction to the project as an undoable edit.
+
+Scenes can list up to eight player starts with **Add player start**, so an NPC interaction can run from several sides or a coordinate scene can cover multiple tiles. Routes are checked from every start, following adapts its first player step, and completion/reward checkpoints remain shared.

@@ -68,6 +68,12 @@ jobs:
       - name: Check following partner source contracts and authoring
         run: npm run test:scenes:partner -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check multiple scene starts and alternate routes
+        run: npm run test:scenes:starts -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check walking scene authoring in Maps
+        run: npm run test:scenes:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check disassembly script round trips
         run: npm run test:scripts -- .script-fixtures/pokeyellow .script-fixtures/pokered
 
@@ -82,9 +88,6 @@ jobs:
 
       - name: Check walking scene sources and guards
         run: npm run test:scenes -- .script-fixtures/pokered .script-fixtures/pokeyellow
-
-      - name: Check walking scene authoring in Maps
-        run: npm run test:scenes:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
       - name: Check music, fades and encounter authoring in Maps
         run: npm run test:scenes:effects:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
@@ -127,6 +130,9 @@ jobs:
 
       - name: Play native Yellow partner movement and absence
         run: npm run test:scenes:partner -- .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Assemble and execute multi-start scenes in Red and Yellow
+        run: npm run test:scenes:starts -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Assemble relocated NPCs and following scenes in Red and Yellow
         run: npm run test:npcs:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
