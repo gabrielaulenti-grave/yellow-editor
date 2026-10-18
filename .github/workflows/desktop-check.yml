@@ -62,6 +62,12 @@ jobs:
       - name: Check scene drafts, stationary sprites and diagnostics
         run: npm run test:scenes:readiness:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check following partner authoring in Maps
+        run: npm run test:scenes:partner:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check following partner source contracts and authoring
+        run: npm run test:scenes:partner -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check disassembly script round trips
         run: npm run test:scripts -- .script-fixtures/pokeyellow .script-fixtures/pokered
 
@@ -118,6 +124,9 @@ jobs:
 
       - name: Play native encounters and reload battery saves in Red and Yellow
         run: npm run test:scenes:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Play native Yellow partner movement and absence
+        run: npm run test:scenes:partner -- .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Assemble relocated NPCs and following scenes in Red and Yellow
         run: npm run test:npcs:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds

@@ -1,3 +1,4 @@
+import { interactionBranches, type InteractionAction } from "./interactionSequence";
 import { validateNpcSpriteMovement } from "./npcSprites";
 import { hashText } from "./history";
 import { loadMapNpcSourceState } from "./npcCreation";
@@ -90,7 +91,13 @@ export async function prepareMapNpcEditWrites(source: ProjectSource, document: M
       const sceneDoc = await loadScriptInteractionDocument(overlay, state.scriptPath, model.label);
       const next = structuredClone(sceneDoc.values);
       if (moved && values.moveSceneStart && d.linkedScenes.some(entry => entry.label === model.label) && next.scene) {
-        next.scene.playerX += values.x - d.values.x; next.scene.playerY += values.y - d.values.y;
+        const dx = values.x - d.values.x, dy = values.y - d.values.y;
+        next.scene.playerX += dx; next.scene.playerY += dy;
+        const shiftPartner = (actions: InteractionAction[]) => actions.forEach(action => {
+          if (action.kind === "partner-move") { action.x += dx; action.y += dy; }
+          interactionBranches(action).forEach(([branch]) => shiftPartner(branch));
+        });
+        shiftPartner(next.actions ?? []);
       }
       if (moved && values.movement === "STAY" && next.scene && next.scene.playerX === values.x && next.scene.playerY === values.y && !next.scene.hiddenNpcs.includes(d.objectConstant)) {
         throw new Error("The NPC would occupy this scene's player start or coordinate trigger.");

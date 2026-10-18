@@ -149,7 +149,7 @@ Routes use UP, DOWN, LEFT and RIGHT, separated by commas or whitespace. They
 stay within the map, avoid walls, signs and other objects, and keep the
 leading actor on screen. Only ordinary stationary NPCs are route actors; trainers
 and item objects retain their native behavior. Dynamic blockers, including Yellow's
-Pikachu, abort before an occupied step. This initial version does not reroute.
+Pikachu, abort before an occupied step. In Yellow, use Move following partner before the NPC route to move Pikachu out of its way. NPC routes do not silently reroute.
 The NPC stays at its destination until moved again or the map reloads. Branches
 with different final staging must end separately rather than rejoin.
 
@@ -262,3 +262,44 @@ It checks species, ball consumption, prizes, hidden sprites, input/palette clean
 and persistent completion. Native rendering shows Snorlax before the encounter
 and removes it afterward. Setup/save-marker hooks exist only in the test ROM;
 no battle, capture, save/load or graphics routine is replaced.
+
+## Following partner (Yellow)
+
+**Branch on following partner** checks Yellow's native starter identity, party HP,
+walking mode, sprite visibility and following state. Its **Following** and
+**Absent** branches can rejoin. Ordinary Pikachu NPCs, traded Pikachu, boxed or
+fainted starters, hidden sprites and a partner detached by a native story script
+do not count as the following partner. Red/Blue explain that this engine is not
+available; the actions remain disabled there. Changed follower routines also
+disable these actions without blocking ordinary interactions.
+
+**Move following partner** chooses an X/Y destination. The scene reads Pikachu's
+actual starting tile, waits for an in-progress step, then uses Yellow's native
+movement commands along a checked route of up to 16 steps. Choose clear floor on
+screen, away from the player, NPCs, signs and warps. A partner starting on an
+arrival warp can leave that tile. Choose a final facing direction to make him watch a character or doorway.
+An absent partner is skipped. A blocked or
+unreachable move ends the attempt without marking the scene complete.
+
+Pikachu stays parked while the scene runs. On completion or interruption, the
+scene rebuilds his follow queue along clear floor so he rejoins the player. A
+blocked rejoin uses the game's native respawn behavior instead of walking
+through an object. Map changes and battle reentry release the scene's control;
+battles can reposition Pikachu, so add another partner move before a later NPC
+route if needed. Existing following that was disabled by native story logic is
+left alone. No RAM or battery-save fields are added.
+
+For an entrance scene, add **Branch on following partner**, put **Move following
+partner** in Following, choose a parking tile beside the NPC's route, then place
+the NPC's walking action after the branch. Check scene identifies a parking tile
+that overlaps the authored NPC route. Destinations shift with linked scene
+starts when moving an NPC through Edit NPC. Draft recovery preserves both
+branches and their destinations.
+
+Verification:
+
+```sh
+npm run test:scenes:partner -- /path/to/pokered /path/to/pokeyellow
+npm run test:scenes:partner -- /path/to/pokeyellow --rom /path/to/rgbds /path/to/binjgb
+npm run test:scenes:partner:ui -- /path/to/pokered /path/to/pokeyellow
+```

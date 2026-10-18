@@ -8,7 +8,7 @@ const titles: Record<InteractionAction["kind"], string> = {
   dialogue: "Show dialogue", choice: "Yes/No choice", "if-event": "Branch on event",
   event: "Change event", wait: "Wait", heal: "Heal party", sound: "Play sound",
   "walk-npc": "Walk NPC", "follow-npc": "Walk NPC with player following", visibility: "Show/hide NPC",
-  emote: "NPC emote",
+  emote: "NPC emote", "if-partner": "Branch on following partner", "partner-move": "Move following partner",
   music: "Change music", fade: "Screen fade", "wild-battle": "Wild Pokémon encounter", "trainer-battle": "Trainer battle",
   item: "Give item", pokemon: "Give Pokémon", end: "End interaction",
 };
@@ -29,7 +29,9 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   const toggle = (title: string, value: boolean, change: (value: boolean) => void) => <label><input type="checkbox" disabled={busy} checked={value} onChange={e => change(e.target.checked)} />{title}</label>;
   const walkingActors = document.scene.actors.filter(actor => actor.canWalk !== false);
   const unavailable = (kind: InteractionAction["kind"]) =>
-    (["walk-npc", "follow-npc", "visibility", "emote"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.actors.length))
+    (["if-partner", "partner-move"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.partner || Boolean(document.scene.partner.reason)))
+    || kind === "if-partner" && depth >= 4
+    || (["walk-npc", "follow-npc", "visibility", "emote"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.actors.length))
     || ["walk-npc", "follow-npc"].includes(kind) && !walkingActors.length
     || kind === "emote" && (Boolean(document.scene.emoteReason) || !document.scene.emotes.length)
     || ["music", "fade", "wild-battle", "trainer-battle"].includes(kind) && Boolean(document.scene.reason)
@@ -46,6 +48,8 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   function add() {
     let action: InteractionAction;
     switch (kind) {
+      case "if-partner": action = { kind, following: [], absent: [] }; onEnableScene?.(); break;
+      case "partner-move": action = { kind, x: document.scene.defaultPlayer.x + 1, y: document.scene.defaultPlayer.y }; onEnableScene?.(); break;
       case "walk-npc": case "follow-npc": action = { kind, npc: walkingActors[0].constant, steps: ["DOWN"] }; onEnableScene?.(); break;
       case "visibility": action = { kind, npc: document.scene.actors[0].constant, visible: true }; onEnableScene?.(); break;
       case "emote": action = { kind, npc: document.scene.actors[0].constant, bubble: document.scene.emotes[0] }; onEnableScene?.(); break;
@@ -69,7 +73,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   return <div className="interaction-sequence" role="group" aria-label={path}>
     {actions.map((action, i) => {
       const branch = (title: string, entries: InteractionAction[], change: (entries: InteractionAction[]) => void) => <fieldset className="interaction-sequence-branch"><legend>{title}</legend>
-        <InteractionSequenceEditor actions={entries} document={document} busy={busy} onEnableScene={onEnableScene} onChange={change} depth={depth + 1} path={`${path} ${i + 1} ${title}`} actionPrefix={`${actionPrefix}${i + 1}${({ Yes: "Yes", "No or B": "No", Then: "Then", Otherwise: "Otherwise", Defeated: "Won", Victory: "Won", Caught: "Caught", Escaped: "Escaped" } as Record<string, string>)[title]}`} diagnosticPath={diagnosticPath} />
+        <InteractionSequenceEditor actions={entries} document={document} busy={busy} onEnableScene={onEnableScene} onChange={change} depth={depth + 1} path={`${path} ${i + 1} ${title}`} actionPrefix={`${actionPrefix}${i + 1}${({ Yes: "Yes", "No or B": "No", Then: "Then", Otherwise: "Otherwise", Defeated: "Won", Victory: "Won", Caught: "Caught", Escaped: "Escaped", Following: "Following", Absent: "Absent" } as Record<string, string>)[title]}`} diagnosticPath={diagnosticPath} />
       </fieldset>;
       return <div className={`interaction-sequence-action${diagnosticPath === `${actionPrefix}${i + 1}` ? " interaction-action-problem" : ""}`} key={i} data-scene-action={`${actionPrefix}${i + 1}`} tabIndex={-1}>
         <strong>{i + 1}. {titles[action.kind]}</strong>
@@ -84,6 +88,16 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
           <p className="help-text">Show the question in a dialogue action before this choice. B follows No. Branches continue with the next action unless they end the interaction.</p>
           {branch("Yes", action.yes, yes => update(i, { ...action, yes }))}
           {branch("No or B", action.no, no => update(i, { ...action, no }))}
+        </>}
+        {action.kind === "if-partner" && <>
+          <p className="help-text">Checks whether Yellow's starter Pikachu is currently visible and following. A boxed, fainted, hidden or temporarily detached partner follows Absent. This does not detect an ordinary Pikachu NPC.</p>
+          {branch("Following", action.following, following => update(i, { ...action, following }))}
+          {branch("Absent", action.absent, absent => update(i, { ...action, absent }))}
+        </>}
+        {action.kind === "partner-move" && <>
+          <div className="interaction-coordinate-fields">{(["x", "y"] as const).map(axis => <label key={axis}>Partner {axis.toUpperCase()}<input aria-label={`${path} action ${i + 1} partner ${axis.toUpperCase()}`} type="number" min={0} value={action[axis]} disabled={busy} onChange={event => update(i, { ...action, [axis]: Number(event.target.value) })} /></label>)}</div>
+          <label>Face after moving<select aria-label={`${path} action ${i + 1} partner facing`} disabled={busy} value={action.facing ?? "KEEP"} onChange={event => update(i, { ...action, facing: event.target.value })}>{["KEEP", "UP", "DOWN", "LEFT", "RIGHT"].map(face => <option key={face} value={face}>{face === "KEEP" ? "Keep walking direction" : face.toLowerCase()}</option>)}</select></label>
+          <p className="help-text">Walk Pikachu from his current tile to this clear on-screen tile, using up to 16 steps. Place this before an NPC's walking action to clear its path. An absent partner is skipped; a blocked or unreachable route stops the scene without completing it. Pikachu stays parked during the scene and rejoins you when it ends. Battles may reposition the partner; move him again before another NPC route if needed.</p>
         </>}
         {action.kind === "if-event" && <>
           {options("Event condition", action.event, document.events, event => update(i, { ...action, event }))}
@@ -145,6 +159,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
     })}
     {!actions.length && <p className="help-text">This branch continues with the following action.</p>}
     <div className="interaction-sequence-add">
+      {document.scene.partner?.reason && <p className="help-text">Following partner unavailable: {document.scene.partner.reason}</p>}
       {kind === "emote" && document.scene.emoteReason && <p className="help-text">{document.scene.emoteReason}</p>}
       {document.effects.musicReason && <p className="help-text">Music unavailable: {document.effects.musicReason}</p>}
       {document.effects.fadeReason && <p className="help-text">Screen fades unavailable: {document.effects.fadeReason}</p>}

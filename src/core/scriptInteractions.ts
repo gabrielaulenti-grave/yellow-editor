@@ -1,3 +1,4 @@
+import { inspectScenePartner } from "./scenePartner";
 import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./interactionValidation";
 import { npcSpriteCatalog } from "./npcSprites";
@@ -308,6 +309,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   }
   const scene: SceneDomain = {
     ...await inspectSceneEmotes(byPath, symbols),
+    partner: await inspectScenePartner(byPath, symbols),
     reason: !map || map.isAlias || !map.width || !map.height || npcConstants.length !== objectRows.length || objectRows.length > 14 || !idleStates.length || idleStates.some(entry => entry.id >= 128)
       ? "Scenes require a unique map header, ordinary object slots and a readable map script."
       : !["npc-movement", "player-movement"].every(id => contracts.some(contract => contract.id === id && contract.sourceStatus === "reviewed-source")) ? "Scenes require the reviewed NPC and player movement routines." : spriteReason,
@@ -315,7 +317,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     actors: npcs.map(npc => ({ ...npc, id: npcConstants.indexOf(npc.constant) + 1 })),
     defaultPlayer: sign ? { x: sign.x, y: sign.y + 1 } : pointers && objectRows.find(row => row[6].trim() === pointers[1]) ? (() => { const row = objectRows.find(row => row[6].trim() === pointers[1])!; return { x: +row[1], y: +row[2] + 1 }; })() : { x: 0, y: 0 },
   };
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/pikachu/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();

@@ -32,7 +32,9 @@
     "test:npcs:edit": "node scripts/check-npc-editing.mjs",
     "test:npcs:edit:ui": "node scripts/check-npc-edit-workflow.mjs",
     "test:scenes:readiness:ui": "node scripts/check-scene-readiness-workflow.mjs",
-    "test:scenes:gameplay": "node scripts/check-scene-gameplay.mjs"
+    "test:scenes:gameplay": "node scripts/check-scene-gameplay.mjs",
+    "test:scenes:partner": "node scripts/check-scene-partner.mjs",
+    "test:scenes:partner:ui": "node scripts/check-scene-partner-workflow.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -45,6 +45,7 @@ export function SceneReview({ document, values, report, checking, onCheck, onLoc
     {document.scene.stateVariable && <p>Requires map state {options.idleState}: {idle?.label ?? "unknown state"}. Story events can change this state; choose the state that applies when this scene should run.</p>}
     {values.condition && <p>Also requires {values.condition.event.replace(/^EVENT_/, "").replace(/_/g, " ")} to be {values.condition.set ? "set" : "clear"}.</p>}
     {values.once && <p>Runs once per save file after successful completion.</p>}
+    {document.scene.partner && !document.scene.partner.reason && <p>Following partner: Pikachu. Partner actions read his current position in play; choose a clear destination before an NPC route. Check scene validates the destination, while the actual starting tile and live blockers are checked during play.</p>}
     {document.scene.actors.some(actor => actor.canWalk === false) && <p>Stationary sprites can speak, emote, hide and start battles. They cannot walk or lead the player.</p>}
     <button type="button" className="small-button" disabled={checking} onClick={onCheck}>{checking ? "Checking scene…" : "Check scene"}</button>
     {report?.valid && <p role="status">Scene checks passed. This checks the current project; the player's save must also meet the trigger and state requirements.</p>}

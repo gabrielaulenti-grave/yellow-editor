@@ -6,6 +6,8 @@ export type InteractionAction =
   | { kind: "dialogue"; lines: string[]; textId?: string }
   | { kind: "choice"; yes: InteractionAction[]; no: InteractionAction[] }
   | { kind: "if-event"; event: string; set: boolean; then: InteractionAction[]; otherwise: InteractionAction[] }
+  | { kind: "if-partner"; following: InteractionAction[]; absent: InteractionAction[] }
+  | { kind: "partner-move"; x: number; y: number; facing?: string }
   | { kind: "event"; event: string; set: boolean }
   | { kind: "wait"; frames: number }
   | { kind: "heal" }
@@ -24,12 +26,13 @@ export type InteractionAction =
 export interface InteractionSequenceDomains {
   items: string[]; pokemon: string[]; events: string[]; sounds: string[];
   pokemonReason: string | null; choiceReason: string | null; soundReason: string | null;
-  scene?: { reason: string | null; actors: Array<{ constant: string; canWalk?: boolean }>; emotes?: string[]; emoteReason?: string | null };
+  scene?: { reason: string | null; actors: Array<{ constant: string; canWalk?: boolean }>; emotes?: string[]; emoteReason?: string | null; partner?: { reason: string | null } };
   effects?: SceneEffectsDomain;
 }
 
 export function interactionBranches(action: InteractionAction): Array<readonly [InteractionAction[], string]> {
   if (action.kind === "choice") return [[action.yes, "Yes"], [action.no, "No"]];
+  if (action.kind === "if-partner") return [[action.following, "Following"], [action.absent, "Absent"]];
   if (action.kind === "if-event") return [[action.then, "Then"], [action.otherwise, "Otherwise"]];
   if (action.kind === "wild-battle") return [[action.won, "Won"], [action.caught, "Caught"], [action.escaped, "Escaped"]];
   if (action.kind === "trainer-battle") return [[action.won, "Won"]];
@@ -91,6 +94,16 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
       if (!entry || typeof entry !== "object") throw new Error("Invalid interaction action.");
       if (!paths.size) throw new Error("Remove actions after an unconditional end; they cannot run.");
       switch (entry.kind) {
+        case "if-partner":
+        case "partner-move":
+          if (!domains.scene || domains.scene.reason) throw new Error(domains.scene?.reason ?? "This entry does not support scenes.");
+          if (!domains.scene.partner || domains.scene.partner.reason) throw new Error(domains.scene.partner?.reason ?? "Following partner actions are unavailable.");
+          if (entry.kind === "if-partner") paths = new Set([...visit(entry.following, paths, depth + 1, `${key}Following`), ...visit(entry.absent, paths, depth + 1, `${key}Absent`)]);
+          else {
+            if (!Number.isInteger(entry.x) || !Number.isInteger(entry.y)) throw new Error("Choose a whole-number partner destination on this map.");
+            if (entry.facing !== undefined && !["KEEP", "UP", "DOWN", "LEFT", "RIGHT"].includes(entry.facing)) throw new Error("Choose a supported partner facing direction.");
+          }
+          break;
         case "music":
         case "fade":
         case "wild-battle":
@@ -203,7 +216,7 @@ export function renderInteractionSequence(actions: InteractionAction[], prefix: 
       `${p}Other:`, ...entered, ...renderInteractionSequence(no, prefix, textPrefix, completion, `${key}${noKey}`, acknowledge, prompts), `${p}Join:`,
     ];
     switch (action.kind) {
-      case "walk-npc": case "follow-npc": case "visibility": case "emote": case "music": case "fade": case "wild-battle": case "trainer-battle": throw new Error("This action requires a yielding scene.");
+      case "if-partner": case "partner-move": case "walk-npc": case "follow-npc": case "visibility": case "emote": case "music": case "fade": case "wild-battle": case "trainer-battle": throw new Error("This action requires a yielding scene.");
       case "dialogue": return [...print(`${textPrefix}${action.textId ?? key}Text`), ...(acknowledge && prompts.get(action.textId ?? key) ? acknowledged : [])];
       case "choice": return branch(["\tcall YesNoChoice", "\tld a, [wCurrentMenuItem]", "\tand a"], action.yes, action.no, "Yes", "No", "nz", acknowledge ? acknowledged : []);
       case "if-event": return branch([`\tCheckEvent ${action.event}`], action.then, action.otherwise, "Then", "Otherwise", action.set ? "z" : "nz");

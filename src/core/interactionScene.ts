@@ -1,3 +1,4 @@
+import { partnerHelpers, renderPartnerMove, type PartnerDomain, type PartnerRouteCell } from "./scenePartner";
 import { InteractionValidationError, actionValidationError } from "./interactionValidation";
 import { hashText } from "./history";
 import { prepareSceneBankSpace } from "./sceneBankSpace";
@@ -17,13 +18,14 @@ export interface SceneDomain {
   reason: string | null; mapConstant: string; actors: SceneActor[];
   idleStates: Array<{ id: number; label: string }>; stateVariable: string | null;
   defaultPlayer: Point;
+  partner?: PartnerDomain;
   emotes: string[]; emoteReason: string | null;
 }
 export interface SceneNode {
   kind: "start" | "finish" | "original" | "op" | "npc-start" | "npc-wait" | "player-start" | "player-wait" | "battle-start" | "battle-return";
   next?: number; other?: number; action?: InteractionAction; textKey?: string;
   npc?: string; step?: string; from?: Point; to?: Point; complete?: boolean;
-  caught?: number; staging?: SceneActor[];
+  caught?: number; staging?: SceneActor[]; partnerRoute?: PartnerRouteCell[];
 }
 type Node = SceneNode;
 export interface ScenePlan {
@@ -34,6 +36,8 @@ export interface ScenePlan {
   // Optional so existing v3 source can still be verified before upgrading.
   // One reward per path: one pending delivery covers all mutually exclusive gifts.
   giftFlag?: string;
+  partner?: true;
+  partnerReturns?: Array<{ x: number; y: number; steps: number[] }>;
   effects?: { music: Array<{ id: string; header: string }>; battles: Record<string, { won: string; caught?: string }> };
 }
 const delta: Record<string, Point> = { UP: { x: 0, y: -1 }, DOWN: { x: 0, y: 1 }, LEFT: { x: -1, y: 0 }, RIGHT: { x: 1, y: 0 } };
@@ -43,7 +47,7 @@ export function sceneModels(files: Array<{ contents: string }>): ManagedInteract
   return files.flatMap(file => [...file.contents.matchAll(/^\s*; yellow-editor-interaction: (.*)$/gm)].map(match => JSON.parse(match[1]) as ManagedInteraction)).filter(model => model.version === 3 && model.scene);
 }
 export function needsScene(actions: InteractionAction[]): boolean {
-  return actions.some(action => ["walk-npc", "follow-npc", "visibility", "emote", "music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)
+  return actions.some(action => ["if-partner", "partner-move", "walk-npc", "follow-npc", "visibility", "emote", "music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)
     || interactionBranches(action).some(([branch]) => needsScene(branch)));
 }
 export async function buildScenePlan(source: ProjectSource, state: InteractionInspection, model: ManagedInteraction, allocate: (name: string) => string): Promise<ScenePlan> {
@@ -58,9 +62,10 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   if (!owner) throw new Error("No free scene identifier remains on this map.");
   const visibility = structuredClone(state.old?.scene?.visibility ?? []), staged = new Set(options.hiddenNpcs);
   let hasGift = false;
-  let hasEffects = false;
+  let hasEffects = false, hasPartner = false;
   const usedMusic = new Set<string>(), battles = structuredClone(state.old?.scene?.effects?.battles ?? {});
   const visit = (actions: InteractionAction[]) => actions.forEach(action => {
+    if (action.kind === "if-partner" || action.kind === "partner-move") hasPartner = true;
     if (action.kind === "visibility") staged.add(action.npc);
     else if (action.kind === "item" || action.kind === "pokemon") hasGift = true;
     if (["music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)) hasEffects = true;
@@ -101,8 +106,11 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     return passable.includes(blockset[blocks[Math.floor(p.y / 2) * map.width + Math.floor(p.x / 2)] * 16 + (p.y % 2 * 2 + 1) * 4 + p.x % 2 * 2]);
   };
   if (!walkable({ x: options.playerX, y: options.playerY }, options.trigger === "coordinate")) throw new InteractionValidationError({ message: "Choose a walkable player start away from signs. Warp starts require a coordinate scene.", tile: { x: options.playerX, y: options.playerY } });
-  interface World { player: Point; actors: Record<string, Point>; visible: Record<string, boolean>; dark: boolean }
+  interface World { player: Point; actors: Record<string, Point>; visible: Record<string, boolean>; dark: boolean; partner?: Point | null }
   const world: World = { dark: false, player: { x: options.playerX, y: options.playerY }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
+  const showPoints = new Map<string, Point>();
+  const partnerRoutes = new Map<string, PartnerRouteCell[]>();
+  const partnerPlayers = new Map([[`${options.playerX},${options.playerY}`, { x: options.playerX, y: options.playerY }]]);
   const battleStaging = new Map<string, SceneActor[]>();
   const routes = new Map<string, Array<{ from: Point; to: Point; step: string; playerFrom: Point; playerTo: Point; playerStep?: string }>>();
   function validate(actions: InteractionAction[], worlds: World[], path = "Action"): World[] {
@@ -110,20 +118,49 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
       const key = `${path}${i + 1}`;
       try {
       if (action.kind === "end") return [];
-      if (worlds.some(world => world.dark) && ["dialogue", "choice", "emote", "wild-battle", "trainer-battle", "item", "pokemon", "walk-npc", "follow-npc"].includes(action.kind)) throw new Error("Restore the screen before dialogue, movement, rewards or battles.");
-      if (isBattle(action)) battleStaging.set(key, domain.actors.map(actor => ({ ...actor, ...worlds[0].actors[actor.constant] })));
+      if (worlds.some(world => world.dark) && ["dialogue", "choice", "emote", "wild-battle", "trainer-battle", "item", "pokemon", "walk-npc", "follow-npc", "partner-move"].includes(action.kind)) throw new Error("Restore the screen before dialogue, movement, rewards or battles.");
+      if (isBattle(action)) {
+        battleStaging.set(key, domain.actors.map(actor => ({ ...actor, ...worlds[0].actors[actor.constant] })));
+        worlds.forEach(world => { delete world.partner; });
+      }
       const branches = interactionBranches(action);
       if (branches.length) {
-        worlds = branches.flatMap(([entries, suffix]) => validate(entries, structuredClone(worlds), `${key}${suffix}`));
-        if (worlds.some(world => JSON.stringify(world) !== JSON.stringify(worlds[0]))) throw new Error("Rejoining branches must have the same player, actor positions, visibility and screen brightness. End differently staged branches separately.");
-        worlds = worlds.slice(0, 1);
+        worlds = branches.flatMap(([entries, suffix]) => validate(entries, structuredClone(worlds).map(world => action.kind === "if-partner" && suffix === "Absent" ? { ...world, partner: null } : world), `${key}${suffix}`));
+        const common = (world: World) => { const { partner: _partner, ...rest } = world; return JSON.stringify(rest); };
+        if (worlds.some(world => common(world) !== common(worlds[0]))) throw new Error("Rejoining branches must have the same player, actor positions, visibility and screen brightness. End differently staged branches separately.");
+        worlds = [...new Map(worlds.map(world => [JSON.stringify(world), world])).values()];
       } else for (const world of worlds) {
+        if (action.kind === "partner-move") {
+          const target = { x: action.x, y: action.y };
+          const occupied = (point: Point) => same(point, world.player) || state.objectRows.some((row, index) => {
+            const name = state.npcConstants[index];
+            return world.visible[name] !== false && same(world.actors[name] ?? { x: +row[1], y: +row[2] }, point);
+          });
+          const onScreen = (point: Point) => Math.abs(point.x - world.player.x) <= 4 && Math.abs(point.y - world.player.y) <= 3;
+          if (!walkable(target) || !onScreen(target) || occupied(target)) throw new InteractionValidationError({ message: "Choose a clear, walkable partner destination on screen, away from warps, signs, the player and visible NPCs.", tile: target });
+          // Reverse shortest-path field: the follower's actual start is read at
+          // runtime. Warps are allowed only as starting leaves, never crossed.
+          const queue = [{ ...target, distance: 0 }], seen = new Set([`${target.x},${target.y}`]), cells: PartnerRouteCell[] = [];
+          for (let at = 0; at < queue.length; at++) {
+            const to = queue[at]; if (to.distance >= 16) continue;
+            for (const [step, d] of Object.entries(delta)) {
+              const from = { x: to.x - d.x, y: to.y - d.y }, id = `${from.x},${from.y}`;
+              if (seen.has(id) || !onScreen(from) || !walkable(from, true) || occupied(from)) continue;
+              seen.add(id); cells.push({ ...from, toX: to.x, toY: to.y, step });
+              if (!warps.some(warp => same(warp, from))) queue.push({ ...from, distance: to.distance + 1 });
+            }
+          }
+          partnerRoutes.set(key, cells);
+          if (world.partner !== null) world.partner = target;
+          continue;
+        }
         if (action.kind === "fade") { world.dark = action.mode === "out"; continue; }
         if (action.kind === "visibility") {
-          if (action.visible && (same(world.actors[action.npc], world.player) || state.objectRows.some((row, index) => {
+          if (action.visible && (same(world.actors[action.npc], world.player) || world.partner && same(world.actors[action.npc], world.partner) || state.objectRows.some((row, index) => {
             const name = state.npcConstants[index];
             return name !== action.npc && world.visible[name] !== false && same(world.actors[name] ?? { x: +row[1], y: +row[2] }, world.actors[action.npc]);
           }))) throw new Error("Cannot show an NPC on an occupied tile.");
+          if (action.visible) showPoints.set(key, { ...world.actors[action.npc] });
           world.visible[action.npc] = action.visible; continue;
         }
         if (action.kind === "emote") {
@@ -138,6 +175,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
         for (const step of action.steps) {
           const from = { ...world.actors[action.npc] }, to = { x: from.x + delta[step].x, y: from.y + delta[step].y }, playerFrom = { ...world.player };
           if (action.kind === "follow-npc" && warps.some(warp => same(warp, to))) throw new InteractionValidationError({ message: `Following routes cannot enter a warp at (${to.x}, ${to.y}). Use Walk NPC for an NPC-only departure.`, tile: to });
+          if (world.partner && same(to, world.partner)) throw new InteractionValidationError({ message: "The NPC route reaches the partner's destination. Move the partner to a different tile first.", tile: to });
           if (!walkable(to, action.kind === "walk-npc") || same(to, world.player) || state.objectRows.some((row, index) => {
             const name = state.npcConstants[index];
             return name !== action.npc && world.visible[name] !== false && same(world.actors[name] ?? { x: +row[1], y: +row[2] }, to);
@@ -148,6 +186,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
             playerStep = Object.entries(delta).find(([, d]) => world.player.x + d.x === from.x && world.player.y + d.y === from.y)?.[0];
             if (!playerStep || !walkable(from)) throw new Error("The player must start beside the leading NPC on a clear following route.");
             world.player = from;
+            partnerPlayers.set(`${from.x},${from.y}`, from);
           }
           world.actors[action.npc] = to;
           route.push({ from, to, step, playerFrom, playerTo: { ...world.player }, playerStep });
@@ -159,6 +198,19 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     return worlds;
   }
   validate(model.values.actions, [world]);
+  const partnerReturns = hasPartner ? [...partnerPlayers.values()].map(player => {
+    const steps = Array<number>(63).fill(0), queue = [{ ...player, distance: 0 }], seen = new Set([`${player.x},${player.y}`]);
+    for (let at = 0; at < queue.length; at++) {
+      const to = queue[at]; if (to.distance >= 16) continue;
+      for (const [step, d] of Object.entries(delta)) {
+        const from = { x: to.x - d.x, y: to.y - d.y }, id = `${from.x},${from.y}`;
+        if (seen.has(id) || Math.abs(from.x - player.x) > 4 || Math.abs(from.y - player.y) > 3 || !walkable(from, true)) continue;
+        seen.add(id); steps[(from.y - player.y + 3) * 9 + from.x - player.x + 4] = ({ DOWN: 1, UP: 2, LEFT: 3, RIGHT: 4 } as Record<string, number>)[step];
+        if (!warps.some(warp => same(warp, from))) queue.push({ ...from, distance: to.distance + 1 });
+      }
+    }
+    return { ...player, steps };
+  }) : undefined;
   const nodes: Node[] = [{ kind: "start" }], add = (node: Node) => { nodes.push(node); return nodes.length - 1; };
   const success = add({ kind: "finish", complete: true }), failed = add({ kind: "finish", complete: false });
   function compile(actions: InteractionAction[], next: number, path = "Action"): number {
@@ -171,8 +223,8 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
         const escaped = action.kind === "wild-battle" ? compile(action.escaped, next, `${key}Escaped`) : failed;
         const returned = add({ kind: "battle-return", action, next: won, other: escaped, caught, staging: battleStaging.get(key) });
         next = add({ kind: "battle-start", action, next: returned, other: won, caught });
-      } else if (action.kind === "choice" || action.kind === "if-event") {
-        const branches = action.kind === "choice" ? [[action.yes, "Yes"], [action.no, "No"]] as const : [[action.then, "Then"], [action.otherwise, "Otherwise"]] as const;
+      } else if (action.kind === "choice" || action.kind === "if-event" || action.kind === "if-partner") {
+        const branches = interactionBranches(action);
         const a = compile(branches[0][0], next, `${key}${branches[0][1]}`), b = compile(branches[1][0], next, `${key}${branches[1][1]}`);
         next = add({ kind: "op", action, next: a, other: b });
       } else if (action.kind === "walk-npc" || action.kind === "follow-npc") {
@@ -184,7 +236,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
           const wait = add({ kind: "npc-wait", npc: action.npc, to: step.to, next });
           next = add({ kind: "npc-start", npc: action.npc, from: step.from, to: step.to, step: step.step, next: wait });
         }
-      } else next = add({ kind: "op", action, next, textKey: action.kind === "dialogue" ? action.textId ?? key : undefined });
+      } else next = add({ kind: "op", action, next, ...(action.kind === "partner-move" ? { partnerRoute: partnerRoutes.get(key) } : {}), ...(action.kind === "visibility" && action.visible && hasPartner ? { to: showPoints.get(key) } : {}), textKey: action.kind === "dialogue" ? action.textId ?? key : undefined });
     }
     return next;
   }
@@ -195,7 +247,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   return { owner, mapConstant: domain.mapConstant, stateVariable: domain.stateVariable, actors: domain.actors, frozen: state.objectRows.map((_, i) => i + 1), nodes, textNodes,
     textSlots: Math.max(textNodes.length, state.old?.scene?.textSlots ?? 0), visibility, follower: state.byPath.has("scripts/OaksLab_2.asm"),
     latchFlag: state.old?.scene?.latchFlag ?? (options.trigger === "coordinate" ? allocate(`EVENT_${model.prefix.toUpperCase()}_SCENE_LATCH`) : null),
-    ...(giftFlag ? { giftFlag } : {}),
+    ...(giftFlag ? { giftFlag } : {}), ...(hasPartner ? { partner: true as const, partnerReturns } : {}),
     ...(hasEffects || state.old?.scene?.effects ? { effects: { music: state.document.effects.music.filter(track => usedMusic.has(track.id)), battles } } : {}) };
 }
 export function sceneRootHook(prefix: string) { return `\t; yellow-editor-scene-hook ${prefix}\n\tcall ${prefix}SceneFrame\n\tret c\n\t; yellow-editor-scene-hook-end ${prefix}\n`; }
@@ -239,7 +291,7 @@ export function renderScene(model: ManagedInteraction): string {
       `\tld a, [${sprite(id, "StateData1PictureID")}]`, "\tand a", `\tjr z, .${name}${id}`, `\tld a, ${id * 16}`, "\tldh [hCurrentSpriteOffset], a", "\tpush bc", "\tpredef IsObjectHidden", "\tpop bc", "\tldh a, [hIsToggleableObjectOff]", "\tand a", `\tjr nz, .${name}${id}`,
       `\tld a, [${sprite(id, "StateData2MapX")}]`, `\tcp ${point.x + 4}`, `\tjr nz, .${name}${id}`, `\tld a, [${sprite(id, "StateData2MapY")}]`, `\tcp ${point.y + 4}`, `\tjp z, ${p}Abort`, `.${name}${id}`,
     ]),
-    ...(plan.follower ? ["\tld a, [wSpritePikachuStateData1PictureID]", "\tand a", `\tjr z, .${name}Pikachu`, "\tld a, [wSpritePikachuStateData2MapX]", `\tcp ${point.x + 4}`, `\tjr nz, .${name}Pikachu`, "\tld a, [wSpritePikachuStateData2MapY]", `\tcp ${point.y + 4}`, `\tjp z, ${p}Abort`, `.${name}Pikachu`] : []),
+    ...(plan.follower ? [...(plan.partner ? [`\tcall ${p}PartnerVisible`, `\tjr nc, .${name}Pikachu`] : ["\tld a, [wSpritePikachuStateData1PictureID]", "\tand a", `\tjr z, .${name}Pikachu`]), "\tld a, [wSpritePikachuStateData2MapX]", `\tcp ${point.x + 4}`, `\tjr nz, .${name}Pikachu`, "\tld a, [wSpritePikachuStateData2MapY]", `\tcp ${point.y + 4}`, `\tjp z, ${p}Abort`, `.${name}Pikachu`] : []),
   ];
   plan.nodes.forEach((node, i) => {
     lines.push(`${p}State${i}:`);
@@ -265,9 +317,11 @@ export function renderScene(model: ManagedInteraction): string {
       lines.push("\txor a", "\tld [wJoyIgnore], a", `\tld a, TEXT_${p.toUpperCase()}_SCENE_${plan.textNodes.indexOf(i)}`, "\tldh [hTextID], a", "\tcall DisplayTextID", "\tld a, $ff", "\tld [wJoyIgnore], a", "\tret");
     } else if (node.action) {
       const a = node.action;
-      if (a.kind === "if-event") lines.push(`\tCheckEvent ${a.event}`, `\tld a, ${node.next}`, `\tjr ${a.set ? "nz" : "z"}, .selected`, `\tld a, ${node.other}`, ".selected", "\tld [wEditorSceneState], a", "\tret");
+      if (a.kind === "partner-move") lines.push(...renderPartnerMove(node, i, p, next(node.next!)));
+      else if (a.kind === "if-partner") lines.push(`\tcall ${p}PartnerPresent`, `\tld a, ${node.next}`, "\tjr c, .selected", `\tld a, ${node.other}`, ".selected", "\tld [wEditorSceneState], a", "\tret");
+      else if (a.kind === "if-event") lines.push(`\tCheckEvent ${a.event}`, `\tld a, ${node.next}`, `\tjr ${a.set ? "nz" : "z"}, .selected`, `\tld a, ${node.other}`, ".selected", "\tld [wEditorSceneState], a", "\tret");
       else {
-        if (a.kind === "visibility") { const entry = plan.visibility.find(entry => entry.npc === a.npc)!; lines.push(`\t${a.visible === entry.hiddenInitially ? "SetEvent" : "ResetEvent"} ${entry.flag}`, "\tcall UpdateSprites"); }
+        if (a.kind === "visibility") { const entry = plan.visibility.find(entry => entry.npc === a.npc)!; if (a.visible && plan.partner) lines.push(...occupied(node.to!, entry.id, `show${i}`)); lines.push(`\t${a.visible === entry.hiddenInitially ? "SetEvent" : "ResetEvent"} ${entry.flag}`, "\tcall UpdateSprites"); }
         else if (a.kind === "event") lines.push(`\t${a.set ? "SetEvent" : "ResetEvent"} ${a.event}`);
         else if (a.kind === "wait") lines.push(`\tld c, ${a.frames}`, "\tcall DelayFrames");
         else if (a.kind === "heal") lines.push("\tpredef HealParty");
@@ -305,10 +359,11 @@ export function renderScene(model: ManagedInteraction): string {
   });
   for (let i = plan.textNodes.length; i < plan.textSlots; i++) lines.push(`${p}SceneText${i}:`, "\ttext_asm", "\tjp TextScriptEnd", "");
   if (plan.effects) lines.push(...renderSceneEffectHelpers(model));
+  lines.push(...partnerHelpers(plan, p));
   lines.push(`${p}AdvanceText:`, "\ttext_promptbutton", "\ttext_end", "", `${p}Abort:`,
     ...(plan.effects ? ["\tld a, [wEditorSceneMusic]", "\tcp 2", "\tjr nz, .restoreVisibility", "\tld a, 1", "\tld [wEditorSceneMusic], a", ".restoreVisibility"] : []),
     ...plan.visibility.flatMap((entry, i) => [`\tld a, [wEditorSceneVisibility + ${i}]`, "\tand a", `\tjr z, .restore${i}`, `\tSetEvent ${entry.flag}`, `\tjr .next${i}`, `.restore${i}`, `\tResetEvent ${entry.flag}`, `.next${i}`]),
-    `${p}Cleanup:`, ...plan.frozen.flatMap((id, i) => [`\tld a, [wEditorSceneDirections + ${i}]`, `\tld [wMapSpriteData + ${(id - 1) * 2}], a`, `\tld a, [wEditorSceneMovements + ${i}]`, `\tld [${sprite(id, "StateData2MovementByte1")}], a`]),
+    `${p}Cleanup:`, ...(plan.partner ? [`\tcall ${p}PartnerResume`] : []), ...plan.frozen.flatMap((id, i) => [`\tld a, [wEditorSceneDirections + ${i}]`, `\tld [wMapSpriteData + ${(id - 1) * 2}], a`, `\tld a, [wEditorSceneMovements + ${i}]`, `\tld [${sprite(id, "StateData2MovementByte1")}], a`]),
     ...(plan.effects ? [`\tcall ${p}FadeIn`, "\tld a, [wEditorSceneMusic]", "\tcp 1", `\tcall z, ${p}RestoreMusic`, "\txor a", "\tld [wEditorSceneMusic], a", "\tld [wEditorSceneBattle], a"] : []),
     "\tld a, [wEditorSceneJoyIgnore]", "\tld [wJoyIgnore], a", "\tld a, [wEditorSceneOverride]", "\tld [wOverrideSimulatedJoypadStatesMask], a", "\tld a, [wEditorSceneFlags4]", "\tand 1 << BIT_NO_BATTLES", "\tld b, a", "\tld a, [wStatusFlags4]", "\tand ~(1 << BIT_NO_BATTLES)", "\tor b", "\tld [wStatusFlags4], a", "\txor a", "\tld [wEditorSceneActive], a", "\tld [wSimulatedJoypadStatesIndex], a", "\tld [wSimulatedJoypadStatesEnd], a", "\tld [wUnusedOverrideSimulatedJoypadStatesIndex], a", "\tldh [hJoyHeld], a", "\tret", "");
   if (model.arrival) for (const idle of model.idleStates ?? [0]) for (const kind of ["Start", "Arrive", "Cleanup"]) lines.push(`${p}${idle ? `Resume${idle}` : ""}${kind}State:`, `\tld a, ${idle}`, `\tld [${plan.stateVariable}], a`, "\tret", "");
@@ -326,7 +381,16 @@ function sceneEntryHook(models: ManagedInteraction[], snapshot = true) {
     "\tld a, [wEditorSceneMap]", `\tcp ${model.scene!.mapConstant}`, `\tjr nz, .editorBattleNext${i}`, "\tld a, [wEditorSceneOwner]", `\tcp ${model.scene!.owner}`, `\tjr nz, .editorBattleNext${i}`,
     `\tfarcall ${model.prefix}RestoreBattleStaging`, `.editorBattleNext${i}`,
   ]).join("\n");
-  return entryHook.replace("\txor a", (extended ? (snapshot ? effectEntryHook : legacyEffectEntryHook).replace("\t; restore editor battle staging", restoreStaging).replace(/\tjr /g, "\tjp ") : "") + "\txor a").replace("\t; yellow-editor-scene-map-entry-hook-end", latches + (extended ? ".editorSceneEntryDone\n" : "") + "\t; yellow-editor-scene-map-entry-hook-end");
+  const partners = models.filter(model => model.scene?.partner).sort((a, b) => a.prefix.localeCompare(b.prefix));
+  const releasePartner = partners.length ? [
+    "\tld a, [wEditorSceneActive]", "\tbit 7, a", "\tjp z, .editorPartnerReleased",
+    ...partners.flatMap((model, i) => ["\tld a, [wCurMap]", `\tcp ${model.scene!.mapConstant}`, `\tjr nz, .editorPartnerNext${i}`,
+      "\tld a, [wEditorSceneMap]", `\tcp ${model.scene!.mapConstant}`, `\tjr nz, .editorPartnerNext${i}`,
+      "\tld a, [wEditorSceneOwner]", `\tcp ${model.scene!.owner}`, `\tjr nz, .editorPartnerNext${i}`,
+      `\tfarcall ${model.prefix}PartnerResume`, "\tjp .editorPartnerReleased", `.editorPartnerNext${i}`]),
+    "\tcall EnablePikachuFollowingPlayer", "\tld hl, wEditorSceneActive", "\tres 7, [hl]", ".editorPartnerReleased", "",
+  ].join("\n") : "";
+  return entryHook.replace("\txor a", releasePartner + (extended ? (snapshot ? effectEntryHook : legacyEffectEntryHook).replace("\t; restore editor battle staging", restoreStaging).replace(/\tjr /g, "\tjp ") : "") + "\txor a").replace("\t; yellow-editor-scene-map-entry-hook-end", latches + (extended ? ".editorSceneEntryDone\n" : "") + "\t; yellow-editor-scene-map-entry-hook-end");
 }
 // Replace a reviewed 56-byte unused reservation, preserving its exact size and
 // every existing WRAM/save address. Native movement/menu unions cannot hold this.
