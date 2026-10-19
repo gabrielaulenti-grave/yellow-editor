@@ -41,8 +41,9 @@ Add **Branch on event → Fossil guardian defeated**, requiring it to be set:
 Choose an existing trainer party, such as SUPER NERD:2, or create one in Trainers
 first. Losing follows the native blackout flow and leaves the victory flag clear.
 
-Use **Interact with this NPC or sign**, player start (8, 6), and add (7, 5) as
-another manual approach. Check **Also start automatically here** for (8, 6)
+Use **Interact with this NPC or sign**, player start (8, 6), and add (6, 5) as
+another manual approach. These include a reachable conversation tile after
+either walking route. Check **Also start automatically here** for (8, 6)
 only. Enable **Require an event for the automatic trigger**, select **Fossil
 guardian defeated**, and leave **must be set** unchecked. This starts the battle
 automatically before victory while allowing later manual conversations. Add

@@ -106,7 +106,7 @@ try {
       await page.getByRole("button", { name: "Edit map logic", exact: true }).click();
       await logic.locator(".script-routine-list").getByText("MtMoonB2FDefaultScript", { exact: true }).waitFor();
       await logic.getByRole("button", { name: "Close map logic", exact: true }).click();
-      await page.locator(".world-map-npc-list button").nth(5).click();
+      await page.locator(".world-map-npc-list button").filter({ hasText: /Dome Fossil/i }).click();
       await inspector.getByRole("button", { name: "Edit interaction", exact: true }).click();
       assert.equal(await dialog.getByLabel("Reward item", { exact: true }).inputValue(), "DOME_FOSSIL");
       await dialog.getByRole("button", { name: "Close", exact: true }).click();

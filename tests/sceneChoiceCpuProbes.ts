@@ -40,7 +40,7 @@ export async function sceneChoiceCpuProbes(root: string, temporary: string, rgbd
     "GiveItem:", "ld a, [$c005]", "and a", "jr z, .give", "and a", "ret", ".give", "ld hl, $c000", "inc [hl]", "ld a, b", "ld [$c001], a", "scf", "ret",
     "MoveSprite:", "ld a, [de]", "cp NPC_MOVEMENT_UP", `ld hl, ${variable(nerd.id, "StateData2MapY")}`, "jr nz, .right", "dec [hl]", "ret", ".right", `ld hl, ${variable(nerd.id, "StateData2MapX")}`, "inc [hl]", "ret",
     "IsObjectHidden:", "xor a", "ldh [hIsToggleableObjectOff], a", "ret",
-    "TextScriptEnd:", "PrintText:", "UpdateSprites:", "PlaySound:", "WaitForSoundToFinish:", "PlayDefaultMusic:", "GBFadeOutToBlack:", "GBFadeInFromBlack:", "LoadGBPal:", "ret",
+    "PrintText:", "ld hl, $c008", "inc [hl]", "ret", "TextScriptEnd:", "UpdateSprites:", "PlaySound:", "WaitForSoundToFinish:", "PlayDefaultMusic:", "GBFadeOutToBlack:", "GBFadeInFromBlack:", "LoadGBPal:", "ret",
     ...all.flatMap(model => ["Original", "AlreadyText", "BagFullText", ...model.scene!.nodes.flatMap(node => node.textKey ? [`${node.textKey}Text`] : [])].map(suffix => `${model.prefix}${suffix}:\ndb 0`)),
   ];
   const reset = [...set("wJoyIgnore", 0x12), ...set("wOverrideSimulatedJoypadStatesMask", 0x34), ...set("wStatusFlags4", 5), ...set("wPartyCount", 1), ...set("wIsInBattle", 0), ...set("wCurOpponent", 0), ...set("wEditorSceneActive", 0), ...set("wEditorSceneBattle", 0),
@@ -64,7 +64,7 @@ export async function sceneChoiceCpuProbes(root: string, temporary: string, rgbd
     if (!scenario.startsWith("guardian") && !["locked", "automatic-win", "automatic-not-selected"].includes(scenario)) flow.push(`SetEvent ${won}`);
     if (scenario.startsWith("guardian")) flow.push(...set("$c006", scenario === "guardian-loss" ? 1 : 0), ...launch("guardian"));
     if (scenario.startsWith("automatic")) {
-      const point = scenario === "automatic-not-selected" ? { x: 7, y: 5 } : { x: 8, y: 6 };
+      const point = scenario === "automatic-not-selected" ? { x: 6, y: 5 } : { x: 8, y: 6 };
       flow.push(...reset, ...set("wXCoord", point.x), ...set("wYCoord", point.y), "call Frames");
     }
     if (scenario === "decline") flow.push(...set("$c004", 1));
@@ -77,10 +77,15 @@ export async function sceneChoiceCpuProbes(root: string, temporary: string, rgbd
     } else if (!["automatic-disabled", "automatic-not-selected"].includes(scenario)) flow.push(...launch(selected, /[0-2]$/.test(scenario) ? Number(scenario.slice(-1)) : 0));
     if (/^(dome|helix)[0-2]$/.test(scenario)) flow.push(...launch(helix ? "dome" : "helix")); // Force a sibling attempt even though both sprites are now hidden.
     if (scenario === "guardian-win") flow.push(...launch("guardian", 1));
+    if (/^(dome|helix)[0-2]$/.test(scenario)) flow.push(
+      ...set("wXCoord", helix ? 6 : 8), ...set("wYCoord", helix ? 5 : 6), ...set("$c008", 0),
+      `call ${models.guardian.label} + 1`, "call Frames",
+    ); // Talk after the route without resetting the guardian to its original tile.
     const asm = ['INCLUDE "macros/const.asm"', 'INCLUDE "macros/code.asm"', ...defs, events, macros, 'SECTION "Header", ROM0[$100]', "jp Entry", "ds $150 - @, 0", 'SECTION "Code", ROM0[$150]', "Entry:", ...flow, "ProbeDone:", "halt", "jr ProbeDone", nativeTable, code, ...stubs].join("\n");
     const file = join(temporary, "choices.asm"), obj = join(temporary, "choices.o"), rom = join(temporary, "choices.gb"), sym = join(temporary, "choices.sym");
     const checks = [`c000=${success ? 1 : 0}`, `c001=${success ? constants.get(helix ? "HELIX_FOSSIL" : "DOME_FOSSIL")!.toString(16) : 0}`, `c002=${scenario.startsWith("guardian") || scenario === "automatic-win" ? 1 : 0}`, `${vars.get("wEditorSceneActive")!.toString(16)}=0`, `${vars.get("wJoyIgnore")!.toString(16)}=12`];
     if (scenario === "full-retry") checks.push("c007=0");
+    if (/^(dome|helix)[0-2]$/.test(scenario)) checks.push("c008=1");
     const bytes = new Map<number, number>();
     for (const [name, enabled] of [[won, ! ["locked", "guardian-loss", "automatic-not-selected"].includes(scenario)], [group, success], [domeFlag, success && !helix], [helixFlag, success && helix], ...plans[1].visibility.map(entry => [entry.flag, complete])] as Array<[string, boolean]>) {
       const bit = flagValue(name), address = 0xc800 + Math.floor(bit / 8);

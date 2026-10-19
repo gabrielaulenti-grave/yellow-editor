@@ -28,7 +28,7 @@ export async function sceneChoiceChecks(source: ProjectSource, overlay: Map<stri
   const model = (writes: TextWriteRequest[], label: string) => JSON.parse(writes.find(write => write.path === path)!.contents.match(new RegExp(`yellow-editor-interaction: (.*"label":"${label}".*)`))![1]) as ManagedInteraction;
   let doc = await loadScriptInteractionDocument(source, path, nerd.label);
   const guardianValues: InteractionValues = { ...doc.values, sharedFlags: flags, showOriginal: false, once: false,
-    scene: { trigger: "interaction", playerX: 8, playerY: 6, additionalStarts: [{ x: 7, y: 5 }], automaticStarts: [{ x: 8, y: 6 }], automaticCondition: { event: won, set: false }, idleState: 0, hiddenNpcs: [] },
+    scene: { trigger: "interaction", playerX: 8, playerY: 6, additionalStarts: [{ x: 6, y: 5 }], automaticStarts: [{ x: 8, y: 6 }], automaticCondition: { event: won, set: false }, idleState: 0, hiddenNpcs: [] },
     actions: identifySequenceDialogue([{ kind: "if-event", event: won, set: true,
       then: [{ kind: "if-event", event: group, set: true, then: [{ kind: "dialogue", lines: ["A lab can revive", "fossils."] }], otherwise: [{ kind: "dialogue", lines: ["We each take one!"] }] }],
       otherwise: [{ kind: "dialogue", lines: ["Both are mine!"] }, { kind: "trainer-battle", trainer: "SUPER_NERD:2", won: [{ kind: "event", event: won, set: true }] }, { kind: "dialogue", lines: ["OK! I will share!"] }] }]) };
