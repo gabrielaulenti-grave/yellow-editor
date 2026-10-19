@@ -97,6 +97,7 @@ export async function prepareMapNpcEditWrites(source: ProjectSource, document: M
         next.scene.additionalStarts?.forEach(point => { point.x += dx; point.y += dy; });
         const shiftPartner = (actions: InteractionAction[]) => actions.forEach(action => {
           if (action.kind === "partner-move") { action.x += dx; action.y += dy; }
+          if (action.kind === "if-position" && action.test.mode === "tile") { action.test.x += dx; action.test.y += dy; }
           interactionBranches(action).forEach(([branch]) => shiftPartner(branch));
         });
         shiftPartner(next.actions ?? []);

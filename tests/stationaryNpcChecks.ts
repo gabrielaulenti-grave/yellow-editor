@@ -30,6 +30,9 @@ export async function stationaryNpcChecks(original: ProjectSource) {
     actions: identifySequenceDialogue([{ kind: "wild-battle", species: "SNORLAX", level: 30, cry: true, won: [], caught: [], escaped: [{ kind: "end", complete: false }] }, { kind: "visibility", npc: actor, visible: false }]) };
   const walk = await checkScriptInteraction(source, doc, { ...scene, actions: [{ kind: "walk-npc", npc: actor, steps: ["UP"] }] });
   assert.equal(walk.valid, false); assert.equal(walk.issues[0].actionPath, "Action1"); assert.match(walk.issues[0].message, /stationary sprite cannot walk/);
+  const turn = await checkScriptInteraction(source, doc, { ...scene, actions: [{ kind: "face-npc", npc: actor, facing: "UP" }] });
+  assert.equal(turn.valid, false); assert.match(turn.issues[0].message, /stationary sprite cannot turn/);
+  assert.equal((await checkScriptInteraction(source, doc, { ...scene, actions: [{ kind: "face-player", npc: actor, facing: "NPC" }] })).valid, true, "Players can face a single-pose actor");
   const blocked = await checkScriptInteraction(source, doc, { ...scene, scene: { ...scene.scene, playerX: -1 } });
   assert.deepEqual(blocked.issues[0].tile, { x: -1, y: 6 });
   assert.equal((await checkScriptInteraction(source, doc, scene)).valid, true);

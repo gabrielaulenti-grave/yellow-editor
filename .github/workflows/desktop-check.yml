@@ -68,6 +68,9 @@ jobs:
       - name: Check following partner source contracts and authoring
         run: npm run test:scenes:partner -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check position branches and facing controls
+        run: npm run test:scenes:position:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check multiple scene starts and alternate routes
         run: npm run test:scenes:starts -- .script-fixtures/pokered .script-fixtures/pokeyellow
 

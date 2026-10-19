@@ -7,6 +7,7 @@ import { parseMapIndex } from "./mapVisualization";
 import { interactionBranches, isBattle, type InteractionAction } from "./interactionSequence";
 import type { ManagedInteraction, InteractionInspection } from "./scriptInteractions";
 import type { ProjectSource } from "./types";
+import { matchesPlayerPosition, facingToward, renderPositionTest } from "./scenePosition";
 
 export interface SceneOptions {
   trigger: "interaction" | "coordinate";
@@ -53,7 +54,7 @@ export function sceneModels(files: Array<{ contents: string }>): ManagedInteract
   return files.flatMap(file => [...file.contents.matchAll(/^\s*; yellow-editor-interaction: (.*)$/gm)].map(match => JSON.parse(match[1]) as ManagedInteraction)).filter(model => model.version === 3 && model.scene);
 }
 export function needsScene(actions: InteractionAction[]): boolean {
-  return actions.some(action => ["if-partner", "partner-move", "walk-npc", "follow-npc", "visibility", "emote", "music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)
+  return actions.some(action => ["if-position", "face-npc", "face-player", "if-partner", "partner-move", "walk-npc", "follow-npc", "visibility", "emote", "music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)
     || interactionBranches(action).some(([branch]) => needsScene(branch)));
 }
 export async function buildScenePlan(source: ProjectSource, state: InteractionInspection, model: ManagedInteraction, allocate: (name: string) => string): Promise<ScenePlan> {
@@ -124,11 +125,16 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   const partnerRoutes = new Map<string, PartnerRouteCell[]>();
   const partnerPlayers = new Map(starts.map(point => [`${point.x},${point.y}`, point]));
   const battleStaging = new Map<string, SceneActor[]>();
+  const positionBranches = new Map<string, boolean>();
+  const facings = new Map<string, string>();
+  const reachableActions = new Set<string>();
   const routes = new Map<string, Array<{ from: Point; to: Point; step: string; playerFrom: Point; playerTo: Point; playerStep?: string }>>();
   function validate(actions: InteractionAction[], worlds: World[], path = "Action"): World[] {
     for (const [i, action] of actions.entries()) {
       const key = `${path}${i + 1}`;
       try {
+      if (!worlds.length) return [];
+      reachableActions.add(key);
       if (action.kind === "end") return [];
       if (worlds.some(world => world.dark) && ["dialogue", "choice", "emote", "wild-battle", "trainer-battle", "item", "pokemon", "walk-npc", "follow-npc", "partner-move"].includes(action.kind)) throw new Error("Restore the screen before dialogue, movement, rewards or battles.");
       if (isBattle(action)) {
@@ -137,11 +143,30 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
       }
       const branches = interactionBranches(action);
       if (branches.length) {
+        if (action.kind === "if-position") {
+          if (action.test.mode === "tile" && (action.test.x >= map.width * 2 || action.test.y >= map.height * 2)) throw new Error("Choose a player position inside this map.");
+          // Starts are dispatched separately and all scripted movement is checked.
+          // Validate only the reachable arm so alternate routes can pass through
+          // the tile occupied by the player on another starting side.
+          const matched = matchesPlayerPosition(action.test, worlds[0].player, worlds[0].actors);
+          if (worlds.some(world => matchesPlayerPosition(action.test, world.player, world.actors) !== matched)) throw new Error("Rejoin player positions before testing their location.");
+          positionBranches.set(key, matched);
+          worlds = validate(matched ? action.then : action.otherwise, worlds, `${key}${matched ? "Then" : "Otherwise"}`);
+          continue;
+        }
         worlds = branches.flatMap(([entries, suffix]) => validate(entries, structuredClone(worlds).map(world => action.kind === "if-partner" && suffix === "Absent" ? { ...world, partner: null } : world), `${key}${suffix}`));
         const common = (world: World) => { const { partner: _partner, ...rest } = world; return JSON.stringify(rest); };
         if (worlds.some(world => common(world) !== common(worlds[0]))) throw new Error("Rejoining branches must have the same player, actor positions, visibility and screen brightness. End differently staged branches separately.");
         worlds = [...new Map(worlds.map(world => [JSON.stringify(world), world])).values()];
       } else for (const world of worlds) {
+        if (action.kind === "face-npc" || action.kind === "face-player") {
+          const npc = action.npc ? world.actors[action.npc] : undefined;
+          if ((action.kind === "face-npc" || action.facing === "NPC") && !world.visible[action.npc!]) throw new Error("Show the hidden NPC before turning toward it or turning it.");
+          const facing = action.facing === "PLAYER" ? facingToward(npc!, world.player) : action.facing === "NPC" ? facingToward(world.player, npc!) : action.facing;
+          if (facings.has(key) && facings.get(key) !== facing) throw new Error("Rejoin character positions before turning toward another character.");
+          facings.set(key, facing);
+          continue;
+        }
         if (action.kind === "partner-move") {
           const target = { x: action.x, y: action.y };
           const occupied = (point: Point) => same(point, world.player) || state.objectRows.some((row, index) => {
@@ -234,8 +259,15 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   function compile(actions: InteractionAction[], next: number, path = "Action"): number {
     for (let i = actions.length - 1; i >= 0; i--) {
       const action = actions[i], key = `${path}${i + 1}`;
+      if (!reachableActions.has(key)) continue;
       if (action.kind === "end") { next = action.complete ? success : failed; continue; }
-      if (isBattle(action)) {
+      if (action.kind === "if-position") {
+        const matched = positionBranches.get(key);
+        // Keep a live check: unexpected runtime displacement aborts rather than
+        // using a route validated for a different side.
+        const branch = compile(matched ? action.then : action.otherwise, next, `${key}${matched ? "Then" : "Otherwise"}`);
+        next = add({ kind: "op", action, next: matched ? branch : failed, other: matched ? failed : branch });
+      } else if (isBattle(action)) {
         const won = compile(action.won, next, `${key}Won`);
         const caught = action.kind === "wild-battle" ? compile(action.caught, next, `${key}Caught`) : undefined;
         const escaped = action.kind === "wild-battle" ? compile(action.escaped, next, `${key}Escaped`) : failed;
@@ -254,12 +286,12 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
           const wait = add({ kind: "npc-wait", npc: action.npc, to: step.to, next });
           next = add({ kind: "npc-start", npc: action.npc, from: step.from, to: step.to, step: step.step, next: wait });
         }
-      } else next = add({ kind: "op", action, next, ...(action.kind === "partner-move" ? { partnerRoute: partnerRoutes.get(key) } : {}), ...(action.kind === "visibility" && action.visible && hasPartner ? { to: showPoints.get(key) } : {}), textKey: action.kind === "dialogue" ? action.textId ?? key : undefined });
+      } else next = add({ kind: "op", action, next, ...(action.kind === "face-npc" || action.kind === "face-player" ? { step: facings.get(key) } : {}), ...(action.kind === "partner-move" ? { partnerRoute: partnerRoutes.get(key) } : {}), ...(action.kind === "visibility" && action.visible && hasPartner ? { to: showPoints.get(key) } : {}), textKey: action.kind === "dialogue" ? action.textId ?? key : undefined });
     }
     return next;
   }
   const entries = starts.map((player, i) => {
-    showPoints.clear(); partnerRoutes.clear(); battleStaging.clear(); routes.clear();
+    showPoints.clear(); partnerRoutes.clear(); battleStaging.clear(); routes.clear(); positionBranches.clear(); facings.clear(); reachableActions.clear();
     const world: World = { dark: false, player: { ...player }, actors: Object.fromEntries(domain.actors.map(actor => [actor.constant, { x: actor.x, y: actor.y }])), visible: Object.fromEntries(domain.actors.map(actor => [actor.constant, !options.hiddenNpcs.includes(actor.constant)])) };
     try { validate(model.values.actions!, [world]); }
     catch (error) {
@@ -299,7 +331,7 @@ export function renderScene(model: ManagedInteraction): string {
     "\tld a, [wStatusFlags5]", "\tand (1 << BIT_SCRIPTED_NPC_MOVEMENT) | (1 << BIT_SCRIPTED_MOVEMENT_STATE)", `\tjp nz, ${fallback}`,
     "\tld a, [wNPCMovementScriptPointerTableNum]", "\tand a", `\tjp nz, ${fallback}`,
     ...playerLocations(fallback, "guardPosition"),
-    ...plan.actors.filter(actor => plan.nodes.some(node => node.npc === actor.constant || (node.action?.kind === "visibility" || node.action?.kind === "emote") && node.action.npc === actor.constant)).flatMap(actor => location(sprite(actor.id, "StateData2MapX"), sprite(actor.id, "StateData2MapY"), actor, fallback, 4)),
+    ...plan.actors.filter(actor => plan.nodes.some(node => node.npc === actor.constant || node.action && "npc" in node.action && node.action.npc === actor.constant || node.action?.kind === "if-position" && node.action.test.mode === "relative" && node.action.test.npc === actor.constant)).flatMap(actor => location(sprite(actor.id, "StateData2MapX"), sprite(actor.id, "StateData2MapY"), actor, fallback, 4)),
   ];
   const lines = [`${model.label}:`, "\ttext_asm", `\t; yellow-editor-interaction: ${JSON.stringify(model)}`];
   if (options.trigger === "interaction") lines.push(...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, `\tjp nz, ${p}Already`] : []), ...condition(`${p}OriginalOnly`),
@@ -353,7 +385,16 @@ export function renderScene(model: ManagedInteraction): string {
       lines.push("\txor a", "\tld [wJoyIgnore], a", `\tld a, TEXT_${p.toUpperCase()}_SCENE_${plan.textNodes.indexOf(i)}`, "\tldh [hTextID], a", "\tcall DisplayTextID", "\tld a, $ff", "\tld [wJoyIgnore], a", "\tret");
     } else if (node.action) {
       const a = node.action;
-      if (a.kind === "partner-move") lines.push(...renderPartnerMove(node, i, p, next(node.next!)));
+      if (a.kind === "if-position") lines.push(...renderPositionTest(a.test, a.test.mode === "relative" ? actorId(a.test.npc) : undefined, ".positionYes", ".positionNo"), ".positionYes", ...next(node.next!), ".positionNo", ...next(node.other!));
+      else if (a.kind === "face-npc" || a.kind === "face-player") {
+        const prefix = a.kind === "face-npc" ? `wSprite${String(actorId(a.npc)).padStart(2, "0")}` : "wSpritePlayer";
+        if (a.kind === "face-npc") lines.push(`\tld a, ${node.step}`, `\tld [wMapSpriteData + ${(actorId(a.npc) - 1) * 2}], a`);
+        else lines.push(`\tld a, PLAYER_DIR_${node.step}`, "\tld [wPlayerDirection], a", "\tld [wPlayerLastStopDirection], a", "\txor a", "\tld [wPlayerMovingDirection], a");
+        lines.push(`\tld a, SPRITE_FACING_${node.step}`, `\tld [${prefix}StateData1FacingDirection], a`, `\tld [${prefix}StateData1ImageIndex], a`,
+          ...(a.kind === "face-npc" ? [`\tld [${prefix}StateData2OrigFacingDirection], a`] : []),
+          "\txor a", `\tld [${prefix}StateData1IntraAnimFrameCounter], a`, `\tld [${prefix}StateData1AnimFrameCounter], a`, "\tcall UpdateSprites", ...next(node.next!));
+      }
+      else if (a.kind === "partner-move") lines.push(...renderPartnerMove(node, i, p, next(node.next!)));
       else if (a.kind === "if-partner") lines.push(`\tcall ${p}PartnerPresent`, `\tld a, ${node.next}`, "\tjr c, .selected", `\tld a, ${node.other}`, ".selected", "\tld [wEditorSceneState], a", "\tret");
       else if (a.kind === "if-event") lines.push(`\tCheckEvent ${a.event}`, `\tld a, ${node.next}`, `\tjr ${a.set ? "nz" : "z"}, .selected`, `\tld a, ${node.other}`, ".selected", "\tld [wEditorSceneState], a", "\tret");
       else {

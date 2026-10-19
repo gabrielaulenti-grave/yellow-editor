@@ -42,6 +42,9 @@ mentor, map or Pokémon-specific generator.
 | Give item | Give 1–99 items; stop and leave completion unclaimed on a full bag |
 | Give Pokémon | Give a level 1–100 Pokémon using native naming and party/PC delivery |
 | Walk NPC | Walk a stationary map NPC along 1–32 cardinal steps, yielding between tiles |
+| Branch on player position | Test an exact X/Y tile or the player's side of a map NPC; Then/Otherwise rejoin the next action |
+| Face NPC | Turn an animated NPC in place toward a cardinal direction or toward the player |
+| Face player | Turn the player in place toward a cardinal direction or toward a selected NPC |
 | Walk NPC with player following | Move the NPC, then move the player into its vacated tile |
 | Show/hide NPC | Stage an ordinary NPC using a persistent event bit |
 | NPC emote | Show a native emotion bubble over a visible, on-screen NPC for 60 frames |
@@ -157,12 +160,37 @@ X/Y fields and additional starts can be removed.
 **Check scene** validates the complete sequence separately from every start and
 names the failing start if a route is blocked or out of view. The first player
 step in a following action adapts to the selected starting side. NPC routes
-remain the authored directions and must work from every listed tile. All starts
+remain the authored directions; use position branches below when starts need
+different routes. All starts
 share completion, gift and battle checkpoints. Adding starts does not grant an
 extra reward. A repeatable coordinate scene rearms after leaving all listed
 trigger tiles, or re-entering the map. Starts and partner destinations shift
 together when linked NPC placement moves them. Additional starts may use more
 of the existing scene-state and native text-slot budgets.
+
+### Different approaches and facing
+
+Use **Branch on player position** when different starting tiles need different
+NPC routes. Choose an exact X/Y tile, or select a reference NPC and **Left**,
+**Right**, **Above** or **Below**. Side tests compare just that axis: diagonal
+tiles can also match, while an equal coordinate does not. The test uses positions
+at that action, including earlier scripted movement. It does not add a trigger
+tile: list all allowed player starts in scene settings.
+
+Put the left approach in **Then** and the other route in **Otherwise**, then put
+shared dialogue and rewards after the branch. Each start validates its matching
+route separately, so the NPC may finish at different positions for different
+starts. Ordinary Yes/No and event branches still need matching positions when
+they rejoin. A position test stops an unexpectedly displaced scene instead of
+using a route validated for a different side. Exact tile conditions shift with
+player starts when linked NPC placement moves the scene.
+
+After the route, add **Face NPC → The player**, then **Face player → An NPC**
+and select the approaching actor. Neither action takes a step. You can also
+choose up, down, left or right explicitly. Diagonal targets use the horizontal
+direction first. Facing is held during the scene until another turn or movement;
+normal NPC idle behavior resumes after cleanup. Hidden NPCs must be shown first.
+Single-pose sprites such as Snorlax cannot turn, but the player can face them.
 
 For an Oak-style entrance, create a stationary NPC in Maps, compose its actions,
 choose **Reach map coordinates**, and mark that NPC initially hidden. Add

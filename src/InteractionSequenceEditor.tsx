@@ -6,6 +6,7 @@ import { NPC_EMOTES } from "./core/sceneEmotes";
 
 const titles: Record<InteractionAction["kind"], string> = {
   dialogue: "Show dialogue", choice: "Yes/No choice", "if-event": "Branch on event",
+  "if-position": "Branch on player position", "face-npc": "Face NPC", "face-player": "Face player",
   event: "Change event", wait: "Wait", heal: "Heal party", sound: "Play sound",
   "walk-npc": "Walk NPC", "follow-npc": "Walk NPC with player following", visibility: "Show/hide NPC",
   emote: "NPC emote", "if-partner": "Branch on following partner", "partner-move": "Move following partner",
@@ -29,7 +30,10 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   const toggle = (title: string, value: boolean, change: (value: boolean) => void) => <label><input type="checkbox" disabled={busy} checked={value} onChange={e => change(e.target.checked)} />{title}</label>;
   const walkingActors = document.scene.actors.filter(actor => actor.canWalk !== false);
   const unavailable = (kind: InteractionAction["kind"]) =>
-    (["if-partner", "partner-move"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.partner || Boolean(document.scene.partner.reason)))
+    (["if-position", "face-npc", "face-player"].includes(kind) && Boolean(document.scene.reason))
+    || kind === "if-position" && depth >= 4
+    || kind === "face-npc" && !walkingActors.length
+    || (["if-partner", "partner-move"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.partner || Boolean(document.scene.partner.reason)))
     || kind === "if-partner" && depth >= 4
     || (["walk-npc", "follow-npc", "visibility", "emote"].includes(kind) && (Boolean(document.scene.reason) || !document.scene.actors.length))
     || ["walk-npc", "follow-npc"].includes(kind) && !walkingActors.length
@@ -48,6 +52,9 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   function add() {
     let action: InteractionAction;
     switch (kind) {
+      case "if-position": action = { kind, test: { mode: "tile", x: document.scene.defaultPlayer.x, y: document.scene.defaultPlayer.y }, then: [], otherwise: [] }; onEnableScene?.(); break;
+      case "face-npc": action = { kind, npc: walkingActors[0].constant, facing: "PLAYER" }; onEnableScene?.(); break;
+      case "face-player": action = { kind, facing: "DOWN" }; onEnableScene?.(); break;
       case "if-partner": action = { kind, following: [], absent: [] }; onEnableScene?.(); break;
       case "partner-move": action = { kind, x: document.scene.defaultPlayer.x + 1, y: document.scene.defaultPlayer.y }; onEnableScene?.(); break;
       case "walk-npc": case "follow-npc": action = { kind, npc: walkingActors[0].constant, steps: ["DOWN"] }; onEnableScene?.(); break;
@@ -93,6 +100,29 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
           <p className="help-text">Checks whether Yellow's starter Pikachu is currently visible and following. A boxed, fainted, hidden or temporarily detached partner follows Absent. This does not detect an ordinary Pikachu NPC.</p>
           {branch("Following", action.following, following => update(i, { ...action, following }))}
           {branch("Absent", action.absent, absent => update(i, { ...action, absent }))}
+        </>}
+        {action.kind === "if-position" && <>
+          <label>Position test<select aria-label={`${path} action ${i + 1} position test`} disabled={busy} value={action.test.mode} onChange={e => update(i, { ...action, test: e.target.value === "tile" ? { mode: "tile", x: document.scene.defaultPlayer.x, y: document.scene.defaultPlayer.y } : { mode: "relative", npc: document.scene.actors[0].constant, side: "LEFT" } })}>
+            <option value="tile">Player is on an exact tile</option><option value="relative" disabled={!document.scene.actors.length}>Player is on one side of an NPC</option>
+          </select></label>
+          {action.test.mode === "tile" ? <div className="interaction-coordinate-fields">{(["x", "y"] as const).map(axis => <label key={axis}>Player {axis.toUpperCase()}<input aria-label={`${path} action ${i + 1} position ${axis.toUpperCase()}`} type="number" min={0} value={action.test.mode === "tile" ? action.test[axis] : 0} disabled={busy} onChange={e => action.test.mode === "tile" && update(i, { ...action, test: { ...action.test, [axis]: Number(e.target.value) } })} /></label>)}</div> : <>
+            {options("Position reference NPC", action.test.npc, document.scene.actors.map(actor => actor.constant), npc => action.test.mode === "relative" && update(i, { ...action, test: { ...action.test, npc } }))}
+            <label>Player is<select aria-label={`${path} action ${i + 1} position side`} disabled={busy} value={action.test.side} onChange={e => action.test.mode === "relative" && update(i, { ...action, test: { ...action.test, side: e.target.value as typeof action.test.side } })}>
+              <option value="LEFT">Left of NPC</option><option value="RIGHT">Right of NPC</option><option value="UP">Above NPC</option><option value="DOWN">Below NPC</option>
+            </select></label>
+          </>}
+          <p className="help-text">Checks the player's position at this action, after earlier movement. Side checks compare the chosen axis; diagonal tiles can match. Add every allowed starting tile in scene settings. Each matching route is checked separately and continues with the next shared action.</p>
+          {branch("Then", action.then, then => update(i, { ...action, then }))}
+          {branch("Otherwise", action.otherwise, otherwise => update(i, { ...action, otherwise }))}
+        </>}
+        {(action.kind === "face-npc" || action.kind === "face-player") && <>
+          {action.kind === "face-npc" && options("Turning NPC", action.npc, walkingActors.map(actor => actor.constant), npc => update(i, { ...action, npc }))}
+          <label>Face toward<select aria-label={`${path} action ${i + 1} facing`} disabled={busy} value={action.facing} onChange={e => action.kind === "face-npc" ? update(i, { ...action, facing: e.target.value as typeof action.facing }) : update(i, { ...action, facing: e.target.value as typeof action.facing, ...(e.target.value === "NPC" ? { npc: action.npc ?? document.scene.actors[0].constant } : {}) })}>
+            {["UP", "DOWN", "LEFT", "RIGHT"].map(direction => <option key={direction} value={direction}>{direction.toLowerCase()}</option>)}
+            <option value={action.kind === "face-npc" ? "PLAYER" : "NPC"} disabled={action.kind === "face-player" && !document.scene.actors.length}>{action.kind === "face-npc" ? "The player" : "An NPC"}</option>
+          </select></label>
+          {action.kind === "face-player" && action.facing === "NPC" && options("Facing target NPC", action.npc ?? "", document.scene.actors.map(actor => actor.constant), npc => update(i, { ...action, npc }))}
+          <p className="help-text">Turn in place without taking a step. For a diagonal target, turn horizontally first. Single-pose sprites cannot turn. Add both facing actions to make two characters look at each other.</p>
         </>}
         {action.kind === "partner-move" && <>
           <div className="interaction-coordinate-fields">{(["x", "y"] as const).map(axis => <label key={axis}>Partner {axis.toUpperCase()}<input aria-label={`${path} action ${i + 1} partner ${axis.toUpperCase()}`} type="number" min={0} value={action[axis]} disabled={busy} onChange={event => update(i, { ...action, [axis]: Number(event.target.value) })} /></label>)}</div>

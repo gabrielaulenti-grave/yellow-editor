@@ -2,11 +2,16 @@
 // they explicitly end the interaction. Movement remains in yielding map states.
 import { actionValidationError } from "./interactionValidation";
 import type { SceneEffectsDomain } from "./sceneEffects";
+export type PlayerPositionTest = { mode: "tile"; x: number; y: number } | { mode: "relative"; npc: string; side: "LEFT" | "RIGHT" | "UP" | "DOWN" };
+export type FacingDirection = "UP" | "DOWN" | "LEFT" | "RIGHT";
 export type InteractionAction =
   | { kind: "dialogue"; lines: string[]; textId?: string }
   | { kind: "choice"; yes: InteractionAction[]; no: InteractionAction[] }
   | { kind: "if-event"; event: string; set: boolean; then: InteractionAction[]; otherwise: InteractionAction[] }
   | { kind: "if-partner"; following: InteractionAction[]; absent: InteractionAction[] }
+  | { kind: "if-position"; test: PlayerPositionTest; then: InteractionAction[]; otherwise: InteractionAction[] }
+  | { kind: "face-npc"; npc: string; facing: FacingDirection | "PLAYER" }
+  | { kind: "face-player"; facing: FacingDirection | "NPC"; npc?: string }
   | { kind: "partner-move"; x: number; y: number; facing?: string }
   | { kind: "event"; event: string; set: boolean }
   | { kind: "wait"; frames: number }
@@ -33,7 +38,7 @@ export interface InteractionSequenceDomains {
 export function interactionBranches(action: InteractionAction): Array<readonly [InteractionAction[], string]> {
   if (action.kind === "choice") return [[action.yes, "Yes"], [action.no, "No"]];
   if (action.kind === "if-partner") return [[action.following, "Following"], [action.absent, "Absent"]];
-  if (action.kind === "if-event") return [[action.then, "Then"], [action.otherwise, "Otherwise"]];
+  if (action.kind === "if-event" || action.kind === "if-position") return [[action.then, "Then"], [action.otherwise, "Otherwise"]];
   if (action.kind === "wild-battle") return [[action.won, "Won"], [action.caught, "Caught"], [action.escaped, "Escaped"]];
   if (action.kind === "trainer-battle") return [[action.won, "Won"]];
   return [];
@@ -94,6 +99,23 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
       if (!entry || typeof entry !== "object") throw new Error("Invalid interaction action.");
       if (!paths.size) throw new Error("Remove actions after an unconditional end; they cannot run.");
       switch (entry.kind) {
+        case "if-position":
+        case "face-npc":
+        case "face-player": {
+          if (!domains.scene || domains.scene.reason) throw new Error(domains.scene?.reason ?? "This entry does not support scenes.");
+          const actor = (npc: string | undefined) => domains.scene!.actors.find(actor => actor.constant === npc);
+          if (entry.kind === "if-position") {
+            const test = entry.test;
+            if (!test || !(test.mode === "tile" && Number.isInteger(test.x) && Number.isInteger(test.y) && test.x >= 0 && test.y >= 0 && test.x < 256 && test.y < 256
+              || test.mode === "relative" && actor(test.npc) && ["UP", "DOWN", "LEFT", "RIGHT"].includes(test.side))) throw new Error("Choose a map tile or an NPC and player position for the branch.");
+            paths = new Set([...visit(entry.then, paths, depth + 1, `${key}Then`), ...visit(entry.otherwise, paths, depth + 1, `${key}Otherwise`)]);
+          } else {
+            if (!["UP", "DOWN", "LEFT", "RIGHT", entry.kind === "face-npc" ? "PLAYER" : "NPC"].includes(entry.facing)) throw new Error("Choose a supported facing direction.");
+            if ((entry.kind === "face-npc" || entry.facing === "NPC") && !actor(entry.npc)) throw new Error("Choose an NPC from this map.");
+            if (entry.kind === "face-npc" && actor(entry.npc)?.canWalk === false) throw new Error("This stationary sprite cannot turn. Choose an animated actor or change its sprite.");
+          }
+          break;
+        }
         case "if-partner":
         case "partner-move":
           if (!domains.scene || domains.scene.reason) throw new Error(domains.scene?.reason ?? "This entry does not support scenes.");
@@ -216,7 +238,7 @@ export function renderInteractionSequence(actions: InteractionAction[], prefix: 
       `${p}Other:`, ...entered, ...renderInteractionSequence(no, prefix, textPrefix, completion, `${key}${noKey}`, acknowledge, prompts), `${p}Join:`,
     ];
     switch (action.kind) {
-      case "if-partner": case "partner-move": case "walk-npc": case "follow-npc": case "visibility": case "emote": case "music": case "fade": case "wild-battle": case "trainer-battle": throw new Error("This action requires a yielding scene.");
+      case "if-position": case "face-npc": case "face-player": case "if-partner": case "partner-move": case "walk-npc": case "follow-npc": case "visibility": case "emote": case "music": case "fade": case "wild-battle": case "trainer-battle": throw new Error("This action requires a yielding scene.");
       case "dialogue": return [...print(`${textPrefix}${action.textId ?? key}Text`), ...(acknowledge && prompts.get(action.textId ?? key) ? acknowledged : [])];
       case "choice": return branch(["\tcall YesNoChoice", "\tld a, [wCurrentMenuItem]", "\tand a"], action.yes, action.no, "Yes", "No", "nz", acknowledge ? acknowledged : []);
       case "if-event": return branch([`\tCheckEvent ${action.event}`], action.then, action.otherwise, "Then", "Otherwise", action.set ? "z" : "nz");
