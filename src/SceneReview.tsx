@@ -41,11 +41,13 @@ export function SceneReview({ document, values, selectedStart, report, checking,
     }
   }, [map, problem, selectedStart]);
   const idle = document.scene.idleStates.find(state => state.id === options.idleState);
+  const eventTitle = (event: string) => document.sharedFlags?.find(flag => flag.event === event)?.label ?? values.sharedFlags?.find(flag => flag.event === event)?.label ?? event.replace(/^EVENT_/, "").replace(/_/g, " ");
   return <section className="scene-review" aria-label="Scene review">
     <strong>Scene review</strong>
     <p>{options.trigger === "coordinate" ? "Starts when the player reaches" : "Interact with the NPC or sign while the player stands at"} {options.additionalStarts?.length ? "any of " : ""}{scenePlayerStarts(options).map(point => `(${point.x}, ${point.y})`).join(" or ")} on {document.scene.mapConstant.replace(/_/g, " ")}.</p>
+    {options.automaticStarts && <p>Also starts automatically at {options.automaticStarts.map(point => `(${point.x}, ${point.y})`).join(" or ")}{options.automaticCondition ? ` while ${eventTitle(options.automaticCondition.event)} is ${options.automaticCondition.set ? "set" : "clear"}` : ""}. Manual interaction remains available.</p>}
     {document.scene.stateVariable && <p>Requires map state {options.idleState}: {idle?.label ?? "unknown state"}. Story events can change this state; choose the state that applies when this scene should run.</p>}
-    {values.condition && <p>Also requires {values.condition.event.replace(/^EVENT_/, "").replace(/_/g, " ")} to be {values.condition.set ? "set" : "clear"}.</p>}
+    {values.condition && <p>Also requires {eventTitle(values.condition.event)} to be {values.condition.set ? "set" : "clear"}.</p>}
     {values.once && <p>Runs once per save file after successful completion.</p>}
     {document.scene.partner && !document.scene.partner.reason && <p>Following partner: Pikachu. Partner actions read his current position in play; choose a clear destination before an NPC route. Check scene validates the destination, while the actual starting tile and live blockers are checked during play.</p>}
     {document.scene.actors.some(actor => actor.canWalk === false) && <p>Stationary sprites can speak, emote, hide and start battles. They cannot walk or lead the player.</p>}

@@ -95,6 +95,7 @@ export async function prepareMapNpcEditWrites(source: ProjectSource, document: M
         const dx = values.x - d.values.x, dy = values.y - d.values.y;
         next.scene.playerX += dx; next.scene.playerY += dy;
         next.scene.additionalStarts?.forEach(point => { point.x += dx; point.y += dy; });
+        next.scene.automaticStarts?.forEach(point => { point.x += dx; point.y += dy; });
         const shiftPartner = (actions: InteractionAction[]) => actions.forEach(action => {
           if (action.kind === "partner-move") { action.x += dx; action.y += dy; }
           if (action.kind === "if-position" && action.test.mode === "tile") { action.test.x += dx; action.test.y += dy; }

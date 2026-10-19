@@ -4,6 +4,7 @@ import { SceneReview } from "./SceneReview";
 import { maximumSceneStarts, scenePlayerStarts } from "./core/interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./core/interactionValidation";
 import { InteractionSequenceEditor } from "./InteractionSequenceEditor";
+import { SharedSceneFlags } from "./SharedSceneFlags";
 import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
 import { readInteractionDraft, writeInteractionDraft, deleteInteractionDraft, interactionDraftBaseline, type InteractionDraft, type InteractionDraftData } from "./platform/interactionDraftStore";
 import { invoke } from "./platform/compat";
@@ -126,8 +127,16 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
     if (!values || !document || values.scene) return;
     update({ scene: { trigger: "interaction", playerX: document.scene.defaultPlayer.x, playerY: document.scene.defaultPlayer.y, idleState: document.scene.idleStates[0]?.id ?? 0, hiddenNpcs: [] }, movement: null });
   };
+  function moveStart(index: number, coordinate: { x: number; y: number }) {
+    if (!values?.scene) return;
+    const scene = { ...values.scene }, old = scenePlayerStarts(scene)[index];
+    if (index === 0) { scene.playerX = coordinate.x; scene.playerY = coordinate.y; }
+    else scene.additionalStarts = scene.additionalStarts!.map((point, i) => i === index - 1 ? coordinate : point);
+    if (scene.automaticStarts) scene.automaticStarts = scene.automaticStarts.map(point => point.x === old.x && point.y === old.y ? coordinate : point);
+    update({ scene });
+  }
   const eventSelect = (value: string, onChange: (next: string) => void, title: string) => <SearchableSelect aria-label={title} value={value} disabled={busy} onChange={event => onChange(event.target.value)}>
-    {document?.events.map(event => <option key={event} value={event}>{event.replace(/^EVENT_/, "").replace(/_/g, " ")}</option>)}
+    {[...new Set([...(document?.events ?? []), ...(values?.sharedFlags ?? []).map(flag => flag.event)])].map(event => <option key={event} value={event}>{document?.sharedFlags?.find(flag => flag.event === event)?.label ?? values?.sharedFlags?.find(flag => flag.event === event)?.label ?? event.replace(/^EVENT_/, "").replace(/_/g, " ")}</option>)}
   </SearchableSelect>;
   return <>
     <button type="button" className="small-button" disabled={disabled} onClick={() => void begin()}>Edit interaction</button>
@@ -177,26 +186,38 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         }}>Compose action sequence</button>}
         {values.actions ? <>
           <p>Actions run in order. Yes/No and event branches can rejoin the next action or end early. Use one reward per path; failed delivery shows the no-room dialogue and leaves the interaction available for retry. Scenes remember a successful gift if later movement is interrupted, so retrying skips that gift.</p>
-          <InteractionSequenceEditor actions={values.actions} document={document} busy={busy} onEnableScene={enableScene} diagnosticPath={diagnosticPath} onChange={actions => update({ actions })} />
+          <SharedSceneFlags flags={[...new Map([...(document.sharedFlags ?? []), ...(values.sharedFlags ?? [])].map(flag => [flag.event, flag])).values()]} busy={busy} onCreate={flag => update({ sharedFlags: [...(values.sharedFlags ?? []), flag] })} />
+          <InteractionSequenceEditor actions={values.actions} document={{ ...document, sharedFlags: [...new Map([...(document.sharedFlags ?? []), ...(values.sharedFlags ?? [])].map(flag => [flag.event, flag])).values()], events: [...new Set([...document.events, ...(values.sharedFlags ?? []).map(flag => flag.event)])] }} busy={busy} onEnableScene={enableScene} diagnosticPath={diagnosticPath} onChange={actions => update({ actions })} />
           <label><input type="checkbox" disabled={busy || Boolean(document.scene.reason) || Boolean(document.values.scene)} checked={Boolean(values.scene)} onChange={e => e.target.checked ? enableScene() : update({ scene: undefined })} />Use a scene for movement, effects, battles or coordinate triggers</label>
           {document.scene.reason && <p className="help-text">{document.scene.reason}</p>}
           {values.scene && <>
             <SceneReview document={document} values={values} selectedStart={Math.min(selectedStart, values.scene.additionalStarts?.length ?? 0)} report={checkReport} checking={checking || busy} onCheck={() => void checkScene()} onLocate={locateAction} onPlayerStart={(x, y) => {
               if (busy) return;
               const index = Math.min(selectedStart, values.scene!.additionalStarts?.length ?? 0);
-              update({ scene: index === 0 ? { ...values.scene!, playerX: x, playerY: y } : { ...values.scene!, additionalStarts: values.scene!.additionalStarts!.map((point, i) => i === index - 1 ? { x, y } : point) } });
+              moveStart(index, { x, y });
             }} />
-            <label>Scene trigger<select aria-label="Scene trigger" disabled={busy} value={values.scene.trigger} onChange={e => update({ scene: { ...values.scene!, trigger: e.target.value as "interaction" | "coordinate" } })}><option value="interaction">Interact with this NPC or sign</option><option value="coordinate">Reach map coordinates</option></select></label>
+            <label>Scene trigger<select aria-label="Scene trigger" disabled={busy} value={values.scene.trigger} onChange={e => {
+              const scene = { ...values.scene!, trigger: e.target.value as "interaction" | "coordinate" };
+              if (scene.trigger === "coordinate") { delete scene.automaticStarts; delete scene.automaticCondition; }
+              update({ scene });
+            }}><option value="interaction">Interact with this NPC or sign</option><option value="coordinate">Reach map coordinates</option></select></label>
             {scenePlayerStarts(values.scene).map((point, index) => <div key={index} role="group" aria-label={`Player start ${index + 1}`}>
               <strong>Player start {index + 1}</strong>
               <div className="interaction-coordinate-fields">{(["X", "Y"] as const).map(axis => <label key={axis}>Player {axis}<input aria-label={index === 0 ? `Scene player ${axis}` : `Scene start ${index + 1} player ${axis}`} type="number" min={0} disabled={busy} value={point[axis === "X" ? "x" : "y"]} onChange={e => {
                 const coordinate = { ...point, [axis === "X" ? "x" : "y"]: Number(e.target.value) };
-                update({ scene: index === 0 ? { ...values.scene!, playerX: coordinate.x, playerY: coordinate.y } : { ...values.scene!, additionalStarts: values.scene!.additionalStarts!.map((entry, i) => i === index - 1 ? coordinate : entry) } });
+                moveStart(index, coordinate);
               }} /></label>)}</div>
               <button type="button" className="small-button" disabled={busy} aria-pressed={Math.min(selectedStart, values.scene!.additionalStarts?.length ?? 0) === index} onClick={() => setSelectedStart(index)}>Edit start {index + 1} on map</button>
+              {values.scene!.trigger === "interaction" && <label><input type="checkbox" aria-label={`Start automatically at player start ${index + 1}`} disabled={busy} checked={Boolean(values.scene!.automaticStarts?.some(start => start.x === point.x && start.y === point.y))} onChange={e => {
+                const scene = { ...values.scene! }, automaticStarts = e.target.checked ? [...(scene.automaticStarts ?? []), point] : (scene.automaticStarts ?? []).filter(start => start.x !== point.x || start.y !== point.y);
+                if (automaticStarts.length) scene.automaticStarts = automaticStarts;
+                else { delete scene.automaticStarts; delete scene.automaticCondition; }
+                update({ scene });
+              }} />Also start automatically here</label>}
               {index > 0 && <button type="button" className="small-button" disabled={busy} onClick={() => {
                 const additionalStarts = values.scene!.additionalStarts!.filter((_, i) => i !== index - 1);
                 const scene = { ...values.scene! }; if (additionalStarts.length) scene.additionalStarts = additionalStarts; else delete scene.additionalStarts;
+                if (scene.automaticStarts) { scene.automaticStarts = scene.automaticStarts.filter(start => start.x !== point.x || start.y !== point.y); if (!scene.automaticStarts.length) { delete scene.automaticStarts; delete scene.automaticCondition; } }
                 setSelectedStart(0); update({ scene });
               }}>Remove start {index + 1}</button>}
             </div>)}
@@ -206,6 +227,19 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
               setSelectedStart(starts.length); update({ scene: { ...values.scene!, additionalStarts: [...(values.scene!.additionalStarts ?? []), { x, y: values.scene!.playerY }] } });
             }}>Add player start</button>
             <p className="help-text">The same scene can start from any listed tile (up to {maximumSceneStarts}). For interaction triggers, choose tiles from which the player can address this NPC or sign. Check scene validates every start. Completion and gifts are shared across all starts.</p>
+            {values.scene.automaticStarts && <>
+              <label><input type="checkbox" disabled={busy} checked={Boolean(values.scene.automaticCondition)} onChange={e => {
+                const scene = { ...values.scene! };
+                if (e.target.checked) scene.automaticCondition = { event: values.sharedFlags?.[0]?.event ?? document.sharedFlags?.[0]?.event ?? document.events[0], set: false };
+                else delete scene.automaticCondition;
+                update({ scene });
+              }} />Require an event for the automatic trigger</label>
+              {values.scene.automaticCondition && <>
+                <label>Automatic trigger event{eventSelect(values.scene.automaticCondition.event, event => update({ scene: { ...values.scene!, automaticCondition: { ...values.scene!.automaticCondition!, event } } }), "Automatic trigger event")}</label>
+                <label><input type="checkbox" disabled={busy} checked={values.scene.automaticCondition.set} onChange={e => update({ scene: { ...values.scene!, automaticCondition: { ...values.scene!.automaticCondition!, set: e.target.checked } } })} />Automatic trigger event must be set (uncheck for clear)</label>
+              </>}
+              <p className="help-text">The NPC can still be addressed manually from every listed start. Use a separate automatic condition to stop an automatic challenge after a battle while keeping later conversations available. Automatic triggers rearm after leaving their tiles.</p>
+            </>}
             <label>Native idle state<select aria-label="Scene idle state" disabled={busy} value={values.scene.idleState} onChange={e => update({ scene: { ...values.scene!, idleState: Number(e.target.value) } })}>{document.scene.idleStates.map(state => <option key={state.id} value={state.id}>{state.id}: {state.label}</option>)}</select></label>
             <strong>Initially hidden actors</strong>
             {document.scene.actors.map(actor => <label key={actor.constant}><input type="checkbox" disabled={busy || Boolean(document.values.scene)} checked={values.scene!.hiddenNpcs.includes(actor.constant)} onChange={e => update({ scene: { ...values.scene!, hiddenNpcs: e.target.checked ? [...values.scene!.hiddenNpcs, actor.constant] : values.scene!.hiddenNpcs.filter(npc => npc !== actor.constant) } })} />{actor.constant.replace(/_/g, " ")} ({actor.x}, {actor.y})</label>)}

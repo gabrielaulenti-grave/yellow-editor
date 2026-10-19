@@ -17,7 +17,7 @@ export type InteractionAction =
   | { kind: "wait"; frames: number }
   | { kind: "heal" }
   | { kind: "sound"; sound: string; wait: boolean }
-  | { kind: "item"; item: string; quantity: number }
+  | { kind: "item"; item: string; quantity: number; claim?: { group: string; option: string } }
   | { kind: "pokemon"; species: string; level: number }
   | { kind: "walk-npc" | "follow-npc"; npc: string; steps: string[] }
   | { kind: "visibility"; npc: string; visible: boolean }
@@ -29,6 +29,7 @@ export type InteractionAction =
   | { kind: "end"; complete: boolean };
 
 export interface InteractionSequenceDomains {
+  sharedFlags?: Array<{ event: string; label: string }>;
   items: string[]; pokemon: string[]; events: string[]; sounds: string[];
   pokemonReason: string | null; choiceReason: string | null; soundReason: string | null;
   scene?: { reason: string | null; actors: Array<{ constant: string; canWalk?: boolean }>; emotes?: string[]; emoteReason?: string | null; partner?: { reason: string | null } };
@@ -191,6 +192,7 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
         case "item":
         case "pokemon":
           if (entry.kind === "item" && (!domains.items.includes(entry.item) || !Number.isInteger(entry.quantity) || entry.quantity < 1 || entry.quantity > 99)) throw new Error("Choose an item and quantity from 1 to 99.");
+          if (entry.kind === "item" && entry.claim && (entry.claim.group === entry.claim.option || ![entry.claim.group, entry.claim.option].every(event => domains.sharedFlags?.some(flag => flag.event === event)))) throw new Error("Choose two different shared flags: one reward group and one chosen option.");
           if (entry.kind === "pokemon") {
             if (domains.pokemonReason) throw new Error(domains.pokemonReason);
             if (!domains.pokemon.includes(entry.species) || !Number.isInteger(entry.level) || entry.level < 1 || entry.level > 100) throw new Error("Choose a Pokémon and level from 1 to 100.");
@@ -246,7 +248,7 @@ export function renderInteractionSequence(actions: InteractionAction[], prefix: 
       case "wait": return [`\tld c, ${action.frames}`, "\tcall DelayFrames"];
       case "heal": return ["\tpredef HealParty"];
       case "sound": return [`\tld a, ${action.sound}`, "\tcall PlaySound", ...(action.wait ? ["\tcall WaitForSoundToFinish"] : [])];
-      case "item": return [`\tlb bc, ${action.item}, ${action.quantity}`, "\tcall GiveItem", `\tjp nc, ${prefix}BagFull`, "\tld a, SFX_GET_ITEM_1", "\tcall PlaySound", "\tcall WaitForSoundToFinish"];
+      case "item": if (action.claim) throw new Error("Shared reward claims require a yielding scene."); return [`\tlb bc, ${action.item}, ${action.quantity}`, "\tcall GiveItem", `\tjp nc, ${prefix}BagFull`, "\tld a, SFX_GET_ITEM_1", "\tcall PlaySound", "\tcall WaitForSoundToFinish"];
       case "pokemon": return [`\tlb bc, ${action.species}, ${action.level}`, "\tcall GivePokemon", `\tjp nc, ${prefix}BagFull`, "\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing"];
       case "end": return [...(action.complete ? completion : []), `\tjp ${prefix}Finish`];
     }

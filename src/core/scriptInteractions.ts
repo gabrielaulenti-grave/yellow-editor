@@ -1,6 +1,6 @@
 import { inspectScenePartner } from "./scenePartner";
 import { hasItemReward, itemInventoryPath, prepareItemDeliveryWrites } from "./itemDelivery";
-import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
+import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, sceneModels, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./interactionValidation";
 import { npcSpriteCatalog } from "./npcSprites";
 import { inspectSceneEmotes } from "./sceneEmotes";
@@ -13,8 +13,10 @@ import { evaluateRgbdsExpression, projectConstantCatalogFromSources, readProject
 import { parseMapIndex } from "./mapVisualization";
 import { applyTextDocumentEdits, attachTextEditing, parseTextDocument, type TextSegmentControl } from "./textEditing";
 import type { ProjectSession, ProjectSource, TextWriteRequest } from "./types";
+import { mergeSharedSceneFlags, readSharedSceneFlags, validateItemClaims, type SharedSceneFlag } from "./sceneFlags";
 
 export interface InteractionValues {
+  sharedFlags?: SharedSceneFlag[];
   scene?: SceneOptions;
   actions?: InteractionAction[];
   showOriginal: boolean;
@@ -62,6 +64,7 @@ export interface PokemonGiftDocument {
   hidesObject: boolean;
 }
 export interface InteractionDocument {
+  sharedFlags?: SharedSceneFlag[];
   projectKey: string;
   effects: SceneEffectsDomain;
   scene: SceneDomain;
@@ -214,6 +217,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const sounds = soundMacro && rows(soundMacro[1]).map(clean).filter(Boolean).join("\n") === 'DEF \\1 EQUS "((\\2 - SFX_Headers_1) / 3)"'
     ? [...music.matchAll(/^\s*music_const\s+(SFX_[A-Z0-9_]+),\s*[A-Za-z_][A-Za-z0-9_]*\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter((name, i, all) => all.indexOf(name) === i && name !== "SFX_STOP_ALL_MUSIC") : [];
   const events = constants.constants.filter(entry => entry.symbol.startsWith("EVENT_") && !/EDITORINTERACTION.*(?:_DONE|_SCENE_LATCH|_VISIBILITY|_GIFT_DELIVERED|_BATTLE_WON|_BATTLE_CAUGHT)$/.test(entry.symbol) && entry.value >= 0 && entry.value < (symbols.get("NUM_EVENTS") ?? 0)).map(entry => entry.symbol);
+  const sharedFlags = readSharedSceneFlags(byPath.get("constants/event_constants.asm") ?? "", symbols);
   const mapName = path.replace(/^scripts\//, "").replace(/(?:_2)?\.asm$/, "");
   const primaryPath = `scripts/${mapName}.asm`;
   const primary = byPath.get(primaryPath) ?? "";
@@ -235,7 +239,12 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   if (!old && calls.length === 1) {
     const index = calls[0] - 1;
     const args = clean(rr.all[index]).match(/^lb bc,\s*(\w+),\s*(\d+)$/);
-    if (args && items.includes(args[1]) && Number(args[2]) >= 1 && Number(args[2]) <= 99 && /^jr nc,\s*\.[\w]+$/.test(clean(rr.all[index + 2]))) {
+    const failure = clean(rr.all[index + 2]), sharedFailure = failure.match(/^jp nc,\s*(\w+)$/);
+    let sharedBagFull = false;
+    if (sharedFailure) {
+      try { sharedBagFull = range(rewardText, sharedFailure[1]).body.map(clean).filter(Boolean).slice(0, 3).join("\n") === "ld hl, .Text\ncall PrintText\njp TextScriptEnd"; } catch { /* Unresolved handlers stay read-only. */ }
+    }
+    if (args && items.includes(args[1]) && Number(args[2]) >= 1 && Number(args[2]) <= 99 && (/^jr nc,\s*\.[\w]+$/.test(failure) || sharedBagFull)) {
       const flags = rr.body.map(clean).filter(line => /^CheckAndSetEvent \w+$/.test(line));
       reward = { path: rewardPath, label: rewardLabel, sourceHash: await hashText(rewardText), line: index + 1, item: args[1], quantity: Number(args[2]), earlyFlag: flags.length === 1 ? flags[0].split(" ")[1] : null };
     }
@@ -318,7 +327,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     actors: npcs.map(npc => ({ ...npc, id: npcConstants.indexOf(npc.constant) + 1 })),
     defaultPlayer: sign ? { x: sign.x, y: sign.y + 1 } : pointers && objectRows.find(row => row[6].trim() === pointers[1]) ? (() => { const row = objectRows.find(row => row[6].trim() === pointers[1])!; return { x: +row[1], y: +row[2] + 1 }; })() : { x: 0, y: 0 },
   };
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/pikachu/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, itemInventoryPath, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/pikachu/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, itemInventoryPath, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "engine/events/pokedex_rating.asm", "data/predef_pointers.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();
@@ -339,7 +348,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { projectKey: source.storageKey, effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs: npcs.filter(npc => npc.canWalk), movementReason, sign };
+  const document: InteractionDocument = { sharedFlags, projectKey: source.storageKey, effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs: npcs.filter(npc => npc.canWalk), movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
 export type InteractionInspection = Awaited<ReturnType<typeof inspect>>;
@@ -520,9 +529,12 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   if (JSON.stringify(state.document.sources) !== JSON.stringify(document.sources)) throw new Error("Interaction sources changed. Reopen the editor before saving.");
   if (!state.document.canCreate) throw new Error(state.document.reason ?? "Cannot convert this entry safely.");
   if (typeof values.once !== "boolean" || typeof values.showOriginal !== "boolean" || !Array.isArray(values.events) || values.events.length > 16) throw new Error("Invalid interaction options.");
+  const sharedFlags = mergeSharedSceneFlags(state.document.sharedFlags ?? [], values.sharedFlags ?? [], state.symbols);
+  const domains = { ...state.document, sharedFlags, events: [...new Set([...state.document.events, ...sharedFlags.map(flag => flag.event)])] };
   if (values.actions !== undefined) {
     if (values.reward || values.pokemon || values.hideObject) throw new Error("Use reward actions inside the sequence rather than the legacy reward options.");
-    validateInteractionSequence(values.actions, state.document, values.once);
+    validateInteractionSequence(values.actions, domains, values.once);
+    validateItemClaims(values.actions, sceneModels(state.files).filter(model => model.prefix !== state.old?.prefix).map(model => model.values.actions ?? []));
     values = { ...values, actions: identifySequenceDialogue(values.actions) };
   }
   if (values.reward && (!state.document.items.includes(values.reward.item) || !Number.isInteger(values.reward.quantity) || values.reward.quantity < 1 || values.reward.quantity > 99)) throw new Error("Choose an item and quantity from 1 to 99.");
@@ -532,7 +544,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     if (!state.document.pokemon.includes(values.pokemon.species) || !Number.isInteger(values.pokemon.level) || values.pokemon.level < 1 || values.pokemon.level > 100) throw new Error("Choose a valid Pokémon and a level from 1 to 100.");
   }
   if (values.hideObject && (!values.pokemon || !values.once || values.movement || values.hideObject !== state.document.hideObject)) throw new Error("Only a one-time Pokémon gift can hide its own existing Poké Ball object.");
-  if (values.condition && (!state.document.events.includes(values.condition.event) || typeof values.condition.set !== "boolean") || values.events.some(event => !state.document.events.includes(event.event) || typeof event.set !== "boolean")) throw new Error("Choose existing project events for conditions and changes.");
+  if (values.condition && (!domains.events.includes(values.condition.event) || typeof values.condition.set !== "boolean") || values.events.some(event => !domains.events.includes(event.event) || typeof event.set !== "boolean")) throw new Error("Choose existing project events for conditions and changes.");
   const semantics = deriveProjectEventMacroSemantics(state.files);
   if (!semantics.some(event => event.name === "CheckEvent" && event.action === "check" && event.zeroMeaning === "event-clear")) throw new Error("Cannot prove this project's event-check convention.");
   macro(state.byPath, "macros/scripts/text.asm", "text_asm", "db TX_START_ASM");
@@ -597,6 +609,10 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     append("constants/event_constants.asm", `DEF ${name} EQU $${available.toString(16)}\n`);
     return name;
   };
+  for (const flag of sharedFlags) if (!state.document.sharedFlags?.some(old => old.event === flag.event)) {
+    allocateFlag(flag.event);
+    append("constants/event_constants.asm", `; yellow-editor-shared-flag: ${JSON.stringify({ ...flag, bit: [...reserved].pop() })}\n`);
+  }
   if (values.once && !m.flag) m.flag = allocateFlag(`EVENT_${prefix.toUpperCase()}_DONE`);
   if (values.scene || values.actions && needsScene(values.actions) || state.old?.version === 3) {
     if (document.path !== state.primaryPath) throw new Error("Scene actions must use a primary map text entry.");

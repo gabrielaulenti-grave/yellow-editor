@@ -1,7 +1,8 @@
 import { partnerHelpers, renderPartnerMove, type PartnerDomain, type PartnerRouteCell } from "./scenePartner";
 import { InteractionValidationError, actionValidationError } from "./interactionValidation";
 import { hashText } from "./history";
-import { prepareSceneBankSpace } from "./sceneBankSpace";
+import { prepareSceneBankSpace, prepareSharedSceneBankSpace } from "./sceneBankSpace";
+import { itemClaims } from "./sceneFlags";
 import { renderSceneEffect, renderSceneEffectHelpers, effectScratchFields, effectEntryHook, legacyEffectEntryHook, sceneBattleReturnHook, battleSnapshotRuntime } from "./sceneEffectRuntime";
 import { parseMapIndex } from "./mapVisualization";
 import { interactionBranches, isBattle, type InteractionAction } from "./interactionSequence";
@@ -13,6 +14,8 @@ export interface SceneOptions {
   trigger: "interaction" | "coordinate";
   playerX: number; playerY: number; idleState: number; hiddenNpcs: string[];
   additionalStarts?: Array<{ x: number; y: number }>;
+  automaticStarts?: Array<{ x: number; y: number }>;
+  automaticCondition?: { event: string; set: boolean };
 }
 interface Point { x: number; y: number }
 export const maximumSceneStarts = 8;
@@ -54,7 +57,7 @@ export function sceneModels(files: Array<{ contents: string }>): ManagedInteract
   return files.flatMap(file => [...file.contents.matchAll(/^\s*; yellow-editor-interaction: (.*)$/gm)].map(match => JSON.parse(match[1]) as ManagedInteraction)).filter(model => model.version === 3 && model.scene);
 }
 export function needsScene(actions: InteractionAction[]): boolean {
-  return actions.some(action => ["if-position", "face-npc", "face-player", "if-partner", "partner-move", "walk-npc", "follow-npc", "visibility", "emote", "music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)
+  return actions.some(action => action.kind === "item" && Boolean(action.claim) || ["if-position", "face-npc", "face-player", "if-partner", "partner-move", "walk-npc", "follow-npc", "visibility", "emote", "music", "fade", "wild-battle", "trainer-battle"].includes(action.kind)
     || interactionBranches(action).some(([branch]) => needsScene(branch)));
 }
 export async function buildScenePlan(source: ProjectSource, state: InteractionInspection, model: ManagedInteraction, allocate: (name: string) => string): Promise<ScenePlan> {
@@ -66,6 +69,9 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     || options.hiddenNpcs.some(npc => !domain.actors.some(actor => actor.constant === npc))) throw new Error("Choose valid scene coordinates, idle state and actors.");
   if (options.additionalStarts !== undefined && (!Array.isArray(options.additionalStarts) || options.additionalStarts.some(point => !point || !Number.isInteger(point.x) || !Number.isInteger(point.y)))) throw new Error("Choose whole-number X/Y coordinates for every player start.");
   const starts = scenePlayerStarts(options);
+  if (options.automaticStarts !== undefined && (options.trigger !== "interaction" || !Array.isArray(options.automaticStarts) || !options.automaticStarts.length
+    || options.automaticStarts.some(point => !point || !starts.some(start => same(start, point))) || new Set(options.automaticStarts.map(point => `${point.x},${point.y}`)).size !== options.automaticStarts.length)) throw new Error("Choose distinct automatic trigger tiles from this interaction's player starts.");
+  if (options.automaticCondition && (!options.automaticStarts || typeof options.automaticCondition.set !== "boolean" || ![...state.document.events, ...(model.values.sharedFlags ?? []).map(flag => flag.event)].includes(options.automaticCondition.event))) throw new Error("Choose an existing flag for the automatic trigger condition.");
   if (starts.length > maximumSceneStarts) throw new Error(`Use at most ${maximumSceneStarts} player starts in one scene.`);
   if (new Set(starts.map(point => `${point.x},${point.y}`)).size !== starts.length) throw new Error("Each player start must use a different tile.");
   const others = sceneModels(state.files).filter(other => other.prefix !== model.prefix && other.scene!.mapConstant === domain.mapConstant);
@@ -308,7 +314,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
   return { owner, mapConstant: domain.mapConstant, stateVariable: domain.stateVariable, actors: domain.actors, frozen: state.objectRows.map((_, i) => i + 1), nodes, textNodes,
     textSlots: Math.max(textNodes.length, state.old?.scene?.textSlots ?? 0), visibility, follower: state.byPath.has("scripts/OaksLab_2.asm"),
     ...(starts.length > 1 ? { starts: entries } : {}),
-    latchFlag: state.old?.scene?.latchFlag ?? (options.trigger === "coordinate" ? allocate(`EVENT_${model.prefix.toUpperCase()}_SCENE_LATCH`) : null),
+    latchFlag: state.old?.scene?.latchFlag ?? (options.trigger === "coordinate" || options.automaticStarts ? allocate(`EVENT_${model.prefix.toUpperCase()}_SCENE_LATCH`) : null),
     ...(giftFlag ? { giftFlag } : {}), ...(hasPartner ? { partner: true as const, partnerReturns: buildPartnerReturns() } : {}),
     ...(hasEffects || state.old?.scene?.effects ? { effects: { music: state.document.effects.music.filter(track => usedMusic.has(track.id)), battles } } : {}) };
 }
@@ -325,6 +331,9 @@ export function renderScene(model: ManagedInteraction): string {
     ...plan.starts.flatMap((point, i) => [...location("wXCoord", "wYCoord", point, `.${label}${i}`), `\tjp .${label}Matched`, `.${label}${i}`]),
     `\tjp ${fallback}`, `.${label}Matched`,
   ] : location("wXCoord", "wYCoord", { x: options.playerX, y: options.playerY }, fallback);
+  const automaticLocations = (fallback: string) => options.automaticStarts ? [
+    ...options.automaticStarts.flatMap((point, i) => [...location("wXCoord", "wYCoord", point, `.autoPosition${i}`), "\tjp .autoPositionMatched", `.autoPosition${i}`]), `\tjp ${fallback}`, ".autoPositionMatched",
+  ] : playerLocations(fallback, "triggerPosition");
   const guards = (fallback: string) => [
     ...(plan.stateVariable ? [`\tld a, [${plan.stateVariable}]`, `\tcp ${options.idleState}`, `\tjp nz, ${fallback}`] : []),
     "\tld a, [wWalkCounter]", "\tand a", `\tjp nz, ${fallback}`, "\tld a, [wLinkState]", "\tand a", `\tjp nz, ${fallback}`,
@@ -335,12 +344,12 @@ export function renderScene(model: ManagedInteraction): string {
   ];
   const lines = [`${model.label}:`, "\ttext_asm", `\t; yellow-editor-interaction: ${JSON.stringify(model)}`];
   if (options.trigger === "interaction") lines.push(...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, `\tjp nz, ${p}Already`] : []), ...condition(`${p}OriginalOnly`),
-    "\tld a, [wEditorSceneActive]", "\tand a", `\tjp nz, ${p}OriginalOnly`, ...guards(`${p}OriginalOnly`), `\tcall ${p}Launch`, "\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a", "\tjp TextScriptEnd");
+    "\tld a, [wEditorSceneActive]", "\tand a", `\tjp nz, ${p}OriginalOnly`, ...guards(`${p}OriginalOnly`), ...(options.automaticStarts ? [`\tSetEvent ${plan.latchFlag}`] : []), `\tcall ${p}Launch`, "\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a", "\tjp TextScriptEnd");
   else lines.push(`\tjp ${p}OriginalOnly`);
   lines.push(`${p}Already:`, ...print("AlreadyText"), "\tjp TextScriptEnd", `${p}OriginalOnly:`, ...print("Original"), "\tjp TextScriptEnd", "", `${p}SceneFrame:`, "\tld a, [wEditorSceneActive]", "\tand a", "\tjp nz, .active");
-  if (options.trigger === "coordinate") lines.push(...playerLocations(`${p}ClearLatch`, "triggerPosition"),
+  if (options.trigger === "coordinate" || options.automaticStarts) lines.push(...automaticLocations(`${p}ClearLatch`),
     `\tCheckEvent ${plan.latchFlag}`, "\tjp nz, .inactive", ...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, "\tjp nz, .inactive"] : []),
-    ...condition(`${p}Inactive`), ...guards(`${p}Inactive`), `\tSetEvent ${plan.latchFlag}`, `\tcall ${p}Launch`);
+    ...condition(`${p}Inactive`), ...(options.automaticCondition ? [`\tCheckEvent ${options.automaticCondition.event}`, `\tjp ${options.automaticCondition.set ? "z" : "nz"}, ${p}Inactive`] : []), ...guards(`${p}Inactive`), `\tSetEvent ${plan.latchFlag}`, `\tcall ${p}Launch`);
   else lines.push("\tjp .inactive");
   lines.push(".active", "\tld a, [wEditorSceneMap]", `\tcp ${plan.mapConstant}`, "\tjp nz, .inactive", "\tld a, [wEditorSceneOwner]", `\tcp ${plan.owner}`, "\tjp nz, .inactive",
     ...(plan.effects ? ["\tld a, [wEditorSceneBattle]", "\tand a", "\tjr z, .dispatch", "\tld a, [wIsInBattle]", "\tcp LOST_BATTLE", `\tjp z, ${p}BattleLost`, "\tld a, [wEditorSceneBattle]", "\tcp 1", "\tjr nz, .dispatch", "\txor a", "\tld [wJoyIgnore], a", "\tscf", "\tret", ".dispatch"] : []),
@@ -425,12 +434,17 @@ export function renderScene(model: ManagedInteraction): string {
     if (a?.kind === "choice") lines.push(...choose(node));
     else if (a?.kind === "dialogue" && plan.nodes[node.next!].action?.kind === "choice") { lines.push(...choose(plan.nodes[node.next!])); }
     else if (a?.kind === "item" || a?.kind === "pokemon") {
-      lines.push(...(plan.giftFlag ? [`\tCheckEvent ${plan.giftFlag}`, "\tjr nz, .delivered"] : []),
+      const claim = a.kind === "item" ? a.claim : undefined;
+      lines.push(...(claim ? [
+        `\tCheckEvent ${claim.group}`, "\tjr z, .unclaimed", `\tCheckEvent ${claim.option}`, "\tjp nz, .delivered",
+        ...print("AlreadyText"), "\tld a, 2", "\tjp .selected", ".unclaimed",
+      ] : plan.giftFlag ? [`\tCheckEvent ${plan.giftFlag}`, "\tjr nz, .delivered"] : []),
         `\tlb bc, ${a.kind === "item" ? `${a.item}, ${a.quantity}` : `${a.species}, ${a.level}`}`, `\tcall ${a.kind === "item" ? "GiveItem" : "GivePokemon"}`, "\tjr nc, .full",
-        // Commit immediately on carry success, before prompts or further steps.
+        // A linked choice commits both flags before sound, prompts or movement.
+        ...(claim ? [`\tSetEvent ${claim.group}`, `\tSetEvent ${claim.option}`] : []),
         ...(plan.giftFlag ? [`\tSetEvent ${plan.giftFlag}`] : []),
         ...(a.kind === "pokemon" ? ["\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing"] : ["\tld a, SFX_GET_ITEM_1", "\tcall PlaySound", "\tcall WaitForSoundToFinish"]),
-        ...(plan.giftFlag ? [".delivered"] : []), `\tld a, ${node.next}`, "\tjr .selected", ".full", ...print("BagFullText"), "\tld a, 2", ".selected", "\tld [wEditorSceneState], a");
+        ...(plan.giftFlag || claim ? [".delivered"] : []), `\tld a, ${node.next}`, "\tjr .selected", ".full", ...print("BagFullText"), "\tld a, 2", ".selected", "\tld [wEditorSceneState], a");
     } else lines.push(`\tld a, ${node.next}`, "\tld [wEditorSceneState], a");
     lines.push("\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a", "\tjp TextScriptEnd", "");
   });
@@ -488,6 +502,7 @@ function body(text: string, label: string) {
 }
 export async function prepareSceneRuntime(state: InteractionInspection, model: ManagedInteraction, changed: Map<string, string>) {
   await prepareSceneBankSpace(state, changed);
+  if (model.values.sharedFlags?.length || itemClaims(model.values.actions ?? []).length) await prepareSharedSceneBankSpace(state, changed);
   const existing = sceneModels(state.files), all = [...existing.filter(other => other.prefix !== model.prefix), model];
   const normalize = (text: string) => text.replace(/\r\n/g, "\n");
   const save = (path: string, text: string) => changed.set(path, text.replace(/\n/g, state.byPath.get(path)!.includes("\r\n") ? "\r\n" : "\n"));

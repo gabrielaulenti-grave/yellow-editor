@@ -641,3 +641,8 @@
 .script-index-diagnostics > h3 {
   margin-top: 0;
 }
+
+.map-scripts-dialog { width: min(96vw, 90rem); max-width: 90rem; }
+.script-map-context .script-browser { grid-template-columns: minmax(0, 1fr); }
+.script-map-context .script-browser-sidebar, .script-map-context .script-audit-panel { display: none; }
+.script-map-context, .script-map-context .script-browser-details { min-width: 0; }

@@ -68,6 +68,9 @@ jobs:
       - name: Check following partner source contracts and authoring
         run: npm run test:scenes:partner -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check shared scene flags, linked rewards and map-local logic
+        run: npm run test:scenes:choices:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check position branches and facing controls
         run: npm run test:scenes:position:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -136,6 +139,9 @@ jobs:
 
       - name: Play native Yellow partner movement and absence
         run: npm run test:scenes:partner -- .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Assemble and execute linked fossil scenes
+        run: npm run test:scenes:choices -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Assemble and execute multi-start scenes in Red and Yellow
         run: npm run test:scenes:starts -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

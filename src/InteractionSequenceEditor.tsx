@@ -23,7 +23,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   const update = (index: number, action: InteractionAction) => onChange(actions.map((old, i) => i === index ? action : old));
   const options = (title: string, value: string, values: string[], change: (value: string) => void) => <label>{title}
     <SearchableSelect aria-label={`${path} ${title}`} value={value} disabled={busy} onChange={e => change(e.target.value)}>
-      {values.map(value => <option key={value} value={value}>{value.replace(/^(EVENT_|SFX_|MUSIC_)/, "").replace(/_/g, " ")}</option>)}
+      {values.map(value => <option key={value} value={value}>{document.sharedFlags?.find(flag => flag.event === value)?.label ?? value.replace(/^(EVENT_|SFX_|MUSIC_)/, "").replace(/_/g, " ")}</option>)}
     </SearchableSelect>
   </label>;
   const number = (title: string, value: number, max: number, change: (value: number) => void) => <label>{title}<input aria-label={`${path} ${title}`} type="number" min={1} max={max} value={value} disabled={busy} onChange={e => change(Number(e.target.value))} /></label>;
@@ -168,7 +168,19 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
           <p className="help-text">Fight an existing trainer party. Victory continues here; losing follows the game's usual defeat flow. This encounter has its own completion settings.</p>
           {branch("Victory", action.won, won => update(i, { ...action, won }))}
         </>}
-        {action.kind === "item" && <>{options("Reward item", action.item, document.items, item => update(i, { ...action, item }))}{number("Reward quantity", action.quantity, 99, quantity => update(i, { ...action, quantity }))}</>}
+        {action.kind === "item" && <>{options("Reward item", action.item, document.items, item => update(i, { ...action, item }))}{number("Reward quantity", action.quantity, 99, quantity => update(i, { ...action, quantity }))}
+          <label><input type="checkbox" disabled={busy || !action.claim && (document.sharedFlags?.length ?? 0) < 2} checked={Boolean(action.claim)} onChange={e => {
+            const next = { ...action };
+            if (e.target.checked) { next.claim = { group: document.sharedFlags![0].event, option: document.sharedFlags![1].event }; onEnableScene?.(); }
+            else delete next.claim;
+            update(i, next);
+          }} />Only one reward from this shared group</label>
+          {action.claim && <>
+            {options("Reward group flag", action.claim.group, (document.sharedFlags ?? []).map(flag => flag.event), group => update(i, { ...action, claim: { ...action.claim!, group } }))}
+            {options("Chosen option flag", action.claim.option, (document.sharedFlags ?? []).map(flag => flag.event), option => update(i, { ...action, claim: { ...action.claim!, option } }))}
+          </>}
+          <p className="help-text">For linked pickups, create one shared group flag and a different chosen-option flag for each item. Successful delivery records both immediately; No or a full bag leaves the choice open. Another option shows the interaction's Already completed dialogue and stops. The same option can resume its remaining actions without another gift.</p>
+        </>}
         {action.kind === "pokemon" && <>{options("Gift Pokémon", action.species, document.pokemon, species => update(i, { ...action, species }))}{number("Gift level", action.level, 100, level => update(i, { ...action, level }))}</>}
         {(action.kind === "walk-npc" || action.kind === "follow-npc" || action.kind === "visibility" || action.kind === "emote") && <>
           {options("Scene NPC", action.npc, document.scene.actors.filter(actor => !["walk-npc", "follow-npc"].includes(action.kind) || actor.canWalk !== false || actor.constant === action.npc).map(actor => actor.constant), npc => update(i, { ...action, npc }))}

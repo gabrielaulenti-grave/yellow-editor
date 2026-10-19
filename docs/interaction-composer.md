@@ -5,6 +5,21 @@ Select an ordinary NPC or sign, open **Edit interaction**, and choose
 The map inspector also offers **View script** at the object's original entry;
 unsupported interactions explain why composition is unavailable. Dialogue
 editing retains its resolved text target, including Yellow's forwarded dialogue.
+**Edit map logic** opens the current map's states and companion files inside
+Maps; **Inspect map logic** focuses the selected object's entry there. Scripts
+remains the project-wide index for maps and shared routines.
+
+For a battle followed by two mutually exclusive pickups, see
+[Recreating the fossil interaction](fossil-style-interaction.md). Shared scene
+flags can be named in the interaction editor and reused across objects. A Give
+item action can claim a shared reward group and chosen-option flag atomically
+on success. Full bags and declines leave the choice open; another option cannot
+give a second reward, while the same option can resume interrupted follow-up
+actions without another gift.
+
+Interaction scenes can also start automatically from selected player starts.
+An optional automatic-only event condition can stop repeat challenges while
+manual conversations continue to branch on the quest's shared progress.
 Saving refreshes the map while retaining the selected object. Unsaved map
 interaction changes participate in the application's tab/project switch guards.
 Existing managed item/Pokémon interactions can

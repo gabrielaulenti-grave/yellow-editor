@@ -4,11 +4,12 @@ import type { InteractionDocument } from "./core/scriptInteractions";
 import { ScriptInteractionEditor } from "./ScriptInteractionEditor";
 import { TextEditor, type TextEditorTarget } from "./TextEditor";
 
-export function MapInteractionEditor({ title, target, dialogueTarget, onOpenScript, onDirtyChange }: {
+export function MapInteractionEditor({ title, target, dialogueTarget, onOpenScript, onDirtyChange, onInspectHere }: {
   title: string;
   target: TextEditorTarget | null;
   dialogueTarget: TextEditorTarget | null;
   onOpenScript(path: string, label?: string | null): void;
+  onInspectHere?(path: string, label?: string | null): void;
   onDirtyChange?(dirty: boolean): void;
 }) {
   const [support, setSupport] = useState<{ editable: boolean; reason: string | null } | null>(null);
@@ -39,6 +40,7 @@ export function MapInteractionEditor({ title, target, dialogueTarget, onOpenScri
         ? <ScriptInteractionEditor path={target.path} label={target.label} disabled={textOpen}
             onEditStateChange={(open, dirty) => { setInteractionOpen(open); onDirtyChange?.(dirty); }} />
         : <button type="button" className="small-button" disabled>Edit interaction</button>}
+      {target && onInspectHere && <button type="button" className="small-button" disabled={textOpen || interactionOpen} onClick={() => onInspectHere(target.path, target.label)}>Inspect map logic</button>}
       {target && <button type="button" className="small-button" disabled={textOpen || interactionOpen}
         onClick={() => onOpenScript(target.path, target.label)}>View script</button>}
     </div>

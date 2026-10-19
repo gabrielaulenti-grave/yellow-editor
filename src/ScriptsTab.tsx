@@ -44,6 +44,7 @@ export interface ScriptFocus {
 
 interface ScriptsTabProps {
   project: ProjectInfo | null;
+  mapContext?: boolean;
   focus: ScriptFocus | null;
   onDirtyChange?(dirty: boolean): void;
 }
@@ -679,7 +680,7 @@ function SimpleActionBuilder({
   );
 }
 
-export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
+export function ScriptsTab({ project, focus, onDirtyChange, mapContext = false }: ScriptsTabProps) {
   const [catalog, setCatalog] = useState<ScriptCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -738,6 +739,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
     void invoke<ScriptCatalog>("get_script_catalog")
       .then((nextCatalog) => {
         if (cancelled) return;
+        if (mapContext && focus) nextCatalog = { ...nextCatalog, entries: nextCatalog.entries.filter(entry => entry.paths.includes(focus.path)) };
         setCatalog(nextCatalog);
         if (nextCatalog.entries.length === 0) {
           setSelectedGroupId(null);
@@ -778,7 +780,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   }, [project?.storageKey, refreshVersion]);
 
   useEffect(() => {
-    if (!project) {
+    if (!project || mapContext) {
       setAudit(null);
       setAuditError(null);
       return;
@@ -1061,10 +1063,10 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   }
 
   return (
-    <section className="editor-card">
+    <section className={mapContext ? "editor-card script-map-context" : "editor-card"}>
       <div className="tab-heading-row">
         <div>
-          <h2>Scripts</h2>
+          <h2>{mapContext ? "Map logic" : "Scripts"}</h2>
           <p>
             Find a map or routine to edit its dialogue, events, movement, and battles.
           </p>

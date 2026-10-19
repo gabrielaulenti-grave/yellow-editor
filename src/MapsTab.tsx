@@ -14,6 +14,7 @@ import { invoke } from "./platform/compat";
 import { MapInteractionEditor } from "./MapInteractionEditor";
 import { MapNpcEditor } from "./MapNpcEditor";
 import { MapNpcWizard } from "./MapNpcWizard";
+import { MapScriptsPanel } from "./MapScriptsPanel";
 
 type MapView = "map" | "blocks" | "tiles";
 
@@ -201,6 +202,7 @@ export function MapsTab({
   onDirtyChange,
 }: MapsTabProps) {
   const [maps, setMaps] = useState<MapIndexEntry[]>([]);
+  const [mapLogic, setMapLogic] = useState<{ path: string; label?: string | null } | null>(null);
   const [selectedConstant, setSelectedConstant] = useState<string | null>(null);
   const [visualization, setVisualization] = useState<MapVisualization | null>(null);
   const [search, setSearch] = useState("");
@@ -651,18 +653,20 @@ export function MapsTab({
                 <div>
                   <strong>Map scripts</strong>
                   <small>
-                    Event flow, NPC logic, trainer triggers, and source are centralized in Scripts.
+                    Inspect and edit this map's states, NPC logic and trainer triggers here. Shared routines remain available through Scripts.
                   </small>
                   <code>{`scripts/${visualization.mapSourceLabel}.asm`}</code>
                 </div>
                 <button
                   type="button"
                   className="small-button primary-action"
-                  onClick={() => onOpenScript(`scripts/${visualization.mapSourceLabel}.asm`)}
+                  onClick={() => setMapLogic({ path: `scripts/${visualization.mapSourceLabel}.asm` })}
                 >
-                  Open in Scripts →
+                  Edit map logic
                 </button>
               </section>
+
+              {mapLogic && <MapScriptsPanel key={`${project?.storageKey}:${mapLogic.path}:${mapLogic.label ?? ""}`} project={project} path={mapLogic.path} label={mapLogic.label} onClose={() => setMapLogic(null)} onDirtyChange={onDirtyChange} />}
 
               <section className="world-map-encounters">
                 <div className="world-map-encounters-heading">
@@ -1055,6 +1059,7 @@ export function MapsTab({
                           ? { path: selectedSign.scriptPath, label: selectedSign.textLabel }
                           : null}
                         onOpenScript={onOpenScript}
+                        onInspectHere={(path, label) => setMapLogic({ path, label })}
                         onDirtyChange={onDirtyChange}
                       />
                     </div>
@@ -1172,6 +1177,7 @@ export function MapsTab({
                               }
                             : null}
                           onOpenScript={onOpenScript}
+                        onInspectHere={(path, label) => setMapLogic({ path, label })}
                           onDirtyChange={onDirtyChange}
                         />
                         <small className="help-text">

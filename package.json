@@ -35,6 +35,8 @@
     "test:scenes:gameplay": "node scripts/check-scene-gameplay.mjs",
     "test:scenes:partner": "node scripts/check-scene-partner.mjs",
     "test:scenes:partner:ui": "node scripts/check-scene-partner-workflow.mjs",
+    "test:scenes:choices:ui": "node scripts/check-scene-choices-workflow.mjs",
+    "test:scenes:choices": "node scripts/check-scene-choices.mjs",
     "test:scenes:position:ui": "node scripts/check-scene-position-workflow.mjs",
     "test:scenes:starts": "node scripts/check-scene-starts.mjs",
     "test:items:gifts": "node scripts/check-item-gifts.mjs"
