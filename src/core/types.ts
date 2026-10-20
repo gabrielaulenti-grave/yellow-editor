@@ -1,3 +1,5 @@
+import type { InteractionCheckReport } from "./interactionValidation";
+import type { InteractionDocument, InteractionValues } from "./scriptInteractions";
 export interface ProjectInfo {
   path: string;
   valid: boolean;
@@ -15,6 +17,46 @@ export interface MapIndexEntry {
   headerPath: string | null;
   isAlias: boolean;
   isUnused: boolean;
+}
+
+export interface MapNpcCreateDocument {
+  mapConstant: string;
+  mapName: string;
+  width: number;
+  height: number;
+  objectId: number;
+  maxObjects: number;
+  sprites: string[];
+  stationarySprites: string[];
+  spriteNote: string;
+  dialogueOptions: Array<{ id: string; path: string; label: string; preview: string }>;
+  occupied: Array<{ x: number; y: number }>;
+  sources: Array<{ path: string; hash: string }>;
+}
+
+export interface MapNpcCreateValues {
+  x: number;
+  y: number;
+  sprite: string;
+  movement: "STAY" | "WALK";
+  direction: string;
+  dialogue: { kind: "new"; lines: string[] } | { kind: "existing"; id: string };
+}
+
+export interface MapNpcEditValues {
+  x: number; y: number; sprite: string;
+  movement: "STAY" | "WALK"; direction: string;
+  moveSceneStart: boolean;
+}
+export interface MapNpcEditDocument {
+  mapConstant: string; mapName: string; objectId: number; objectConstant: string;
+  width: number; height: number; sprites: string[]; stationarySprites: string[]; spriteNote: string;
+  occupied: Array<{ x: number; y: number }>;
+  walkable: Array<{ x: number; y: number }>;
+  values: MapNpcEditValues;
+  linkedScenes: Array<{ label: string; playerX: number; playerY: number }>;
+  reason: string | null;
+  sources: Array<{ path: string; hash: string }>;
 }
 
 export interface MapWarpEvent {
@@ -1530,6 +1572,15 @@ export interface ProjectSession {
   ): Promise<HistorySummary>;
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
+  getMapNpcCreateDocument(mapConstant: string): Promise<MapNpcCreateDocument>;
+  createMapNpc(document: MapNpcCreateDocument, values: MapNpcCreateValues): Promise<HistorySummary>;
+  getMapNpcEditDocument(mapConstant: string, objectId: number): Promise<MapNpcEditDocument>;
+  saveMapNpc(document: MapNpcEditDocument, values: MapNpcEditValues): Promise<HistorySummary>;
+  checkScriptInteraction(document: InteractionDocument, values: InteractionValues): Promise<InteractionCheckReport>;
+  getScriptInteractionDocument(path: string, label: string): Promise<InteractionDocument>;
+  saveScriptInteraction(document: InteractionDocument, values: InteractionValues): Promise<HistorySummary>;
+  saveScriptReward(document: InteractionDocument, item: string, quantity: number, fixBagFull: boolean): Promise<HistorySummary>;
+  saveScriptPokemonGift(document: InteractionDocument, species: string, level: number): Promise<HistorySummary>;
   getScriptCatalog(): Promise<ScriptCatalog>;
   getScriptAudit(): Promise<ScriptAuditReport>;
   runScriptRoundTripRegression(): Promise<ScriptRoundTripRegressionReport>;

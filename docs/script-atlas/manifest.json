@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "sourceProfiles": [
+    {
+      "game": "pokered",
+      "revision": "d2704a63c26f9ba046ade877445216b3de0519a4",
+      "inputDigest": "ef70fec69207744f67c6d8652a4dd65b2016b8cf8f8fc50f693e8b33de11b2c0",
+      "counts": {
+        "scriptFiles": 224,
+        "mapGroups": 223,
+        "globalLabels": 3503,
+        "stateEntries": 381,
+        "localLabels": 1120,
+        "objects": 918,
+        "signs": 201,
+        "yesNoCalls": 30,
+        "yesNoBoundBranches": 22,
+        "movementNodes": 61,
+        "battleNodes": 366,
+        "audioCalls": 97,
+        "audioNodes": 97,
+        "soundCallsWithoutSemanticNode": 0,
+        "reviewedContracts": 6,
+        "references": 12397,
+        "missingLiteralReferences": 0,
+        "ambiguousReferences": 0,
+        "classificationBlockers": 70
+      }
+    },
+    {
+      "game": "pokeyellow",
+      "revision": "e89ead154b9968aa50eed9328ff2b38b6c194382",
+      "inputDigest": "f5c39fd045a2c1e11f3668cf065c368029ce4b8962a77ed9a5a0500f29b936ca",
+      "counts": {
+        "scriptFiles": 251,
+        "mapGroups": 224,
+        "globalLabels": 3766,
+        "stateEntries": 440,
+        "localLabels": 1222,
+        "objects": 943,
+        "signs": 203,
+        "yesNoCalls": 36,
+        "yesNoBoundBranches": 27,
+        "movementNodes": 108,
+        "battleNodes": 347,
+        "audioCalls": 127,
+        "audioNodes": 123,
+        "soundCallsWithoutSemanticNode": 0,
+        "reviewedContracts": 6,
+        "references": 13653,
+        "missingLiteralReferences": 0,
+        "ambiguousReferences": 0,
+        "classificationBlockers": 82
+      }
+    }
+  ]
+}

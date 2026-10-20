@@ -1,5 +1,6 @@
-import { qualifiedTextLabel } from "./core/textEditing";
-import { Fragment, useMemo } from "react";
+import { ScriptInteractionEditor } from "./ScriptInteractionEditor";
+import { qualifiedTextLabel, scriptTextEntryKind } from "./core/textEditing";
+import { Fragment, useMemo, useState } from "react";
 import {
   structuredMapScriptFlow,
   type MapScriptBranchOutcome,
@@ -29,6 +30,7 @@ import type {
   ScriptExternalRoutineSource,
   TrainerInteraction,
   TrainerInteractionDialogue,
+  HistorySummary,
 } from "./core/types";
 import { TextEditor, type TextEditorTarget } from "./TextEditor";
 import {
@@ -255,7 +257,8 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
           ? [{ label: "Object", value: titleCaseConstant(node.object) }]
           : [];
     case "music":
-      return node.music ? [{ label: "Music", value: titleCaseConstant(node.music) }] : [];
+      return node.sound ? [{ label: "Sound", value: titleCaseConstant(node.sound) }]
+        : node.music ? [{ label: "Music", value: titleCaseConstant(node.music) }] : [];
     case "facing": {
       const facingLabel = (value: string) => value === "0"
         ? "Down"
@@ -340,7 +343,14 @@ function nodeDetails(node: MapScriptSemanticNode): Array<{ label: string; value:
     case "party":
       return [];
     case "service":
-      return [{ label: "Interaction", value: titleCaseConstant(node.service.replace(/-/g, "_")) }];
+      return [
+        { label: "Interaction", value: titleCaseConstant(node.service.replace(/-/g, "_")) },
+        ...(node.result ? [{ label: "B button", value: "Chooses No" }] : []),
+        ...(node.branch ? [
+          { label: node.branch.outcome === "yes" ? "Yes branch" : "No branch", value: node.branch.target },
+          { label: "Continues here", value: node.branch.fallthrough === "yes" ? "Yes" : "No" },
+        ] : []),
+      ];
     case "semantic-helper":
       return [
         { label: "IR family", value: titleCaseConstant(node.family.replace(/-/g, "_")) },
@@ -585,6 +595,38 @@ function TextScriptLogic({
         ))}
       </ol>
     </details>
+  );
+}
+
+export function ScriptDialoguePreview({ reference, editBlocked, onEditStateChange, onSaved }: {
+  reference: MapScriptPreviewReference;
+  editBlocked?: boolean;
+  onEditStateChange?(open: boolean, dirty: boolean): void;
+  onSaved?(history: HistorySummary): void;
+}) {
+  const kind = scriptTextEntryKind(reference.mapScriptSource, reference.routineLabel);
+  const [textOpen, setTextOpen] = useState(false);
+  const [interactionOpen, setInteractionOpen] = useState(false);
+  return (
+    <section className="map-script-preview">
+      <p className="help-text">
+        {kind === "text"
+          ? "Edit this dialogue while preserving its existing text flow and references."
+          : "Choose the dialogue to edit. Its surrounding branches, rewards, and event logic are preserved."}
+      </p>
+      <TextEditor
+        key={`${reference.scriptPath}:${reference.routineLabel}`}
+        title="Dialogue"
+        target={{ path: reference.scriptPath, label: reference.routineLabel }}
+        initialText={null}
+        disabled={editBlocked || interactionOpen}
+        onEditStateChange={(open, dirty) => { setTextOpen(open); onEditStateChange?.(open, dirty); }}
+        onSaved={onSaved}
+      />
+      <ScriptInteractionEditor key={`interaction:${reference.scriptPath}:${reference.routineLabel}`} path={reference.scriptPath} label={reference.routineLabel}
+        disabled={editBlocked || textOpen} onEditStateChange={(open, dirty) => { setInteractionOpen(open); onEditStateChange?.(open, dirty); }} onSaved={onSaved} />
+      {kind !== "text" && <TextScriptLogic label={reference.routineLabel} reference={reference} />}
+    </section>
   );
 }
 
@@ -983,6 +1025,10 @@ export function MapScriptPreview({
     reference.movementVocabulary,
     reference.eventMacroSemantics,
   ]);
+
+  if (scriptTextEntryKind(reference.mapScriptSource, reference.routineLabel) === "text") {
+    return <ScriptDialoguePreview reference={reference} />;
+  }
 
   if (model.states.length === 0) {
     return (

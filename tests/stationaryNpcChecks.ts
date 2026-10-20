@@ -1,0 +1,54 @@
+import assert from "node:assert/strict";
+import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
+import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "../src/core/npcEditing";
+import { checkScriptInteraction, loadScriptInteractionDocument, prepareScriptInteractionWrites } from "../src/core/scriptInteractions";
+import { identifySequenceDialogue } from "../src/core/interactionSequence";
+import type { ProjectSource, TextWriteRequest } from "../src/core/types";
+
+export async function stationaryNpcChecks(original: ProjectSource) {
+  const overlay = new Map<string, string>();
+  const source: ProjectSource = { ...original, storageKey: "stationary-test", readText: async path => overlay.get(path) ?? original.readText(path) };
+  const apply = (writes: TextWriteRequest[]) => writes.forEach(write => overlay.set(write.path, write.contents));
+  const map = "VIRIDIAN_POKECENTER", path = "scripts/ViridianPokecenter.asm";
+  const initial = await loadMapNpcCreateDocument(source, map);
+  assert.ok(initial.sprites.includes("SPRITE_SNORLAX")); assert.ok(initial.stationarySprites.includes("SPRITE_SNORLAX"));
+  const values = { x: 4, y: 5, sprite: "SPRITE_SNORLAX", movement: "STAY" as const, direction: "DOWN", dialogue: { kind: "new" as const, lines: ["Snorlax is asleep."] } };
+  await assert.rejects(() => prepareMapNpcWrites(source, initial, { ...values, movement: "WALK", direction: "ANY_DIR" }), /stationary sprite/);
+  await assert.rejects(() => prepareMapNpcWrites(source, initial, { ...values, direction: "UP" }), /one pose/);
+  apply(await prepareMapNpcWrites(source, initial, values));
+  const actor = `${map}_EDITOR_NPC_${initial.objectId}`, label = `ViridianPokecenterEditorNpc${initial.objectId}Text`;
+  const second = await loadMapNpcCreateDocument(source, map);
+  apply(await prepareMapNpcWrites(source, second, { ...values, x: 6, y: 4, sprite: "SPRITE_POKE_BALL" }));
+  const full = await loadMapNpcCreateDocument(source, map);
+  assert.ok(!full.sprites.includes("SPRITE_FOSSIL"), "A third distinct stationary image would overwrite native graphics");
+  assert.ok(full.sprites.includes("SPRITE_SNORLAX"), "Repeated stationary images share one slot");
+  assert.ok(full.sprites.includes("SPRITE_YOUNGSTER"), "Stationary graphics do not consume animated slots");
+  await assert.rejects(() => prepareMapNpcWrites(source, full, { ...values, x: 6, y: 5, sprite: "SPRITE_FOSSIL" }), /compatible/);
+  const doc = await loadScriptInteractionDocument(source, path, label);
+  assert.equal(doc.scene.actors.find(entry => entry.constant === actor)!.canWalk, false);
+  const scene = { ...doc.values, showOriginal: false, once: true, scene: { trigger: "coordinate" as const, playerX: 4, playerY: 6, idleState: 0, hiddenNpcs: [] },
+    actions: identifySequenceDialogue([{ kind: "wild-battle", species: "SNORLAX", level: 30, cry: true, won: [], caught: [], escaped: [{ kind: "end", complete: false }] }, { kind: "visibility", npc: actor, visible: false }]) };
+  const walk = await checkScriptInteraction(source, doc, { ...scene, actions: [{ kind: "walk-npc", npc: actor, steps: ["UP"] }] });
+  assert.equal(walk.valid, false); assert.equal(walk.issues[0].actionPath, "Action1"); assert.match(walk.issues[0].message, /stationary sprite cannot walk/);
+  const turn = await checkScriptInteraction(source, doc, { ...scene, actions: [{ kind: "face-npc", npc: actor, facing: "UP" }] });
+  assert.equal(turn.valid, false); assert.match(turn.issues[0].message, /stationary sprite cannot turn/);
+  assert.equal((await checkScriptInteraction(source, doc, { ...scene, actions: [{ kind: "face-player", npc: actor, facing: "NPC" }] })).valid, true, "Players can face a single-pose actor");
+  const blocked = await checkScriptInteraction(source, doc, { ...scene, scene: { ...scene.scene, playerX: -1 } });
+  assert.deepEqual(blocked.issues[0].tile, { x: -1, y: 6 });
+  assert.equal((await checkScriptInteraction(source, doc, scene)).valid, true);
+  apply(await prepareScriptInteractionWrites(source, doc, scene));
+  assert.deepEqual((await loadScriptInteractionDocument(source, path, label)).values, scene);
+  const edit = await loadMapNpcEditDocument(source, map, initial.objectId);
+  assert.equal(edit.reason, null); assert.ok(edit.linkedScenes.some(scene => scene.label === label));
+  await assert.rejects(() => prepareMapNpcEditWrites(source, edit, { ...edit.values, movement: "WALK", direction: "ANY_DIR" }), /stationary sprite/);
+  const budgetEngine = await source.readText("engine/overworld/map_sprites.asm");
+  overlay.set("engine/overworld/map_sprites.asm", budgetEngine.replace("cp 11", "cp 12"));
+  await assert.rejects(() => loadMapNpcCreateDocument(source, map), /reviewed indoor sprite loader/);
+  overlay.set("engine/overworld/map_sprites.asm", budgetEngine);
+  const sprites = await source.readText("data/sprites/sprites.asm");
+  overlay.set("data/sprites/sprites.asm", sprites.replace(/overworld_sprite SnorlaxSprite, 4/, "overworld_sprite SnorlaxSprite, 12"));
+  const plain = await loadScriptInteractionDocument(source, path, `ViridianPokecenterEditorNpc${second.objectId}Text`);
+  assert.equal(plain.canCreate, true); assert.match(plain.scene.reason!, /sprite definitions/);
+  assert.ok((await prepareScriptInteractionWrites(source, plain, { ...plain.values, showOriginal: false, actions: [{ kind: "dialogue", lines: ["Still editable!"] }] })).length > 0, "Unknown sprite metadata must not disable ordinary dialogue editing");
+  console.log("Stationary NPCs: Snorlax in a Center, separate graphics pools, image reuse, movement refusals, encounter/hide round trip, linked editing and source guards passed");
+}

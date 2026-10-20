@@ -1,0 +1,228 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { createServer } from "node:http";
+import { build } from "esbuild";
+import { chromium } from "playwright";
+
+const roots = process.argv.slice(2);
+assert.ok(roots.length, "Supply pinned Red/Yellow source directories for the dialogue UI check.");
+const directory = await mkdtemp(join("node_modules", ".dialogue-ui-"));
+let browser;
+// Engine fingerprints use SHA-256. A localhost origin provides the same
+// secure-context Web Crypto API as the production HTTPS app.
+const server = createServer((_request, response) => {
+  response.setHeader("Content-Type", "text/html");
+  response.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="root"></div>');
+});
+try {
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const outfile = join(directory, "fixture.js");
+  await build({ entryPoints: ["tests/scriptDialogueWorkflowFixture.tsx"], outfile, bundle: true, platform: "browser", jsx: "automatic",
+    loader: { ".css": "empty" }, plugins: [{ name: "fixture-session", setup(builder) {
+      builder.onResolve({ filter: /platform\/compat$/ }, () => ({ path: "fixture-session", namespace: "fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: "export const invoke = (command, args) => window.dialogueInvoke(command, args);" }));
+    } }] });
+  const styles = (await Promise.all(["App.css", "ScriptsTab.css", "MapScriptPreview.css", "TextEditor.css", "editor/SearchableSelect.css"]
+    .map(path => readFile(join("src", path), "utf8")))).join("\n");
+  const script = await readFile(outfile, "utf8");
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    args: process.env.PLAYWRIGHT_CHROMIUM_ARGS ? JSON.parse(process.env.PLAYWRIGHT_CHROMIUM_ARGS) : undefined });
+  for (const root of roots) {
+    const original = {}, bytes = {};
+    async function collect(folder = "") {
+      for (const entry of await readdir(join(root, folder), { withFileTypes: true })) {
+        if (entry.name.startsWith(".")) continue;
+        const path = join(folder, entry.name);
+        if (entry.isDirectory()) await collect(path);
+        else if (path.endsWith(".asm")) original[path] = await readFile(join(root, path), "utf8");
+        else if (path.endsWith(".blk") || path.endsWith(".bst")) bytes[path] = Array.from(await readFile(join(root, path)));
+      }
+    }
+    await collect();
+    const objectPath = "data/maps/objects/ViridianCity.asm";
+    original[objectPath] = original[objectPath].replace("ViridianCity_Object:", "\tconst_export VIRIDIANCITY_INTERACTION_TEST_NPC\n\nViridianCity_Object:").replace("def_warps_to VIRIDIAN_CITY", "\tobject_event 18, 19, SPRITE_YOUNGSTER, STAY, DOWN, TEXT_VIRIDIANCITY_INTERACTION_TEST_NPC\n\n\tdef_warps_to VIRIDIAN_CITY");
+    original["scripts/ViridianCity.asm"] = original["scripts/ViridianCity.asm"].replace(/^(\s*dw_const ViridianCitySignText,)/m, "\tdw_const ViridianCityInteractionTestNpcText, TEXT_VIRIDIANCITY_INTERACTION_TEST_NPC\n$1") + "\nViridianCityInteractionTestNpcText:\n\ttext_far _ViridianCityYoungster1Text\n\ttext_end\n";
+    for (const width of [320, 375, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      const errors = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${server.address().port}`);
+      await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
+      await page.evaluate(({ files, bytes }) => { window.dialogueFiles = files; window.dialogueBytes = bytes; }, { files: original, bytes });
+      await page.addScriptTag({ content: script });
+      const preview = page.locator(".script-routine-details .text-editor-preview");
+      await preview.filter({ hasText: "VIRIDIAN CITY" }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "Add action", exact: true }).count(), 0);
+      assert.equal(await page.getByText(/No semantic operations are recognized/).count(), 0);
+      await page.getByRole("button", { name: "Edit text", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "Edit Dialogue" });
+      await dialog.locator("textarea").first().waitFor();
+      assert.equal(await dialog.locator("textarea").first().inputValue(), "VIRIDIAN CITY ");
+      await dialog.locator("textarea").first().fill("WELCOME!");
+      await page.waitForFunction(() => window.dialogueDirty === true);
+      page.once("dialog", async confirmation => { await confirmation.dismiss(); });
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      assert.equal(await dialog.isVisible(), true, "Dirty text should survive a refused discard");
+      await dialog.getByRole("button", { name: "Save text", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      await preview.filter({ hasText: "WELCOME!" }).waitFor();
+      const files = await page.evaluate(() => window.dialogueFiles);
+      for (const [path, contents] of Object.entries(original)) {
+        assert.equal(files[path], path === "text/ViridianCity.asm" ? contents.replace('text "VIRIDIAN CITY "', 'text "WELCOME!"') : contents,
+          `${root} ${width}px: modified wrapper or neighbor source: ${path}`);
+      }
+      assert.equal(await page.evaluate(() => window.dialogueSaves.length), 1);
+      await page.getByRole("button", { name: "Reload scripts", exact: true }).click();
+      await preview.filter({ hasText: "WELCOME!" }).waitFor();
+      await page.getByRole("button", { name: "Edit text", exact: true }).click();
+      await dialog.locator("textarea").first().waitFor();
+      assert.equal(await dialog.locator("textarea").first().inputValue(), "WELCOME!");
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await page.locator(".script-group-list button").filter({ has: page.locator("strong").filter({ hasText: /^Route1$/ }) }).click();
+      await page.getByRole("searchbox", { name: "Search routines in all companion files" }).fill("Route1Youngster1Text");
+      await page.locator(".script-routine-list button").filter({ hasText: "Route1Youngster1Text" }).click();
+      await page.getByRole("button", { name: "Edit text", exact: true }).click();
+      await page.getByText("This interaction has 4 dialogue paths.", { exact: true }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "Add action", exact: true }).count(), 0);
+      await page.getByRole("searchbox", { name: "Search dialogue paths" }).fill("Potion");
+      assert.ok(await dialog.locator(".text-editor-path-list button").count());
+      await dialog.locator(".text-editor-path-list button").first().click();
+      await dialog.locator("textarea").first().fill("Thank you!");
+      await dialog.getByRole("button", { name: "Save text", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      const interaction = page.getByRole("dialog", { name: "Edit interaction", exact: true });
+      await interaction.getByRole("spinbutton", { name: "Reward quantity" }).fill("2");
+      await interaction.getByRole("checkbox", { name: "Allow another attempt when the bag is full" }).check();
+      await interaction.getByRole("button", { name: "Save reward", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("spinbutton", { name: "Reward quantity" }).inputValue(), "2");
+      assert.equal(await interaction.getByRole("checkbox", { name: "Allow another attempt when the bag is full" }).count(), 0);
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Reload scripts", exact: true }).click();
+      await preview.filter({ hasText: "WELCOME!" }).waitFor();
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("checkbox", { name: "Give an item", exact: true }).check();
+      await interaction.getByRole("spinbutton", { name: "Reward quantity" }).fill("3");
+      await interaction.getByRole("textbox", { name: "Interaction dialogue" }).fill("<PLAYER> received\na MOON STONE!");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("spinbutton", { name: "Reward quantity" }).inputValue(), "3");
+      assert.equal(await interaction.getByRole("textbox", { name: "Interaction dialogue" }).inputValue(), "<PLAYER> received\na MOON STONE!");
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Edit text", exact: true }).click();
+      await page.getByRole("searchbox", { name: "Search dialogue paths" }).fill("received");
+      await dialog.locator(".text-editor-path-list button").first().click();
+      await dialog.getByRole("button", { name: "Add text line", exact: true }).click();
+      await dialog.locator("textarea").nth(2).fill("Enjoy!");
+      await dialog.getByRole("combobox", { name: "Text flow control", exact: true }).nth(2).selectOption("para");
+      await dialog.getByRole("button", { name: "Save text", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("textbox", { name: "Interaction dialogue" }).inputValue(), "<PLAYER> received\na MOON STONE!\nEnjoy!");
+      await interaction.getByRole("checkbox", { name: "Have an NPC approach", exact: true }).check();
+      await interaction.getByRole("combobox", { name: "Approaching NPC" }).selectOption("VIRIDIANCITY_INTERACTION_TEST_NPC");
+      await interaction.getByRole("textbox", { name: "NPC walking route" }).fill("UP");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route" }).inputValue(), "UP");
+      const overflowing = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+      assert.equal(overflowing, false, "Interaction form must fit the viewport");
+      assert.deepEqual(errors, []);
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Edit text", exact: true }).click();
+      await page.getByRole("searchbox", { name: "Search dialogue paths" }).fill("received");
+      await dialog.locator(".text-editor-path-list button").first().click();
+      assert.equal(await dialog.getByRole("combobox", { name: "Text flow control", exact: true }).nth(2).inputValue(), "para");
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("checkbox", { name: "Give a Pokémon", exact: true }).check();
+      assert.equal(await interaction.getByRole("checkbox", { name: "Give an item", exact: true }).isChecked(), false);
+      await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).selectOption("DRATINI");
+      await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).fill("20");
+      await interaction.getByRole("textbox", { name: "Interaction dialogue" }).fill("Take good care\nof DRATINI!");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      assert.equal(await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).inputValue(), "DRATINI");
+      assert.equal(await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).inputValue(), "20");
+      assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route" }).inputValue(), "UP");
+      assert.equal(await interaction.getByRole("textbox", { name: "Interaction dialogue" }).inputValue(), "Take good care\nof DRATINI!");
+      assert.equal(await interaction.getByRole("textbox", { name: "No room dialogue" }).inputValue(), "Make room in your\nparty or PC BOX.");
+      await interaction.getByRole("button", { name: "Compose action sequence", exact: true }).click();
+      const sequence = interaction.getByRole("group", { name: "Actions", exact: true });
+      await sequence.getByRole("combobox", { name: "Actions action type", exact: true }).selectOption("choice");
+      await sequence.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await sequence.getByRole("button", { name: "Actions move action 3 up", exact: true }).click();
+      await sequence.getByRole("button", { name: "Actions move action 2 up", exact: true }).click();
+      const yes = sequence.getByRole("group", { name: "Actions 1 Yes", exact: true });
+      await yes.getByRole("combobox", { name: "Actions 1 Yes action type", exact: true }).selectOption("dialogue");
+      await yes.getByRole("button", { name: "Actions 1 Yes add action", exact: true }).click();
+      await yes.getByRole("textbox", { name: "Actions 1 Yes action 1 dialogue", exact: true }).fill("Let's begin!");
+      await sequence.getByRole("combobox", { name: "Actions action type", exact: true }).selectOption("dialogue");
+      await sequence.getByRole("button", { name: "Actions add action", exact: true }).click();
+      await sequence.getByRole("textbox", { name: "Actions action 4 dialogue", exact: true }).fill("Want a partner?");
+      for (const i of [4, 3, 2]) await sequence.getByRole("button", { name: `Actions move action ${i} up`, exact: true }).click();
+      await page.waitForFunction(() => window.dialogueDirty === true);
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("button", { name: "Resume draft", exact: true }).click();
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, "Nested action composer fits phone and desktop widths");
+      await interaction.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await interaction.waitFor({ state: "hidden" });
+      await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await interaction.getByRole("textbox", { name: "Actions action 1 dialogue", exact: true }).waitFor();
+      assert.equal(await interaction.getByRole("textbox", { name: "Actions action 1 dialogue", exact: true }).inputValue(), "Want a partner?");
+      assert.equal(await interaction.getByRole("textbox", { name: "Actions 2 Yes action 1 dialogue", exact: true }).inputValue(), "Let's begin!");
+      assert.equal(await interaction.getByRole("textbox", { name: "NPC walking route", exact: true }).inputValue(), "UP");
+      const generatedScene = await page.evaluate(() => window.dialogueFiles["scripts/ViridianCity.asm"]);
+      assert.ok(generatedScene.includes("\tcall YesNoChoice\n\tld a, [wCurrentMenuItem]"));
+      assert.ok(generatedScene.includes("ViridianCitySignTextEditorInteractionCleanupState:"));
+      assert.deepEqual(errors, []);
+      await interaction.getByRole("button", { name: "Close", exact: true }).click();
+      for (const [group, title, label, species, level] of [
+        ["CeladonMansionRoofHouse", "Celadon Mansion Roof House", "CeladonMansionRoofHouseEeveePokeballText", "EEVEE", "25"],
+        ["SilphCo7F", "Silph Co7 F", "SilphCo7FSilphWorkerM1Text", "LAPRAS", "15"],
+      ]) {
+        await page.getByRole("searchbox", { name: "Search routines in all companion files" }).fill("");
+        await page.locator(".script-group-list button").filter({ has: page.locator("strong").filter({ hasText: new RegExp(`^${title}$`) }) }).click();
+        await page.getByRole("searchbox", { name: "Search routines in all companion files" }).fill(label);
+        await page.locator(".script-routine-list button").filter({ hasText: label }).click();
+        await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+        await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).waitFor();
+        assert.equal(await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).inputValue(), species);
+        assert.equal(await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).inputValue(), level);
+        await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).selectOption("DRATINI");
+        await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).fill("20");
+        await interaction.getByRole("button", { name: "Save Pokémon gift", exact: true }).click();
+        await interaction.waitFor({ state: "hidden" });
+        await page.getByRole("button", { name: "Edit interaction", exact: true }).click();
+        assert.equal(await interaction.getByRole("combobox", { name: "Gift Pokémon", exact: true }).inputValue(), "DRATINI");
+        assert.equal(await interaction.getByRole("spinbutton", { name: "Gift level", exact: true }).inputValue(), "20");
+        const overflow = await page.evaluate(() => ({
+          width: innerWidth, scroll: document.documentElement.scrollWidth,
+          elements: Array.from(document.querySelectorAll("body *")).filter(element => {
+            const rect = element.getBoundingClientRect();
+            return rect.width && rect.right > innerWidth + 1 && rect.left >= 0;
+          }).map(element => ({ tag: element.tagName, class: element.className, text: element.textContent?.slice(0, 100), right: element.getBoundingClientRect().right })).slice(-12),
+        }));
+        assert.ok(overflow.scroll <= overflow.width, `${group}: gift form must fit the viewport: ${JSON.stringify(overflow)}`);
+        await interaction.getByRole("button", { name: "Close", exact: true }).click();
+        const savedGift = await page.evaluate(path => window.dialogueFiles[path], `scripts/${group}.asm`);
+        assert.equal(savedGift, original[`scripts/${group}.asm`].replace(`lb bc, ${species}, ${level}`, "lb bc, DRATINI, 20"));
+      }
+      assert.deepEqual(errors, []);
+      console.log(`${root} ${width}px: sign and NPC text/rewards, movement gifts, Eevee/Lapras gift editing, dirty protection and viewport checks passed`);
+      await page.close();
+    }
+  }
+} finally {
+  server.close();
+  await browser?.close();
+  await rm(directory, { recursive: true, force: true });
+}

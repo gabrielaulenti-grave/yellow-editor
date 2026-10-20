@@ -23,6 +23,7 @@ import type {
 } from "./core/types";
 import {
   MapScriptPreview,
+  ScriptDialoguePreview,
   type MapScriptPreviewReference,
 } from "./MapScriptPreview";
 import {
@@ -32,6 +33,7 @@ import {
 } from "./core/scriptMacroEligibility";
 import { invoke } from "./platform/compat";
 import { eventMutationDependencies } from "./core/eventDependencies";
+import { scriptTextEntryKind } from "./core/textEditing";
 import "./ScriptsTab.css";
 
 export interface ScriptFocus {
@@ -42,6 +44,7 @@ export interface ScriptFocus {
 
 interface ScriptsTabProps {
   project: ProjectInfo | null;
+  mapContext?: boolean;
   focus: ScriptFocus | null;
   onDirtyChange?(dirty: boolean): void;
 }
@@ -677,7 +680,7 @@ function SimpleActionBuilder({
   );
 }
 
-export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
+export function ScriptsTab({ project, focus, onDirtyChange, mapContext = false }: ScriptsTabProps) {
   const [catalog, setCatalog] = useState<ScriptCatalog | null>(null);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -736,6 +739,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
     void invoke<ScriptCatalog>("get_script_catalog")
       .then((nextCatalog) => {
         if (cancelled) return;
+        if (mapContext && focus) nextCatalog = { ...nextCatalog, entries: nextCatalog.entries.filter(entry => entry.paths.includes(focus.path)) };
         setCatalog(nextCatalog);
         if (nextCatalog.entries.length === 0) {
           setSelectedGroupId(null);
@@ -776,7 +780,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   }, [project?.storageKey, refreshVersion]);
 
   useEffect(() => {
-    if (!project) {
+    if (!project || mapContext) {
       setAudit(null);
       setAuditError(null);
       return;
@@ -929,6 +933,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
     .filter((group) => group.routines.length > 0);
   const selectedRoutine =
     document?.routines.find((routine) => routine.label === selectedRoutineLabel) ?? null;
+  const textEntryKind = document && selectedRoutine
+    ? scriptTextEntryKind(document.source, selectedRoutine.label) : null;
+  const isDialogueRoutine = selectedRoutine?.category === "dialogue" || textEntryKind !== null;
 
   const macroDefinitions = useMemo(
     () => new Map(
@@ -1056,10 +1063,10 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
   }
 
   return (
-    <section className="editor-card">
+    <section className={mapContext ? "editor-card script-map-context" : "editor-card"}>
       <div className="tab-heading-row">
         <div>
-          <h2>Scripts</h2>
+          <h2>{mapContext ? "Map logic" : "Scripts"}</h2>
           <p>
             Find a map or routine to edit its dialogue, events, movement, and battles.
           </p>
@@ -1166,8 +1173,10 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                               <small>
                                 {routine.path.split("/").pop()}:{routine.startLine}
                                 {" · "}
-                                {routine.recognizedOperationCount} recognized operation
-                                {routine.recognizedOperationCount === 1 ? "" : "s"}
+                                {routine.category === "dialogue" ? "Dialogue entry" : <>
+                                  {routine.recognizedOperationCount} recognized operation
+                                  {routine.recognizedOperationCount === 1 ? "" : "s"}
+                                </>}
                               </small>
                             </button>
                           ))}
@@ -1235,7 +1244,21 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                         </span>
                       </div>
 
-                      <MapScriptPreview
+                      {isDialogueRoutine ? (
+                        <ScriptDialoguePreview
+                          reference={previewReference}
+                          editBlocked={Boolean(activeMacroEdit && activeMacroEdit.key !== `dialogue:${document.path}:${selectedRoutine.label}`)}
+                          onEditStateChange={(open, dirty) => {
+                            const key = `dialogue:${document.path}:${selectedRoutine.label}`;
+                            setActiveMacroEdit((current) => {
+                              if (!open) return current?.key === key ? null : current;
+                              if (current && current.key !== key) return current;
+                              return current?.key === key && current.dirty === dirty ? current : { key, dirty };
+                            });
+                          }}
+                          onSaved={() => setRefreshVersion((value) => value + 1)}
+                        />
+                      ) : <MapScriptPreview
                         reference={previewReference}
                         editableMacroLines={editableMacroLines}
                         onEditMacroLine={(line) => {
@@ -1246,9 +1269,9 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                           const button = target?.querySelector("button");
                           if (button instanceof HTMLButtonElement) button.focus();
                         }}
-                      />
+                      />}
 
-                      <SimpleActionBuilder
+                      {!isDialogueRoutine && ["event-state", "helper"].includes(selectedRoutine.category) && <SimpleActionBuilder
                         path={document.path}
                         routineLabel={selectedRoutine.label}
                         editBlocked={Boolean(
@@ -1268,7 +1291,7 @@ export function ScriptsTab({ project, focus, onDirtyChange }: ScriptsTabProps) {
                           });
                         }}
                         onSaved={() => setRefreshVersion((value) => value + 1)}
-                      />
+                      />}
 
                       <section className="script-macro-inspector">
                         <div className="script-macro-inspector-heading">

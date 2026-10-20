@@ -41,6 +41,7 @@ interface BaseNode {
   kind: MapScriptOperationKind;
   title: string;
   description?: string;
+  contractId?: string;
   source: MapScriptSourceSpan;
 }
 
@@ -73,6 +74,7 @@ export type MapScriptSemanticNode =
       type: "wait";
       frames?: number;
       reason?: string;
+      mode?: "yield-map-state" | "blocking-audio";
     })
   | (BaseNode & {
       type: "event";
@@ -110,6 +112,8 @@ export type MapScriptSemanticNode =
   | (BaseNode & {
       type: "music";
       music?: string;
+      action?: "play-sound" | "wait-then-play-sound" | "stop-all-audio" | "restore-map-music" | "play-music";
+      sound?: string;
     })
   | (BaseNode & {
       type: "map-edit";
@@ -165,6 +169,8 @@ export type MapScriptSemanticNode =
   | (BaseNode & {
       type: "service";
       service: string;
+      result?: { variable: "wCurrentMenuItem"; yes: 0; no: 1; cancel: "no" };
+      branch?: { outcome: "yes" | "no"; target: string; fallthrough: "yes" | "no" };
     })
   | (BaseNode & {
       type: "semantic-helper";
@@ -592,6 +598,21 @@ function transitionsForSection(
   return transitions;
 }
 
+export function yesNoBranchAfter(lines: string[], index: number):
+  { outcome: "yes" | "no"; target: string; fallthrough: "yes" | "no" } | undefined {
+  const following: string[] = [];
+  for (let i = index + 1; i < lines.length && following.length < 3; i++) {
+    const line = withoutComment(lines[i]);
+    if (line) following.push(line);
+  }
+  if (!/^ld\s+a\s*,\s*\[wCurrentMenuItem\]$/i.test(following[0] ?? "")
+    || !/^and\s+a$/i.test(following[1] ?? "")) return undefined;
+  const jump = following[2]?.match(/^(?:jr|jp)\s+(z|nz)\s*,\s*([A-Za-z_.][A-Za-z0-9_.]*)$/i);
+  if (!jump) return undefined;
+  const yes = jump[1].toLowerCase() === "z";
+  return { outcome: yes ? "yes" : "no", target: jump[2], fallthrough: yes ? "no" : "yes" };
+}
+
 function nodesForSection(
   section: LabelSection,
   sections: Map<string, LabelSection>,
@@ -632,6 +653,8 @@ function nodesForSection(
         type: "wait",
         kind: "wait",
         title: "Wait for automatic movement",
+        contractId: "player-movement",
+        mode: "yield-map-state",
         reason: "Continue when the player's scripted movement has finished.",
         source: sourceSpan(section, lines, index, index + 2),
       });
@@ -646,6 +669,8 @@ function nodesForSection(
         type: "wait",
         kind: "wait",
         title: "Wait for character movement",
+        contractId: "npc-movement",
+        mode: "yield-map-state",
         reason: "Continue when the scripted character movement has finished.",
         source: sourceSpan(section, lines, index, index + 2),
       });
@@ -1124,6 +1149,10 @@ function nodesForSection(
         kind: "condition",
         title: "Ask the player to choose Yes or No",
         service: "yes-no",
+        contractId: "yes-no",
+        result: { variable: "wCurrentMenuItem", yes: 0, no: 1, cancel: "no" },
+        branch: yesNoBranchAfter(lines, index),
+        description: "Yes selects 0; No and the B button select 1. Read the menu result from RAM; the return carry flag is not a choice result.",
         source: sourceSpan(section, lines, index),
       });
       continue;
@@ -1146,8 +1175,10 @@ function nodesForSection(
         id: `${section.label}:${absoluteLine}:stop-music`,
         type: "music",
         kind: "music",
-        title: "Stop music",
-        description: "Silence the current music before the scene changes tracks.",
+        title: "Stop all audio",
+        action: "stop-all-audio",
+        contractId: "sound-playback",
+        description: "Stop music and sound effects. Resume map music explicitly when the scene ends.",
         source: sourceSpan(section, lines, index),
       });
       continue;
@@ -1351,6 +1382,7 @@ function nodesForSection(
         type: "movement",
         kind: "movement",
         title: "Move the player automatically",
+        contractId: "player-movement",
         actor: "player",
         pathLabel: single?.pathLabel,
         path: single?.path ?? [],
@@ -1468,6 +1500,7 @@ function nodesForSection(
         type: "movement",
         kind: "movement",
         title: "Move character",
+        contractId: "npc-movement",
         actor: "character",
         actorConstant: actor ?? undefined,
         pathLabel: single?.pathLabel,
@@ -1640,12 +1673,36 @@ function nodesForSection(
       continue;
     }
 
+    const soundCall = clean.match(/^call\s+(PlaySoundWaitForCurrent|PlaySound)\s*$/i);
+    if (soundCall) {
+      // Bind only a directly adjacent load. Older register values may have been
+      // clobbered or selected on another branch; preserve such inputs as unknown.
+      const previous = withoutComment(lines[index - 1] ?? "");
+      const sound = previous.match(/^ld\s+a\s*,\s*(SFX_[A-Za-z0-9_]+|\$[0-9a-f]+|\d+)\s*$/i)?.[1];
+      const waits = soundCall[1] === "PlaySoundWaitForCurrent";
+      nodes.push({ id: `${section.label}:${absoluteLine}:sound`, type: "music", kind: "music",
+        title: waits ? "Wait for previous sound, then play sound" : "Play sound",
+        action: waits ? "wait-then-play-sound" : "play-sound", sound,
+        contractId: waits ? "sound-wait-before-play" : "sound-playback",
+        description: waits ? "Wait for existing effects, then start the requested sound without waiting for it to finish. The low-health alarm bypasses the wait." : "Request an audio cue without waiting for completion. Playback also depends on the active audio bank and fade state.",
+        source: sourceSpan(section, lines, index), });
+      continue;
+    }
+    if (/^call\s+WaitForSoundToFinish\s*$/i.test(clean)) {
+      nodes.push({ id: `${section.label}:${absoluteLine}:sound-wait`, type: "wait", kind: "wait",
+        title: "Wait for sound effects", mode: "blocking-audio", contractId: "sound-wait",
+        reason: "Wait for effect channels 5, 6 and 8, unless the low-health alarm is active. This does not wait for music to end.",
+        source: sourceSpan(section, lines, index), });
+      continue;
+    }
+
     if (/^call\s+PlayDefaultMusic\b/i.test(clean)) {
       nodes.push({
         id: `${section.label}:${absoluteLine}:default-music`,
         type: "music",
         kind: "music",
         title: "Return to map music",
+        action: "restore-map-music",
         source: sourceSpan(section, lines, index),
       });
       continue;
@@ -1658,6 +1715,7 @@ function nodesForSection(
         type: "music",
         kind: "music",
         title: "Play music",
+        action: "play-music",
         music: routine ?? recentRegisterValue(lines, index, "a", 8) ?? undefined,
         source: sourceSpan(section, lines, index),
       });

@@ -50,4 +50,27 @@ For source development, Yellow Editor synchronizes the already-published pinned 
 
 ## Current editor coverage
 
+The [vanilla script atlas](docs/script-atlas.md) inventories every Red/Blue and
+Yellow script file, with complete per-map tables, scoped references, helper
+boundaries, classification gaps, and the roadmap for a scene composer. Run
+`npm run scripts:atlas -- /path/to/pokered /path/to/pokeyellow` to regenerate its
+pinned source reports; `npm run test:scripts:atlas` checks the inventory scanner.
+
 Yellow Editor currently supports source-backed Pokémon data and base-stat editing, move browsing, trainer parsing/editing, wild encounter editing, source-backed tile/block/map visualization with warp, sign-text, branched NPC dialogue, outdoor-map, and wild-encounter cross-navigation, ROM builds for Yellow and Red/Blue, an integrated Game Boy emulator, and persistent/exportable battery save RAM. The project checkout remains the source of truth, with edit history stored outside the checkout.
+
+### Add an NPC
+
+In **Maps**, select a map and choose **Add NPC** below its preview. Click or tap walkable ground, choose a compatible character and facing or wandering pattern, then write dialogue or reuse plain dialogue from that map. Review and create the NPC; its placement and dialogue save together as one undoable change. Select the new NPC to edit its dialogue afterward.
+
+Outdoor choices respect shared sprite sets, including both halves of split maps. Indoor choices track separate animated and stationary graphics slots, and Yellow reserves the follower's object slot. Static sprites such as Snorlax stay in place and can use dialogue, visibility, emotes and encounters. Existing object IDs stay in place; sign text pointers shift above the expanded object range. Trainers, items, and story routines are never assigned as a new NPC's interaction. Maps with ambiguous source tables, unsupported macros, exhausted slots, or numeric text dispatches that cannot be preserved refuse creation.
+
+Placement checks map bounds and existing objects/warps; choose walkable terrain in the preview. After creating an NPC, use Edit interaction to compose its actions.
+The [reviewed engine contracts](docs/script-engine-contracts.md) document choice outcomes, audio scheduling, and resumable movement waits, with source fingerprints and CPU boundary tests.
+
+Select an ordinary NPC or sign in **Maps** and use **Edit interaction → Compose action sequence** to build ordered dialogue, Yes/No choices, event branches, rewards, healing, waits, sound effects, music changes, fades, emotes, walking/following routes, Yellow partner detection/movement and wild or trainer battles. The same composer is available in **Scripts**. Unsupported interactions explain their limitation and offer **View script**. Branches can rejoin the following action or end without claiming completion. Existing approach/return routes and atomic undo remain available. See [interaction composition](docs/interaction-composer.md) for scope and retry behavior.
+
+The [Viridian PC lesson](docs/pc-tutorial.md) is a regression scenario for the scripting tools. It is not a dedicated product button. Coordinate and arrival-warp triggers, movement and battles are available through the general composer. Cross-map escorts and persistent PC-session tracking remain future work.
+
+Interaction edits are kept as recoverable drafts on the current device, separately from project source. Close an invalid scene to repair an NPC, then reopen and choose Resume draft. Scene review shows trigger/state requirements; Check scene validates without writing assembly and identifies affected actions and blocked tiles. Save applies the validated interaction to the project as an undoable edit.
+
+Scenes can list up to eight player starts with **Add player start**, so an NPC interaction can run from several sides or a coordinate scene can cover multiple tiles. Routes are checked from every start, following adapts its first player step, and completion/reward checkpoints remain shared.

@@ -1,3 +1,4 @@
+import { renderTiles, renderBlocks, renderMap } from "./editor/mapCanvasDrawing";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
@@ -10,184 +11,12 @@ import type {
   ProjectInfo,
 } from "./core/types";
 import { invoke } from "./platform/compat";
-import { TextEditor } from "./TextEditor";
+import { MapInteractionEditor } from "./MapInteractionEditor";
+import { MapNpcEditor } from "./MapNpcEditor";
+import { MapNpcWizard } from "./MapNpcWizard";
+import { MapScriptsPanel } from "./MapScriptsPanel";
 
 type MapView = "map" | "blocks" | "tiles";
-
-const SHADE_RGB: ReadonlyArray<readonly [number, number, number]> = [
-  [248, 248, 248],
-  [168, 168, 168],
-  [88, 88, 88],
-  [16, 16, 16],
-];
-
-function tileShade(bytes: number[], tileId: number, x: number, y: number): number {
-  const offset = tileId * 16 + y * 2;
-  const low = bytes[offset];
-  const high = bytes[offset + 1];
-  if (low === undefined || high === undefined) return 0;
-  const bit = 7 - x;
-  return ((high >> bit) & 1) * 2 + ((low >> bit) & 1);
-}
-
-function setPixel(
-  data: Uint8ClampedArray,
-  width: number,
-  x: number,
-  y: number,
-  shade: number,
-) {
-  const rgb = SHADE_RGB[shade] ?? SHADE_RGB[0];
-  const offset = (y * width + x) * 4;
-  data[offset] = rgb[0];
-  data[offset + 1] = rgb[1];
-  data[offset + 2] = rgb[2];
-  data[offset + 3] = 255;
-}
-
-function drawTileIntoImage(
-  image: ImageData,
-  gfx: number[],
-  tileId: number,
-  targetX: number,
-  targetY: number,
-) {
-  for (let y = 0; y < 8; y += 1) {
-    for (let x = 0; x < 8; x += 1) {
-      setPixel(
-        image.data,
-        image.width,
-        targetX + x,
-        targetY + y,
-        tileShade(gfx, tileId, x, y),
-      );
-    }
-  }
-}
-
-function renderTiles(
-  canvas: HTMLCanvasElement,
-  visualization: MapVisualization,
-) {
-  const columns = 16;
-  const rows = Math.max(1, Math.ceil(visualization.tileCount / columns));
-  canvas.width = columns * 8;
-  canvas.height = rows * 8;
-  const context = canvas.getContext("2d");
-  if (!context) return;
-
-  const image = context.createImageData(canvas.width, canvas.height);
-  for (let tileId = 0; tileId < visualization.tileCount; tileId += 1) {
-    drawTileIntoImage(
-      image,
-      visualization.tilesetGfx,
-      tileId,
-      (tileId % columns) * 8,
-      Math.floor(tileId / columns) * 8,
-    );
-  }
-  context.putImageData(image, 0, 0);
-}
-
-function renderBlocks(
-  canvas: HTMLCanvasElement,
-  visualization: MapVisualization,
-) {
-  const columns = 8;
-  const rows = Math.max(1, Math.ceil(visualization.blockCount / columns));
-  canvas.width = columns * 32;
-  canvas.height = rows * 32;
-  const context = canvas.getContext("2d");
-  if (!context) return;
-
-  const image = context.createImageData(canvas.width, canvas.height);
-  for (let blockId = 0; blockId < visualization.blockCount; blockId += 1) {
-    const blockX = (blockId % columns) * 32;
-    const blockY = Math.floor(blockId / columns) * 32;
-    const blockOffset = blockId * 16;
-
-    for (let tileY = 0; tileY < 4; tileY += 1) {
-      for (let tileX = 0; tileX < 4; tileX += 1) {
-        const tileId = visualization.blockset[blockOffset + tileY * 4 + tileX];
-        if (tileId === undefined) continue;
-        drawTileIntoImage(
-          image,
-          visualization.tilesetGfx,
-          tileId,
-          blockX + tileX * 8,
-          blockY + tileY * 8,
-        );
-      }
-    }
-  }
-  context.putImageData(image, 0, 0);
-}
-
-function renderMap(
-  canvas: HTMLCanvasElement,
-  visualization: MapVisualization,
-  showGrid: boolean,
-) {
-  const width = visualization.map.width * 32;
-  const height = visualization.map.height * 32;
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) return;
-
-  const image = context.createImageData(width, height);
-  for (let blockY = 0; blockY < visualization.map.height; blockY += 1) {
-    for (let blockX = 0; blockX < visualization.map.width; blockX += 1) {
-      const mapIndex = blockY * visualization.map.width + blockX;
-      const blockId = visualization.mapBlocks[mapIndex];
-      const blockOffset = blockId === undefined ? -1 : blockId * 16;
-
-      for (let tileY = 0; tileY < 4; tileY += 1) {
-        for (let tileX = 0; tileX < 4; tileX += 1) {
-          const tileId = blockOffset < 0
-            ? undefined
-            : visualization.blockset[blockOffset + tileY * 4 + tileX];
-
-          for (let pixelY = 0; pixelY < 8; pixelY += 1) {
-            for (let pixelX = 0; pixelX < 8; pixelX += 1) {
-              const targetX = blockX * 32 + tileX * 8 + pixelX;
-              const targetY = blockY * 32 + tileY * 8 + pixelY;
-              const shade = tileId === undefined
-                ? ((pixelX + pixelY) % 2 === 0 ? 1 : 2)
-                : tileShade(
-                    visualization.tilesetGfx,
-                    tileId,
-                    pixelX,
-                    pixelY,
-                  );
-              setPixel(image.data, width, targetX, targetY, shade);
-            }
-          }
-        }
-      }
-    }
-  }
-  context.putImageData(image, 0, 0);
-
-  if (showGrid) {
-    context.save();
-    context.strokeStyle = "rgba(0, 0, 0, 0.34)";
-    context.lineWidth = 1;
-    for (let x = 32; x < width; x += 32) {
-      context.beginPath();
-      context.moveTo(x + 0.5, 0);
-      context.lineTo(x + 0.5, height);
-      context.stroke();
-    }
-    for (let y = 32; y < height; y += 32) {
-      context.beginPath();
-      context.moveTo(0, y + 0.5);
-      context.lineTo(width, y + 0.5);
-      context.stroke();
-    }
-    context.restore();
-  }
-}
 
 function MapCanvas({
   visualization,
@@ -204,6 +33,7 @@ function MapCanvas({
   onSelectWarp,
   onSelectSign,
   onSelectNpc,
+  placement,
 }: {
   visualization: MapVisualization;
   view: MapView;
@@ -219,6 +49,7 @@ function MapCanvas({
   onSelectWarp: (warpId: number) => void;
   onSelectSign: (signId: number) => void;
   onSelectNpc: (npcId: number) => void;
+  placement?: { x: number; y: number; onPlace(x: number, y: number): void };
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -230,9 +61,9 @@ function MapCanvas({
     } else if (view === "blocks") {
       renderBlocks(canvas, visualization);
     } else {
-      renderMap(canvas, visualization, showGrid);
+      renderMap(canvas, visualization, showGrid, placement ? 16 : 32);
     }
-  }, [visualization, view, showGrid]);
+  }, [visualization, view, showGrid, Boolean(placement)]);
 
   const scale = view === "tiles" ? Math.max(zoom, 2) : zoom;
   const intrinsicSize = view === "map"
@@ -257,6 +88,10 @@ function MapCanvas({
     <div
       className="world-map-stage"
       style={{ width: displayWidth, height: displayHeight }}
+      onClick={placement ? event => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        placement.onPlace(Math.floor((event.clientX - bounds.left) / (16 * scale)), Math.floor((event.clientY - bounds.top) / (16 * scale)));
+      } : undefined}
     >
       <canvas
         ref={canvasRef}
@@ -273,6 +108,9 @@ function MapCanvas({
               : `${visualization.tilesetName} tile preview`
         }
       />
+
+      {placement && Number.isInteger(placement.x) && Number.isInteger(placement.y) && <span className="npc-placement-marker" aria-label={`New NPC at ${placement.x}, ${placement.y}`}
+        style={{ left: placement.x * 16 * scale, top: placement.y * 16 * scale, width: 16 * scale, height: 16 * scale }}>+</span>}
 
       {view === "map" && showWarps && visualization.warps.map((warp) => (
         <button
@@ -349,6 +187,7 @@ interface MapsTabProps {
   onOpenWalkingEncounter(entry: EncounterTableIndexEntry): void;
   onOpenFishing(mapConstant: string): void;
   onOpenScript(path: string, routineLabel?: string | null): void;
+  onDirtyChange?(dirty: boolean): void;
 }
 
 export function MapsTab({
@@ -360,8 +199,10 @@ export function MapsTab({
   onOpenWalkingEncounter,
   onOpenFishing,
   onOpenScript,
+  onDirtyChange,
 }: MapsTabProps) {
   const [maps, setMaps] = useState<MapIndexEntry[]>([]);
+  const [mapLogic, setMapLogic] = useState<{ path: string; label?: string | null } | null>(null);
   const [selectedConstant, setSelectedConstant] = useState<string | null>(null);
   const [visualization, setVisualization] = useState<MapVisualization | null>(null);
   const [search, setSearch] = useState("");
@@ -384,8 +225,24 @@ export function MapsTab({
   const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [npcWizardOpen, setNpcWizardOpen] = useState(false);
+  const [editingNpcId, setEditingNpcId] = useState<number | null>(null);
+  const [mapRevision, setMapRevision] = useState(0);
+  const newNpcSelection = useRef<{ map: string; id: number } | null>(null);
+  const dirtyCallback = useRef(onDirtyChange);
+  dirtyCallback.current = onDirtyChange;
+  useEffect(() => () => dirtyCallback.current?.(false), []);
 
   useEffect(() => {
+    const refresh = () => setMapRevision(value => value + 1);
+    window.addEventListener("yellow-editor:history-changed", refresh);
+    return () => window.removeEventListener("yellow-editor:history-changed", refresh);
+  }, []);
+
+  useEffect(() => {
+    setNpcWizardOpen(false);
+    setEditingNpcId(null);
+    newNpcSelection.current = null;
     if (!project) {
       setMaps([]);
       setSelectedConstant(null);
@@ -518,8 +375,13 @@ export function MapsTab({
         const arrived = arrivalWarpId !== null
           && result.warps.some((warp) => warp.id === arrivalWarpId);
         setSelectedWarpId(arrived ? arrivalWarpId : null);
-        setSelectedSignId(null);
-        setSelectedNpcId(null);
+        setSelectedSignId(previous => result.signs.some(sign => sign.id === previous) ? previous : null);
+        const created = newNpcSelection.current;
+        setSelectedNpcId(previous => {
+          const id = created?.map === result.map.constant ? created.id : previous;
+          return result.npcs.some(npc => npc.id === id) ? id : null;
+        });
+        newNpcSelection.current = null;
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -531,7 +393,7 @@ export function MapsTab({
     return () => {
       cancelled = true;
     };
-  }, [project?.storageKey, selectedMap?.constant, arrivalWarpId]);
+  }, [project?.storageKey, selectedMap?.constant, arrivalWarpId, mapRevision]);
 
   const selectedEncounterEntry = selectedConstant
     ? encounters.find((entry) =>
@@ -791,18 +653,20 @@ export function MapsTab({
                 <div>
                   <strong>Map scripts</strong>
                   <small>
-                    Event flow, NPC logic, trainer triggers, and source are centralized in Scripts.
+                    Inspect and edit this map's states, NPC logic and trainer triggers here. Shared routines remain available through Scripts.
                   </small>
                   <code>{`scripts/${visualization.mapSourceLabel}.asm`}</code>
                 </div>
                 <button
                   type="button"
                   className="small-button primary-action"
-                  onClick={() => onOpenScript(`scripts/${visualization.mapSourceLabel}.asm`)}
+                  onClick={() => setMapLogic({ path: `scripts/${visualization.mapSourceLabel}.asm` })}
                 >
-                  Open in Scripts →
+                  Edit map logic
                 </button>
               </section>
+
+              {mapLogic && <MapScriptsPanel key={`${project?.storageKey}:${mapLogic.path}:${mapLogic.label ?? ""}`} project={project} path={mapLogic.path} label={mapLogic.label} onClose={() => setMapLogic(null)} onDirtyChange={onDirtyChange} />}
 
               <section className="world-map-encounters">
                 <div className="world-map-encounters-heading">
@@ -1185,33 +1049,59 @@ export function MapsTab({
                         <code>x {selectedSign.x}, y {selectedSign.y}</code>
                         <code>{selectedSign.textConstant}</code>
                       </div>
-                      <TextEditor
-                        key={`${selectedSign.scriptPath}:${selectedSign.textLabel ?? selectedSign.textConstant}`}
+                      <MapInteractionEditor
+                        key={`sign:${selectedSign.scriptPath}:${selectedSign.id}:${selectedSign.textLabel ?? selectedSign.textConstant}`}
                         title={`Sign #${selectedSign.id} text`}
                         target={selectedSign.textLabel
                           ? { path: selectedSign.scriptPath, label: selectedSign.textLabel }
                           : null}
-                        initialText={null}
+                        dialogueTarget={selectedSign.textLabel
+                          ? { path: selectedSign.scriptPath, label: selectedSign.textLabel }
+                          : null}
+                        onOpenScript={onOpenScript}
+                        onInspectHere={(path, label) => setMapLogic({ path, label })}
+                        onDirtyChange={onDirtyChange}
                       />
                     </div>
                   ) : (
                     <p className="world-map-warp-empty">
-                      Select an S marker to inspect and edit that sign's text.
+                      Select an S marker to edit that sign's text and interaction.
                     </p>
                   )}
                 </div>
               )}
 
-              {view === "map" && visualization.npcs.length > 0 && (
+              {view === "map" && (
                 <div className="world-map-npc-panel">
                   <div className="world-map-npc-heading">
                     <div>
                       <strong>NPCs</strong>
                       <small>
-                        Ordinary six-field object events. Trainers and item balls remain separate layers.
+                        Select a character to edit their placement, appearance, dialogue and interaction, or add a new NPC.
                       </small>
                     </div>
+                    <div className="world-map-npc-actions"><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button></div>
                   </div>
+                  {npcWizardOpen && <MapNpcWizard key={`${project?.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
+                    renderPlacement={(x, y, onPlace) => <div className="npc-placement-map"><MapCanvas visualization={visualization} view="map" zoom={1}
+                      showGrid={true} showWarps={true} showSigns={true} showNpcs={true} selectedWarpId={null} selectedSignId={null} selectedNpcId={null} arrivalWarpId={null}
+                      onSelectWarp={() => {}} onSelectSign={() => {}} onSelectNpc={() => {}} placement={{ x, y, onPlace }} /></div>}
+                    onClose={() => setNpcWizardOpen(false)}
+                    onSaved={(id, history) => {
+                      newNpcSelection.current = { map: visualization.map.constant, id };
+                      setNpcWizardOpen(false);
+                      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                    }} />}
+                  {editingNpcId !== null && <MapNpcEditor key={`${project?.storageKey}:${visualization.map.constant}:${editingNpcId}`} mapConstant={visualization.map.constant} objectId={editingNpcId}
+                    renderPlacement={(x, y, onPlace) => <div className="npc-placement-map"><MapCanvas visualization={visualization} view="map" zoom={1}
+                      showGrid={true} showWarps={true} showSigns={true} showNpcs={true} selectedWarpId={null} selectedSignId={null} selectedNpcId={editingNpcId} arrivalWarpId={null}
+                      onSelectWarp={() => {}} onSelectSign={() => {}} onSelectNpc={() => {}} placement={{ x, y, onPlace }} /></div>}
+                    onClose={() => setEditingNpcId(null)} onDirtyChange={onDirtyChange}
+                    onSaved={(id, history) => {
+                      newNpcSelection.current = { map: visualization.map.constant, id };
+                      setEditingNpcId(null);
+                      window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                    }} />}
                   <div className="world-map-npc-list" aria-label="Map NPCs">
                     {visualization.npcs.map((npc) => (
                       <button
@@ -1272,17 +1162,23 @@ export function MapsTab({
                         </dl>
                       </div>
 
+                      <div className="world-map-npc-actions"><button type="button" className="small-button" onClick={() => setEditingNpcId(selectedNpc.id)}>Edit NPC</button></div>
                       <div className="world-map-npc-dialogue">
-                        <TextEditor
-                          key={`${selectedNpc.dialoguePath}:${selectedNpc.dialogueLabel ?? selectedNpc.textConstant}`}
+                        <MapInteractionEditor
+                          key={`npc:${selectedNpc.scriptPath}:${selectedNpc.id}:${selectedNpc.textLabel ?? selectedNpc.textConstant}`}
                           title="NPC dialogue"
-                          target={selectedNpc.dialogueLabel
+                          target={selectedNpc.textLabel
+                            ? { path: selectedNpc.scriptPath, label: selectedNpc.textLabel }
+                            : null}
+                          dialogueTarget={selectedNpc.dialogueLabel
                             ? {
                                 path: selectedNpc.dialoguePath,
                                 label: selectedNpc.dialogueLabel,
                               }
                             : null}
-                          initialText={null}
+                          onOpenScript={onOpenScript}
+                        onInspectHere={(path, label) => setMapLogic({ path, label })}
+                          onDirtyChange={onDirtyChange}
                         />
                         <small className="help-text">
                           Scripted NPCs can choose different dialogue based on game state
