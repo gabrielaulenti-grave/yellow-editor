@@ -4,6 +4,7 @@ import { sharedSceneFlag } from "../src/core/sceneFlags";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, type ManagedInteraction, type InteractionValues } from "../src/core/scriptInteractions";
 import type { ProjectSource, TextWriteRequest } from "../src/core/types";
+import { renderScene } from "../src/core/interactionScene";
 
 export async function sceneChoiceChecks(source: ProjectSource, overlay: Map<string, string>) {
   const apply = (writes: TextWriteRequest[]) => writes.forEach(write => overlay.set(write.path, write.contents));
@@ -81,6 +82,25 @@ export async function sceneChoiceChecks(source: ProjectSource, overlay: Map<stri
     const saved = await prepareScriptInteractionWrites(crlf, clean, clean.values);
     assert.ok(!saved.some(write => write.path === "engine/events/pokedex_rating.asm"), "The relocation is idempotent with CRLF input");
   }
+  const textPath = "home/text_script.asm", handoff = overlay.get(textPath)!;
+  for (const [before, after] of [["\tret c\n\t; yellow-editor-scene-text-handoff-end", "\tret\n\t; yellow-editor-scene-text-handoff-end"], ["call PrintText_NoCreatingTextBox", "call PrintText"]]) {
+    overlay.set(textPath, handoff.replace(before, after));
+    const changed = await loadScriptInteractionDocument(source, path, dome.label);
+    await assert.rejects(() => prepareScriptInteractionWrites(source, changed, changed.values), /handoff|button-prompt/);
+  }
+  overlay.set(textPath, handoff);
+  const scripts = overlay.get(path)!;
+  const legacyModels = [guardian, ...models].map(model => { const previous = structuredClone(model); delete previous.scene!.textHandoff; return previous; });
+  let legacyScripts = scripts;
+  [guardian, ...models].forEach((model, i) => { legacyScripts = legacyScripts.replace(renderScene(model), renderScene(legacyModels[i])); });
+  const nativeText = handoff.replace(/\t; yellow-editor-scene-text-handoff\n[\s\S]*?\t; yellow-editor-scene-text-handoff-end\n/, "").replace(/; yellow-editor-scene-text-dispatch: 1\n[\s\S]*$/, "");
+  overlay.set(path, legacyScripts); overlay.set(textPath, nativeText);
+  const legacy = await loadScriptInteractionDocument(source, path, nerd.label);
+  const migrated = await prepareScriptInteractionWrites(source, legacy, legacy.values);
+  assert.ok(migrated.find(write => write.path === textPath)!.contents.includes(`${guardian.prefix}TryLaunch`));
+  assert.ok(!migrated.find(write => write.path === textPath)!.contents.includes(`${models[0].prefix}TryLaunch`), "Unedited legacy scenes keep their original launch path");
+  assert.ok(migrated.find(write => write.path === path)!.contents.includes(renderScene(legacyModels[1])), "Migrating one scene preserves the other's generated code");
+  overlay.set(path, scripts); overlay.set(textPath, handoff);
   console.log("Linked fossil scene: native reward recognition, shared flag allocation, guardian battle, two pickups, all six approaches, shared visibility, no-room/No branches, reopening, CRLF and source guards passed");
   return { guardian, dome: models[0], helix: models[1], flags };
 }

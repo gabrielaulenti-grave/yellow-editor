@@ -3,6 +3,7 @@ import { InteractionValidationError, actionValidationError } from "./interaction
 import { hashText } from "./history";
 import { prepareSceneBankSpace, prepareSharedSceneBankSpace } from "./sceneBankSpace";
 import { itemClaims } from "./sceneFlags";
+import { prepareSceneTextHandoff } from "./sceneTextHandoff";
 import { renderSceneEffect, renderSceneEffectHelpers, effectScratchFields, effectEntryHook, legacyEffectEntryHook, sceneBattleReturnHook, battleSnapshotRuntime } from "./sceneEffectRuntime";
 import { parseMapIndex } from "./mapVisualization";
 import { interactionBranches, isBattle, type InteractionAction } from "./interactionSequence";
@@ -45,6 +46,7 @@ export interface ScenePlan {
   // Optional so existing v3 source can still be verified before upgrading.
   // One reward per path: one pending delivery covers all mutually exclusive gifts.
   giftFlag?: string;
+  textHandoff?: true;
   starts?: Array<Point & { next: number }>;
   partner?: true;
   partnerReturns?: Array<{ x: number; y: number; steps: number[] }>;
@@ -315,7 +317,7 @@ export async function buildScenePlan(source: ProjectSource, state: InteractionIn
     textSlots: Math.max(textNodes.length, state.old?.scene?.textSlots ?? 0), visibility, follower: state.byPath.has("scripts/OaksLab_2.asm"),
     ...(starts.length > 1 ? { starts: entries } : {}),
     latchFlag: state.old?.scene?.latchFlag ?? (options.trigger === "coordinate" || options.automaticStarts ? allocate(`EVENT_${model.prefix.toUpperCase()}_SCENE_LATCH`) : null),
-    ...(giftFlag ? { giftFlag } : {}), ...(hasPartner ? { partner: true as const, partnerReturns: buildPartnerReturns() } : {}),
+    ...(giftFlag ? { giftFlag } : {}), textHandoff: true, ...(hasPartner ? { partner: true as const, partnerReturns: buildPartnerReturns() } : {}),
     ...(hasEffects || state.old?.scene?.effects ? { effects: { music: state.document.effects.music.filter(track => usedMusic.has(track.id)), battles } } : {}) };
 }
 export function sceneRootHook(prefix: string) { return `\t; yellow-editor-scene-hook ${prefix}\n\tcall ${prefix}SceneFrame\n\tret c\n\t; yellow-editor-scene-hook-end ${prefix}\n`; }
@@ -343,10 +345,13 @@ export function renderScene(model: ManagedInteraction): string {
     ...plan.actors.filter(actor => plan.nodes.some(node => node.npc === actor.constant || node.action && "npc" in node.action && node.action.npc === actor.constant || node.action?.kind === "if-position" && node.action.test.mode === "relative" && node.action.test.npc === actor.constant)).flatMap(actor => location(sprite(actor.id, "StateData2MapX"), sprite(actor.id, "StateData2MapY"), actor, fallback, 4)),
   ];
   const lines = [`${model.label}:`, "\ttext_asm", `\t; yellow-editor-interaction: ${JSON.stringify(model)}`];
-  if (options.trigger === "interaction") lines.push(...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, `\tjp nz, ${p}Already`] : []), ...condition(`${p}OriginalOnly`),
+  if (options.trigger === "interaction" && plan.textHandoff) lines.push(...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, `\tjp nz, ${p}Already`] : []), `\tjp ${p}OriginalOnly`);
+  else if (options.trigger === "interaction") lines.push(...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, `\tjp nz, ${p}Already`] : []), ...condition(`${p}OriginalOnly`),
     "\tld a, [wEditorSceneActive]", "\tand a", `\tjp nz, ${p}OriginalOnly`, ...guards(`${p}OriginalOnly`), ...(options.automaticStarts ? [`\tSetEvent ${plan.latchFlag}`] : []), `\tcall ${p}Launch`, "\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a", "\tjp TextScriptEnd");
   else lines.push(`\tjp ${p}OriginalOnly`);
-  lines.push(`${p}Already:`, ...print("AlreadyText"), "\tjp TextScriptEnd", `${p}OriginalOnly:`, ...print("Original"), "\tjp TextScriptEnd", "", `${p}SceneFrame:`, "\tld a, [wEditorSceneActive]", "\tand a", "\tjp nz, .active");
+  lines.push(`${p}Already:`, ...print("AlreadyText"), "\tjp TextScriptEnd", `${p}OriginalOnly:`, ...print("Original"), "\tjp TextScriptEnd", "");
+  if (options.trigger === "interaction" && plan.textHandoff) lines.push(`${p}TryLaunch::`, ...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, `\tjp nz, ${p}LaunchUnavailable`] : []), ...condition(`${p}LaunchUnavailable`), "\tld a, [wEditorSceneActive]", "\tand a", `\tjp nz, ${p}LaunchUnavailable`, ...guards(`${p}LaunchUnavailable`), ...(options.automaticStarts ? [`\tSetEvent ${plan.latchFlag}`] : []), `\tcall ${p}Launch`, "\tscf", "\tret", `${p}LaunchUnavailable:`, "\tand a", "\tret", "");
+  lines.push(`${p}SceneFrame:`, "\tld a, [wEditorSceneActive]", "\tand a", "\tjp nz, .active");
   if (options.trigger === "coordinate" || options.automaticStarts) lines.push(...automaticLocations(`${p}ClearLatch`),
     `\tCheckEvent ${plan.latchFlag}`, "\tjp nz, .inactive", ...(v.once && model.flag ? [`\tCheckEvent ${model.flag}`, "\tjp nz, .inactive"] : []),
     ...condition(`${p}Inactive`), ...(options.automaticCondition ? [`\tCheckEvent ${options.automaticCondition.event}`, `\tjp ${options.automaticCondition.set ? "z" : "nz"}, ${p}Inactive`] : []), ...guards(`${p}Inactive`), `\tSetEvent ${plan.latchFlag}`, `\tcall ${p}Launch`);
@@ -504,6 +509,7 @@ export async function prepareSceneRuntime(state: InteractionInspection, model: M
   await prepareSceneBankSpace(state, changed);
   if (model.values.sharedFlags?.length || itemClaims(model.values.actions ?? []).length) await prepareSharedSceneBankSpace(state, changed);
   const existing = sceneModels(state.files), all = [...existing.filter(other => other.prefix !== model.prefix), model];
+  await prepareSceneTextHandoff(state, existing, all, changed);
   const normalize = (text: string) => text.replace(/\r\n/g, "\n");
   const save = (path: string, text: string) => changed.set(path, text.replace(/\n/g, state.byPath.get(path)!.includes("\r\n") ? "\r\n" : "\n"));
   const visibilityPath = "engine/overworld/toggleable_objects.asm";

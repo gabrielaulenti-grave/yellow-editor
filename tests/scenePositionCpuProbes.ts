@@ -48,7 +48,7 @@ export async function scenePositionCpuProbes(root: string, temporary: string, rg
     const flow = scenario === "comparisons" ? [
       ...set(variable("StateData2MapX"), 12), ...set(variable("StateData2MapY"), 8),
       ...[[7, 4], [9, 4], [8, 3], [8, 5], [8, 4]].flatMap(([x, y], index) => [...set("wXCoord", x), ...set("wYCoord", y), ...tests.flatMap((_, test) => [`call Compare${test}`, `ld [$${(0xc010 + index * 4 + test).toString(16)}], a`])]),
-    ] : [`call ${model.label} + 1`, ...(scenario === "displaced" ? [`call ${p}SceneFrame`, ...set("wXCoord", 9)] : []), "call Frames"];
+    ] : [`call ${model.prefix}TryLaunch`, ...(scenario === "displaced" ? [`call ${p}SceneFrame`, ...set("wXCoord", 9)] : []), "call Frames"];
     const asm = ['INCLUDE "macros/const.asm"', 'INCLUDE "macros/code.asm"', ...defs, events, macros, 'SECTION "Header", ROM0[$100]', "jp Entry", "ds $150 - @, 0", 'SECTION "Code", ROM0[$150]', "Entry:", "di", "ld sp, $dfff", "ld hl, $c000", "ld bc, $1000", ".clear", "xor a", "ld [hli], a", "dec bc", "ld a, b", "or c", "jr nz, .clear", ...reset, ...flow, "ProbeDone:", "halt", "jr ProbeDone", nativeTable, code, ...comparisons, ...stubs].join("\n");
     const file = join(temporary, "position.asm"), obj = join(temporary, "position.o"), rom = join(temporary, "position.gb"), sym = join(temporary, "position.sym");
     await writeFile(file, asm); run(join(rgbds, "rgbasm"), ["-I", `${root}/`, "-o", obj, file]); run(join(rgbds, "rgblink"), ["-n", sym, "-o", rom, obj]); run(join(rgbds, "rgbfix"), ["-v", "-p", "0", rom]);

@@ -80,7 +80,8 @@ Each execution path may deliver one reward. Mutually exclusive branches can
 offer different rewards. Several rewards on one path are rejected because a
 later failure would allow an earlier reward to be duplicated on retry. A
 one-time gift path must complete; an incomplete early end belongs before
-delivery. Per-reward persistent progress is future work.
+delivery. Shared reward groups preserve a choice across separate interactions;
+multiple sequential rewards within one execution path remain unsupported.
 
 Saving an item gift also repairs Red/Blue's native end-of-bag stack scan. Without
 that correction, adding more of the last item when its stack overflows can scan
@@ -152,7 +153,8 @@ hashes reject stale forms; generated-code comparisons reject overwriting
 manual changes. Sound declarations remain symbolic linker expressions; the
 composer does not guess their IDs. Playback uses the current audio bank and
 fade state. Effect waits cover channels 5, 6 and 8, and the low-health alarm
-can bypass the wait. Music replacement/restoration is not exposed here.
+can bypass the wait. Use the separate Change music action for music cues and
+restoring the map's track.
 
 An interaction supports up to 64 actions and four nested branches. Empty
 branches fall through. Actions after an unconditional end are rejected.
@@ -263,7 +265,9 @@ ROM banks still have finite capacity; this change resolves the shared lookup
 allocation conflict rather than making scene size unlimited.
 
 Successful exits retain authored visibility; incomplete exits restore the
-starting visibility. Initial visibility becomes fixed after the first save to
+starting visibility. Movement is not rolled back on an incomplete exit. Re-enter
+the map to restore actor starting positions before retrying an interrupted route.
+Initial visibility becomes fixed after the first save to
 avoid reinterpreting existing saved event bits. Scene visibility flags share the
 existing event array; native toggle IDs and save sizes are unchanged.
 
@@ -276,6 +280,11 @@ on unrelated map entry; native battle returns resume the pending scene. Each sce
 Cross-map escorts and persistent PC-session outcomes still need authoring
 interfaces and runtime checks. The
 Lance/PC lesson remains a regression fixture outside the application bundle.
+
+Interaction scenes saved with the current editor launch before native dialogue
+initialization, avoiding an empty text-box flash before the scene starts. Starts
+that fail their coordinate, event or state checks still use the original native
+dialogue. Reopen and save older scenes, then rebuild, to apply this handoff update.
 
 ## Verification
 
@@ -331,6 +340,13 @@ It checks species, ball consumption, prizes, hidden sprites, input/palette clean
 and persistent completion. Native rendering shows Snorlax before the encounter
 and removes it afterward. Setup/save-marker hooks exist only in the test ROM;
 no battle, capture, save/load or graphics routine is replaced.
+
+The linked-fossil gameplay check (`npm run test:scenes:choices:gameplay`, with the
+same source and `--rom` arguments) plays the guardian battle, both item choices,
+No followed by Yes, a full bag and blackout in both games. It verifies native
+guardian movement, hidden fossils, inventory and battery-save Continue. A
+test-only observation counter checks that launching a scene does not initialize
+an empty dialogue window; native text initialization and rendering still run.
 
 ## Following partner (Yellow)
 

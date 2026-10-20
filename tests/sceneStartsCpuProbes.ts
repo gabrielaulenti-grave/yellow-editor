@@ -44,7 +44,7 @@ export async function sceneStartsCpuProbes(root: string, temporary: string, rgbd
       })];
     const excluded = scenario === "excluded", busy = scenario === "native-busy", accepted = !excluded && !busy;
     const index = scenario.startsWith("start") ? Number(scenario.slice(-1)) : 0;
-    const launch = kind === "interaction" ? [`call ${model.label} + 1`] : [];
+    const launch = kind === "interaction" ? [`call ${model.prefix}TryLaunch`] : [];
     const setup = ["di", "ld sp, $dfff", "ld hl, $c000", "ld bc, $1000", ".clear", "xor a", "ld [hli], a", "dec bc", "ld a, b", "or c", "jr nz, .clear", ...reset,
       ...(excluded ? [...set("wXCoord", 8), ...set("wYCoord", 6)] : position(index)), ...launch];
     const stubs = ["Frames:", "ld b, 80", ".frame", "push bc", `call ${p}SceneFrame`, "pop bc", "dec b", "jr nz, .frame", "ret",

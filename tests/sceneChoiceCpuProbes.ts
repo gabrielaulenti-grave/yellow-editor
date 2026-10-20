@@ -53,7 +53,7 @@ export async function sceneChoiceCpuProbes(root: string, temporary: string, rgbd
     })];
   function launch(which: "guardian" | "dome" | "helix", start = 0, frames = true) {
     const model = models[which], point = model.scene!.starts?.[start] ?? { x: model.values.scene!.playerX, y: model.values.scene!.playerY };
-    return [...reset, ...set("wXCoord", point.x), ...set("wYCoord", point.y), `call ${model.label} + 1`, ...(frames ? ["call Frames"] : [])];
+    return [...reset, ...set("wXCoord", point.x), ...set("wYCoord", point.y), `call ${model.prefix}TryLaunch`, ...(frames ? ["call Frames"] : [])];
   }
   const flagValue = (name: string) => parseInt(events.match(new RegExp(`DEF ${name} EQU \\$([a-f0-9]+)`))![1], 16);
   let count = 0;
@@ -79,7 +79,7 @@ export async function sceneChoiceCpuProbes(root: string, temporary: string, rgbd
     if (scenario === "guardian-win") flow.push(...launch("guardian", 1));
     if (/^(dome|helix)[0-2]$/.test(scenario)) flow.push(
       ...set("wXCoord", helix ? 6 : 8), ...set("wYCoord", helix ? 5 : 6), ...set("$c008", 0),
-      `call ${models.guardian.label} + 1`, "call Frames",
+      `call ${models.guardian.prefix}TryLaunch`, "call Frames",
     ); // Talk after the route without resetting the guardian to its original tile.
     const asm = ['INCLUDE "macros/const.asm"', 'INCLUDE "macros/code.asm"', ...defs, events, macros, 'SECTION "Header", ROM0[$100]', "jp Entry", "ds $150 - @, 0", 'SECTION "Code", ROM0[$150]', "Entry:", ...flow, "ProbeDone:", "halt", "jr ProbeDone", nativeTable, code, ...stubs].join("\n");
     const file = join(temporary, "choices.asm"), obj = join(temporary, "choices.o"), rom = join(temporary, "choices.gb"), sym = join(temporary, "choices.sym");

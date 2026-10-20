@@ -143,6 +143,9 @@ jobs:
       - name: Assemble and execute linked fossil scenes
         run: npm run test:scenes:choices -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
+      - name: Play complete native fossil quests and reload battery saves
+        run: npm run test:scenes:choices:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
       - name: Assemble and execute multi-start scenes in Red and Yellow
         run: npm run test:scenes:starts -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
