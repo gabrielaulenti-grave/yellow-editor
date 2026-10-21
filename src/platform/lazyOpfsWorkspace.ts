@@ -1,3 +1,4 @@
+import { createBrowserProjectFile, removeBrowserProjectFile, verifyBrowserProjectBytes } from "./projectFileLifecycle";
 import type {
   HistoryStore,
   ProjectBuildReadPreparation,
@@ -385,6 +386,28 @@ export async function createLazyOpfsProjectSource(
       }
     },
 
+    async createFile(this: ProjectSource, relativePath, contents) {
+      const path = normalizePath(relativePath);
+      if (await this.exists(path)) throw new Error(`${path} already exists.`);
+      await pendingPersistence.get(path);
+      const handle = await opfsFileForPath(workspaceRoot, path, true);
+      try {
+        await writeOpfsFile(handle, contents);
+        await createBrowserProjectFile(options.externalRoot, path, contents);
+      } catch (error) {
+        await removeBrowserProjectFile(workspaceRoot, path).catch(() => undefined); throw error;
+      }
+      memoryBytes.set(path, contents.slice());
+    },
+    async removeFile(this: ProjectSource, relativePath) {
+      const path = normalizePath(relativePath), before = await this.readBytes(path);
+      await pendingPersistence.get(path);
+      await verifyBrowserProjectBytes(options.externalRoot, path, before);
+      await removeBrowserProjectFile(workspaceRoot, path);
+      try { await removeBrowserProjectFile(options.externalRoot, path); }
+      catch (error) { await writeOpfsFile(await opfsFileForPath(workspaceRoot, path, true), before); throw error; }
+      memoryBytes.delete(path);
+    },
     async exists(relativePath) {
       const path = normalizePath(relativePath);
       if (!path) {

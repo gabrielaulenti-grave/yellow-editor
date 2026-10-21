@@ -129,6 +129,13 @@ function createDesktopSource(projectPath: string): ProjectSource {
       return invoke<void>("write_project_bytes", { projectPath, relativePath, bytes: Array.from(contents) });
     },
 
+    createFile(relativePath, contents) {
+      return invoke<void>("create_project_file", { projectPath, relativePath, bytes: Array.from(contents) });
+    },
+    removeFile(relativePath) {
+      return invoke<void>("remove_project_file", { projectPath, relativePath });
+    },
+
     exists(relativePath) {
       return invoke<boolean>("project_path_exists", {
         projectPath,

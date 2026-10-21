@@ -75,4 +75,4 @@ Interaction edits are kept as recoverable drafts on the current device, separate
 
 Scenes can list up to eight player starts with **Add player start**, so an NPC interaction can run from several sides or a coordinate scene can cover multiple tiles. Routes are checked from every start, following adapts its first player step, and completion/reward checkpoints remain shared.
 
-Map terrain and warp editing: see [the first-pass guide](docs/map-terrain-and-warps.md) for adding a house, shared blocksets, paired exits, and the path toward independent maps.
+Map creation, terrain and warps: see [the map editing guide](docs/map-terrain-and-warps.md) for creating independent interiors, adding houses, shared blocksets, and paired exits.

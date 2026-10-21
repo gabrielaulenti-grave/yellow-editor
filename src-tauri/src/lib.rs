@@ -30,6 +30,8 @@ pub fn run() {
             decode_png_rgba,
             write_project_text,
             write_project_bytes,
+            create_project_file,
+            remove_project_file,
             project_path_exists,
             resolve_project_asset,
             load_project_history,
@@ -372,6 +374,26 @@ fn write_project_bytes(project_path: String, relative_path: String, bytes: Vec<u
         return Err(format!("Yellow Editor only writes existing project files: {}", path.display()));
     }
     write_bytes_atomically(&path, &bytes)
+}
+
+#[tauri::command]
+fn create_project_file(project_path: String, relative_path: String, bytes: Vec<u8>) -> Result<(), String> {
+    use std::io::Write;
+    let path = project_relative_path(&project_path, &relative_path)?;
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&path)
+        .map_err(|e| format!("Could not create {}: {}", path.display(), e))?;
+    if let Err(error) = file.write_all(&bytes).and_then(|_| file.sync_all()) {
+        drop(file);
+        let _ = fs::remove_file(&path);
+        return Err(format!("Could not write {}: {}", path.display(), error));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn remove_project_file(project_path: String, relative_path: String) -> Result<(), String> {
+    let path = project_relative_path(&project_path, &relative_path)?;
+    fs::remove_file(&path).map_err(|e| format!("Could not remove {}: {}", path.display(), e))
 }
 
 #[tauri::command]

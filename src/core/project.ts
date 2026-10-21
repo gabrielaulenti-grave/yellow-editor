@@ -1,3 +1,4 @@
+import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
 import {
   parseBaseStats,
   parseMoves,
@@ -867,6 +868,13 @@ export async function createProjectSession(
       const result = await history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
       invalidateScriptReadModels(changes.map((change) => change.path));
       return result;
+    },
+    getMapCreateDocument: templateConstant => loadMapCreateDocument(source, templateConstant),
+    createMap: async (document, values) => {
+      const changes = await prepareMapCreateWrites(source, document, values);
+      const result = await history.save(`Create map ${values.constant.trim()}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return { mapConstant: values.constant.trim(), history: result };
     },
     getMapTerrainDocument: mapConstant => loadMapTerrainDocument(source, mapConstant),
     saveMapTerrain: async (document, values) => {

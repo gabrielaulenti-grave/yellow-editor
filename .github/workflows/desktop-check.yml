@@ -59,6 +59,12 @@ jobs:
           path: .script-fixtures/pokered
           persist-credentials: false
 
+      - name: Check independent map creation and undoable file lifecycle
+        run: npm run test:maps:create -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check new map creation through Maps
+        run: npm run test:maps:create:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check map terrain and warp sources, binary history and Save As
         run: npm run test:maps:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -124,6 +130,9 @@ jobs:
           curl --fail --location --output .script-fixtures/rgbds.tar.xz https://github.com/gbdev/rgbds/releases/download/v1.0.4/rgbds-linux-x86_64.tar.xz
           echo "3e19e50ea602e316be709160acaf0a708b1fa6d32d219ec541f244442895dbb7  .script-fixtures/rgbds.tar.xz" | sha256sum --check
           tar --no-same-owner -xf .script-fixtures/rgbds.tar.xz -C .script-fixtures/rgbds
+
+      - name: Compile independent maps and verify registry and warp records
+        run: npm run test:maps:create -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
 
       - name: Compile new houses and verify map and warp bytes in ROM
         run: npm run test:maps:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds

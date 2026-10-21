@@ -1,3 +1,4 @@
+import { loadMapCreateDocument, prepareMapCreateWrites } from "../src/core/mapCreation";
 import { loadMapTerrainDocument, prepareMapTerrainWrites, loadMapWarpDocument, prepareMapWarpWrites } from "../src/core/mapEditing";
 import { createProjectHistoryManager } from "../src/core/history";
 import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "../src/core/npcEditing";
@@ -38,6 +39,12 @@ const source = {
   exists: async (path: string) => path in fixture.dialogueFiles || path in fixture.dialogueBytes,
   listFiles: async () => [...Object.keys(fixture.dialogueFiles), ...Object.keys(fixture.dialogueBytes)],
 } as ProjectSource;
+source.createFile = async (path, bytes) => {
+  if (await source.exists(path)) throw new Error(`${path} already exists.`);
+  if (path.endsWith(".blk")) fixture.dialogueBytes[path] = Array.from(bytes);
+  else fixture.dialogueFiles[path] = new TextDecoder().decode(bytes);
+};
+source.removeFile = async path => { delete fixture.dialogueFiles[path]; delete fixture.dialogueBytes[path]; };
 source.writeText = async (path, text) => { fixture.dialogueFiles[path] = text; };
 source.writeBytes = async (path, bytes) => { fixture.dialogueBytes[path] = Array.from(bytes); };
 let historyState: import("../src/core/types").HistoryState | null = null;
@@ -50,6 +57,12 @@ const session = attachTextEditing({ saveTextChanges: async (_title: string, chan
 } } as ProjectSession, source);
 fixture.dialogueInvoke = async (command, args) => {
   switch (command) {
+    case "get_map_create_document": return loadMapCreateDocument(source, args?.templateConstant as string | undefined);
+    case "create_map": {
+      const changes = await prepareMapCreateWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes);
+      return { mapConstant: (args!.values as { constant: string }).constant, history: await mapHistory.save("Create map", changes) };
+    }
     case "get_map_terrain_document": return loadMapTerrainDocument(source, args!.mapConstant as string);
     case "save_map_terrain": {
       const changes = await prepareMapTerrainWrites(source, args!.document as never, args!.values as never);

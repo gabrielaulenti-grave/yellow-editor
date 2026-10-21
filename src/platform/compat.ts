@@ -1,3 +1,4 @@
+import type { MapCreateDocument, MapCreateValues } from "../core/types";
 import type { MapTerrainDocument, MapTerrainValues, MapWarpDocument, MapWarpValues } from "../core/types";
 import type { InteractionDocument, InteractionValues } from "../core/scriptInteractions";
 import type {
@@ -596,6 +597,11 @@ export async function invoke<T>(
         itemCreateValuesArg(args),
       )) as T;
 
+    case "get_map_create_document":
+      return await session.getMapCreateDocument(typeof args?.templateConstant === "string" ? args.templateConstant : undefined) as T;
+    case "create_map":
+      if (!args?.document || !args.values) throw new Error("Missing map creation document or values.");
+      return await session.createMap(args.document as MapCreateDocument, args.values as MapCreateValues) as T;
     case "get_map_terrain_document":
       return await session.getMapTerrainDocument(stringArg(args, "mapConstant")) as T;
     case "save_map_terrain":

@@ -169,7 +169,7 @@ function createStoredZip(files: SnapshotFile[]): Uint8Array {
 function historyOverrides(
   state: HistoryState,
   targetCursor: number,
-): Map<string, Uint8Array> {
+): Map<string, Uint8Array | null> {
   if (
     !Number.isInteger(targetCursor)
     || targetCursor < 0
@@ -181,18 +181,18 @@ function historyOverrides(
   }
 
   const encoder = new TextEncoder();
-  const overrides = new Map<string, Uint8Array>();
+  const overrides = new Map<string, Uint8Array | null>();
 
   if (targetCursor < state.cursor) {
     for (let index = state.cursor - 1; index >= targetCursor; index -= 1) {
       for (const file of state.entries[index].files) {
-        overrides.set(normalizePath(file.path), file.encoding === "hex" ? hexToBytes(file.before) : encoder.encode(file.before));
+        overrides.set(normalizePath(file.path), file.beforeExists === false ? null : file.encoding === "hex" ? hexToBytes(file.before) : encoder.encode(file.before));
       }
     }
   } else if (targetCursor > state.cursor) {
     for (let index = state.cursor; index < targetCursor; index += 1) {
       for (const file of state.entries[index].files) {
-        overrides.set(normalizePath(file.path), file.encoding === "hex" ? hexToBytes(file.after) : encoder.encode(file.after));
+        overrides.set(normalizePath(file.path), file.afterExists === false ? null : file.encoding === "hex" ? hexToBytes(file.after) : encoder.encode(file.after));
       }
     }
   }
@@ -251,7 +251,8 @@ export async function createProjectSnapshot(
   const overrides = historyOverrides(state, targetCursor);
   const files: SnapshotFile[] = [];
 
-  for (const path of paths) {
+  for (const path of new Set([...paths, ...overrides.keys()])) {
+    if (overrides.has(path) && overrides.get(path) === null) continue;
     files.push({
       path,
       bytes: overrides.get(path) ?? await source.readBytes(path),

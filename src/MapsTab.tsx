@@ -1,3 +1,4 @@
+import { MapCreateWizard } from "./MapCreateWizard";
 import { renderTiles, renderBlocks, renderMap } from "./editor/mapCanvasDrawing";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -227,6 +228,8 @@ export function MapsTab({
   const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [createMapOpen, setCreateMapOpen] = useState(false);
+  const appliedMapFocus = useRef<string | null>(null);
   const [terrainOpen, setTerrainOpen] = useState(false);
   const [warpEditor, setWarpEditor] = useState<{ id: number | null } | null>(null);
   const [npcWizardOpen, setNpcWizardOpen] = useState(false);
@@ -244,6 +247,8 @@ export function MapsTab({
   }, []);
 
   useEffect(() => {
+    appliedMapFocus.current = null;
+    setCreateMapOpen(false);
     setTerrainOpen(false);
     setWarpEditor(null);
     setNpcWizardOpen(false);
@@ -288,6 +293,17 @@ export function MapsTab({
     };
   }, [project?.storageKey]);
 
+  useEffect(() => {
+    if (!project || !mapRevision) return;
+    let cancelled = false;
+    void invoke<MapIndexEntry[]>("get_map_index").then(entries => {
+      if (cancelled) return;
+      setMaps(entries);
+      setSelectedConstant(current => entries.some(entry => entry.constant === current) ? current : entries.find(entry => !entry.isUnused)?.constant ?? null);
+    }).catch(reason => { if (!cancelled) setError(String(reason)); });
+    return () => { cancelled = true; };
+  }, [project?.storageKey, mapRevision]);
+
   const selectedMap = maps.find(
     (entry) => entry.constant === selectedConstant,
   ) ?? null;
@@ -297,10 +313,11 @@ export function MapsTab({
       !focusMapConstant
       || maps.length === 0
       || !maps.some((entry) => entry.constant === focusMapConstant)
-      || selectedConstant === focusMapConstant
+      || appliedMapFocus.current === focusMapConstant
     ) {
       return;
     }
+    appliedMapFocus.current = focusMapConstant;
     selectMapFromBrowser(focusMapConstant);
   }, [focusMapConstant, maps]);
 
@@ -548,9 +565,16 @@ export function MapsTab({
             game world.
           </p>
         </div>
-        <span className="read-only-badge">Terrain and warp editing</span>
+        <button type="button" className="primary-button" onClick={() => setCreateMapOpen(true)}>Create map</button>
       </div>
 
+      {createMapOpen && <MapCreateWizard exterior={visualization} onDirtyChange={onDirtyChange} onClose={() => setCreateMapOpen(false)} onCreated={result => {
+        setCreateMapOpen(false);
+        void invoke<MapIndexEntry[]>("get_map_index").then(entries => {
+          setMaps(entries); selectMapFromBrowser(result.mapConstant);
+          window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: result.history }));
+        }).catch(reason => setError(String(reason)));
+      }} />}
       <div className="world-map-browser">
         <aside>
           <input

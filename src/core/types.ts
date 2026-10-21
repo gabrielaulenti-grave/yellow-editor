@@ -100,6 +100,18 @@ export interface MapNpcEvent {
   dialogueLabel: string | null;
 }
 
+export interface MapCreateDocument {
+  templateConstant: string; visualization: MapVisualization; borderBlock: number;
+  nextId: number; remainingIds: number; templates: MapIndexEntry[]; locations: MapIndexEntry[];
+  sources: MapSourceSnapshot[];
+}
+export interface MapCreateValues {
+  constant: string; width: number; height: number; layout: "copy" | "blank";
+  fillBlock: number; borderBlock: number; locationMap: string; musicMap: string;
+  connection: null | { exteriorMap: string; exteriorX: number; exteriorY: number; interiorX: number; interiorY: number };
+}
+export interface MapCreateResult { mapConstant: string; history: HistorySummary }
+
 export interface MapSourceSnapshot { path: string; hash: string; encoding?: "hex" }
 export interface MapTerrainDocument {
   visualization: MapVisualization;
@@ -1357,6 +1369,8 @@ export interface FishingEditDocument extends FishingData {
 }
 
 export interface HistoryFileChange {
+  beforeExists?: boolean;
+  afterExists?: boolean;
   encoding?: "hex";
   path: string;
   before: string;
@@ -1435,6 +1449,7 @@ export interface HistoryStore {
 }
 
 export interface TextWriteRequest {
+  operation?: "create" | "delete";
   /** Binary snapshots are stored as lossless hexadecimal strings. */
   encoding?: "hex";
   path: string;
@@ -1550,6 +1565,8 @@ export interface ProjectSource {
   readBytes(relativePath: string): Promise<Uint8Array>;
   writeText(relativePath: string, contents: string): Promise<void>;
   writeBytes?(relativePath: string, contents: Uint8Array): Promise<void>;
+  createFile?(relativePath: string, contents: Uint8Array): Promise<void>;
+  removeFile?(relativePath: string): Promise<void>;
   exists(relativePath: string): Promise<boolean>;
   assetUrl(relativePath: string): Promise<string | null>;
   listFiles?(): Promise<string[]>;
@@ -1596,6 +1613,8 @@ export interface ProjectSession {
     document: ItemCreateDocument,
     values: ItemCreateValues,
   ): Promise<HistorySummary>;
+  getMapCreateDocument(templateConstant?: string): Promise<MapCreateDocument>;
+  createMap(document: MapCreateDocument, values: MapCreateValues): Promise<MapCreateResult>;
   getMapTerrainDocument(mapConstant: string): Promise<MapTerrainDocument>;
   saveMapTerrain(document: MapTerrainDocument, values: MapTerrainValues): Promise<HistorySummary>;
   getMapWarpDocument(mapConstant: string): Promise<MapWarpDocument>;
