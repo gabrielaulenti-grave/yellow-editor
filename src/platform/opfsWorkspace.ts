@@ -10,7 +10,7 @@ const MANIFEST_FILE = ".yellow-editor-workspace.json";
 const MANIFEST_VERSION = 2;
 
 interface ExternalWritableFileStream {
-  write(data: string): Promise<void>;
+  write(data: string | Uint8Array): Promise<void>;
   close(): Promise<void>;
   abort?(): Promise<void>;
 }
@@ -524,10 +524,14 @@ export async function createOpfsWorkspaceProjectSource(
       }
     },
 
-    async writeText(relativePath, contents) {
+    async writeText(this: ProjectSource, relativePath, contents) {
+      await this.writeBytes!(relativePath, new TextEncoder().encode(contents));
+    },
+
+    async writeBytes(relativePath, contents) {
       const path = normalizePath(relativePath);
       const workspaceHandle = await hydrateFile(path);
-      const previousWorkspaceContents = await (await workspaceHandle.getFile()).text();
+      const previousWorkspaceContents = new Uint8Array(await (await workspaceHandle.getFile()).arrayBuffer());
       const expectedExternal = currentManifest.files[path];
 
       if (expectedExternal) {

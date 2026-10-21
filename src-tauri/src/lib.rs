@@ -29,6 +29,7 @@ pub fn run() {
             write_archive_bytes,
             decode_png_rgba,
             write_project_text,
+            write_project_bytes,
             project_path_exists,
             resolve_project_asset,
             load_project_history,
@@ -362,6 +363,15 @@ fn write_project_text(
     }
 
     write_text_atomically(&path, &contents)
+}
+
+#[tauri::command]
+fn write_project_bytes(project_path: String, relative_path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let path = project_relative_path(&project_path, &relative_path)?;
+    if !path.is_file() {
+        return Err(format!("Yellow Editor only writes existing project files: {}", path.display()));
+    }
+    write_bytes_atomically(&path, &bytes)
 }
 
 #[tauri::command]

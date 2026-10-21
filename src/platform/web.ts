@@ -20,7 +20,7 @@ import {
 } from "./webHistory";
 
 interface BrowserWritableFileStream {
-  write(data: string | Blob): Promise<void>;
+  write(data: string | Blob | Uint8Array): Promise<void>;
   close(): Promise<void>;
   abort?(): Promise<void>;
 }
@@ -310,7 +310,11 @@ function createWebSource(
       }
     },
 
-    async writeText(relativePath, contents) {
+    async writeText(this: ProjectSource, relativePath, contents) {
+      await this.writeBytes!(relativePath, new TextEncoder().encode(contents));
+    },
+
+    async writeBytes(relativePath, contents) {
       let writable: BrowserWritableFileStream | null = null;
 
       try {

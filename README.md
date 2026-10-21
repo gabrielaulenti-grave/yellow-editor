@@ -74,3 +74,5 @@ The [Viridian PC lesson](docs/pc-tutorial.md) is a regression scenario for the s
 Interaction edits are kept as recoverable drafts on the current device, separately from project source. Close an invalid scene to repair an NPC, then reopen and choose Resume draft. Scene review shows trigger/state requirements; Check scene validates without writing assembly and identifies affected actions and blocked tiles. Save applies the validated interaction to the project as an undoable edit.
 
 Scenes can list up to eight player starts with **Add player start**, so an NPC interaction can run from several sides or a coordinate scene can cover multiple tiles. Routes are checked from every start, following adapts its first player step, and completion/reward checkpoints remain shared.
+
+Map terrain and warp editing: see [the first-pass guide](docs/map-terrain-and-warps.md) for adding a house, shared blocksets, paired exits, and the path toward independent maps.

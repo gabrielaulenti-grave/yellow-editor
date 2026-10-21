@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:maps:edit": "node scripts/check-map-editing.mjs",
+    "test:maps:edit:ui": "node scripts/check-map-edit-workflow.mjs",
     "test:maps:interactions": "node scripts/check-map-interactions.mjs",
     "test:interactions": "node scripts/check-interaction-sequence.mjs",
     "test:pc-tutorial:ui": "node scripts/check-pc-tutorial-ui.mjs",

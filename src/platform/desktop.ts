@@ -125,6 +125,10 @@ function createDesktopSource(projectPath: string): ProjectSource {
       });
     },
 
+    writeBytes(relativePath, contents) {
+      return invoke<void>("write_project_bytes", { projectPath, relativePath, bytes: Array.from(contents) });
+    },
+
     exists(relativePath) {
       return invoke<boolean>("project_path_exists", {
         projectPath,

@@ -160,6 +160,26 @@ export async function hashText(contents: string): Promise<string> {
   return fallbackHash(contents);
 }
 
+export function bytesToHex(bytes: Uint8Array | number[]): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function hexToBytes(hex: string): Uint8Array {
+  if (!/^(?:[0-9a-f]{2})*$/i.test(hex)) throw new Error("Invalid binary history snapshot.");
+  return Uint8Array.from(hex.match(/../g) ?? [], byte => Number.parseInt(byte, 16));
+}
+
+async function readSnapshot(source: ProjectSource, path: string, encoding?: "hex"): Promise<string> {
+  return encoding === "hex" ? bytesToHex(await source.readBytes(path)) : source.readText(path);
+}
+
+async function writeSnapshot(source: ProjectSource, change: HistoryFileChange, contents: string): Promise<void> {
+  if (change.encoding === "hex") {
+    if (!source.writeBytes) throw new Error("This project source cannot save binary assets.");
+    await source.writeBytes(change.path, hexToBytes(contents));
+  } else await source.writeText(change.path, contents);
+}
+
 function newEntryId(): string {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -176,7 +196,7 @@ async function inspectEntrySide(
   let allAfter = true;
 
   for (const change of changes) {
-    const current = await source.readText(change.path);
+    const current = await readSnapshot(source, change.path, change.encoding);
     const currentHash = await hashText(current);
     allBefore &&= currentHash === change.beforeHash;
     allAfter &&= currentHash === change.afterHash;
@@ -197,7 +217,7 @@ async function verifyCurrentContents(
   expectedSide: HistorySide,
 ): Promise<void> {
   for (const change of changes) {
-    const current = await source.readText(change.path);
+    const current = await readSnapshot(source, change.path, change.encoding);
     const currentHash = await hashText(current);
     const expectedHash = expectedSide === "before" ? change.beforeHash : change.afterHash;
 
@@ -219,7 +239,7 @@ async function writeChanges(
   try {
     for (const change of changes) {
       const contents = direction === "before" ? change.before : change.after;
-      await source.writeText(change.path, contents);
+      await writeSnapshot(source, change, contents);
       written.push(change);
     }
   } catch (error) {
@@ -227,7 +247,7 @@ async function writeChanges(
     for (const change of written.reverse()) {
       try {
         const rollbackContents = direction === "before" ? change.after : change.before;
-        await source.writeText(change.path, rollbackContents);
+        await writeSnapshot(source, change, rollbackContents);
       } catch {
         // The journal was persisted before writing, so both versions remain
         // available even if an interrupted multi-file write needs recovery.
@@ -387,8 +407,12 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
       // instead of paying for a second mobile filesystem read immediately
       // before the same write. The hash guard is still checked against that
       // freshly prepared snapshot.
+      if (request.encoding === "hex") {
+        if (!source.writeBytes) throw new Error("This project source cannot save binary assets.");
+        hexToBytes(request.contents);
+      }
       const prepared = request as PreparedTextWriteRequest;
-      const before = prepared.beforeContents ?? await source.readText(request.path);
+      const before = prepared.beforeContents ?? await readSnapshot(source, request.path, request.encoding);
       const beforeHash = prepared.beforeHash ?? await hashText(before);
 
       if (request.expectedHash && request.expectedHash !== beforeHash) {
@@ -403,6 +427,7 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
 
       changes.push({
         path: request.path,
+        ...(request.encoding ? { encoding: request.encoding } : {}),
         before,
         after: request.contents,
         beforeHash,
@@ -492,6 +517,7 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
       `Revert: ${entry.label}`,
       entry.files.map((file) => ({
         path: file.path,
+        encoding: file.encoding,
         contents: file.before,
         expectedHash: file.afterHash,
       })),

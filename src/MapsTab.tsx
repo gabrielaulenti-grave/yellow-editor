@@ -12,6 +12,8 @@ import type {
 } from "./core/types";
 import { invoke } from "./platform/compat";
 import { MapInteractionEditor } from "./MapInteractionEditor";
+import { MapTerrainEditor } from "./MapTerrainEditor";
+import { MapWarpEditor } from "./MapWarpEditor";
 import { MapNpcEditor } from "./MapNpcEditor";
 import { MapNpcWizard } from "./MapNpcWizard";
 import { MapScriptsPanel } from "./MapScriptsPanel";
@@ -225,6 +227,8 @@ export function MapsTab({
   const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [terrainOpen, setTerrainOpen] = useState(false);
+  const [warpEditor, setWarpEditor] = useState<{ id: number | null } | null>(null);
   const [npcWizardOpen, setNpcWizardOpen] = useState(false);
   const [editingNpcId, setEditingNpcId] = useState<number | null>(null);
   const [mapRevision, setMapRevision] = useState(0);
@@ -240,6 +244,8 @@ export function MapsTab({
   }, []);
 
   useEffect(() => {
+    setTerrainOpen(false);
+    setWarpEditor(null);
     setNpcWizardOpen(false);
     setEditingNpcId(null);
     newNpcSelection.current = null;
@@ -542,7 +548,7 @@ export function MapsTab({
             game world.
           </p>
         </div>
-        <span className="read-only-badge">World navigation foundation</span>
+        <span className="read-only-badge">Terrain and warp editing</span>
       </div>
 
       <div className="world-map-browser">
@@ -793,6 +799,19 @@ export function MapsTab({
                 </div>
               </section>
 
+              <div className="terrain-toolbar">
+                <button type="button" className="primary-button" onClick={() => setTerrainOpen(true)}>Edit terrain</button>
+                <button type="button" onClick={() => setWarpEditor({ id: null })}>Add warp</button>
+                <button type="button" disabled={selectedWarpId === null} onClick={() => setWarpEditor({ id: selectedWarpId })}>Edit selected warp</button>
+              </div>
+              {terrainOpen && <MapTerrainEditor key={`${project.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
+                onDirtyChange={onDirtyChange} onClose={() => setTerrainOpen(false)} onSaved={history => {
+                  setTerrainOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                }} />}
+              {warpEditor && <MapWarpEditor key={`${project.storageKey}:${visualization.map.constant}:${warpEditor.id}`} visualization={visualization} warpId={warpEditor.id}
+                onDirtyChange={onDirtyChange} onClose={() => setWarpEditor(null)} onSaved={history => {
+                  setWarpEditor(null); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                }} />}
               <div className="world-map-controls">
                 <div className="segmented-control world-map-view-control">
                   <button

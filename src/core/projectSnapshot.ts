@@ -1,3 +1,4 @@
+import { hexToBytes } from "./history";
 import type {
   HistoryState,
   ProjectSnapshot,
@@ -185,13 +186,13 @@ function historyOverrides(
   if (targetCursor < state.cursor) {
     for (let index = state.cursor - 1; index >= targetCursor; index -= 1) {
       for (const file of state.entries[index].files) {
-        overrides.set(normalizePath(file.path), encoder.encode(file.before));
+        overrides.set(normalizePath(file.path), file.encoding === "hex" ? hexToBytes(file.before) : encoder.encode(file.before));
       }
     }
   } else if (targetCursor > state.cursor) {
     for (let index = state.cursor; index < targetCursor; index += 1) {
       for (const file of state.entries[index].files) {
-        overrides.set(normalizePath(file.path), encoder.encode(file.after));
+        overrides.set(normalizePath(file.path), file.encoding === "hex" ? hexToBytes(file.after) : encoder.encode(file.after));
       }
     }
   }

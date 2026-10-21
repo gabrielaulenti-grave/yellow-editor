@@ -54,7 +54,7 @@ function parseAsmSize(expression: string): number | null {
   return factors.reduce((product, value) => product * value, 1);
 }
 
-function parseBinaryAssets(contents: string): Map<string, BinaryAssetSpec> {
+export function parseBinaryAssets(contents: string): Map<string, BinaryAssetSpec> {
   const assets = new Map<string, BinaryAssetSpec>();
   let pendingLabels: string[] = [];
   let activeLabels: string[] = [];

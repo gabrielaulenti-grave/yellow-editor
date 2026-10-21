@@ -1,3 +1,5 @@
+import { loadMapTerrainDocument, prepareMapTerrainWrites, loadMapWarpDocument, prepareMapWarpWrites } from "../src/core/mapEditing";
+import { createProjectHistoryManager } from "../src/core/history";
 import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "../src/core/npcEditing";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
 import { checkScriptInteraction, loadScriptInteractionDocument, prepareScriptInteractionWrites, prepareScriptRewardWrite, prepareScriptPokemonGiftWrite } from "../src/core/scriptInteractions";
@@ -36,6 +38,11 @@ const source = {
   exists: async (path: string) => path in fixture.dialogueFiles || path in fixture.dialogueBytes,
   listFiles: async () => [...Object.keys(fixture.dialogueFiles), ...Object.keys(fixture.dialogueBytes)],
 } as ProjectSource;
+source.writeText = async (path, text) => { fixture.dialogueFiles[path] = text; };
+source.writeBytes = async (path, bytes) => { fixture.dialogueBytes[path] = Array.from(bytes); };
+let historyState: import("../src/core/types").HistoryState | null = null;
+source.historyStore = { persistent: false, load: async () => historyState, save: async state => { historyState = structuredClone(state); } };
+const mapHistory = createProjectHistoryManager(source);
 const session = attachTextEditing({ saveTextChanges: async (_title: string, changes: TextWriteRequest[]) => {
   fixture.dialogueSaves.push(changes);
   for (const change of changes) fixture.dialogueFiles[change.path] = change.contents;
@@ -43,6 +50,18 @@ const session = attachTextEditing({ saveTextChanges: async (_title: string, chan
 } } as ProjectSession, source);
 fixture.dialogueInvoke = async (command, args) => {
   switch (command) {
+    case "get_map_terrain_document": return loadMapTerrainDocument(source, args!.mapConstant as string);
+    case "save_map_terrain": {
+      const changes = await prepareMapTerrainWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Edit terrain", changes);
+    }
+    case "get_map_warp_document": return loadMapWarpDocument(source, args!.mapConstant as string);
+    case "save_map_warp": {
+      const changes = await prepareMapWarpWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Edit warp", changes);
+    }
+    case "undo_map_fixture": return mapHistory.undo();
+    case "redo_map_fixture": return mapHistory.redo();
     case "get_map_index": return parseMapIndex(source);
     case "get_map_visualization": return loadMapVisualization(source, args!.mapConstant as string);
     case "get_map_npc_edit_document": return loadMapNpcEditDocument(source, args!.mapConstant as string, args!.objectId as number);

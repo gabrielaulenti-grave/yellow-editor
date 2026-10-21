@@ -459,13 +459,17 @@ export async function createPackedProjectSource(
       return (await readBytesInternal(relativePath)).slice();
     },
 
-    async writeText(relativePath, contents) {
+    async writeText(this: ProjectSource, relativePath, contents) {
+      await this.writeBytes!(relativePath, new TextEncoder().encode(contents));
+    },
+
+    async writeBytes(relativePath, contents) {
       const path = normalizeArchivePath(relativePath);
       if (!parsed.entries.has(path)) {
         throw new Error(`Yellow Editor only writes existing packed project files: ${relativePath}`);
       }
       const previous = overrides.get(path)?.slice();
-      const next = new TextEncoder().encode(contents);
+      const next = contents.slice();
       overrides.set(path, next);
       decoded.set(path, next);
 

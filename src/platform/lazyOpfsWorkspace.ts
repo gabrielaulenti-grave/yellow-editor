@@ -334,10 +334,13 @@ export async function createLazyOpfsProjectSource(
       }
     },
 
-    async writeText(relativePath, contents) {
+    async writeText(this: ProjectSource, relativePath, contents) {
+      await this.writeBytes!(relativePath, new TextEncoder().encode(contents));
+    },
+
+    async writeBytes(relativePath, contents) {
       const path = normalizePath(relativePath);
       const beforeBytes = await loadBytes(path);
-      const beforeText = new TextDecoder().decode(beforeBytes);
 
       // If a first-read cache write is still queued, let it finish so an old
       // background write cannot race with this user edit.
@@ -345,14 +348,14 @@ export async function createLazyOpfsProjectSource(
 
       const externalHandle = await externalFileForPath(options.externalRoot, path);
       const externalFile = await externalHandle.getFile();
-      const currentExternalText = await externalFile.text();
-      if (currentExternalText !== beforeText) {
+      const externalBytes = new Uint8Array(await externalFile.arrayBuffer());
+      if (externalBytes.length !== beforeBytes.length || externalBytes.some((byte, index) => byte !== beforeBytes[index])) {
         throw new Error(
           `${path} changed outside Yellow Editor after it was cached. Reopen the project before saving so the external change is preserved.`,
         );
       }
 
-      const nextBytes = new TextEncoder().encode(contents);
+      const nextBytes = contents.slice();
       const workspaceHandle = await opfsFileForPath(workspaceRoot, path, true);
       await writeOpfsFile(workspaceHandle, contents);
       memoryBytes.set(path, nextBytes);
