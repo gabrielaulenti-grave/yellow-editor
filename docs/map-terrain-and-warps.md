@@ -19,7 +19,7 @@ This version creates interior maps using existing tilesets. It does not copy the
 ## Add a house to an existing map
 
 1. Open the exterior map and choose **Edit terrain**.
-2. Select the roof and wall blocks from the block palette, or turn on **Pick block from map** to sample an existing building. Click or drag to paint the new footprint. Preserve a door tile at its entrance.
+2. Select the roof and wall blocks from the block palette, or choose **Pick block from map** in **Map tool** to sample an existing building. Choose **Paint blocks** to click or drag the new footprint. On a touchscreen, choose **Scroll map** and swipe horizontally or vertically to move around without painting, then switch back to **Paint blocks**. Block and tile palettes support swipe scrolling and tap selection. Preserve a door tile at its entrance.
 3. For a custom block, expand **Edit the tiles inside block**, duplicate the selected block, choose a tile, and paint the block's 4×4 tile grid. Paint the duplicate onto the map. Changes to an existing block affect its occurrences across every map using that blockset; saving requires acknowledging shared blockset changes.
 4. Save terrain. Painting uses the 32×32 block grid. Warps and characters use the smaller 16×16 movement grid.
 5. Choose **Add warp**, place the entrance on the door, and choose an existing interior map.

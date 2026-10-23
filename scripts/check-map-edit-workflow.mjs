@@ -34,7 +34,8 @@ try {
     }
     await collect();
     for (const width of [320, 375, 1280]) {
-      const page = await browser.newPage({ viewport: { width, height: 900 } }), errors = [];
+      const mobile = width < 700;
+      const page = await browser.newPage({ viewport: { width, height: mobile ? 700 : 900 }, hasTouch: mobile, isMobile: mobile }), errors = [];
       page.on("pageerror", error => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${server.address().port}`);
       await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
@@ -46,10 +47,60 @@ try {
       await terrain.getByLabel("Selected block", { exact: true }).waitFor();
       const layout = bytes["maps/PalletTown.blk"].slice();
       assert.equal(await terrain.getByRole("button", { name: "Save terrain", exact: true }).isDisabled(), true);
-      await terrain.getByLabel("Pick block from map", { exact: true }).check();
+      if (mobile) {
+        const viewport = terrain.getByRole("region", { name: "Paint map blocks viewport", exact: true });
+        const canvas = terrain.getByLabel("Paint map blocks", { exact: true });
+        const session = await page.context().newCDPSession(page);
+        async function swipe(target, xDistance, yDistance) {
+          await target.scrollIntoViewIfNeeded();
+          const box = await target.boundingBox();
+          await session.send("Input.synthesizeScrollGesture", { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2), xDistance, yDistance, speed: 400, gestureSourceType: "touch" });
+        }
+        await terrain.getByLabel("Map tool", { exact: true }).selectOption("scroll");
+        await terrain.getByLabel("Map zoom", { exact: true }).selectOption("3");
+        await swipe(viewport, -100, 0);
+        await swipe(viewport, 0, -140);
+        await page.waitForFunction(() => {
+          const view = document.querySelector('[aria-label="Paint map blocks viewport"]');
+          return view.scrollLeft > 0 && view.scrollTop > 0;
+        });
+        assert.equal(await terrain.getByRole("button", { name: "Save terrain", exact: true }).isDisabled(), true);
+        assert.equal(await terrain.getByRole("button", { name: "Undo stroke", exact: true }).isDisabled(), true);
+        await terrain.getByLabel("Map tool", { exact: true }).selectOption("paint");
+        await viewport.scrollIntoViewIfNeeded();
+        const at = await viewport.evaluate(view => {
+          const box = view.getBoundingClientRect(), canvas = view.querySelector("canvas").getBoundingClientRect();
+          return { x: Math.floor((box.left + box.width / 2 - canvas.left) / 96), y: Math.floor((box.top + box.height / 2 - canvas.top) / 96) };
+        });
+        const selected = (layout[at.y * 10 + at.x] + 1) % await terrain.getByLabel("Selected block", { exact: true }).locator("option").count();
+        await terrain.getByLabel("Selected block", { exact: true }).selectOption(String(selected));
+        await viewport.scrollIntoViewIfNeeded();
+        const box = await viewport.boundingBox();
+        await page.touchscreen.tap(box.x + box.width / 2, box.y + box.height / 2);
+        assert.equal(await terrain.getByRole("button", { name: "Save terrain", exact: true }).isDisabled(), false);
+        await terrain.getByRole("button", { name: "Undo stroke", exact: true }).click();
+        assert.equal(await terrain.getByRole("button", { name: "Save terrain", exact: true }).isDisabled(), true);
+        await terrain.getByLabel("Map zoom", { exact: true }).selectOption("1");
+        await viewport.evaluate(view => view.scrollTo(0, 0));
+        const palette = terrain.getByRole("region", { name: "Choose map block viewport", exact: true });
+        const before = await terrain.getByLabel("Selected block", { exact: true }).inputValue();
+        await swipe(palette, 0, -100);
+        await page.waitForFunction(() => document.querySelector('[aria-label="Choose map block viewport"]').scrollTop > 0);
+        assert.equal(await terrain.getByLabel("Selected block", { exact: true }).inputValue(), before);
+        const chosen = await palette.evaluate(view => {
+          const box = view.getBoundingClientRect(), canvas = view.querySelector("canvas").getBoundingClientRect();
+          return Math.floor((box.top + box.height / 2 - canvas.top) / 32) * 8 + Math.floor((box.left + box.width / 2 - canvas.left) / 32);
+        });
+        const paletteBox = await palette.boundingBox();
+        await page.touchscreen.tap(paletteBox.x + paletteBox.width / 2, paletteBox.y + paletteBox.height / 2);
+        assert.equal(await terrain.getByLabel("Selected block", { exact: true }).inputValue(), String(chosen));
+        await session.detach();
+        assert.equal(await canvas.evaluate(element => getComputedStyle(element).touchAction), "none");
+      }
+      await terrain.getByLabel("Map tool", { exact: true }).selectOption("pick");
       await terrain.getByLabel("Paint map blocks", { exact: true }).click({ position: { x: 2 * 32 + 16, y: 32 + 16 } });
       assert.equal(await terrain.getByLabel("Selected block", { exact: true }).inputValue(), String(layout[12]));
-      await terrain.getByLabel("Pick block from map", { exact: true }).uncheck();
+      await terrain.getByLabel("Map tool", { exact: true }).selectOption("paint");
       await terrain.getByLabel("Paint map blocks", { exact: true }).click({ position: { x: 48, y: 176 } });
       await terrain.getByRole("button", { name: "Undo stroke", exact: true }).click();
       assert.equal(await terrain.getByRole("button", { name: "Save terrain", exact: true }).isDisabled(), true);

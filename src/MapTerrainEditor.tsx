@@ -11,7 +11,7 @@ export function MapTerrainEditor({ mapConstant, onClose, onSaved, onDirtyChange 
   const dialog = useRef<HTMLDialogElement>(null);
   const [document, setDocument] = useState<MapTerrainDocument | null>(null), [draft, setDraft] = useState<Terrain | null>(null);
   const [selectedBlock, setSelectedBlock] = useState(0), [selectedTile, setSelectedTile] = useState(0);
-  const [pick, setPick] = useState(false), [zoom, setZoom] = useState(1);
+  const [tool, setTool] = useState<"paint" | "pick" | "scroll">("paint"), [zoom, setZoom] = useState(1);
   const [undo, setUndo] = useState<Terrain[]>([]), [redo, setRedo] = useState<Terrain[]>([]);
   const [sharedBlocks, setSharedBlocks] = useState(false), [sharedLayout, setSharedLayout] = useState(false);
   const [error, setError] = useState<string | null>(null), [saving, setSaving] = useState(false);
@@ -59,13 +59,13 @@ export function MapTerrainEditor({ mapConstant, onClose, onSaved, onDirtyChange 
     {!preview || !draft || !document ? <p role="status">{error ? "Terrain editing is unavailable for this map." : "Loading map and blockset…"}</p> : <>
       <fieldset disabled={saving} className="map-edit-fields"><div className="terrain-toolbar">
         <button type="button" disabled={!undo.length} onClick={() => history("undo")}>Undo stroke</button><button type="button" disabled={!redo.length} onClick={() => history("redo")}>Redo stroke</button>
-        <label><input type="checkbox" checked={pick} onChange={e => setPick(e.target.checked)} />Pick block from map</label>
-        <label>Painting zoom<select value={zoom} onChange={e => setZoom(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={3}>3×</option></select></label>
+        <label>Map tool<select value={tool} onChange={e => setTool(e.target.value as typeof tool)}><option value="paint">Paint blocks</option><option value="pick">Pick block from map</option><option value="scroll">Scroll map</option></select></label>
+        <label>Map zoom<select value={zoom} onChange={e => setZoom(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={3}>3×</option></select></label>
       </div>
-      <div className="terrain-workspace"><section><h3>Map layout</h3><p>Click or drag to paint block #{selectedBlock}. Use Pick block to sample an existing house.</p>
-        <MapPaintSurface disabled={saving} visualization={preview} zoom={zoom} label="Paint map blocks" onStart={start} onEnd={end} onCell={(x, y) => {
+      <div className="terrain-workspace"><section><h3>Map layout</h3><p>Click or drag to paint block #{selectedBlock}. Use Pick block to sample an existing house. On touchscreens, choose Scroll map and swipe to move around without painting.</p>
+        <MapPaintSurface disabled={saving} visualization={preview} zoom={zoom} mode={tool === "pick" ? "select" : tool} label="Paint map blocks" onStart={start} onEnd={end} onCell={(x, y) => {
           const value = current.current!; const at = y * preview.map.width + x;
-          if (pick) { setSelectedBlock(value.mapBlocks[at]); return; }
+          if (tool === "pick") { setSelectedBlock(value.mapBlocks[at]); return; }
           if (value.mapBlocks[at] === selectedBlock) return;
           const next = value.mapBlocks.slice(); next[at] = selectedBlock; change({ ...value, mapBlocks: next });
         }} />
@@ -77,7 +77,7 @@ export function MapTerrainEditor({ mapConstant, onClose, onSaved, onDirtyChange 
         <p>Changing an existing block changes every occurrence on every map using this blockset. Duplicate it to keep the existing block intact, then paint the new block onto this map.</p>
         <button type="button" disabled={preview.blockCount >= 256} onClick={() => { start(); const value = current.current!; change({ ...value, blockset: [...value.blockset, ...value.blockset.slice(selectedBlock * 16, selectedBlock * 16 + 16)] }); setSelectedBlock(preview.blockCount); end(); }}>Duplicate selected block</button>
         <div className="terrain-workspace"><section><h3>Block #{selectedBlock}</h3>
-          <MapPaintSurface disabled={saving} visualization={{ ...preview, map: { ...preview.map, width: 1, height: 1 }, mapBlocks: [selectedBlock] }} zoom={6} cellSize={8} label="Paint tiles inside block" onStart={start} onEnd={end} onCell={(x, y) => {
+          <MapPaintSurface disabled={saving} mode="paint" visualization={{ ...preview, map: { ...preview.map, width: 1, height: 1 }, mapBlocks: [selectedBlock] }} zoom={6} cellSize={8} label="Paint tiles inside block" onStart={start} onEnd={end} onCell={(x, y) => {
             const value = current.current!; const at = selectedBlock * 16 + y * 4 + x;
             if (value.blockset[at] === selectedTile) return;
             const next = value.blockset.slice(); next[at] = selectedTile; change({ ...value, blockset: next });
