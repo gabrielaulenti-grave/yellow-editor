@@ -1,3 +1,4 @@
+import { createBrowserProjectFile, removeBrowserProjectFile, verifyBrowserProjectBytes } from "./projectFileLifecycle";
 import type {
   HistoryStore,
   ProjectBuildReadPreparation,
@@ -10,7 +11,7 @@ const MANIFEST_FILE = ".yellow-editor-workspace.json";
 const MANIFEST_VERSION = 2;
 
 interface ExternalWritableFileStream {
-  write(data: string): Promise<void>;
+  write(data: string | Uint8Array): Promise<void>;
   close(): Promise<void>;
   abort?(): Promise<void>;
 }
@@ -30,7 +31,8 @@ export interface WorkspaceExternalDirectoryHandle {
   kind: "directory";
   name: string;
   getDirectoryHandle(name: string): Promise<WorkspaceExternalDirectoryHandle>;
-  getFileHandle(name: string): Promise<WorkspaceExternalFileHandle>;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<WorkspaceExternalFileHandle>;
+  removeEntry(name: string): Promise<void>;
   entries?(): AsyncIterableIterator<[string, WorkspaceExternalEntryHandle]>;
 }
 
@@ -524,10 +526,14 @@ export async function createOpfsWorkspaceProjectSource(
       }
     },
 
-    async writeText(relativePath, contents) {
+    async writeText(this: ProjectSource, relativePath, contents) {
+      await this.writeBytes!(relativePath, new TextEncoder().encode(contents));
+    },
+
+    async writeBytes(relativePath, contents) {
       const path = normalizePath(relativePath);
       const workspaceHandle = await hydrateFile(path);
-      const previousWorkspaceContents = await (await workspaceHandle.getFile()).text();
+      const previousWorkspaceContents = new Uint8Array(await (await workspaceHandle.getFile()).arrayBuffer());
       const expectedExternal = currentManifest.files[path];
 
       if (expectedExternal) {
@@ -566,6 +572,28 @@ export async function createOpfsWorkspaceProjectSource(
       }
     },
 
+    async createFile(this: ProjectSource, relativePath, contents) {
+      const path = normalizePath(relativePath);
+      if (await this.exists(path)) throw new Error(`${path} already exists.`);
+
+      const handle = await opfsFileForPath(workspaceRoot, path, true);
+      try {
+        await writeOpfsFile(handle, contents);
+        await createBrowserProjectFile(options.externalRoot, path, contents);
+      } catch (error) {
+        await removeBrowserProjectFile(workspaceRoot, path).catch(() => undefined); throw error;
+      }
+      currentManifest.files[path] = await externalStamp(options.externalRoot, path); fileHandles.delete(path); await persistManifest().catch(() => undefined);
+    },
+    async removeFile(this: ProjectSource, relativePath) {
+      const path = normalizePath(relativePath), before = await this.readBytes(path);
+
+      await verifyBrowserProjectBytes(options.externalRoot, path, before);
+      await removeBrowserProjectFile(workspaceRoot, path);
+      try { await removeBrowserProjectFile(options.externalRoot, path); }
+      catch (error) { await writeOpfsFile(await opfsFileForPath(workspaceRoot, path, true), before); throw error; }
+      delete currentManifest.files[path]; fileHandles.delete(path); await persistManifest().catch(() => undefined);
+    },
     async exists(relativePath) {
       const path = normalizePath(relativePath);
       if (!path) {

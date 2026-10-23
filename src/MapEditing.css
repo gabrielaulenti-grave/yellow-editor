@@ -1,0 +1,21 @@
+.map-edit-dialog { width: min(1200px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); overflow: auto; box-sizing: border-box; }
+.map-edit-fields { border: 0; padding: 0; min-width: 0; }
+.terrain-toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.terrain-toolbar label { display: flex; gap: 6px; align-items: center; }
+.terrain-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, 0.6fr); gap: 20px; margin: 16px 0; }
+.terrain-workspace section { min-width: 0; }
+.terrain-workspace h3 { margin: 8px 0; }
+.terrain-scroll { max-width: 100%; max-height: min(60dvh, 640px); overflow: auto; margin: 12px 0; }
+.terrain-surface { position: relative; line-height: 0; }
+.terrain-surface canvas { display: block; image-rendering: pixelated; }
+.terrain-selection { position: absolute; pointer-events: none; border: 3px solid #f59e0b; box-shadow: inset 0 0 0 1px #111; box-sizing: border-box; }
+.map-edit-ack { display: flex; align-items: flex-start; gap: 8px; margin: 14px 0; }
+.map-edit-dialog details { border-top: 1px solid #8886; padding: 16px 0; }
+.map-edit-dialog summary { cursor: pointer; font-weight: 600; }
+.warp-edit-grid { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.warp-edit-grid label { display: grid; gap: 4px; min-width: 0; max-width: 100%; }
+.warp-edit-grid input { width: 90px; }
+.map-edit-dialog select { max-width: 100%; }
+@media (max-width: 700px) { .terrain-workspace { grid-template-columns: minmax(0, 1fr); } }
+
+.warp-edit-grid .map-create-name input { width: min(300px, calc(100vw - 84px)); }

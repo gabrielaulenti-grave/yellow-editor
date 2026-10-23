@@ -376,6 +376,7 @@ export async function createPackedProjectSource(
   const originalArchive = options.archiveBytes.slice();
   const parsed = parseZip(originalArchive);
   const overrides = new Map<string, Uint8Array>();
+  const added = new Set<string>(), removed = new Set<string>();
   const decoded = new Map<string, Uint8Array>();
   const pendingReads = new Map<string, Promise<Uint8Array>>();
   const objectUrls = new Map<string, string>();
@@ -383,6 +384,7 @@ export async function createPackedProjectSource(
 
   async function readBytesInternal(relativePath: string): Promise<Uint8Array> {
     const path = normalizeArchivePath(relativePath);
+    if (removed.has(path)) throw new Error(`Packed project does not contain ${relativePath}.`);
     const override = overrides.get(path);
     if (override) {
       return override;
@@ -411,12 +413,36 @@ export async function createPackedProjectSource(
     return pending;
   }
 
+  function activeEntries(): ZipEntry[] {
+    return [...parsed.orderedEntries.filter(entry => !removed.has(entry.path)), ...[...added].map(path => ({
+      path, rawName: parsed.rootPrefix + path, flags: 0x800, method: 0, crc32: 0, compressedSize: 0, uncompressedSize: 0, localOffset: 0,
+    }))];
+  }
+
+  async function persistMutation(path: string, mutation: () => void) {
+    const previous = overrides.get(path)?.slice(), wasAdded = added.has(path), wasRemoved = removed.has(path);
+    mutation(); decoded.delete(path);
+    const url = objectUrls.get(path); if (url) { URL.revokeObjectURL(url); objectUrls.delete(path); }
+    try { if (options.persistArchive) await options.persistArchive(await buildCurrentArchive()); }
+    catch (error) {
+      if (previous) overrides.set(path, previous); else overrides.delete(path);
+      if (wasAdded) added.add(path); else added.delete(path);
+      if (wasRemoved) removed.add(path); else removed.delete(path);
+      decoded.delete(path);
+      throw new Error(`Could not save the packed project archive: ${String(error)}`);
+    }
+  }
+
   async function buildCurrentArchive(): Promise<Uint8Array> {
+    const entries = activeEntries();
+    if (entries.length > MAX_ENTRIES || entries.reduce((total, entry) => total + (overrides.get(entry.path)?.length ?? entry.uncompressedSize), 0) > MAX_TOTAL_UNCOMPRESSED_BYTES) {
+      throw new Error("Packed project additions exceed the supported archive limits.");
+    }
     const parts: Uint8Array[] = [originalArchive.slice(0, parsed.centralOffset)];
     const overrideLocations = new Map<string, { offset: number; bytes: Uint8Array; crc: number }>();
     let offset = parsed.centralOffset;
 
-    for (const entry of parsed.orderedEntries) {
+    for (const entry of entries) {
       const bytes = overrides.get(entry.path);
       if (!bytes) {
         continue;
@@ -429,7 +455,7 @@ export async function createPackedProjectSource(
 
     const centralOffset = offset;
     const centralParts: Uint8Array[] = [];
-    for (const entry of parsed.orderedEntries) {
+    for (const entry of entries) {
       const override = overrideLocations.get(entry.path);
       centralParts.push(centralRecord(
         entry,
@@ -439,8 +465,10 @@ export async function createPackedProjectSource(
     }
     const central = concat(centralParts);
     parts.push(central);
-    parts.push(eocdRecord(parsed.orderedEntries.length, central.length, centralOffset));
-    return concat(parts);
+    parts.push(eocdRecord(entries.length, central.length, centralOffset));
+    const archive = concat(parts);
+    if (archive.length > MAX_ARCHIVE_BYTES) throw new Error("Packed project additions exceed the archive size limit.");
+    return archive;
   }
 
   const source: PackedProjectSource = {
@@ -459,36 +487,29 @@ export async function createPackedProjectSource(
       return (await readBytesInternal(relativePath)).slice();
     },
 
-    async writeText(relativePath, contents) {
+    async writeText(this: ProjectSource, relativePath, contents) {
+      await this.writeBytes!(relativePath, new TextEncoder().encode(contents));
+    },
+
+    async writeBytes(relativePath, contents) {
       const path = normalizeArchivePath(relativePath);
-      if (!parsed.entries.has(path)) {
-        throw new Error(`Yellow Editor only writes existing packed project files: ${relativePath}`);
-      }
-      const previous = overrides.get(path)?.slice();
-      const next = new TextEncoder().encode(contents);
-      overrides.set(path, next);
-      decoded.set(path, next);
-
-      const oldUrl = objectUrls.get(path);
-      if (oldUrl) {
-        URL.revokeObjectURL(oldUrl);
-        objectUrls.delete(path);
-      }
-
-      if (options.persistArchive) {
-        try {
-          await options.persistArchive(await buildCurrentArchive());
-        } catch (error) {
-          if (previous) {
-            overrides.set(path, previous);
-            decoded.set(path, previous);
-          } else {
-            overrides.delete(path);
-            decoded.delete(path);
-          }
-          throw new Error(`Could not save the packed project archive: ${String(error)}`);
-        }
-      }
+      if ((!parsed.entries.has(path) && !added.has(path)) || removed.has(path)) throw new Error(`Packed project does not contain ${relativePath}.`);
+      await persistMutation(path, () => { overrides.set(path, contents.slice()); });
+    },
+    async createFile(relativePath, contents) {
+      const path = normalizeArchivePath(relativePath);
+      if (!path || await this.exists(path)) throw new Error(`${path} already exists or is not a file path.`);
+      await persistMutation(path, () => {
+        if (!parsed.entries.has(path)) added.add(path);
+        removed.delete(path); overrides.set(path, contents.slice());
+      });
+    },
+    async removeFile(relativePath) {
+      const path = normalizeArchivePath(relativePath);
+      if ((!parsed.entries.has(path) && !added.has(path)) || removed.has(path)) throw new Error(`Packed project does not contain ${relativePath}.`);
+      await persistMutation(path, () => {
+        added.delete(path); if (parsed.entries.has(path)) removed.add(path); overrides.delete(path);
+      });
     },
 
     async exists(relativePath) {
@@ -496,11 +517,12 @@ export async function createPackedProjectSource(
       if (!path) {
         return true;
       }
-      if (parsed.entries.has(path)) {
+      if (removed.has(path)) return false;
+      if (added.has(path) || parsed.entries.has(path)) {
         return true;
       }
       const prefix = `${path}/`;
-      for (const key of parsed.entries.keys()) {
+      for (const key of activeEntries().map(entry => entry.path)) {
         if (key.startsWith(prefix)) {
           return true;
         }
@@ -527,7 +549,7 @@ export async function createPackedProjectSource(
     },
 
     async listFiles() {
-      return parsed.orderedEntries.map((entry) => entry.path);
+      return activeEntries().map((entry) => entry.path);
     },
 
     async prepareBuildReads(): Promise<ProjectBuildReadPreparation> {

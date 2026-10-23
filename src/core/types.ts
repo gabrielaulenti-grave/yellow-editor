@@ -100,6 +100,40 @@ export interface MapNpcEvent {
   dialogueLabel: string | null;
 }
 
+export interface MapCreateDocument {
+  templateConstant: string; visualization: MapVisualization; borderBlock: number;
+  nextId: number; remainingIds: number; templates: MapIndexEntry[]; locations: MapIndexEntry[];
+  sources: MapSourceSnapshot[];
+}
+export interface MapCreateValues {
+  constant: string; width: number; height: number; layout: "copy" | "blank";
+  fillBlock: number; borderBlock: number; locationMap: string; musicMap: string;
+  connection: null | { exteriorMap: string; exteriorX: number; exteriorY: number; interiorX: number; interiorY: number };
+}
+export interface MapCreateResult { mapConstant: string; history: HistorySummary }
+
+export interface MapSourceSnapshot { path: string; hash: string; encoding?: "hex" }
+export interface MapTerrainDocument {
+  visualization: MapVisualization;
+  sharedLayout: boolean;
+  sources: MapSourceSnapshot[];
+}
+export interface MapTerrainValues {
+  mapBlocks: number[]; blockset: number[];
+  confirmSharedBlocks: boolean; confirmSharedLayout: boolean;
+}
+export interface MapWarpDocument {
+  mapConstant: string; mapName: string; width: number; height: number; maxWarps: number;
+  warps: Array<{ id: number; x: number; y: number; destinationMap: string; destinationWarpId: number }>;
+  maps: MapIndexEntry[]; sources: MapSourceSnapshot[];
+}
+export interface MapWarpValues {
+  id: number | null; x: number; y: number;
+  destinationMap: string; destinationWarpId: number;
+  destinationDocument: MapWarpDocument | null;
+  pair: { x: number; y: number } | null;
+}
+
 export interface MapVisualization {
   map: MapIndexEntry;
   headerMapConstant: string;
@@ -1335,6 +1369,9 @@ export interface FishingEditDocument extends FishingData {
 }
 
 export interface HistoryFileChange {
+  beforeExists?: boolean;
+  afterExists?: boolean;
+  encoding?: "hex";
   path: string;
   before: string;
   after: string;
@@ -1412,6 +1449,9 @@ export interface HistoryStore {
 }
 
 export interface TextWriteRequest {
+  operation?: "create" | "delete";
+  /** Binary snapshots are stored as lossless hexadecimal strings. */
+  encoding?: "hex";
   path: string;
   contents: string;
   expectedHash?: string;
@@ -1524,6 +1564,9 @@ export interface ProjectSource {
   readText(relativePath: string): Promise<string>;
   readBytes(relativePath: string): Promise<Uint8Array>;
   writeText(relativePath: string, contents: string): Promise<void>;
+  writeBytes?(relativePath: string, contents: Uint8Array): Promise<void>;
+  createFile?(relativePath: string, contents: Uint8Array): Promise<void>;
+  removeFile?(relativePath: string): Promise<void>;
   exists(relativePath: string): Promise<boolean>;
   assetUrl(relativePath: string): Promise<string | null>;
   listFiles?(): Promise<string[]>;
@@ -1570,6 +1613,12 @@ export interface ProjectSession {
     document: ItemCreateDocument,
     values: ItemCreateValues,
   ): Promise<HistorySummary>;
+  getMapCreateDocument(templateConstant?: string): Promise<MapCreateDocument>;
+  createMap(document: MapCreateDocument, values: MapCreateValues): Promise<MapCreateResult>;
+  getMapTerrainDocument(mapConstant: string): Promise<MapTerrainDocument>;
+  saveMapTerrain(document: MapTerrainDocument, values: MapTerrainValues): Promise<HistorySummary>;
+  getMapWarpDocument(mapConstant: string): Promise<MapWarpDocument>;
+  saveMapWarp(document: MapWarpDocument, values: MapWarpValues): Promise<HistorySummary>;
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
   getMapNpcCreateDocument(mapConstant: string): Promise<MapNpcCreateDocument>;

@@ -160,6 +160,40 @@ export async function hashText(contents: string): Promise<string> {
   return fallbackHash(contents);
 }
 
+export function bytesToHex(bytes: Uint8Array | number[]): string {
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export function hexToBytes(hex: string): Uint8Array {
+  if (!/^(?:[0-9a-f]{2})*$/i.test(hex)) throw new Error("Invalid binary history snapshot.");
+  return Uint8Array.from(hex.match(/../g) ?? [], byte => Number.parseInt(byte, 16));
+}
+
+async function readSnapshot(source: ProjectSource, path: string, encoding?: "hex"): Promise<string> {
+  return encoding === "hex" ? bytesToHex(await source.readBytes(path)) : source.readText(path);
+}
+
+async function readChangeSnapshot(source: ProjectSource, change: HistoryFileChange) {
+  const exists = change.beforeExists === undefined && change.afterExists === undefined ? true : await source.exists(change.path);
+  return { exists, contents: exists ? await readSnapshot(source, change.path, change.encoding) : "" };
+}
+async function writeSnapshot(source: ProjectSource, change: HistoryFileChange, contents: string, side: HistorySide): Promise<void> {
+  const exists = (side === "before" ? change.beforeExists : change.afterExists) ?? true;
+  const otherExists = (side === "before" ? change.afterExists : change.beforeExists) ?? true;
+  if (!exists) {
+    if (!source.removeFile) throw new Error("This project source cannot remove created files.");
+    await source.removeFile(change.path); return;
+  }
+  if (!otherExists) {
+    if (!source.createFile) throw new Error("This project source cannot create files.");
+    await source.createFile(change.path, change.encoding === "hex" ? hexToBytes(contents) : new TextEncoder().encode(contents)); return;
+  }
+  if (change.encoding === "hex") {
+    if (!source.writeBytes) throw new Error("This project source cannot save binary assets.");
+    await source.writeBytes(change.path, hexToBytes(contents));
+  } else await source.writeText(change.path, contents);
+}
+
 function newEntryId(): string {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -176,10 +210,10 @@ async function inspectEntrySide(
   let allAfter = true;
 
   for (const change of changes) {
-    const current = await source.readText(change.path);
-    const currentHash = await hashText(current);
-    allBefore &&= currentHash === change.beforeHash;
-    allAfter &&= currentHash === change.afterHash;
+    const current = await readChangeSnapshot(source, change);
+    const currentHash = await hashText(current.contents);
+    allBefore &&= current.exists === (change.beforeExists ?? true) && currentHash === change.beforeHash;
+    allAfter &&= current.exists === (change.afterExists ?? true) && currentHash === change.afterHash;
   }
 
   if (allBefore) {
@@ -197,11 +231,11 @@ async function verifyCurrentContents(
   expectedSide: HistorySide,
 ): Promise<void> {
   for (const change of changes) {
-    const current = await source.readText(change.path);
-    const currentHash = await hashText(current);
+    const current = await readChangeSnapshot(source, change);
+    const currentHash = await hashText(current.contents);
     const expectedHash = expectedSide === "before" ? change.beforeHash : change.afterHash;
 
-    if (currentHash !== expectedHash) {
+    if (current.exists !== ((expectedSide === "before" ? change.beforeExists : change.afterExists) ?? true) || currentHash !== expectedHash) {
       throw new Error(
         `${change.path} changed outside Yellow Editor. Reload the project before continuing so no external edits are overwritten.`,
       );
@@ -219,7 +253,7 @@ async function writeChanges(
   try {
     for (const change of changes) {
       const contents = direction === "before" ? change.before : change.after;
-      await source.writeText(change.path, contents);
+      await writeSnapshot(source, change, contents, direction);
       written.push(change);
     }
   } catch (error) {
@@ -227,7 +261,7 @@ async function writeChanges(
     for (const change of written.reverse()) {
       try {
         const rollbackContents = direction === "before" ? change.after : change.before;
-        await source.writeText(change.path, rollbackContents);
+        await writeSnapshot(source, change, rollbackContents, direction === "before" ? "after" : "before");
       } catch {
         // The journal was persisted before writing, so both versions remain
         // available even if an interrupted multi-file write needs recovery.
@@ -387,8 +421,18 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
       // instead of paying for a second mobile filesystem read immediately
       // before the same write. The hash guard is still checked against that
       // freshly prepared snapshot.
+      if (request.encoding === "hex") {
+        if (!source.writeBytes) throw new Error("This project source cannot save binary assets.");
+        hexToBytes(request.contents);
+      }
+      if (request.operation === "delete" && request.contents !== "") throw new Error("Deleted files must have an empty after snapshot.");
+      if (request.operation && (!source.createFile || !source.removeFile)) throw new Error("This project source does not support undoable file creation.");
+      const beforeExists = request.operation ? await source.exists(request.path) : true;
+      if (request.operation === "create" && beforeExists) throw new Error(`${request.path} already exists; no files were overwritten.`);
+      if (request.operation === "delete" && !beforeExists) throw new Error(`${request.path} no longer exists.`);
+      const afterExists = request.operation !== "delete";
       const prepared = request as PreparedTextWriteRequest;
-      const before = prepared.beforeContents ?? await source.readText(request.path);
+      const before = beforeExists ? prepared.beforeContents ?? await readSnapshot(source, request.path, request.encoding) : "";
       const beforeHash = prepared.beforeHash ?? await hashText(before);
 
       if (request.expectedHash && request.expectedHash !== beforeHash) {
@@ -397,12 +441,14 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
         );
       }
 
-      if (before === request.contents) {
+      if (beforeExists === afterExists && before === request.contents) {
         continue;
       }
 
       changes.push({
         path: request.path,
+        ...(request.operation ? { beforeExists, afterExists } : {}),
+        ...(request.encoding ? { encoding: request.encoding } : {}),
         before,
         after: request.contents,
         beforeHash,
@@ -492,6 +538,8 @@ export function createProjectHistoryManager(source: ProjectSource): ProjectHisto
       `Revert: ${entry.label}`,
       entry.files.map((file) => ({
         path: file.path,
+        encoding: file.encoding,
+        ...((file.beforeExists ?? true) === (file.afterExists ?? true) ? {} : { operation: (file.beforeExists === false ? "delete" : "create") as "create" | "delete" }),
         contents: file.before,
         expectedHash: file.afterHash,
       })),
