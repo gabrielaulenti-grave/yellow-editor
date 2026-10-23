@@ -59,8 +59,8 @@ export function MapTerrainEditor({ mapConstant, onClose, onSaved, onDirtyChange 
     {!preview || !draft || !document ? <p role="status">{error ? "Terrain editing is unavailable for this map." : "Loading map and blockset…"}</p> : <>
       <fieldset disabled={saving} className="map-edit-fields"><div className="terrain-toolbar">
         <button type="button" disabled={!undo.length} onClick={() => history("undo")}>Undo stroke</button><button type="button" disabled={!redo.length} onClick={() => history("redo")}>Redo stroke</button>
-        <label>Map tool<select value={tool} onChange={e => setTool(e.target.value as typeof tool)}><option value="paint">Paint blocks</option><option value="pick">Pick block from map</option><option value="scroll">Scroll map</option></select></label>
-        <label>Map zoom<select value={zoom} onChange={e => setZoom(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={3}>3×</option></select></label>
+        <label>Map tool<select aria-label="Map tool" value={tool} onChange={e => setTool(e.target.value as typeof tool)}><option value="paint">Paint blocks</option><option value="pick">Pick block from map</option><option value="scroll">Scroll map</option></select></label>
+        <label>Map zoom<select aria-label="Map zoom" value={zoom} onChange={e => setZoom(Number(e.target.value))}><option value={1}>1×</option><option value={2}>2×</option><option value={3}>3×</option></select></label>
       </div>
       <div className="terrain-workspace"><section><h3>Map layout</h3><p>Click or drag to paint block #{selectedBlock}. Use Pick block to sample an existing house. On touchscreens, choose Scroll map and swipe to move around without painting.</p>
         <MapPaintSurface disabled={saving} visualization={preview} zoom={zoom} mode={tool === "pick" ? "select" : tool} label="Paint map blocks" onStart={start} onEnd={end} onCell={(x, y) => {
