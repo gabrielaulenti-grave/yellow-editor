@@ -54,7 +54,17 @@ try {
         async function swipe(target, xDistance, yDistance) {
           await target.scrollIntoViewIfNeeded();
           const box = await target.boundingBox();
-          await session.send("Input.synthesizeScrollGesture", { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2), xDistance, yDistance, speed: 400, gestureSourceType: "touch" });
+          const x = Math.round(box.x + box.width / 2), y = Math.round(box.y + box.height / 2);
+          await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y, id: 0 }] });
+          for (let step = 1; step <= 12; step++) {
+            await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + xDistance * step / 12, y: y + yDistance * step / 12, id: 0 }] });
+            await page.evaluate(() => new Promise(requestAnimationFrame));
+          }
+          await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+          console.log("Touch viewport", await target.evaluate(view => {
+            const box = view.getBoundingClientRect(), x = box.left + box.width / 2, y = box.top + box.height / 2;
+            return { name: view.getAttribute("aria-label"), left: view.scrollLeft, top: view.scrollTop, width: view.clientWidth, height: view.clientHeight, fullWidth: view.scrollWidth, fullHeight: view.scrollHeight, touchAction: getComputedStyle(view.querySelector("canvas")).touchAction, hit: document.elementFromPoint(x, y)?.outerHTML.slice(0, 200) };
+          }));
         }
         await terrain.getByLabel("Map tool", { exact: true }).selectOption("scroll");
         await terrain.getByLabel("Map zoom", { exact: true }).selectOption("3");
