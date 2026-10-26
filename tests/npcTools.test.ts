@@ -32,6 +32,7 @@ for (const directory of args) test(`${directory}: reusable player conditions, pe
   apply(await prepareMapNpcWrites(source, npc, { x: 1, y: 1, sprite: "SPRITE_GENTLEMAN", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Come back as", "the Champion!"] } }));
   const path = "scripts/BluesHouse.asm", label = `BluesHouseEditorNpc${npc.objectId}Text`;
   const doc = await loadScriptInteractionDocument(source, path, label);
+  assert.equal(doc.managed, false);
   assert.equal(doc.conditions?.reason, null); assert.equal(doc.services?.transactionReason, null); assert.equal(doc.services?.shopReason, null);
   assert.ok(doc.conditions.moves.includes("CUT")); assert.ok(doc.items.includes("HM_CUT")); assert.ok(doc.items.includes("TM_DIG"));
   assert.equal(doc.visibilityNpc?.id, npc.objectId);
@@ -41,6 +42,7 @@ for (const directory of args) test(`${directory}: reusable player conditions, pe
   const writes = await prepareScriptInteractionWrites(source, doc, values);
   await history.save("Hide blocker after Hall of Fame", writes);
   const next = await loadScriptInteractionDocument(source, path, label);
+  assert.equal(next.managed, true);
   assert.deepEqual(next.values.visibleWhen, condition);
   assert.match(await source.readText("engine/overworld/toggleable_objects.asm"), /ld a, \[wNumHoFTeams\]/);
   const repeat = await prepareScriptInteractionWrites(source, next, next.values);

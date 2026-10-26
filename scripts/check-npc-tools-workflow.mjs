@@ -95,6 +95,21 @@ try {
       await dialog.getByRole("button", { name: "Save interaction", exact: true }).click();
       await dialog.waitFor({ state: "hidden" });
       assert.equal((await page.evaluate(() => window.dialogueFiles["engine/overworld/toggleable_objects.asm"])).includes("yellow-editor-npc-visibility-begin"), false);
+      // Existing flag-only interactions can retain the default dialogue. Adding
+      // a visibility filter must preserve their authored one-time behavior.
+      await page.evaluate(async () => {
+        const script = window.dialogueFiles["scripts/PalletTown.asm"];
+        const model = JSON.parse(script.match(/yellow-editor-interaction: (.*)/)[1]);
+        const document = await window.dialogueInvoke("get_script_interaction_document", { path: "scripts/PalletTown.asm", label: model.label });
+        await window.dialogueInvoke("save_script_interaction", { document, values: { ...document.values, actions: undefined, once: true, visibleWhen: null, dialogue: ["Here you go!"], events: [{ event: "EVENT_GOT_TOWN_MAP", set: true }] } });
+        window.dispatchEvent(new Event("yellow-editor:history-changed"));
+      });
+      await inspector.getByRole("button", { name: "Edit interaction", exact: true }).click();
+      await dialog.getByLabel("Show this NPC only when a condition matches", { exact: true }).check();
+      assert.equal(await dialog.getByLabel("Run once per save file", { exact: true }).isChecked(), true);
+      assert.equal(await dialog.getByLabel("Interaction dialogue", { exact: true }).inputValue(), "Here you go!");
+      await dialog.getByRole("button", { name: "Save interaction", exact: true }).click();
+      await dialog.waitFor({ state: "hidden" });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       assert.deepEqual(errors, []);
       console.log(`${root} ${width}px: conditional visibility, compound party/move checks, payment validation, stock, drafts and save/reopen passed`);

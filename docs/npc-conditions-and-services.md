@@ -11,8 +11,10 @@ Enable **Show this NPC only when a condition matches**. The default rule is
 The rule checks `wNumHoFTeams`, so a player who has already entered the Hall of
 Fame can load an existing save and find the route open. It does not use the
 temporary Champion battle or Hall of Fame Pokédex-dialogue event flags.
-Enabling visibility alone keeps the original conversation and creates a
-repeatable interaction with no additional dialogue actions.
+For a newly configured NPC, enabling visibility alone keeps the original
+conversation and creates a repeatable interaction with no additional dialogue
+actions. Previously configured interactions retain their one-time and action
+settings.
 
 Visibility is evaluated when sprites load or refresh; talking to the NPC is
 not required. A matching condition permits the game's normal visibility rules

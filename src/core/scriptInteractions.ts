@@ -69,6 +69,7 @@ export interface PokemonGiftDocument {
   hidesObject: boolean;
 }
 export interface InteractionDocument {
+  managed?: boolean;
   conditions?: PlayerConditionDomain;
   services?: NpcServicesDomain;
   visibilityNpc?: { id: number; constant: string } | null;
@@ -360,7 +361,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { conditions, services, visibilityNpc, sharedFlags, projectKey: source.storageKey, effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs: npcs.filter(npc => npc.canWalk), movementReason, sign };
+  const document: InteractionDocument = { managed: Boolean(old), conditions, services, visibilityNpc, sharedFlags, projectKey: source.storageKey, effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs: npcs.filter(npc => npc.canWalk), movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
 export type InteractionInspection = Awaited<ReturnType<typeof inspect>>;
