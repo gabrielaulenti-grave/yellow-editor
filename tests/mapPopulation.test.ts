@@ -49,8 +49,9 @@ for (const directory of args) test(`${directory}: populate a new cave with indep
   await session.saveEncounterTable(blankPath, empty.sourceHash, empty.versions.map(v => ({ ...v, grass: { rate: 15, slots: Array.from({ length: 10 }, (_, i) => ({ speciesConstant: species[i % 2], level: 10 + i, sourceLine: null })) } })), species);
   assert.equal((await session.getEncounterIndex()).find(t => t.path === blankPath)!.hasGrass, true);
   d = await session.getMapEncounterDocument("DIGLETT_BASEMENT");
-  const template = d.tables.find(t => t.path.endsWith("/Route1.asm"))!;
+  const template = d.tables.find(t => t.path.endsWith("/Route4.asm"))!;
   const original = await source.readText(template.path), templateData = await session.getEncounterTable(template.path);
+  if (templateData.versions.length === 2) assert.notDeepEqual(templateData.versions[0].grass.slots.map(s => s.speciesConstant), templateData.versions[1].grass.slots.map(s => s.speciesConstant));
   await session.assignMapEncounters(d, { mode: "copy", tablePath: template.path });
   entry = (await session.getEncounterIndex()).find(t => t.affectedMaps.some(m => m.constant === "DIGLETT_BASEMENT"))!;
   assert.notEqual(entry.path, template.path);
