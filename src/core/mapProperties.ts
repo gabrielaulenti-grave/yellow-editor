@@ -64,8 +64,10 @@ function patches(rules: Rules, bikeBody = ""): Patch[] {
   if (Object.values(rules).some(r => r.lighting !== null)) {
     add(paths[0], "light-before-hook", far("EditorMapLightingBefore", false));
     add(paths[0], "light-after-hook", far("EditorMapLightingAfter", false));
+    add(paths[0], "light-connection-hook", far("EditorMapLightingConnected", false));
+    add(paths[3], "light-special-before-hook", far("EditorMapLightingBefore"));
     add(paths[3], "light-special-hook", far("EditorMapLightingAfter"));
-    add(paths[3], "light-code", lighting(rules, true) + lighting(rules, false));
+    add(paths[3], "light-code", lighting(rules, true) + lighting(rules, false) + "EditorMapLightingConnected::\n\txor a\n\tld [wMapPalOffset], a\n\tjp EditorMapLightingAfter\n");
   }
   return result;
 }
@@ -87,6 +89,7 @@ function strip(files: Map<string, string>, rules: Rules) {
 const contracts: Array<[number, string, string | undefined, string[]]> = [
   [0, "IsBikeRidingAllowed", undefined, ["051a564a36c1722ce4e55b70c3af4964cb57932448f9af37c1d381369642465e"]],
   [0, "WarpFound2", undefined, ["342ef5a103f4fcc3e51aeb9c46901a96eaf84bf9e832a92915eafbe50db40217", "f738162dad6c80a01bb67783ff10ff6fa6d4b1cd1a097ea458735d8a1e6f3a24"]],
+  [0, "CheckMapConnections", undefined, ["468ef2451ad4e63f57625910409370eed6144d52d38b57c9bce7206e73fcd581", "633b361d2656663537a9939be78d468d2f92aa8190920c512c17599c9c634ec4"]],
   [1, "ItemUseEscapeRope", undefined, ["cb04c534927504375b98c4b973eac6b2f67a31dcf0b24e7534f689ece0d17efa", "a696110e22f841943ad766fdca49567e83a08e057cf6a118076a1d276bf3f93a"]],
   [2, ".fly", ".cut", ["162a9064ac190934041c9a6c57fe09740d06b4ef0907f1dd6f836cd3834198e4", "a36991212acb2a65c503709967dfd587d0233da29d9ea67027d4e8072aa9c4da"]],
   [2, ".flash", ".flashLightsAreaText", ["b479454e65f388a3d1e704fa2ab308217e61ba7c28acfd9ce6ed176c82c98f5d"]],
@@ -142,6 +145,8 @@ export async function prepareMapPropertiesWrites(source: ProjectSource, document
     else if (p.key === "bike-hook") { const part = segment(text, "IsBikeRidingAllowed"); text = text.slice(0, part.from) + text.slice(part.to); at = part.from; }
     else if (p.key === "light-before-hook") at = segment(text, "WarpFound2").from;
     else if (p.key === "light-after-hook") { const part = segment(text, "WarpFound2"); at = part.from + part.body.lastIndexOf("\tjp EnterMap"); }
+    else if (p.key === "light-connection-hook") { const part = segment(text, "CheckMapConnections"); const match = part.body.match(/^\.loadNewMap[^\n]*\n/m); if (!match) throw new Error("Missing connected-map lighting boundary."); at = part.from + match.index! + match[0].length; }
+    else if (p.key === "light-special-before-hook") at = segment(text, "PrepareForSpecialWarp").from;
     else if (p.key === "light-special-hook") { const part = segment(text, "PrepareForSpecialWarp"); at = part.from + part.body.indexOf("\tcall LoadSpecialWarpData\n") + "\tcall LoadSpecialWarpData\n".length; }
     else if (p.key === "escape-hook" || p.key === "escape-allowed") { const part = segment(text, "ItemUseEscapeRope"), needle = p.key === "escape-hook" ? "\tld a, [wCurMap]" : "\tld hl, wStatusFlags6"; at = part.from + part.body.indexOf(needle); }
     else if (p.key === "teleport-hook") at = segment(text, ".teleport", ".warpToLastPokemonCenterText").from;

@@ -5,7 +5,7 @@ import type { HistorySummary } from "./core/types";
 import "./MapEditing.css";
 
 const fields = [
-  ["bicycle", "Bicycle", "Controls mounting the bicycle and remaining on it when entering this map."],
+  ["bicycle", "Bicycle", "Controls ordinary bicycle use and dismounting on entry. Scripted forced-bike routes keep their native behavior."],
   ["escape", "Dig and Escape Rope", "These share the native escape routine and its last-healing-location destination."],
   ["teleport", "Teleport", "Returns to the normal last healing destination. This permission does not change ordinary entrance or return warps."],
   ["fly", "Fly departure", "Allows departing this map. Fly destinations are configured separately by the game."],

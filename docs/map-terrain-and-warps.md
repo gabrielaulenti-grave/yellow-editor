@@ -47,9 +47,9 @@ New holes require CAVERN hole tiles, and new current routes must remain on CAVER
 
 ## Map properties and checks
 
-**Map properties** provides Default / Allowed / Blocked overrides for cycling, Dig/Escape Rope, Teleport, Fly departure and Flash. Defaults reflect native map/tileset rules. Overrides affect one map while preserving normal move, item and badge requirements. Fly destination registration is separate. Dig and Escape Rope share their native routine and last-healing-location destination.
+**Map properties** provides Default / Allowed / Blocked overrides for cycling, Dig/Escape Rope, Teleport, Fly departure and Flash. Defaults reflect native map/tileset rules. Overrides affect one map while preserving normal move, item and badge requirements. Scripted forced-bike routes retain their native behavior. Fly destination registration is separate. Dig and Escape Rope share their native routine and last-healing-location destination.
 
-Lighting can retain native behavior, force normal lighting, or become dark on entry until Flash is used. A dark override resets on entry from another map, including stairs. Loading an existing save preserves its stored lighting state. Rules use banked helper sections and a reviewed bicycle fallback relocation to avoid filling the home bank.
+Lighting can retain native behavior, force normal lighting, or become dark on entry until Flash is used. A dark override resets on entry from another map, including stairs and outdoor connections. Leaving an explicitly lit map clears that override before ordinary or special warps; connected outdoor maps use their destination lighting rule. Loading an existing save preserves its stored lighting state. Rules use banked helper sections and a reviewed bicycle fallback relocation to avoid filling the home bank.
 
 **Check map** reports invalid destinations, unsuitable ordinary warp terrain, missing direct return routes, object/sign/warp overlaps and boulders on questionable terrain. These are review messages: one-way routes, hidden boulders and custom activation scripts can be intentional. A `LAST_MAP` return counts as a direct return only when its incoming source is an outdoor map. Map checks are diagnostics, not a puzzle-solvability proof.
 
