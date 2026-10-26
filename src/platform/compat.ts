@@ -613,6 +613,16 @@ export async function invoke<T>(
       return await session.addMapBoulder(stringArg(args, "mapConstant"), numberArg(args, "x"), numberArg(args, "y")) as T;
     case "get_map_create_document":
       return await session.getMapCreateDocument(typeof args?.templateConstant === "string" ? args.templateConstant : undefined) as T;
+    case "get_map_encounter_document":
+      return await session.getMapEncounterDocument(stringArg(args, "mapConstant")) as T;
+    case "assign_map_encounters":
+      if (!args?.document || !args.values) throw new Error("Missing map encounter document or values.");
+      return await session.assignMapEncounters(args.document as import("../core/mapEncounters").MapEncounterDocument, args.values as import("../core/mapEncounters").MapEncounterValues) as T;
+    case "get_map_item_document":
+      return await session.getMapItemDocument(stringArg(args, "mapConstant")) as T;
+    case "place_map_item":
+      if (!args?.document || !args.values) throw new Error("Missing map item document or values.");
+      return await session.placeMapItem(args.document as import("../core/mapItems").MapItemDocument, args.values as import("../core/mapItems").MapItemValues) as T;
     case "create_map":
       if (!args?.document || !args.values) throw new Error("Missing map creation document or values.");
       return await session.createMap(args.document as MapCreateDocument, args.values as MapCreateValues) as T;

@@ -1,4 +1,7 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "../src/core/mapCreation";
+import { loadMapEncounterDocument, prepareMapEncounterWrites } from "../src/core/mapEncounters";
+import { loadMapItemDocument, prepareMapItemWrites } from "../src/core/mapItems";
+import { parseEncounterIndex } from "../src/core/encounterEditing";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "../src/core/mapStrength";
 import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "../src/core/mapProperties";
 import { checkMap } from "../src/core/mapValidation";
@@ -60,6 +63,17 @@ const session = attachTextEditing({ saveTextChanges: async (_title: string, chan
 } } as ProjectSession, source);
 fixture.dialogueInvoke = async (command, args) => {
   switch (command) {
+    case "get_map_encounter_document": return loadMapEncounterDocument(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered", args!.mapConstant as string);
+    case "get_encounter_index": return parseEncounterIndex(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered");
+    case "assign_map_encounters": {
+      const changes = await prepareMapEncounterWrites(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered", args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Assign encounters", changes);
+    }
+    case "get_map_item_document": return loadMapItemDocument(source, args!.mapConstant as string);
+    case "place_map_item": {
+      const changes = await prepareMapItemWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Place item", changes);
+    }
     case "check_map": return checkMap(source, args!.mapConstant as string);
     case "get_map_properties_document": return loadMapPropertiesDocument(source, args!.mapConstant as string);
     case "save_map_properties": {

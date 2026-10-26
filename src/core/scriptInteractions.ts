@@ -19,6 +19,7 @@ import type { ProjectSession, ProjectSource, TextWriteRequest } from "./types";
 import { mergeSharedSceneFlags, readSharedSceneFlags, validateItemClaims, type SharedSceneFlag } from "./sceneFlags";
 
 export interface InteractionValues {
+  pickup?: boolean;
   sharedFlags?: SharedSceneFlag[];
   scene?: SceneOptions;
   actions?: InteractionAction[];
@@ -454,6 +455,7 @@ function rewardCode(m: ManagedInteraction, textPrefix = m.prefix) {
   if (v.pokemon) code.push(`\tlb bc, ${v.pokemon.species}, ${v.pokemon.level}`, "\tcall GivePokemon", `\tjp nc, ${p}BagFull`, "\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing");
   if (m.flag) code.push(`\tSetEvent ${m.flag}`);
   for (const event of v.events) code.push(`\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`);
+  if (v.pickup) code.push("\tcall UpdateSprites");
   if (v.hideObject) code.push(`\tld a, ${v.hideObject}`, "\tld [wToggleableObjectIndex], a", "\tpredef HideObject");
   if (v.reward) code.push("\tld a, SFX_GET_ITEM_1", "\tcall PlaySound", "\tcall WaitForSoundToFinish");
   code.push(...print(`${textPrefix}Dialogue`), `\tjp ${p}Finish`);
@@ -561,6 +563,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     if (!state.document.pokemon.includes(values.pokemon.species) || !Number.isInteger(values.pokemon.level) || values.pokemon.level < 1 || values.pokemon.level > 100) throw new Error("Choose a valid Pokémon and a level from 1 to 100.");
   }
   if (values.hideObject && (!values.pokemon || !values.once || values.movement || values.hideObject !== state.document.hideObject)) throw new Error("Only a one-time Pokémon gift can hide its own existing Poké Ball object.");
+  if (values.pickup && (!values.once || !values.reward || values.pokemon || values.actions || values.movement || !state.document.visibilityNpc || !values.visibleWhen || "kind" in values.visibleWhen || values.visibleWhen.set !== false || !values.events.some(e => e.event === (values.visibleWhen as { event: string }).event && e.set))) throw new Error("Map item pickups need a one-time item reward and their collected visibility flag. Change the reward and dialogue while keeping those settings.");
   if (values.condition) validatePlayerCondition(values.condition, domains);
   if (values.visibleWhen) validatePlayerCondition(values.visibleWhen, domains);
   if (values.events.some(event => !domains.events.includes(event.event) || typeof event.set !== "boolean")) throw new Error("Choose existing project events for conditions and changes.");

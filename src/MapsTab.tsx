@@ -1,4 +1,6 @@
 import { MapCreateWizard } from "./MapCreateWizard";
+import { MapEncounterEditor } from "./MapEncounterEditor";
+import { MapItemEditor } from "./MapItemEditor";
 import { renderTiles, renderBlocks, renderMap } from "./editor/mapCanvasDrawing";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -191,6 +193,7 @@ interface MapsTabProps {
   pokemonIndex: PokemonIndexEntry[];
   focusMapConstant: string | null;
   onOpenWalkingEncounter(entry: EncounterTableIndexEntry): void;
+  onEncountersChanged?(entries: EncounterTableIndexEntry[]): void;
   onOpenFishing(mapConstant: string): void;
   onOpenScript(path: string, routineLabel?: string | null): void;
   onDirtyChange?(dirty: boolean): void;
@@ -203,6 +206,7 @@ export function MapsTab({
   pokemonIndex,
   focusMapConstant,
   onOpenWalkingEncounter,
+  onEncountersChanged,
   onOpenFishing,
   onOpenScript,
   onDirtyChange,
@@ -232,6 +236,9 @@ export function MapsTab({
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createMapOpen, setCreateMapOpen] = useState(false);
+  const [encounterEditorOpen, setEncounterEditorOpen] = useState(false), [itemEditorOpen, setItemEditorOpen] = useState(false);
+  const [mapEncounters, setMapEncounters] = useState(encounters);
+  useEffect(() => { setMapEncounters(encounters); }, [encounters]);
   const appliedMapFocus = useRef<string | null>(null);
   const [terrainOpen, setTerrainOpen] = useState(false);
   const [strengthOpen, setStrengthOpen] = useState(false);
@@ -257,6 +264,7 @@ export function MapsTab({
   useEffect(() => {
     appliedMapFocus.current = null;
     setCreateMapOpen(false);
+    setEncounterEditorOpen(false); setItemEditorOpen(false);
     setTerrainOpen(false);
     setStrengthOpen(false);
     setPropertiesOpen(false);
@@ -429,7 +437,7 @@ export function MapsTab({
   }, [project?.storageKey, selectedMap?.constant, arrivalWarpId, mapRevision]);
 
   const selectedEncounterEntry = selectedConstant
-    ? encounters.find((entry) =>
+    ? mapEncounters.find((entry) =>
         entry.affectedMaps.some((map) => map.constant === selectedConstant),
       ) ?? null
     : null;
@@ -475,7 +483,7 @@ export function MapsTab({
     return () => {
       cancelled = true;
     };
-  }, [selectedEncounterEntry?.path, selectedEncounterEntry?.error]);
+  }, [selectedEncounterEntry?.path, selectedEncounterEntry?.error, mapRevision]);
 
   const filteredMaps = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -709,6 +717,8 @@ export function MapsTab({
               {mapLogic && <MapScriptsPanel key={`${project?.storageKey}:${mapLogic.path}:${mapLogic.label ?? ""}`} project={project} path={mapLogic.path} label={mapLogic.label} onClose={() => setMapLogic(null)} onDirtyChange={onDirtyChange} />}
 
               <section className="world-map-encounters">
+                {encounterEditorOpen && <MapEncounterEditor key={visualization.map.constant} mapConstant={visualization.map.constant} onClose={() => setEncounterEditorOpen(false)} onDirtyChange={onDirtyChange}
+                  onSaved={history => { setEncounterEditorOpen(false); void invoke<EncounterTableIndexEntry[]>("get_encounter_index").then(entries => { setMapEncounters(entries); onEncountersChanged?.(entries); }).catch(reason => setError(String(reason))); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history })); }} />}
                 <div className="world-map-encounters-heading">
                   <div>
                     <strong>Wild encounters</strong>
@@ -731,6 +741,7 @@ export function MapsTab({
                           </small>
                         )}
                       </div>
+                      <button type="button" className="small-button" onClick={() => setEncounterEditorOpen(true)}>Assign encounters</button>
                       {selectedEncounterEntry && (
                         <button
                           type="button"
@@ -1143,13 +1154,15 @@ export function MapsTab({
                 <div className="world-map-npc-panel">
                   <div className="world-map-npc-heading">
                     <div>
-                      <strong>NPCs</strong>
+                      <strong>NPCs &amp; items</strong>
                       <small>
                         Select a character to edit their placement, appearance, dialogue and interaction, or add a new NPC.
                       </small>
                     </div>
-                    <div className="world-map-npc-actions"><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button></div>
+                    <div className="world-map-npc-actions"><button type="button" onClick={() => setItemEditorOpen(true)}>Place item</button><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button></div>
                   </div>
+                  {itemEditorOpen && <MapItemEditor key={visualization.map.constant} visualization={visualization} onClose={() => setItemEditorOpen(false)} onDirtyChange={onDirtyChange}
+                    onSaved={(id, history) => { newNpcSelection.current = { map: visualization.map.constant, id }; setItemEditorOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history })); }} />}
                   {npcWizardOpen && <MapNpcWizard key={`${project?.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
                     renderPlacement={(x, y, onPlace) => <div className="npc-placement-map"><MapCanvas visualization={visualization} view="map" zoom={1}
                       showGrid={true} showWarps={true} showSigns={true} showNpcs={true} selectedWarpId={null} selectedSignId={null} selectedNpcId={null} arrivalWarpId={null}

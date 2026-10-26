@@ -1621,6 +1621,10 @@ export interface ProjectSession {
     values: ItemCreateValues,
   ): Promise<HistorySummary>;
   getMapCreateDocument(templateConstant?: string): Promise<MapCreateDocument>;
+  getMapEncounterDocument(mapConstant: string): Promise<import("./mapEncounters").MapEncounterDocument>;
+  assignMapEncounters(document: import("./mapEncounters").MapEncounterDocument, values: import("./mapEncounters").MapEncounterValues): Promise<HistorySummary>;
+  getMapItemDocument(mapConstant: string): Promise<import("./mapItems").MapItemDocument>;
+  placeMapItem(document: import("./mapItems").MapItemDocument, values: import("./mapItems").MapItemValues): Promise<HistorySummary>;
   createMap(document: MapCreateDocument, values: MapCreateValues): Promise<MapCreateResult>;
   getMapTerrainDocument(mapConstant: string): Promise<MapTerrainDocument>;
   saveMapTerrain(document: MapTerrainDocument, values: MapTerrainValues): Promise<HistorySummary>;

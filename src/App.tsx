@@ -2412,6 +2412,7 @@ function App() {
         <MapsTab
           project={project}
           encounters={encounters}
+          onEncountersChanged={setEncounters}
           fishingDocument={fishingDocument}
           pokemonIndex={pokemonIndex}
           focusMapConstant={mapFocusConstant}

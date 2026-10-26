@@ -1,4 +1,6 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
+import { loadMapEncounterDocument, prepareMapEncounterWrites } from "./mapEncounters";
+import { loadMapItemDocument, prepareMapItemWrites } from "./mapItems";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "./mapStrength";
 import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "./mapProperties";
 import { checkMap } from "./mapValidation";
@@ -894,6 +896,20 @@ export async function createProjectSession(
       return result;
     },
     getMapCreateDocument: templateConstant => loadMapCreateDocument(source, templateConstant),
+    getMapEncounterDocument: map => loadMapEncounterDocument(source, projectName, map),
+    assignMapEncounters: async (document, values) => {
+      const changes = await prepareMapEncounterWrites(source, projectName, document, values);
+      const result = changes.length ? await history.save(`Assign encounters to ${document.mapName}`, changes) : await history.getSummary();
+      invalidateNonTrainerReadModels(changes.map(c => c.path));
+      return result;
+    },
+    getMapItemDocument: map => loadMapItemDocument(source, map),
+    placeMapItem: async (document, values) => {
+      const changes = await prepareMapItemWrites(source, document, values);
+      const result = await history.save(`Place ${values.item} in ${document.npc.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(c => c.path));
+      return result;
+    },
     createMap: async (document, values) => {
       const changes = await prepareMapCreateWrites(source, document, values);
       const result = await history.save(`Create map ${values.constant.trim()}`, changes);
