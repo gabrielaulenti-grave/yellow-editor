@@ -44,7 +44,9 @@
     "test:scenes:choices:gameplay": "node scripts/check-scene-choices-gameplay.mjs",
     "test:scenes:position:ui": "node scripts/check-scene-position-workflow.mjs",
     "test:scenes:starts": "node scripts/check-scene-starts.mjs",
-    "test:items:gifts": "node scripts/check-item-gifts.mjs"
+    "test:items:gifts": "node scripts/check-item-gifts.mjs",
+    "test:maps:strength": "node scripts/check-map-strength.mjs",
+    "test:maps:strength:ui": "node scripts/check-map-strength-workflow.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -597,6 +597,20 @@ export async function invoke<T>(
         itemCreateValuesArg(args),
       )) as T;
 
+    case "check_map":
+      return await session.checkMap(stringArg(args, "mapConstant")) as T;
+    case "get_map_properties_document":
+      return await session.getMapPropertiesDocument(stringArg(args, "mapConstant")) as T;
+    case "save_map_properties":
+      if (!args?.document || !args.values) throw new Error("Missing map property document or values.");
+      return await session.saveMapProperties(args.document as import("../core/mapProperties").MapPropertiesDocument, args.values as import("../core/mapProperties").MapPropertiesValues) as T;
+    case "get_map_strength_document":
+      return await session.getMapStrengthDocument(stringArg(args, "mapConstant")) as T;
+    case "save_map_strength":
+      if (!args?.document || !args.values) throw new Error("Missing Strength puzzle document or values.");
+      return await session.saveMapStrength(args.document as import("../core/mapStrength").MapStrengthDocument, args.values as import("../core/mapStrength").MapStrengthValues) as T;
+    case "add_map_boulder":
+      return await session.addMapBoulder(stringArg(args, "mapConstant"), numberArg(args, "x"), numberArg(args, "y")) as T;
     case "get_map_create_document":
       return await session.getMapCreateDocument(typeof args?.templateConstant === "string" ? args.templateConstant : undefined) as T;
     case "create_map":

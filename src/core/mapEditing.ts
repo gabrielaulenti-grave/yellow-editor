@@ -107,7 +107,7 @@ export async function loadMapWarpDocument(source: ProjectSource, mapConstant: st
   return { mapConstant, mapName: state.map.displayName, width: state.map.width * 2, height: state.map.height * 2, maxWarps: state.maxWarps,
     warps: state.section.events.map((event, i) => ({ id: i + 1, x: event.x, y: event.y, destinationMap: event.map, destinationWarpId: event.warp })),
     maps: state.index.filter(entry => !entry.isUnused && !entry.isAlias),
-    sources: await snapshots(source, ["constants/map_constants.asm", "data/maps/map_header_pointers.asm", state.headerPath, state.path, "macros/scripts/maps.asm", "constants/map_data_constants.asm"]),
+    sources: await snapshots(source, ["constants/map_constants.asm", "data/maps/map_header_pointers.asm", state.headerPath, state.path, "macros/scripts/maps.asm", "constants/map_data_constants.asm", ...await source.exists(state.path.replace("data/maps/objects/", "scripts/")).then(exists => exists ? [state.path.replace("data/maps/objects/", "scripts/")] : [])]),
   };
 }
 function position(x: number, y: number, state: Awaited<ReturnType<typeof warpState>>, excludeId?: number) {
@@ -129,10 +129,15 @@ function replaceWarp(text: string, id: number | null, x: number, y: number, map:
   }
   return section.all.join(newline);
 }
-export async function prepareMapWarpWrites(source: ProjectSource, document: MapWarpDocument, values: MapWarpValues): Promise<TextWriteRequest[]> {
+export async function prepareMapWarpWrites(source: ProjectSource, document: MapWarpDocument, values: MapWarpValues, options: { strengthOwner?: boolean } = {}): Promise<TextWriteRequest[]> {
   await checkSources(source, document.sources);
   const state = await warpState(source, document.mapConstant);
   const id = values.id;
+  const scriptPath = state.path.replace("data/maps/objects/", "scripts/");
+  if (id !== null && !options.strengthOwner && await source.exists(scriptPath)) {
+    const record = (await source.readText(scriptPath)).match(/^; yellow-editor-strength: (.+)$/m);
+    if (record && (JSON.parse(record[1]) as { goals: Array<{ warpId?: number }> }).goals.some(goal => goal.warpId === id)) throw new Error("This warp belongs to a Strength hole. Move its target in Strength puzzles so the boulder and player routes stay linked.");
+  }
   if (id !== null) integer(id, 1, state.section.events.length, "Warp ID");
   else if (state.section.events.length >= state.maxWarps) throw new Error("This map has no available warp slots.");
   const old = id === null ? null : state.section.events[id - 1];

@@ -1,0 +1,1 @@
+export const sceneVisibilityHook = "\t; yellow-editor-scene-visibility-hook\n\tpush bc\n\tpush de\n\tpush hl\n\tcall EditorSceneObjectHidden\n\tpop hl\n\tpop de\n\tpop bc\n\tret c\n\t; yellow-editor-scene-visibility-hook-end\n";

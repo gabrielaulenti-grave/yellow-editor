@@ -14,6 +14,9 @@ import type {
 import { invoke } from "./platform/compat";
 import { MapInteractionEditor } from "./MapInteractionEditor";
 import { MapTerrainEditor } from "./MapTerrainEditor";
+import { MapStrengthEditor } from "./MapStrengthEditor";
+import { MapPropertiesEditor } from "./MapPropertiesEditor";
+import type { MapCheckReport } from "./core/mapValidation";
 import { MapWarpEditor } from "./MapWarpEditor";
 import { MapNpcEditor } from "./MapNpcEditor";
 import { MapNpcWizard } from "./MapNpcWizard";
@@ -231,17 +234,22 @@ export function MapsTab({
   const [createMapOpen, setCreateMapOpen] = useState(false);
   const appliedMapFocus = useRef<string | null>(null);
   const [terrainOpen, setTerrainOpen] = useState(false);
+  const [strengthOpen, setStrengthOpen] = useState(false);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [mapCheck, setMapCheck] = useState<MapCheckReport | null>(null), [checkingMap, setCheckingMap] = useState(false);
+  const checkSequence = useRef(0);
   const [warpEditor, setWarpEditor] = useState<{ id: number | null } | null>(null);
   const [npcWizardOpen, setNpcWizardOpen] = useState(false);
   const [editingNpcId, setEditingNpcId] = useState<number | null>(null);
   const [mapRevision, setMapRevision] = useState(0);
+  useEffect(() => { checkSequence.current++; setMapCheck(null); setCheckingMap(false); }, [selectedConstant]);
   const newNpcSelection = useRef<{ map: string; id: number } | null>(null);
   const dirtyCallback = useRef(onDirtyChange);
   dirtyCallback.current = onDirtyChange;
   useEffect(() => () => dirtyCallback.current?.(false), []);
 
   useEffect(() => {
-    const refresh = () => setMapRevision(value => value + 1);
+    const refresh = () => { checkSequence.current++; setMapCheck(null); setCheckingMap(false); setMapRevision(value => value + 1); };
     window.addEventListener("yellow-editor:history-changed", refresh);
     return () => window.removeEventListener("yellow-editor:history-changed", refresh);
   }, []);
@@ -250,6 +258,8 @@ export function MapsTab({
     appliedMapFocus.current = null;
     setCreateMapOpen(false);
     setTerrainOpen(false);
+    setStrengthOpen(false);
+    setPropertiesOpen(false);
     setWarpEditor(null);
     setNpcWizardOpen(false);
     setEditingNpcId(null);
@@ -825,9 +835,24 @@ export function MapsTab({
 
               <div className="terrain-toolbar">
                 <button type="button" className="primary-button" onClick={() => setTerrainOpen(true)}>Edit terrain</button>
+                <button type="button" onClick={() => setStrengthOpen(true)}>Strength puzzles</button>
+                <button type="button" onClick={() => setPropertiesOpen(true)}>Map properties</button>
+                <button type="button" disabled={checkingMap} onClick={() => {
+                  const sequence = ++checkSequence.current; setCheckingMap(true); setMapCheck(null);
+                  void invoke<MapCheckReport>("check_map", { mapConstant: visualization.map.constant }).then(report => { if (sequence === checkSequence.current) setMapCheck(report); }).catch(reason => { if (sequence === checkSequence.current) setError(String(reason)); }).finally(() => { if (sequence === checkSequence.current) setCheckingMap(false); });
+                }}>{checkingMap ? "Checking map…" : "Check map"}</button>
                 <button type="button" onClick={() => setWarpEditor({ id: null })}>Add warp</button>
                 <button type="button" disabled={selectedWarpId === null} onClick={() => setWarpEditor({ id: selectedWarpId })}>Edit selected warp</button>
               </div>
+              {mapCheck && <section className="strength-row" aria-label="Map check results"><h4>Map checks</h4><p>{mapCheck.checkedWarps} warps checked. {mapCheck.issues.length ? "Review these possible issues; one-way routes and custom scripts may be intentional." : "No issues found in warp destinations, ordinary warp terrain, return routes or object overlaps."}</p>{mapCheck.issues.length > 0 && <ul>{mapCheck.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>}</section>}
+              {propertiesOpen && <MapPropertiesEditor key={`${project.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
+                onDirtyChange={onDirtyChange} onClose={() => setPropertiesOpen(false)} onSaved={history => {
+                  setPropertiesOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                }} />}
+              {strengthOpen && <MapStrengthEditor key={`${project.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
+                onDirtyChange={onDirtyChange} onClose={() => setStrengthOpen(false)} onSaved={history => {
+                  setStrengthOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                }} />}
               {terrainOpen && <MapTerrainEditor key={`${project.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
                 onDirtyChange={onDirtyChange} onClose={() => setTerrainOpen(false)} onSaved={history => {
                   setTerrainOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));

@@ -9,6 +9,9 @@
 .terrain-surface { position: relative; line-height: 0; }
 .terrain-surface canvas { display: block; image-rendering: pixelated; }
 .terrain-selection { position: absolute; pointer-events: none; border: 3px solid #f59e0b; box-shadow: inset 0 0 0 1px #111; box-sizing: border-box; }
+.terrain-point { position: absolute; pointer-events: none; display: grid; place-items: center; background: #ffdf66dd; color: #201900; border: 1px solid #5b4500; font: bold 11px/1 sans-serif; }
+.strength-row { border: 1px solid var(--border); padding: 12px; border-radius: 8px; margin: 12px 0; overflow-wrap: anywhere; }
+.strength-row.active { border-color: var(--accent); background: var(--accent-soft); }
 .map-edit-ack { display: flex; align-items: flex-start; gap: 8px; margin: 14px 0; }
 .map-edit-dialog details { border-top: 1px solid #8886; padding: 16px 0; }
 .map-edit-dialog summary { cursor: pointer; font-weight: 600; }

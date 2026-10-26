@@ -35,6 +35,7 @@ export interface MapNpcCreateDocument {
 }
 
 export interface MapNpcCreateValues {
+  boulder?: boolean;
   x: number;
   y: number;
   sprite: string;
@@ -1576,6 +1577,12 @@ export interface ProjectSource {
 }
 
 export interface ProjectSession {
+  checkMap(mapConstant: string): Promise<import("./mapValidation").MapCheckReport>;
+  getMapPropertiesDocument(mapConstant: string): Promise<import("./mapProperties").MapPropertiesDocument>;
+  saveMapProperties(document: import("./mapProperties").MapPropertiesDocument, values: import("./mapProperties").MapPropertiesValues): Promise<HistorySummary>;
+  getMapStrengthDocument(mapConstant: string): Promise<import("./mapStrength").MapStrengthDocument>;
+  saveMapStrength(document: import("./mapStrength").MapStrengthDocument, values: import("./mapStrength").MapStrengthValues): Promise<HistorySummary>;
+  addMapBoulder(mapConstant: string, x: number, y: number): Promise<HistorySummary>;
   info: ProjectInfo;
   getPokemonIndex(): Promise<PokemonIndexEntry[]>;
   getPokemonDetails(

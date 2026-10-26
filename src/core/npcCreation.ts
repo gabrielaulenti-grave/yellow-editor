@@ -218,9 +218,11 @@ export async function prepareMapNpcWrites(source: ProjectSource, document: MapNp
   if (!Number.isInteger(values.x) || !Number.isInteger(values.y) || values.x < 0 || values.y < 0 || values.x >= Math.min(current.width, 252) || values.y >= Math.min(current.height, 252)) throw new Error("Choose a whole-number position inside this map.");
   if (current.occupied.some(point => point.x === values.x && point.y === values.y)) throw new Error("This position already contains an object or warp.");
   if (!current.sprites.includes(values.sprite)) throw new Error("Choose a sprite compatible with this map.");
-  validateNpcSpriteMovement(current.stationarySprites, values.sprite, values.movement, values.direction);
+  if (values.boulder) {
+    if (values.sprite !== "SPRITE_BOULDER" || values.movement !== "STAY" || values.direction !== "BOULDER_MOVEMENT_BYTE_2" || !state.files.some(file => /BoulderText::?/.test(file.contents))) throw new Error("Boulders require the native Strength sprite, movement and text handler.");
+  } else validateNpcSpriteMovement(current.stationarySprites, values.sprite, values.movement, values.direction);
   const directions = values.movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : values.movement === "WALK" ? ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"] : [];
-  if (!directions.includes(values.direction)) throw new Error("Choose a supported facing or wandering direction.");
+  if (!values.boulder && !directions.includes(values.direction)) throw new Error("Choose a supported facing or wandering direction.");
   let suffix = current.objectId;
   let objectConstant: string, textConstant: string, label: string;
   do {
@@ -230,7 +232,8 @@ export async function prepareMapNpcWrites(source: ProjectSource, document: MapNp
     suffix++;
   } while (state.files.some(file => [objectConstant, textConstant, label].some(value => new RegExp(`\\b${value}\\b`).test(file.contents))));
   let generated: string;
-  if (values.dialogue?.kind === "new") {
+  if (values.boulder) generated = "";
+  else if (values.dialogue?.kind === "new") {
     const input = values.dialogue.lines;
     if (!Array.isArray(input) || input.length < 1 || input.length > 16 || input.some(value => typeof value !== "string" || /[\r\n@<>\\"]/u.test(value)) || !input.some(value => value.trim())) throw new Error("Enter 1–16 dialogue lines without text control tokens.");
     // Limit new text to visible characters mapped by this project, so saving
@@ -260,7 +263,7 @@ export async function prepareMapNpcWrites(source: ProjectSource, document: MapNp
   const pointerStart = scriptLines.findIndex(line => clean(line) === `${state.name}_TextPointers:`);
   const pointerIndices = scriptLines.flatMap((line, i) => i > pointerStart && /^dw_const\s+/.test(clean(line)) ? [i] : []).slice(0, state.pointers.length);
   const boundary = pointerIndices[state.events.length] ?? ((pointerIndices[pointerIndices.length - 1] ?? scriptLines.findIndex((line, i) => i > pointerStart && clean(line) === "def_text_pointers")) + 1);
-  let scriptContents = insert(state.script, boundary, [`\tdw_const ${label}, ${textConstant}`]);
+  let scriptContents = insert(state.script, boundary, [`\tdw_const ${values.boulder ? "BoulderText" : label}, ${textConstant}`]);
   const newline = state.script.includes("\r\n") ? "\r\n" : "\n";
   scriptContents += (scriptContents.endsWith("\n") ? newline : newline + newline) + generated.replace(/\n/g, newline);
   return [

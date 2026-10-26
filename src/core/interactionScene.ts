@@ -1,6 +1,8 @@
 import { partnerHelpers, renderPartnerMove, type PartnerDomain, type PartnerRouteCell } from "./scenePartner";
 import { InteractionValidationError, actionValidationError } from "./interactionValidation";
 import { hashText } from "./history";
+import { sceneVisibilityHook as visibilityHook } from "./objectVisibilityHooks";
+import { reviewStrengthVisibility, strengthControlsVisibility } from "./mapStrength";
 import { prepareSceneBankSpace, prepareSharedSceneBankSpace } from "./sceneBankSpace";
 import { itemClaims } from "./sceneFlags";
 import { prepareSceneTextHandoff } from "./sceneTextHandoff";
@@ -466,7 +468,6 @@ export function renderScene(model: ManagedInteraction): string {
   return lines.join("\n") + `; yellow-editor-interaction-code-end ${model.label}\n\n`;
 }
 
-const visibilityHook = "\t; yellow-editor-scene-visibility-hook\n\tpush bc\n\tpush de\n\tpush hl\n\tcall EditorSceneObjectHidden\n\tpop hl\n\tpop de\n\tpop bc\n\tret c\n\t; yellow-editor-scene-visibility-hook-end\n";
 const entryHook = "\t; yellow-editor-scene-map-entry-hook\n\txor a\n\tld [wEditorSceneActive], a\n\t; yellow-editor-scene-map-entry-hook-end\n";
 function sceneEntryHook(models: ManagedInteraction[], snapshot = true) {
   const latches = [...new Set(models.flatMap(model => model.scene?.latchFlag ? [model.scene.latchFlag] : []))].sort().map(flag => `\tResetEvent ${flag}\n`).join("");
@@ -509,6 +510,7 @@ export async function prepareSceneRuntime(state: InteractionInspection, model: M
   await prepareSceneBankSpace(state, changed);
   if (model.values.sharedFlags?.length || itemClaims(model.values.actions ?? []).length) await prepareSharedSceneBankSpace(state, changed);
   const existing = sceneModels(state.files), all = [...existing.filter(other => other.prefix !== model.prefix), model];
+  if (model.scene?.visibility.some(entry => strengthControlsVisibility(state.files, model.scene!.mapConstant, entry.id))) throw new Error("A Strength hole controls this boulder's visibility. Use a separate object for scene visibility actions.");
   await prepareSceneTextHandoff(state, existing, all, changed);
   const normalize = (text: string) => text.replace(/\r\n/g, "\n");
   const save = (path: string, text: string) => changed.set(path, text.replace(/\n/g, state.byPath.get(path)!.includes("\r\n") ? "\r\n" : "\n"));
@@ -520,7 +522,7 @@ export async function prepareSceneRuntime(state: InteractionInspection, model: M
     if (!old || !text.includes(visibilityHook)) throw new Error("The shared scene visibility runtime was changed in source.");
     text = text.slice(0, -old.length) + runtime(all);
   } else {
-    if (await hashText(body(text, "IsObjectHidden")) !== "f78a101337f2f157e91014ea8ad83876e16bc65120172c6cf098c16215ac7008") throw new Error("Scene visibility needs the reviewed native IsObjectHidden routine.");
+    if (await hashText(body(reviewStrengthVisibility(text, state.files), "IsObjectHidden")) !== "f78a101337f2f157e91014ea8ad83876e16bc65120172c6cf098c16215ac7008") throw new Error("Scene visibility needs the reviewed native IsObjectHidden routine.");
     text = text.replace("IsObjectHidden:\n", "IsObjectHidden:\n" + visibilityHook) + "\n" + runtime(all);
   }
   save(visibilityPath, text);

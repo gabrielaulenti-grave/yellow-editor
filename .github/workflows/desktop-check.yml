@@ -71,6 +71,12 @@ jobs:
       - name: Check map terrain and warp editing through Maps
         run: npm run test:maps:edit:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check Strength puzzles, map permissions and history
+        run: npm run test:maps:strength -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check Strength puzzle and map property editors
+        run: npm run test:maps:strength:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check scene drafts, stationary sprites and diagnostics
         run: npm run test:scenes:readiness:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -136,6 +142,9 @@ jobs:
 
       - name: Compile new houses and verify map and warp bytes in ROM
         run: npm run test:maps:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
+
+      - name: Execute Strength and field permission CPU probes and compile edited ROMs
+        run: npm run test:maps:strength -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Check repeated item gifts and inventory map boundaries
         run: npm run test:items:gifts -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

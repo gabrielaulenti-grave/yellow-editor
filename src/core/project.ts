@@ -1,4 +1,7 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
+import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "./mapStrength";
+import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "./mapProperties";
+import { checkMap } from "./mapValidation";
 import {
   parseBaseStats,
   parseMoves,
@@ -867,6 +870,27 @@ export async function createProjectSession(
       if (changes.length === 0) return history.getSummary();
       const result = await history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
       invalidateScriptReadModels(changes.map((change) => change.path));
+      return result;
+    },
+    checkMap: mapConstant => checkMap(source, mapConstant),
+    getMapPropertiesDocument: mapConstant => loadMapPropertiesDocument(source, mapConstant),
+    saveMapProperties: async (document, values) => {
+      const changes = await prepareMapPropertiesWrites(source, document, values);
+      const result = await history.save(`Edit map properties in ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    getMapStrengthDocument: mapConstant => loadMapStrengthDocument(source, mapConstant),
+    saveMapStrength: async (document, values) => {
+      const changes = await prepareMapStrengthWrites(source, document, values);
+      const result = await history.save(`Edit Strength puzzles in ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    addMapBoulder: async (mapConstant, x, y) => {
+      const changes = await prepareAddBoulderWrites(source, mapConstant, x, y);
+      const result = await history.save(`Add Strength boulder to ${mapConstant}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
       return result;
     },
     getMapCreateDocument: templateConstant => loadMapCreateDocument(source, templateConstant),

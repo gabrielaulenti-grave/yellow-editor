@@ -1,4 +1,7 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "../src/core/mapCreation";
+import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "../src/core/mapStrength";
+import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "../src/core/mapProperties";
+import { checkMap } from "../src/core/mapValidation";
 import { loadMapTerrainDocument, prepareMapTerrainWrites, loadMapWarpDocument, prepareMapWarpWrites } from "../src/core/mapEditing";
 import { createProjectHistoryManager } from "../src/core/history";
 import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "../src/core/npcEditing";
@@ -57,6 +60,21 @@ const session = attachTextEditing({ saveTextChanges: async (_title: string, chan
 } } as ProjectSession, source);
 fixture.dialogueInvoke = async (command, args) => {
   switch (command) {
+    case "check_map": return checkMap(source, args!.mapConstant as string);
+    case "get_map_properties_document": return loadMapPropertiesDocument(source, args!.mapConstant as string);
+    case "save_map_properties": {
+      const changes = await prepareMapPropertiesWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Edit map properties", changes);
+    }
+    case "get_map_strength_document": return loadMapStrengthDocument(source, args!.mapConstant as string);
+    case "save_map_strength": {
+      const changes = await prepareMapStrengthWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Edit Strength puzzle", changes);
+    }
+    case "add_map_boulder": {
+      const changes = await prepareAddBoulderWrites(source, args!.mapConstant as string, args!.x as number, args!.y as number);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Add boulder", changes);
+    }
     case "get_map_create_document": return loadMapCreateDocument(source, args?.templateConstant as string | undefined);
     case "create_map": {
       const changes = await prepareMapCreateWrites(source, args!.document as never, args!.values as never);
