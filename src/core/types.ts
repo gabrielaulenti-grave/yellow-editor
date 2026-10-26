@@ -87,6 +87,7 @@ export interface MapSignEvent {
 }
 
 export interface MapNpcEvent {
+  trainerPartyId?: string;
   id: number;
   objectConstant: string | null;
   x: number;
@@ -1624,6 +1625,8 @@ export interface ProjectSession {
   getMapEncounterDocument(mapConstant: string): Promise<import("./mapEncounters").MapEncounterDocument>;
   assignMapEncounters(document: import("./mapEncounters").MapEncounterDocument, values: import("./mapEncounters").MapEncounterValues): Promise<HistorySummary>;
   getMapItemDocument(mapConstant: string): Promise<import("./mapItems").MapItemDocument>;
+  getMapTrainerDocument(mapConstant: string, objectId?: number): Promise<import("./mapTrainers").MapTrainerDocument>;
+  saveMapTrainer(document: import("./mapTrainers").MapTrainerDocument, values: import("./mapTrainers").MapTrainerDocument["values"]): Promise<HistorySummary>;
   placeMapItem(document: import("./mapItems").MapItemDocument, values: import("./mapItems").MapItemValues): Promise<HistorySummary>;
   createMap(document: MapCreateDocument, values: MapCreateValues): Promise<MapCreateResult>;
   getMapTerrainDocument(mapConstant: string): Promise<MapTerrainDocument>;

@@ -2136,6 +2136,20 @@ function App() {
     setFishingFocusMapConstant(mapConstant);
   }
 
+  async function openTrainerPartyFromMap(partyId: string) {
+    if (!(await selectTab("trainers"))) return;
+    setTrainerSection("parties");
+    setEditBusy(true); setStatus("Reading trainer party…");
+    const generation = projectLoadGeneration.current;
+    try {
+      const catalog = await invoke<TrainerCatalog>("get_trainers");
+      if (generation !== projectLoadGeneration.current) return;
+      installTrainerCatalog(catalog, partyId, partyId.split(":")[0]);
+      setStatus("Trainer party loaded. Shared parties affect every battle using them.");
+    } catch (error) { setStatus(String(error)); }
+    finally { setEditBusy(false); }
+  }
+
   async function openScript(
     path: string,
     routineLabel?: string | null,
@@ -2413,6 +2427,7 @@ function App() {
           project={project}
           encounters={encounters}
           onEncountersChanged={setEncounters}
+          onOpenTrainerParty={partyId => void openTrainerPartyFromMap(partyId)}
           fishingDocument={fishingDocument}
           pokemonIndex={pokemonIndex}
           focusMapConstant={mapFocusConstant}

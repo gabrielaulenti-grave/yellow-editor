@@ -279,6 +279,11 @@ function parseNpcEvents(
   const objectConstants = parseObjectConstants(objectText);
   const textPointers = scriptText ? parseTextPointers(scriptText) : new Map<string, string>();
   let objectIndex = 0;
+  let placedTrainerIds = new Set<number>();
+  try {
+    const record = scriptText?.match(/^; yellow-editor-map-trainers: (.+)$/m);
+    if (record) placedTrainerIds = new Set((JSON.parse(record[1]) as { trainers: Array<{ id: number }> }).trainers.map(t => t.id));
+  } catch { /* The dedicated trainer editor reports malformed managed source. */ }
 
   for (const rawLine of objectText.split(/\r?\n/)) {
     const clean = codeOnly(rawLine);
@@ -291,7 +296,8 @@ function parseNpcEvents(
 
     // Six arguments is the ordinary NPC form. Items add one more field and
     // trainers add two, so keep those for their dedicated map layers.
-    if (args.length !== 6) continue;
+    const trainerPartyId = args.length === 8 && placedTrainerIds.has(id) && /^OPP_[A-Z0-9_]+$/.test(args[6]) && /^\d+$/.test(args[7]) ? `${args[6].slice(4)}:${args[7]}` : undefined;
+    if (args.length !== 6 && !trainerPartyId) continue;
     if (!/^-?\d+$/.test(args[0]) || !/^-?\d+$/.test(args[1])) continue;
 
     const textConstant = args[5];
@@ -305,6 +311,7 @@ function parseNpcEvents(
     );
 
     npcs.push({
+      ...(trainerPartyId ? { trainerPartyId } : {}),
       id,
       objectConstant,
       x: Number.parseInt(args[0], 10),

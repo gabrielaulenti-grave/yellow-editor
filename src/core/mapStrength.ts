@@ -1,4 +1,5 @@
 import { hashText, bytesToHex } from "./history";
+import { insertAfterTrainerResume } from "./mapTrainerRuntime";
 import { sceneVisibilityHook, conditionVisibilityHook } from "./objectVisibilityHooks";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadMapNpcSourceState, prepareMapNpcWrites } from "./npcCreation";
@@ -366,7 +367,7 @@ export async function prepareMapStrengthWrites(source: ProjectSource, document: 
     else {
       const root = new RegExp(`^${s.name}_Script:{1,2}\\r?\\n`, "m");
       if (!root.test(script)) throw new Error("This map needs a unique script entry point.");
-      script = script.replace(root, match => match + `\tcall ${s.name}EditorStrength${nl}`);
+      script = insertAfterTrainerResume(script, s.name, `\tcall ${s.name}EditorStrength\n`);
     }
     changes.set(s.scriptPath, script + (script.endsWith("\n") ? nl : nl + nl) + managedBlock(m, s.map.width).replace(/\n/g, nl));
     changes.set("constants/event_constants.asm", constants);

@@ -71,6 +71,12 @@ jobs:
       - name: Check encounter assignment and item placement through Maps
         run: npm run test:maps:populate:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check native trainer placement, independent parties and history
+        run: npm run test:maps:trainers -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check trainer placement and editing through Maps
+        run: npm run test:maps:trainers:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check map terrain and warp sources, binary history and Save As
         run: npm run test:maps:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -157,6 +163,12 @@ jobs:
 
       - name: Compile populated new maps and test pickup persistence on the CPU
         run: npm run test:maps:populate -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Compile trainer maps and execute native battle dispatcher probes
+        run: npm run test:maps:trainers -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Play trainer sight, talk challenges, blackout and battery reloads
+        run: npm run test:maps:trainers:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Execute Strength and field permission CPU probes and compile edited ROMs
         run: npm run test:maps:strength -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

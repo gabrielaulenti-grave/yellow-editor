@@ -1,4 +1,5 @@
 import { inspectScenePartner } from "./scenePartner";
+import { insertAfterTrainerResume } from "./mapTrainerRuntime";
 import { hasItemReward, itemInventoryPath, prepareItemDeliveryWrites } from "./itemDelivery";
 import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, sceneModels, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./interactionValidation";
@@ -649,7 +650,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     const hook = sceneRootHook(prefix), nl = primary.includes("\r\n") ? "\r\n" : "\n";
     if (state.old?.version === 3) {
       if (!primary.includes(hook.replace(/\n/g, nl))) throw new Error("The map scene hook was changed in source.");
-    } else primary = primary.replace(new RegExp(`^${state.mapName}_Script:{1,2}\\r?\\n`, "m"), match => match + hook.replace(/\n/g, nl));
+    } else primary = insertAfterTrainerResume(primary, state.mapName, hook);
     if (!primary.includes(hook.replace(/\n/g, nl))) throw new Error("Could not install the map scene hook.");
     const r = range(primary, `${state.mapName}_TextPointers`);
     const table = r.body.map(clean).filter(Boolean);

@@ -1,6 +1,7 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "../src/core/mapCreation";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "../src/core/mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "../src/core/mapItems";
+import { loadMapTrainerDocument, prepareMapTrainerWrites, type MapTrainerDocument } from "../src/core/mapTrainers";
 import { parseEncounterIndex, loadEncounterTableEditDocument } from "../src/core/encounterEditing";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "../src/core/mapStrength";
 import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "../src/core/mapProperties";
@@ -21,6 +22,8 @@ import type { ProjectSession, ProjectSource, TextWriteRequest } from "../src/cor
 
 const fixture = window as unknown as {
   dialogueFiles: Record<string, string>;
+  trainerDocument?: MapTrainerDocument;
+  openedTrainerParty?: string;
   dialogueInvoke(command: string, args?: Record<string, unknown>): Promise<unknown>;
   dialogueSaves: TextWriteRequest[][];
   dialogueDirty: boolean;
@@ -71,6 +74,13 @@ fixture.dialogueInvoke = async (command, args) => {
       fixture.dialogueSaves.push(changes); return mapHistory.save("Assign encounters", changes);
     }
     case "get_map_item_document": return loadMapItemDocument(source, args!.mapConstant as string);
+    case "get_map_trainer_document": {
+      const doc = await loadMapTrainerDocument(source, args!.mapConstant as string, args!.objectId as number | undefined); fixture.trainerDocument = doc; return doc;
+    }
+    case "save_map_trainer": {
+      const changes = await prepareMapTrainerWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Place trainer", changes);
+    }
     case "place_map_item": {
       const changes = await prepareMapItemWrites(source, args!.document as never, args!.values as never);
       fixture.dialogueSaves.push(changes); return mapHistory.save("Place item", changes);
@@ -139,6 +149,7 @@ function Fixture() {
     {fixture.mapSurface
       ? <MapsTab key={version} project={project} encounters={[]} fishingDocument={null} pokemonIndex={[]} focusMapConstant={fixture.mapFocus ?? "VIRIDIAN_CITY"}
           onOpenWalkingEncounter={() => {}} onOpenFishing={() => {}}
+          onOpenTrainerParty={id => { fixture.openedTrainerParty = id; }}
           onOpenScript={(path, label) => { fixture.openedScript = { path, label }; }}
           onDirtyChange={dirty => { fixture.dialogueDirty = dirty; }} />
       : <ScriptsTab key={version} project={project} focus={focus} onDirtyChange={dirty => { fixture.dialogueDirty = dirty; }} />}

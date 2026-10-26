@@ -1,6 +1,7 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "./mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "./mapItems";
+import { loadMapTrainerDocument, prepareMapTrainerWrites } from "./mapTrainers";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "./mapStrength";
 import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "./mapProperties";
 import { checkMap } from "./mapValidation";
@@ -904,6 +905,14 @@ export async function createProjectSession(
       return result;
     },
     getMapItemDocument: map => loadMapItemDocument(source, map),
+    getMapTrainerDocument: (map, objectId) => loadMapTrainerDocument(source, map, objectId),
+    saveMapTrainer: async (document, values) => {
+      const changes = await prepareMapTrainerWrites(source, document, values);
+      const result = changes.length ? await history.save(`${document.objectId === null ? "Place" : "Edit"} trainer in ${document.mapName}`, changes) : await history.getSummary();
+      const paths = changes.map(c => c.path);
+      invalidateNonTrainerReadModels(paths); invalidateTrainerBaseCatalog(paths); await trainerCatalogCache?.clear();
+      return result;
+    },
     placeMapItem: async (document, values) => {
       const changes = await prepareMapItemWrites(source, document, values);
       const result = await history.save(`Place ${values.item} in ${document.npc.mapName}`, changes);

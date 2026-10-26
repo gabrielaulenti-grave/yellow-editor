@@ -620,6 +620,11 @@ export async function invoke<T>(
       return await session.assignMapEncounters(args.document as import("../core/mapEncounters").MapEncounterDocument, args.values as import("../core/mapEncounters").MapEncounterValues) as T;
     case "get_map_item_document":
       return await session.getMapItemDocument(stringArg(args, "mapConstant")) as T;
+    case "get_map_trainer_document":
+      return await session.getMapTrainerDocument(stringArg(args, "mapConstant"), typeof args?.objectId === "number" ? args.objectId : undefined) as T;
+    case "save_map_trainer":
+      if (!args?.document || !args.values) throw new Error("Missing map trainer document or values.");
+      return await session.saveMapTrainer(args.document as import("../core/mapTrainers").MapTrainerDocument, args.values as import("../core/mapTrainers").MapTrainerDocument["values"]) as T;
     case "place_map_item":
       if (!args?.document || !args.values) throw new Error("Missing map item document or values.");
       return await session.placeMapItem(args.document as import("../core/mapItems").MapItemDocument, args.values as import("../core/mapItems").MapItemValues) as T;

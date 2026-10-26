@@ -1,6 +1,7 @@
 import { partnerHelpers, renderPartnerMove, type PartnerDomain, type PartnerRouteCell } from "./scenePartner";
 import { InteractionValidationError, actionValidationError } from "./interactionValidation";
 import { hashText } from "./history";
+import { trainerEntryHook } from "./mapTrainerRuntime";
 import { sceneVisibilityHook as visibilityHook, conditionVisibilityHook } from "./objectVisibilityHooks";
 import { renderConditionFailure, renderPlayerCondition, validatePlayerCondition, type PlayerCondition } from "./playerConditions";
 import { renderNpcTransaction, renderNpcShop } from "./npcServices";
@@ -556,7 +557,7 @@ export async function prepareSceneRuntime(state: InteractionInspection, model: M
   } else {
     const reservation = "wGameProgressFlagsEnd::\n\n\tds 56\n";
     if (ram.split(reservation).length !== 2 || /wEditorScene\w+/.test(ram)) throw new Error("Scene storage requires the reviewed unused 56-byte WRAM reservation.");
-    if (await hashText(body(clear, "ClearVariablesOnEnterMap")) !== "86ee2041b20584e3b9df2c0ee987347ebc8f201797e1b09e1349747b6d985296") throw new Error("Scene cleanup needs the reviewed map-entry routine.");
+    if (await hashText(body(clear.replace(trainerEntryHook, ""), "ClearVariablesOnEnterMap")) !== "86ee2041b20584e3b9df2c0ee987347ebc8f201797e1b09e1349747b6d985296") throw new Error("Scene cleanup needs the reviewed map-entry routine.");
     save("ram/wram.asm", ram.replace(reservation, "wGameProgressFlagsEnd::\n\n" + (extended ? extendedScratch : scratch)));
     save("engine/overworld/clear_variables.asm", clear.replace("ClearVariablesOnEnterMap::\n", "ClearVariablesOnEnterMap::\n" + sceneEntryHook(all)));
   }

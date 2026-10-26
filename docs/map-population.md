@@ -49,9 +49,9 @@ the item or quantity. Placement, interaction, event allocation and the needed
 runtime changes save atomically and support undo/redo. Existing event and native
 toggle-object IDs are not renumbered, and the save layout is not enlarged.
 
-This pass adds visible pickups. Hidden-item placement and trainer placement
-are separate future tools; existing trainer data and scripted battles remain
-available through their current editors.
+For trainers, use **Place trainer** in the same panel. See
+[trainer placement](map-trainers.md) for independent parties, sight challenges
+and persistent defeat flags. Hidden-item placement remains a separate future tool.
 
 ## Verification
 
