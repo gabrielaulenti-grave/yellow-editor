@@ -4,6 +4,7 @@ import { SceneReview } from "./SceneReview";
 import { maximumSceneStarts, scenePlayerStarts } from "./core/interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./core/interactionValidation";
 import { InteractionSequenceEditor } from "./InteractionSequenceEditor";
+import { PlayerConditionEditor } from "./PlayerConditionEditor";
 import { SharedSceneFlags } from "./SharedSceneFlags";
 import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
 import { readInteractionDraft, writeInteractionDraft, deleteInteractionDraft, interactionDraftBaseline, type InteractionDraft, type InteractionDraftData } from "./platform/interactionDraftStore";
@@ -233,11 +234,8 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
                 if (e.target.checked) scene.automaticCondition = { event: values.sharedFlags?.[0]?.event ?? document.sharedFlags?.[0]?.event ?? document.events[0], set: false };
                 else delete scene.automaticCondition;
                 update({ scene });
-              }} />Require an event for the automatic trigger</label>
-              {values.scene.automaticCondition && <>
-                <label>Automatic trigger event{eventSelect(values.scene.automaticCondition.event, event => update({ scene: { ...values.scene!, automaticCondition: { ...values.scene!.automaticCondition!, event } } }), "Automatic trigger event")}</label>
-                <label><input type="checkbox" disabled={busy} checked={values.scene.automaticCondition.set} onChange={e => update({ scene: { ...values.scene!, automaticCondition: { ...values.scene!.automaticCondition!, set: e.target.checked } } })} />Automatic trigger event must be set (uncheck for clear)</label>
-              </>}
+              }} />Require a condition for the automatic trigger</label>
+              {values.scene.automaticCondition && <PlayerConditionEditor label="Automatic trigger condition" eventLabel="Automatic trigger event" setLabel="Automatic trigger event must be set (uncheck for clear)" busy={busy} value={values.scene.automaticCondition} domains={{ ...document, sharedFlags: [...(document.sharedFlags ?? []), ...(values.sharedFlags ?? [])], events: [...new Set([...document.events, ...(values.sharedFlags ?? []).map(flag => flag.event)])] }} onChange={automaticCondition => update({ scene: { ...values.scene!, automaticCondition } })} />}
               <p className="help-text">The NPC can still be addressed manually from every listed start. Use a separate automatic condition to stop an automatic challenge after a battle while keeping later conversations available. Automatic triggers rearm after leaving their tiles.</p>
             </>}
             <label>Native idle state<select aria-label="Scene idle state" disabled={busy} value={values.scene.idleState} onChange={e => update({ scene: { ...values.scene!, idleState: Number(e.target.value) } })}>{document.scene.idleStates.map(state => <option key={state.id} value={state.id}>{state.id}: {state.label}</option>)}</select></label>
@@ -281,10 +279,11 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         {!values.actions && <label>{values.reward || values.pokemon ? "Dialogue after delivery" : "NPC or interaction dialogue"}<textarea aria-label="Interaction dialogue" rows={3} disabled={busy} value={values.dialogue.join("\n")} onChange={event => update({ dialogue: event.target.value.split("\n") })} /></label>}
         <p className="help-text">Press Enter for another game text row: up to 18 character spaces on the first row and 17 on later rows. Tokens such as &lt;PLAYER&gt; are supported; player and rival names count as up to 7 spaces.</p>
         {values.once && <label>Repeat dialogue<textarea aria-label="Repeat dialogue" rows={3} disabled={busy} value={values.already.join("\n")} onChange={event => update({ already: event.target.value.split("\n") })} /></label>}
-        <label><input type="checkbox" disabled={busy || !document.events.length} checked={Boolean(values.condition)} onChange={event => update({ condition: event.target.checked ? { event: document.events[0], set: true } : null })} />Require an event condition</label>
-        {values.condition && <>{eventSelect(values.condition.event, event => update({ condition: { ...values.condition!, event } }), "Required event")}
-          <label><input type="checkbox" disabled={busy} checked={values.condition.set} onChange={event => update({ condition: { ...values.condition!, set: event.target.checked } })} />Event must be set</label>
-          <p className="help-text">When the condition does not match, the original dialogue is shown.</p></>}
+        <label><input type="checkbox" disabled={busy} checked={Boolean(values.condition)} onChange={event => update({ condition: event.target.checked ? { event: document.events[0], set: true } : null })} />Require a condition</label>
+        {values.condition && <><PlayerConditionEditor label="Interaction condition" eventLabel="Required event" busy={busy} value={values.condition} domains={{ ...document, sharedFlags: [...(document.sharedFlags ?? []), ...(values.sharedFlags ?? [])], events: [...new Set([...document.events, ...(values.sharedFlags ?? []).map(flag => flag.event)])] }} onChange={condition => update({ condition })} /><p className="help-text">When the condition does not match, the original dialogue is shown.</p></>}
+        {document.visibilityNpc && <><label><input type="checkbox" disabled={busy} checked={Boolean(values.visibleWhen)} onChange={e => update({ visibleWhen: e.target.checked ? { kind: "not", condition: { kind: "hall-of-fame" } } : null, ...(e.target.checked && !values.actions && !values.reward && !values.pokemon && !values.movement && JSON.stringify(values.dialogue) === JSON.stringify(["Here you go!"]) ? { actions: [], once: false, showOriginal: true } : {}) })} />Show this NPC only when a condition matches</label>
+          {values.visibleWhen && <><PlayerConditionEditor label="NPC visibility condition" busy={busy} value={values.visibleWhen} domains={{ ...document, sharedFlags: [...(document.sharedFlags ?? []), ...(values.sharedFlags ?? [])], events: [...new Set([...document.events, ...(values.sharedFlags ?? []).map(flag => flag.event)])] }} onChange={visibleWhen => update({ visibleWhen })} /><p className="help-text">Applies automatically when map sprites load or refresh, including after loading a saved game. “Not → Hall of Fame completed” keeps a blocker visible until the player becomes Champion. Native and scene rules can still hide an eligible NPC.</p></>}
+        </>}
         <strong>Event changes after success</strong>
         {values.events.map((entry, i) => <div key={i}>{eventSelect(entry.event, event => update({ events: values.events.map((old, n) => n === i ? { ...old, event } : old) }), `Changed event ${i + 1}`)}
           <label><input type="checkbox" disabled={busy} checked={entry.set} onChange={event => update({ events: values.events.map((old, n) => n === i ? { ...old, set: event.target.checked } : old) })} />Set event (uncheck to clear)</label>

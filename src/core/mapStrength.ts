@@ -1,5 +1,5 @@
 import { hashText, bytesToHex } from "./history";
-import { sceneVisibilityHook } from "./objectVisibilityHooks";
+import { sceneVisibilityHook, conditionVisibilityHook } from "./objectVisibilityHooks";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadMapNpcSourceState, prepareMapNpcWrites } from "./npcCreation";
 import { loadMapWarpDocument, prepareMapWarpWrites } from "./mapEditing";
@@ -322,7 +322,8 @@ export async function prepareMapStrengthWrites(source: ProjectSource, document: 
         const toggles = s.byPath.get("data/maps/toggleable_objects.asm") ?? "";
         if ([receiving.constant, sourceBoulder.constant].some(name => new RegExp(`\\btoggle_object_state\\s+${name}\\s*,`).test(toggles))) throw new Error("This boulder is already controlled by a native puzzle. Add an independent boulder for a new hole link.");
         for (const file of s.files.filter(f => f.path.startsWith("scripts/"))) for (const record of file.contents.matchAll(/^\s*; yellow-editor-interaction: (.+)$/gm)) {
-          const scene = (JSON.parse(record[1]) as { scene?: { mapConstant: string; visibility: Array<{ id: number }> } }).scene;
+          const model = JSON.parse(record[1]) as { scene?: { mapConstant: string; visibility: Array<{ id: number }> }; visibilityRule?: { map: string; object: number } }, scene = model.scene;
+          if (model.visibilityRule && (model.visibilityRule.map === s.map.constant && model.visibilityRule.object === g.boulderId || model.visibilityRule.map === dest.map && model.visibilityRule.object === receiving.id)) throw new Error("An NPC condition already controls this boulder's visibility. Choose an independent boulder for the hole link.");
           if (scene && (scene.mapConstant === s.map.constant && scene.visibility.some(v => v.id === g.boulderId) || scene.mapConstant === dest.map && scene.visibility.some(v => v.id === receiving.id))) throw new Error("This boulder's visibility is already controlled by a scene. Choose an independent boulder for the hole link.");
         }
         const staged = overlay(source, changes), sourceDoc = await loadMapWarpDocument(staged, s.map.constant), destDoc = await loadMapWarpDocument(staged, dest.map);
@@ -380,7 +381,7 @@ export async function prepareMapStrengthWrites(source: ProjectSource, document: 
         if (!engine.includes(block)) throw new Error("The Strength object-visibility engine was edited in source.");
         engineText = engine.replace(block, generated);
       } else {
-        const native = engineText.replace(/\r\n/g, "\n").replace(sceneVisibilityHook, "");
+        const native = engineText.replace(/\r\n/g, "\n").replace(sceneVisibilityHook, "").replace(conditionVisibilityHook, "");
         const body = native.match(/^IsObjectHidden:\n([\s\S]*?)(?=^[A-Za-z_]\w*:{1,2})/m)?.[1];
         if (!body || await hashText(rows(body).map(clean).filter(Boolean).join("\n")) !== "f78a101337f2f157e91014ea8ad83876e16bc65120172c6cf098c16215ac7008") throw new Error("Strength drops need the reviewed native object-visibility routine.");
         engineText = engineText.replace(/IsObjectHidden:\r?\n/, match => match + visibilityHook.replace(/\n/g, engineNl));

@@ -1,5 +1,7 @@
 # Map creation, terrain and warps
 
+For post-game blockers, compound player conditions, payments and shops, see [NPC conditions and services](npc-conditions-and-services.md).
+
 The Maps tab has **Create map**, **Edit terrain**, **Strength puzzles**, **Map properties**, **Check map**, **Add warp**, and **Edit selected warp**.
 
 ## Create an independent map

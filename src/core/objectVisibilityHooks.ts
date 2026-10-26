@@ -1,1 +1,2 @@
 export const sceneVisibilityHook = "\t; yellow-editor-scene-visibility-hook\n\tpush bc\n\tpush de\n\tpush hl\n\tcall EditorSceneObjectHidden\n\tpop hl\n\tpop de\n\tpop bc\n\tret c\n\t; yellow-editor-scene-visibility-hook-end\n";
+export const conditionVisibilityHook = "\t; yellow-editor-npc-condition-hook\n\tpush bc\n\tpush hl\n\tfarcall EditorNpcConditionVisibility\n\tpop hl\n\tpop bc\n\tret c\n\t; yellow-editor-npc-condition-hook-end\n";

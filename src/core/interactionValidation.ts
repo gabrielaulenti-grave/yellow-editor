@@ -3,7 +3,7 @@ export interface InteractionDiagnostic {
 }
 export interface InteractionCheckReport { valid: boolean; issues: InteractionDiagnostic[] }
 export function actionPathLabel(path: string) {
-  return path.replace(/^Action/, "Action ").replace(/(Yes|No|Then|Otherwise|Won|Caught|Escaped|Following|Absent)(\d+)/g, " › $1 › action $2");
+  return path.replace(/^Action/, "Action ").replace(/(Yes|No|Then|Otherwise|Won|Caught|Escaped|Following|Absent|Success|Declined|Insufficient|Full)(\d+)/g, " › $1 › action $2");
 }
 export class InteractionValidationError extends Error {
   constructor(readonly detail: InteractionDiagnostic) {
