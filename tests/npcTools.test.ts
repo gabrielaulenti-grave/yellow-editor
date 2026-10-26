@@ -35,6 +35,8 @@ for (const directory of args) test(`${directory}: reusable player conditions, pe
   assert.equal(doc.managed, false);
   assert.equal(doc.conditions?.reason, null); assert.equal(doc.services?.transactionReason, null); assert.equal(doc.services?.shopReason, null);
   assert.ok(doc.conditions.moves.includes("CUT")); assert.ok(doc.items.includes("HM_CUT")); assert.ok(doc.items.includes("TM_DIG"));
+  assert.ok(doc.items.includes("ELIXER"));
+  assert.ok(!doc.items.includes("FLOOR_B2F") && !doc.items.includes("MAX_HIDDEN_COINS") && !doc.items.includes("MAX_HIDDEN_ITEMS"), "Inventory selectors exclude floor IDs and helper constants");
   assert.equal(doc.visibilityNpc?.id, npc.objectId);
   const condition: PlayerCondition = { kind: "not", condition: { kind: "hall-of-fame" } };
   const values = { ...doc.values, once: false, actions: [] as InteractionAction[], visibleWhen: condition };

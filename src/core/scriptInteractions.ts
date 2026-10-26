@@ -213,7 +213,10 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     const snapshot = line.match(/^DEF (\w+) EQU (.*\bconst_value\b.*)$/);
     if (snapshot) { const value = number(snapshot[2].replace(/\bconst_value\b/g, String(eventValue))); if (value !== null) symbols.set(snapshot[1], value); }
   }
-  const items = [...new Set([...constants.constants.filter(entry => entry.sourcePath === "constants/item_constants.asm" && entry.symbol !== "NO_ITEM" && entry.value > 0 && entry.value <= (symbols.get("NUM_ITEMS") ?? 255)).map(entry => entry.symbol), ...[...(byPath.get("constants/item_constants.asm") ?? "").matchAll(/^\s*add_(hm|tm)\s+(\w+)/gm)].map(m => `${m[1].toUpperCase()}_${m[2]}`)])];
+  const itemConstants = byPath.get("constants/item_constants.asm") ?? "";
+  // The same file also defines elevator floors and helper constants. Only the
+  // actual item enum and canonical TM/HM declarations are inventory choices.
+  const items = [...new Set([...[...itemConstants.split(/^DEF NUM_ITEMS EQU/m)[0].matchAll(/^\s*const\s+(\w+)\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter(name => name !== "NO_ITEM" && (symbols.get(name) ?? 0) > 0 && (symbols.get(name) ?? 255) < 255), ...[...itemConstants.matchAll(/^\s*add_(hm|tm)\s+(\w+)/gm)].map(m => `${m[1].toUpperCase()}_${m[2]}`)])];
   const conditions = inspectPlayerConditions(byPath, symbols), services = await inspectNpcServices(byPath);
   const dexOrder = rows(byPath.get("data/pokemon/dex_order.asm") ?? "").flatMap(row => { const match = clean(row).match(/^db (.+)$/); return match ? [number(match[1])] : []; });
   const pokemon = constants.constants.filter(entry => entry.sourcePath === "constants/pokemon_constants.asm" && entry.groupId !== null && entry.value > 0 && entry.value <= 255 && (dexOrder[entry.value - 1] ?? 0) > 0 && (dexOrder[entry.value - 1] ?? Infinity) <= (symbols.get("NUM_POKEMON") ?? 151)).map(entry => entry.symbol);
