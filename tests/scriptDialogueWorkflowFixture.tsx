@@ -1,7 +1,7 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "../src/core/mapCreation";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "../src/core/mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "../src/core/mapItems";
-import { parseEncounterIndex } from "../src/core/encounterEditing";
+import { parseEncounterIndex, loadEncounterTableEditDocument } from "../src/core/encounterEditing";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "../src/core/mapStrength";
 import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "../src/core/mapProperties";
 import { checkMap } from "../src/core/mapValidation";
@@ -65,6 +65,7 @@ fixture.dialogueInvoke = async (command, args) => {
   switch (command) {
     case "get_map_encounter_document": return loadMapEncounterDocument(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered", args!.mapConstant as string);
     case "get_encounter_index": return parseEncounterIndex(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered");
+    case "get_encounter_table": return loadEncounterTableEditDocument(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered", args!.path as string);
     case "assign_map_encounters": {
       const changes = await prepareMapEncounterWrites(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered", args!.document as never, args!.values as never);
       fixture.dialogueSaves.push(changes); return mapHistory.save("Assign encounters", changes);

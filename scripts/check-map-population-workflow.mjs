@@ -52,6 +52,7 @@ try {
       await assignment.getByRole("button", { name: "Save encounter assignment", exact: true }).click();
       await assignment.waitFor({ state: "hidden" });
       await page.getByRole("button", { name: "Open in Wild Encounters →", exact: true }).waitFor();
+      await page.getByText("No active grass or surfing encounters.", { exact: true }).waitFor();
       const blank = await page.evaluate(() => window.dialogueSaves.at(-1).find(w => w.operation === "create"));
       assert.ok(blank.path.startsWith("data/wild/maps/TestPopulatedRoom"));
       assert.match(blank.contents, /def_grass_wildmons 0/);
