@@ -1,3 +1,4 @@
+import { fieldToolForItem, loadFieldToolSupport, prepareFieldToolWrites } from "./fieldTools";
 import {
   EVOS_MOVES_PATH,
   parseEvolutionStoneRoutine,
@@ -54,7 +55,7 @@ function regularItem(constants: string, itemId: number): { index: number; consta
   const rows = parseItemConstantDefinitions(constants).filter((row) => row.machineKind === null);
   const index = rows.findIndex((row) => row.id === itemId);
   if (index < 0) throw new Error("Only ordinary item-table entries can be edited here.");
-  return { index, constant: rows[index].constant };
+  return { index: itemId - 1, constant: rows[index].constant };
 }
 
 function tableRow(
@@ -689,6 +690,8 @@ export async function loadItemEditDocument(
     maxNameLength: maxItemNameLength(textConstants),
     routineParameters,
     itemEvolution,
+    fieldTool: fieldToolForItem(effects, constant),
+    ...(fieldToolForItem(effects, constant) ? { fieldToolSupport: await loadFieldToolSupport(source) } : {}),
     sources: await Promise.all([...sources].map(async ([path, contents]) => ({
       path,
       sourceHash: await hashText(contents),
@@ -725,6 +728,7 @@ export async function prepareItemEditWrites(
     }
   }
 
+  if (Boolean(values.fieldTool) !== Boolean(document.fieldTool)) throw new Error("The field tool capability changed. Reload the item.");
   const name = values.name.trim();
   if (!name || name.length > document.maxNameLength) {
     throw new Error(`Item name must be 1–${document.maxNameLength} characters.`);
@@ -970,5 +974,6 @@ export async function prepareItemEditWrites(
     }
   }
 
+  if (values.fieldTool && document.fieldToolSupport) return prepareFieldToolWrites(source, document.constant, values.fieldTool, document.fieldToolSupport, writes);
   return writes;
 }

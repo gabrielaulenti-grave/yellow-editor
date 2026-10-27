@@ -71,6 +71,12 @@ jobs:
       - name: Check encounter assignment and item placement through Maps
         run: npm run test:maps:populate:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check field tool items, table extension, map permissions and atomic history
+        run: npm run test:items:field -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check field tool authoring at mobile and desktop widths
+        run: npm run test:items:field:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check native trainer placement, independent parties and history
         run: npm run test:maps:trainers -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -163,6 +169,9 @@ jobs:
 
       - name: Compile populated new maps and test pickup persistence on the CPU
         run: npm run test:maps:populate -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Compile field tools, execute banked probes and play native item menus
+        run: npm run test:items:field -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Compile trainer maps and execute native battle dispatcher probes
         run: npm run test:maps:trainers -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

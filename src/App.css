@@ -2766,3 +2766,10 @@ pre {
 .world-map-npc-heading > .world-map-npc-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 
 .shared-scene-flags { min-width: 0; overflow-wrap: anywhere; }
+
+.field-tool-editor { min-width: 0; display: grid; gap: 12px; margin-block: 12px; }
+.field-tool-editor .editor-field { min-width: 0; }
+.field-tool-editor textarea { width: 100%; box-sizing: border-box; }
+@media (max-width: 480px) {
+  .field-tool-editor .two-column-fields { grid-template-columns: minmax(0, 1fr); }
+}

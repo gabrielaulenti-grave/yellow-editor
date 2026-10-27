@@ -1,3 +1,4 @@
+import { loadFieldToolSupport, prepareFieldToolWrites } from "./fieldTools";
 import { hashText } from "./history";
 import { parseItemConstantDefinitions } from "./itemConstants";
 import type {
@@ -86,6 +87,7 @@ const TEMPLATES: Record<ItemCreateTemplate, TemplateDefinition> = {
     partyMenu: false,
     closeMenu: false,
   },
+  "field-tool": { routine: "EditorFieldToolUse", partyMenu: false, closeMenu: true },
   "poke-doll": {
     routine: "ItemUsePokeDoll",
     partyMenu: false,
@@ -203,10 +205,10 @@ function unusedSlots(
   const party = constantList(partyUse, "UsableItems_PartyMenu");
   const overworld = constantList(overworldUse, "UsableItems_CloseMenu");
 
-  return definitions.flatMap((definition, index) => {
+  return definitions.flatMap((definition) => {
     if (
       !/^ITEM_[0-9A-F]{2}$/i.test(definition.constant)
-      || routines[index] !== "UnusableItem"
+      || routines[definition.id - 1] !== "UnusableItem"
       || party.has(definition.constant)
       || overworld.has(definition.constant)
     ) {
@@ -215,7 +217,7 @@ function unusedSlots(
     return [{
       id: definition.id,
       constant: definition.constant,
-      displayName: readName(names, index),
+      displayName: readName(names, definition.id - 1),
     }];
   });
 }
@@ -446,7 +448,8 @@ export async function loadItemCreateDocument(
   const overworldUse = byPath.get(OVERWORLD_USE_PATH)!;
 
   return {
-    slots: unusedSlots(constants, names, effects, partyUse, overworldUse),
+    fieldToolSupport: await loadFieldToolSupport(source),
+    slots: [...unusedSlots(constants, names, effects, partyUse, overworldUse), ...appendSlot(byPath)],
     maxNameLength: maxItemNameLength(byPath.get(TEXT_CONSTANTS_PATH)!),
     sources: await Promise.all(
       SOURCE_PATHS.map(async (path) => ({
@@ -473,32 +476,33 @@ export async function prepareItemCreateWrites(
   }
 
   const byPath = await readSources(source);
-  const constants = byPath.get(ITEM_CONSTANTS_PATH)!;
+  let constants = byPath.get(ITEM_CONSTANTS_PATH)!;
   const { slot, constant, name, template } = validateValues(
     document,
     values,
     constants,
   );
 
+  const after = slot.append ? expandTables(byPath, slot.id) : new Map<string, string>(byPath);
+  constants = after.get(ITEM_CONSTANTS_PATH)!;
   const definitions = regularDefinitions(constants);
-  const rowIndex = definitions.findIndex((entry) => entry.id === slot.id);
-  if (rowIndex < 0 || definitions[rowIndex].constant !== slot.constant) {
+  const rowIndex = slot.id - 1;
+  if (!definitions.some(entry => entry.id === slot.id && entry.constant === slot.constant)) {
     throw new Error("The selected unused item slot changed. Reopen the wizard.");
   }
 
-  const after = new Map<string, string>(byPath);
   after.set(
     ITEM_CONSTANTS_PATH,
     rewriteConstant(constants, slot.constant, constant, slot.id),
   );
   after.set(
     ITEM_NAMES_PATH,
-    rewriteName(byPath.get(ITEM_NAMES_PATH)!, rowIndex, name, constant),
+    rewriteName(after.get(ITEM_NAMES_PATH)!, rowIndex, name, constant),
   );
   after.set(
     ITEM_PRICES_PATH,
     rewritePrice(
-      byPath.get(ITEM_PRICES_PATH)!,
+      after.get(ITEM_PRICES_PATH)!,
       rowIndex,
       values.price,
       constant,
@@ -507,7 +511,7 @@ export async function prepareItemCreateWrites(
   after.set(
     KEY_ITEMS_PATH,
     rewriteKeyFlag(
-      byPath.get(KEY_ITEMS_PATH)!,
+      after.get(KEY_ITEMS_PATH)!,
       rowIndex,
       values.keyItem,
       constant,
@@ -516,7 +520,7 @@ export async function prepareItemCreateWrites(
   after.set(
     ITEM_EFFECTS_PATH,
     rewriteRoutine(
-      byPath.get(ITEM_EFFECTS_PATH)!,
+      after.get(ITEM_EFFECTS_PATH)!,
       rowIndex,
       template.routine,
       constant,
@@ -525,7 +529,7 @@ export async function prepareItemCreateWrites(
   after.set(
     PARTY_USE_PATH,
     rewriteConstantList(
-      byPath.get(PARTY_USE_PATH)!,
+      after.get(PARTY_USE_PATH)!,
       "UsableItems_PartyMenu",
       slot.constant,
       constant,
@@ -535,7 +539,7 @@ export async function prepareItemCreateWrites(
   after.set(
     OVERWORLD_USE_PATH,
     rewriteConstantList(
-      byPath.get(OVERWORLD_USE_PATH)!,
+      after.get(OVERWORLD_USE_PATH)!,
       "UsableItems_CloseMenu",
       slot.constant,
       constant,
@@ -543,7 +547,7 @@ export async function prepareItemCreateWrites(
     ),
   );
 
-  return SOURCE_PATHS.flatMap((path) => {
+  const writes = SOURCE_PATHS.flatMap((path) => {
     const beforeContents = byPath.get(path)!;
     const contents = after.get(path)!;
     if (contents === beforeContents) return [];
@@ -553,4 +557,49 @@ export async function prepareItemCreateWrites(
       expectedHash: guardHash(document, path),
     }];
   });
+  if (values.template === "field-tool") {
+    if (!values.fieldTool || !document.fieldToolSupport) throw new Error("Choose the field tool action and requirements.");
+    return prepareFieldToolWrites(source, constant, values.fieldTool, document.fieldToolSupport, writes);
+  }
+  return writes;
+}
+
+// $54–$61 are elevator floor names, not free item IDs. Keep those IDs and their
+// name/price rows in place. New ordinary items begin at $62; native dispatch's
+// eight-bit doubled index and key-item bit array limit this extension to item ID $78.
+function appendSlot(files: Map<string, string>): ItemCreateSlot[] {
+  const constants = files.get(ITEM_CONSTANTS_PATH)!;
+  const regular = regularDefinitions(constants), last = regular[regular.length - 1]?.id;
+  if (last === undefined || last !== 0x53 && !constants.includes("; yellow-editor-expanded-item-tables")) return [];
+  const next = Math.max(last + 1, 0x62);
+  if (next > 0x78 || !/const_next \$C4/i.test(constants)) return [];
+  for (const [path, pattern] of [[ITEM_NAMES_PATH, /assert_list_length NUM_ITEMS\s/], [ITEM_PRICES_PATH, /assert_table_length NUM_ITEMS\s/], [KEY_ITEMS_PATH, /end_bit_array NUM_ITEMS/]] as const) if (!pattern.test(files.get(path)!)) return [];
+  return [{ id: next, constant: `ITEM_${next.toString(16).toUpperCase()}`, displayName: "New item table entry", append: true }];
+}
+function expandTables(files: Map<string, string>, id: number): Map<string, string> {
+  const slot = appendSlot(files)[0];
+  if (!slot || slot.id !== id) throw new Error("The next item table entry changed. Reopen Add Item.");
+  const after = new Map(files), constants = files.get(ITEM_CONSTANTS_PATH)!, last = regularDefinitions(constants).slice(-1)[0].id;
+  const gaps = Array.from({ length: id - last - 1 }, (_, i) => last + i + 1);
+  const reserved = gaps.map(n => `\tconst ITEM_RESERVED_${n.toString(16).toUpperCase()}`);
+  const nl = constants.includes("\r\n") ? "\r\n" : "\n";
+  let nextConstants = constants.replace(/^DEF NUM_ITEMS EQU const_value - 1$/m, [...reserved, `\tconst ${slot.constant}`, "DEF NUM_ITEMS EQU const_value - 1"].join(nl));
+  if (!constants.includes("; yellow-editor-expanded-item-tables")) {
+    nextConstants = nextConstants.replace(/^(\s*const FLOOR_B2F\b)/m, `; yellow-editor-expanded-item-tables${nl}\tconst_def $54${nl}$1`).replace(/^DEF NUM_FLOORS EQU const_value - 1 - NUM_ITEMS$/m, "DEF NUM_FLOORS EQU const_value - $54");
+  }
+  after.set(ITEM_CONSTANTS_PATH, nextConstants);
+  function insertBefore(path: string, pattern: RegExp, rows: string[]) {
+    const original = files.get(path)!, match = original.match(pattern);
+    if (!match || [...original.matchAll(new RegExp(pattern.source, "gm"))].length !== 1) throw new Error(`Cannot extend ${path}'s reviewed item table.`);
+    after.set(path, original.replace(pattern, rows.join(original.includes("\r\n") ? "\r\n" : "\n") + (original.includes("\r\n") ? "\r\n" : "\n") + match[0]));
+  }
+  const names = files.get(ITEM_NAMES_PATH)!, floorNames = names.slice(names.indexOf("assert_list_length NUM_ITEMS")).match(/\bli "[^"\r\n]+"/g) ?? [];
+  if (gaps.length && floorNames.length !== gaps.length) throw new Error("Cannot preserve the elevator floor names while extending item tables.");
+  insertBefore(ITEM_NAMES_PATH, /^\s*assert_list_length NUM_ITEMS\s*$/m, [...(gaps.length ? floorNames : []).map(n => `\t${n}`), `\tli "NEW ITEM"`]);
+  insertBefore(ITEM_PRICES_PATH, /^\s*assert_table_length NUM_ITEMS\s*$/m, [...gaps.map(() => "\tbcd3 0"), "\tbcd3 0"]);
+  insertBefore(KEY_ITEMS_PATH, /^\s*end_bit_array NUM_ITEMS\s*$/m, [...gaps.map(() => "\tdbit FALSE"), "\tdbit FALSE"]);
+  const effects = files.get(ITEM_EFFECTS_PATH)!, table = /^(ItemUsePtrTable:{1,2}\r?\n[\s\S]*?)(?=^ItemUseBall:{1,2})/m;
+  if (!table.test(effects) || readUseRoutines(effects).length !== last) throw new Error("Cannot extend the reviewed item use pointer table.");
+  after.set(ITEM_EFFECTS_PATH, effects.replace(table, (_, body) => body.trimEnd() + nl + [...gaps, id].map(() => "\tdw UnusableItem").join(nl) + nl + nl));
+  return after;
 }

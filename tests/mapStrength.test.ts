@@ -172,7 +172,7 @@ for (const directory of roots) test(`${directory}: map permission defaults, isol
   const town = await loadMapPropertiesDocument(source, "PALLET_TOWN");
   assert.equal(town.defaults.bicycle, true); assert.equal(town.defaults.teleport, true);
   assert.deepEqual(await prepareMapPropertiesWrites(source, house, house.values), []);
-  const values = { bicycle: true, escape: true, teleport: true, fly: true, flash: false, lighting: "dark" as const };
+  const values = { ...house.values, bicycle: true, escape: true, teleport: true, fly: true, flash: false, lighting: "dark" as const };
   const writes = await prepareMapPropertiesWrites(source, house, values), history = createProjectHistoryManager(source);
   assert.equal(writes.length, 4);
   await history.save("Edit map properties", writes);

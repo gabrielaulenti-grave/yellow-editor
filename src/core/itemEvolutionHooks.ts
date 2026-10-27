@@ -34,9 +34,9 @@ export function ordinaryItemRoutines(
   }
 
   return new Map(
-    definitions.map((definition, index) => [
+    definitions.map((definition) => [
       definition.constant,
-      routines[index],
+      routines[definition.id - 1],
     ]),
   );
 }

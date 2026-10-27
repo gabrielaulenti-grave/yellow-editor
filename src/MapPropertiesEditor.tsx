@@ -5,6 +5,9 @@ import type { HistorySummary } from "./core/types";
 import "./MapEditing.css";
 
 const fields = [
+  ["cut", "Cut", "Controls Pokémon and item use. A native cuttable tree or grass target is still required."],
+  ["surf", "Surf", "Controls entering water with Pokémon or field tools. Valid shore, collision and current checks still apply; tools can always attempt to disembark."],
+  ["strength", "Strength", "Controls activating boulder pushing with Pokémon or field tools."],
   ["bicycle", "Bicycle", "Controls ordinary bicycle use and dismounting on entry. Scripted forced-bike routes keep their native behavior."],
   ["escape", "Dig and Escape Rope", "These share the native escape routine and its last-healing-location destination."],
   ["teleport", "Teleport", "Returns to the normal last healing destination. This permission does not change ordinary entrance or return warps."],

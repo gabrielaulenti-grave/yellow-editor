@@ -999,6 +999,8 @@ export interface ItemEditDocument {
   maxNameLength: number;
   routineParameters: ItemRoutineParameters;
   itemEvolution: ItemEvolutionEditData | null;
+  fieldTool?: import("./fieldTools").FieldToolValues | null;
+  fieldToolSupport?: import("./fieldTools").FieldToolSupport;
   sources: ItemEditSourceDocument[];
 }
 
@@ -1008,6 +1010,7 @@ export interface ItemEditValues {
   keyItem: boolean;
   routineParameters: ItemRoutineParameters;
   itemEvolution: ItemEvolutionEditData | null;
+  fieldTool?: import("./fieldTools").FieldToolValues | null;
 }
 
 export type ItemCreateTemplate =
@@ -1021,9 +1024,11 @@ export type ItemCreateTemplate =
   | "dire-hit"
   | "escape-rope"
   | "bicycle"
-  | "poke-doll";
+  | "poke-doll"
+  | "field-tool";
 
 export interface ItemCreateSlot {
+  append?: boolean;
   id: number;
   constant: string;
   displayName: string;
@@ -1038,6 +1043,7 @@ export interface ItemCreateDocument {
   slots: ItemCreateSlot[];
   maxNameLength: number;
   sources: ItemCreateSourceDocument[];
+  fieldToolSupport?: import("./fieldTools").FieldToolSupport;
 }
 
 export interface ItemCreateValues {
@@ -1047,6 +1053,7 @@ export interface ItemCreateValues {
   price: number;
   keyItem: boolean;
   template: ItemCreateTemplate;
+  fieldTool?: import("./fieldTools").FieldToolValues;
 }
 
 export type TrainerPartyFormat = "shared-level" | "individual-levels";

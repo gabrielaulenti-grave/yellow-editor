@@ -75,4 +75,6 @@ Interaction edits are kept as recoverable drafts on the current device, separate
 
 Scenes can list up to eight player starts with **Add player start**, so an NPC interaction can run from several sides or a coordinate scene can cover multiple tiles. Routes are checked from every start, following adapts its first player step, and completion/reward checkpoints remain shared.
 
+Field tool items: see [the field tool guide](docs/field-tool-items.md) for reusable or consumable HM-style items with independent badge, party and map requirements.
+
 Map creation, terrain and warps: see [the map editing guide](docs/map-terrain-and-warps.md) for creating independent interiors, adding houses, shared blocksets, and paired exits.

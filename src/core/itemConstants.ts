@@ -51,7 +51,7 @@ export function parseItemConstantDefinitions(contents: string): ItemConstantDefi
       if (item) {
         const id = currentId;
         currentId += 1;
-        if (item[1] !== "NO_ITEM") {
+        if (item[1] !== "NO_ITEM" && !item[1].startsWith("ITEM_RESERVED_")) {
           result.push({
             id,
             constant: item[1],

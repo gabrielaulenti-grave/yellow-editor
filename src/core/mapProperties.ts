@@ -1,15 +1,17 @@
+import { syncFieldToolMapRules } from "./fieldTools";
 import { hashText } from "./history";
 import { parseMapIndex } from "./mapVisualization";
 import { readProjectRgbdsSources } from "./projectConstants";
 import type { ProjectSource, TextWriteRequest } from "./types";
 
 export type Permission = boolean | null;
-export interface MapPropertiesValues { bicycle: Permission; escape: Permission; teleport: Permission; fly: Permission; flash: Permission; lighting: "normal" | "dark" | null }
-export interface MapPropertiesDocument { mapConstant: string; mapName: string; values: MapPropertiesValues; defaults: Record<"bicycle" | "escape" | "teleport" | "fly" | "flash", boolean>; sources: Array<{ path: string; hash: string }> }
+export type FieldPermissionKey = "bicycle" | "escape" | "teleport" | "fly" | "flash" | "cut" | "surf" | "strength";
+export interface MapPropertiesValues { cut?: Permission; surf?: Permission; strength?: Permission; bicycle: Permission; escape: Permission; teleport: Permission; fly: Permission; flash: Permission; lighting: "normal" | "dark" | null }
+export interface MapPropertiesDocument { mapConstant: string; mapName: string; values: MapPropertiesValues; defaults: Record<FieldPermissionKey, boolean>; sources: Array<{ path: string; hash: string }> }
 type Rules = Record<string, MapPropertiesValues>;
 const paths = ["home/overworld.asm", "engine/items/item_effects.asm", "engine/menus/start_sub_menus.asm", "engine/overworld/special_warps.asm"];
 const prefix = "; yellow-editor-map-properties: ";
-const empty = (): MapPropertiesValues => ({ bicycle: null, escape: null, teleport: null, fly: null, flash: null, lighting: null });
+const empty = (): MapPropertiesValues => ({ cut: null, surf: null, strength: null, bicycle: null, escape: null, teleport: null, fly: null, flash: null, lighting: null });
 const clean = (s: string) => s.split(";")[0].trim();
 const normalize = (s: string) => s.replace(/\r\n/g, "\n");
 const segment = (s: string, label: string, next?: string) => {
@@ -31,11 +33,11 @@ function rulesFrom(text: string): Rules {
   return r.maps;
 }
 function validate(v: MapPropertiesValues) {
-  if (!v || Object.keys(v).sort().join() !== Object.keys(empty()).sort().join() || [v.bicycle, v.escape, v.teleport, v.fly, v.flash].some(p => p !== null && typeof p !== "boolean") || ![null, "dark", "normal"].includes(v.lighting)) throw new Error("Choose Default, Allowed or Blocked and a supported lighting mode.");
+  if (!v || Object.keys(v).some(k => !Object.keys(empty()).includes(k)) || [v.bicycle, v.escape, v.teleport, v.fly, v.flash].some(p => p !== null && typeof p !== "boolean") || [v.cut, v.surf, v.strength].some(p => p != null && typeof p !== "boolean") || ![null, "dark", "normal"].includes(v.lighting)) throw new Error("Choose Default, Allowed or Blocked and a supported lighting mode.");
 }
 interface Patch { path: string; key: string; content: string }
-function permissions(rules: Rules, field: "bicycle" | "escape" | "teleport" | "fly" | "flash", name: string) {
-  const entries = Object.entries(rules).filter(([, r]) => r[field] !== null);
+function permissions(rules: Rules, field: FieldPermissionKey, name: string) {
+  const entries = Object.entries(rules).filter(([, r]) => r[field] != null);
   if (!entries.length) return "";
   return [`${name}::`, ...entries.flatMap(([map, r], i) => ["\tld a, [wCurMap]", `\tcp ${map}`, `\tjr nz, .next${i}`, ...(r[field] ? ["\tld a, 1", "\tand a", "\tscf"] : ["\txor a"]), "\tret", `.next${i}`]), "\tld a, 2", "\tand a", "\tret", ""].join("\n");
 }
@@ -57,9 +59,11 @@ function patches(rules: Rules, bikeBody = ""): Patch[] {
   if (fly) add(paths[2], "fly-hook", far("EditorMapFlyPermission") + "\tjp z, .EditorFieldMoveBlocked\n\tjp c, .canFly\n");
   if (teleport) add(paths[2], "teleport-hook", far("EditorMapTeleportPermission") + "\tjp z, .EditorFieldMoveBlocked\n\tjp c, .canTeleport\n");
   if (flash) add(paths[2], "flash-hook", far("EditorMapFlashPermission") + "\tjp z, .EditorFieldMoveBlocked\n");
-  if (fly || teleport || flash) {
+  const toolPermissions = (["cut", "surf", "strength"] as const).map(key => ({ key, code: permissions(rules, key, `EditorMap${key[0].toUpperCase() + key.slice(1)}Permission`) }));
+  for (const { key, code } of toolPermissions) if (code) add(paths[2], `${key}-hook`, far(`EditorMap${key[0].toUpperCase() + key.slice(1)}Permission`) + "\tjp z, .EditorFieldMoveBlocked\n");
+  if (fly || teleport || flash || toolPermissions.some(p => p.code)) {
     add(paths[2], "field-message", '.EditorFieldMoveBlocked\n\tld hl, .EditorFieldMoveBlockedText\n\tcall PrintText\n\tjp .loop\n.EditorFieldMoveBlockedText\n\ttext "You can\'t use that"\n\tline "here."\n\tprompt\n');
-    add(paths[2], "field-code", fly + teleport + flash);
+    add(paths[2], "field-code", fly + teleport + flash + toolPermissions.map(p => p.code).join(""));
   }
   if (Object.values(rules).some(r => r.lighting !== null)) {
     add(paths[0], "light-before-hook", far("EditorMapLightingBefore", false));
@@ -87,6 +91,9 @@ function strip(files: Map<string, string>, rules: Rules) {
   return stripped;
 }
 const contracts: Array<[number, string, string | undefined, string[]]> = [
+  [2, ".cut", ".surf", ["89f85e639993fb9be20b9794561781746985de33a6bc2bbbb46ac6764c0bc5fa"]],
+  [2, ".surf", ".strength", ["232bcadda652ea8185bd08792713998a6f03e3fb8313ba60b9f9a6503de89d11", "005452061e283c0d393128d906b98511cebfc3f1b21a068bb9518919815e745b"]],
+  [2, ".strength", ".flash", ["e87962895637bb394200d768562f1a59484d8cd5c988b4e67dc34190eeea5a5b"]],
   [0, "IsBikeRidingAllowed", undefined, ["051a564a36c1722ce4e55b70c3af4964cb57932448f9af37c1d381369642465e"]],
   [0, "WarpFound2", undefined, ["342ef5a103f4fcc3e51aeb9c46901a96eaf84bf9e832a92915eafbe50db40217", "f738162dad6c80a01bb67783ff10ff6fa6d4b1cd1a097ea458735d8a1e6f3a24"]],
   [0, "CheckMapConnections", undefined, ["468ef2451ad4e63f57625910409370eed6144d52d38b57c9bce7206e73fcd581", "633b361d2656663537a9939be78d468d2f92aa8190920c512c17599c9c634ec4"]],
@@ -115,7 +122,7 @@ export async function loadMapPropertiesDocument(source: ProjectSource, mapConsta
   const constants = await source.readText("constants/map_constants.asm"), outside = (constants.split("DEF FIRST_INDOOR_MAP EQU const_value")[0].match(/^\s*map_const\s+/gm) ?? []).length;
   const excluded = [...segment(s.original.get(paths[1])!, "ItemUseEscapeRope").body.matchAll(/cp ([A-Z][A-Z0-9_]+)/g)].map(m => m[1]);
   const dependencies = [...paths, s.map.headerPath!, "data/maps/map_header_pointers.asm", "constants/map_constants.asm", "data/tilesets/bike_riding_tilesets.asm", "data/tilesets/escape_rope_tilesets.asm"];
-  return { mapConstant, mapName: s.map.displayName, values: structuredClone(s.rules[mapConstant] ?? empty()), defaults: { bicycle: ["ROUTE_23", "INDIGO_PLATEAU"].includes(mapConstant) || contains(bike), escape: contains(escape) && !excluded.includes(mapConstant), teleport: s.map.id < outside, fly: s.map.id < outside, flash: true }, sources: await Promise.all(dependencies.map(async path => ({ path, hash: await hashText(await source.readText(path)) }))) };
+  return { mapConstant, mapName: s.map.displayName, values: { ...empty(), ...structuredClone(s.rules[mapConstant] ?? {}) }, defaults: { cut: true, surf: true, strength: true, bicycle: ["ROUTE_23", "INDIGO_PLATEAU"].includes(mapConstant) || contains(bike), escape: contains(escape) && !excluded.includes(mapConstant), teleport: s.map.id < outside, fly: s.map.id < outside, flash: true }, sources: await Promise.all(dependencies.map(async path => ({ path, hash: await hashText(await source.readText(path)) }))) };
 }
 function rows(s: string) { return s.split(/\r?\n/); }
 function insertAt(text: string, at: number, p: Patch) { return text.slice(0, at) + block(p) + text.slice(at); }
@@ -150,7 +157,7 @@ export async function prepareMapPropertiesWrites(source: ProjectSource, document
     else if (p.key === "light-special-hook") { const part = segment(text, "PrepareForSpecialWarp"); at = part.from + part.body.indexOf("\tcall LoadSpecialWarpData\n") + "\tcall LoadSpecialWarpData\n".length; }
     else if (p.key === "escape-hook" || p.key === "escape-allowed") { const part = segment(text, "ItemUseEscapeRope"), needle = p.key === "escape-hook" ? "\tld a, [wCurMap]" : "\tld hl, wStatusFlags6"; at = part.from + part.body.indexOf(needle); }
     else if (p.key === "teleport-hook") at = segment(text, ".teleport", ".warpToLastPokemonCenterText").from;
-    else if (p.key === "fly-hook" || p.key === "flash-hook") { const part = segment(text, p.key === "fly-hook" ? ".fly" : ".flash", p.key === "fly-hook" ? ".cut" : ".flashLightsAreaText"); const needle = "\tjp z, .newBadgeRequired\n"; at = part.from + part.body.indexOf(needle) + needle.length; }
+    else if (["fly-hook", "flash-hook", "cut-hook", "surf-hook", "strength-hook"].includes(p.key)) { const key = p.key.replace("-hook", ""); const next = { fly: ".cut", flash: ".flashLightsAreaText", cut: ".surf", surf: ".strength", strength: ".flash" }[key]; const part = segment(text, `.${key}`, next); const needle = "\tjp z, .newBadgeRequired\n"; at = part.from + part.body.indexOf(needle) + needle.length; }
     else if (p.key === "field-message") at = segment(text, "StartMenu_Pokemon").to;
     else throw new Error("Unknown map rule patch.");
     if (at < 0 || at > text.length) throw new Error("Could not locate the reviewed map rule hook.");
@@ -158,8 +165,9 @@ export async function prepareMapPropertiesWrites(source: ProjectSource, document
     files.set(p.path, insertAt(text, at, p));
   }
   if (Object.keys(rules).length) files.set(paths[0], files.get(paths[0])! + `\n${prefix}${JSON.stringify({ version: 1, maps: rules })}\n`);
-  return (await Promise.all([...files].map(async ([path, text]) => {
+  const writes = (await Promise.all([...files].map(async ([path, text]) => {
     const before = await source.readText(path), contents = text.replace(/\n/g, before.includes("\r\n") ? "\r\n" : "\n");
     return { path, contents, expectedHash: await hashText(before) };
   }))).filter(w => normalize(w.contents).trimEnd() !== normalize(s.files.get(w.path)!).trimEnd());
+  return syncFieldToolMapRules(source, writes);
 }
