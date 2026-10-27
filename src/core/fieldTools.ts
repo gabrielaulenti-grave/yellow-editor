@@ -42,6 +42,17 @@ function readModel(text: string): Model | null {
   if (m.version !== 1 || typeof m.yellow !== "boolean" || !Array.isArray(m.tools) || !m.tools.length || m.tools.length > 64 || new Set(m.tools.map(t => t.constant)).size !== m.tools.length || m.tools.some(t => !/^[A-Z][A-Z0-9_]*$/.test(t.constant))) throw new Error("Unsupported field tool record.");
   return m;
 }
+// The first checked beta generated v1 blocks without the map-redraw call.
+// Accept that exact earlier form and upgrade it on the next explicit save.
+function ownedFieldTools(model: Model, files: Map<string, string>, effects: string) {
+  const current = renderFieldTools(model, files);
+  const legacy = current.split("\tfarcall ItemUseReloadOverworldData\n").join("");
+  for (const block of new Set([current, legacy])) {
+    const text = block.replace(/\n/g, effects.includes("\r\n") ? "\r\n" : "\n");
+    if (effects.split(text).length === 2) return text;
+  }
+  throw new Error("Managed field tool code changed in source. Restore it before editing field tools.");
+}
 export function fieldToolForItem(effects: string, constant: string) { return readModel(effects)?.tools.find(t => t.constant === constant)?.values ?? null; }
 function rules(files: Map<string, string>): Record<string, Record<string, boolean | null>> {
   const matches = [...(files.get("home/overworld.asm") ?? "").matchAll(/^; yellow-editor-map-properties: (.+)$/gm)];
@@ -79,8 +90,7 @@ async function inspect(source: ProjectSource) {
       const usedIn = (file: string) => new RegExp(`^\\s*db\\s+${t.constant}\\b`, "m").test(files.get(file) ?? "");
       if (!definition || bindings[definition.id - 1] !== "EditorFieldToolUse" || !usedIn("data/items/use_overworld.asm") || usedIn("data/items/use_party.asm")) throw new Error(`The ${t.constant} field tool's item-menu binding changed in source.`);
     }
-    const expected = renderFieldTools(model, files).replace(/\n/g, effects.includes("\r\n") ? "\r\n" : "\n");
-    if (effects.split(expected).length !== 2) throw new Error("Managed field tool code changed in source. Restore it before editing field tools.");
+    ownedFieldTools(model, files, effects);
   } else if (effects.includes("EditorFieldTool")) throw new Error("Unrecognized field tool code needs source review.");
   return { files, entries, effects, model, domains, yellow };
 }
@@ -109,7 +119,7 @@ export async function prepareFieldToolWrites(source: ProjectSource, constant: st
   const model: Model = { version: 1, yellow: s.yellow, tools: [...(s.model?.tools.filter(t => t.constant !== constant) ?? []), { constant, values: structuredClone(values) }].sort((a, b) => a.constant.localeCompare(b.constant)) };
   if (model.tools.length > 64) throw new Error("At most 64 field tools are supported.");
   let text = files.get(path)!;
-  const old = s.model && renderFieldTools(s.model, s.files).replace(/\n/g, text.includes("\r\n") ? "\r\n" : "\n");
+  const old = s.model && ownedFieldTools(s.model, s.files, s.effects);
   if (old) text = text.replace(old, "");
   text = text.trimEnd() + "\n\n" + renderFieldTools(model, files);
   if (s.effects.includes("\r\n")) text = text.replace(/\r?\n/g, "\r\n");
@@ -121,7 +131,7 @@ export async function prepareFieldToolWrites(source: ProjectSource, constant: st
 export async function syncFieldToolMapRules(source: ProjectSource, writes: TextWriteRequest[]) {
   const effects = await source.readText(path); if (!readModel(effects)) return writes;
   const s = await inspect(source), staged = new Map(s.files); for (const w of writes) staged.set(w.path, w.contents);
-  const old = renderFieldTools(s.model!, s.files).replace(/\n/g, effects.includes("\r\n") ? "\r\n" : "\n"), next = renderFieldTools(s.model!, staged).replace(/\n/g, effects.includes("\r\n") ? "\r\n" : "\n");
+  const old = ownedFieldTools(s.model!, s.files, effects), next = renderFieldTools(s.model!, staged).replace(/\n/g, effects.includes("\r\n") ? "\r\n" : "\n");
   const current = staged.get(path)!;
   if (old === next) return writes;
   if (current.split(old).length !== 2) throw new Error("The field tool runtime changed while updating map rules.");

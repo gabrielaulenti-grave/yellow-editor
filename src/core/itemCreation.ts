@@ -583,9 +583,9 @@ function expandTables(files: Map<string, string>, id: number): Map<string, strin
   const gaps = Array.from({ length: id - last - 1 }, (_, i) => last + i + 1);
   const reserved = gaps.map(n => `\tconst ITEM_RESERVED_${n.toString(16).toUpperCase()}`);
   const nl = constants.includes("\r\n") ? "\r\n" : "\n";
-  let nextConstants = constants.replace(/^DEF NUM_ITEMS EQU const_value - 1$/m, [...reserved, `\tconst ${slot.constant}`, "DEF NUM_ITEMS EQU const_value - 1"].join(nl));
+  let nextConstants = constants.replace(/^DEF NUM_ITEMS EQU const_value - 1\r?$/m, [...reserved, `\tconst ${slot.constant}`, "DEF NUM_ITEMS EQU const_value - 1"].join(nl));
   if (!constants.includes("; yellow-editor-expanded-item-tables")) {
-    nextConstants = nextConstants.replace(/^(\s*const FLOOR_B2F\b)/m, `; yellow-editor-expanded-item-tables${nl}\tconst_def $54${nl}$1`).replace(/^DEF NUM_FLOORS EQU const_value - 1 - NUM_ITEMS$/m, "DEF NUM_FLOORS EQU const_value - $54");
+    nextConstants = nextConstants.replace(/^([ \t]*const FLOOR_B2F\b)/m, `; yellow-editor-expanded-item-tables${nl}\tconst_def $54${nl}$1`).replace(/^DEF NUM_FLOORS EQU const_value - 1 - NUM_ITEMS\r?$/m, "DEF NUM_FLOORS EQU const_value - $54");
   }
   after.set(ITEM_CONSTANTS_PATH, nextConstants);
   function insertBefore(path: string, pattern: RegExp, rows: string[]) {
@@ -595,9 +595,9 @@ function expandTables(files: Map<string, string>, id: number): Map<string, strin
   }
   const names = files.get(ITEM_NAMES_PATH)!, floorNames = names.slice(names.indexOf("assert_list_length NUM_ITEMS")).match(/\bli "[^"\r\n]+"/g) ?? [];
   if (gaps.length && floorNames.length !== gaps.length) throw new Error("Cannot preserve the elevator floor names while extending item tables.");
-  insertBefore(ITEM_NAMES_PATH, /^\s*assert_list_length NUM_ITEMS\s*$/m, [...(gaps.length ? floorNames : []).map(n => `\t${n}`), `\tli "NEW ITEM"`]);
-  insertBefore(ITEM_PRICES_PATH, /^\s*assert_table_length NUM_ITEMS\s*$/m, [...gaps.map(() => "\tbcd3 0"), "\tbcd3 0"]);
-  insertBefore(KEY_ITEMS_PATH, /^\s*end_bit_array NUM_ITEMS\s*$/m, [...gaps.map(() => "\tdbit FALSE"), "\tdbit FALSE"]);
+  insertBefore(ITEM_NAMES_PATH, /^[ \t]*assert_list_length NUM_ITEMS[ \t]*\r?$/m, [...(gaps.length ? floorNames : []).map(n => `\t${n}`), `\tli "NEW ITEM"`]);
+  insertBefore(ITEM_PRICES_PATH, /^[ \t]*assert_table_length NUM_ITEMS[ \t]*\r?$/m, [...gaps.map(() => "\tbcd3 0"), "\tbcd3 0"]);
+  insertBefore(KEY_ITEMS_PATH, /^[ \t]*end_bit_array NUM_ITEMS[ \t]*\r?$/m, [...gaps.map(() => "\tdbit FALSE"), "\tdbit FALSE"]);
   const effects = files.get(ITEM_EFFECTS_PATH)!, table = /^(ItemUsePtrTable:{1,2}\r?\n[\s\S]*?)(?=^ItemUseBall:{1,2})/m;
   if (!table.test(effects) || readUseRoutines(effects).length !== last) throw new Error("Cannot extend the reviewed item use pointer table.");
   after.set(ITEM_EFFECTS_PATH, effects.replace(table, (_, body) => body.trimEnd() + nl + [...gaps, id].map(() => "\tdw UnusableItem").join(nl) + nl + nl));

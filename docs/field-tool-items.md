@@ -52,7 +52,9 @@ reviewed native key-item flag capacity; it does not resize any saved bag or
 party arrays. Unsupported layouts explain why a new entry is unavailable.
 
 Field tools require reviewed Red/Yellow routines. Changed generated code,
-unsupported native mechanics and stale forms are rejected before saving. Native
+unsupported native mechanics and stale forms are rejected before saving. The
+exact initial v1 beta format remains editable and upgrades on the next explicit
+save; opening a tool does not rewrite it. Native
 HM routines are preserved; item adapters provide item-aware messages without
 reading a nonexistent party nickname or playing a Pokémon cry.
 

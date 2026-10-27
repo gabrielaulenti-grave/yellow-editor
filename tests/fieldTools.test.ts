@@ -54,6 +54,13 @@ for (const directory of args) test(`${directory}: field tool creation, editing, 
   assert.ok(npcInteraction.items.includes("TEST_CUT") && npcInteraction.items.includes("TM_DIG"));
   const routines = ordinaryItemRoutines(await source.readText("constants/item_constants.asm"), await source.readText("engine/items/item_effects.asm"));
   assert.equal(routines.get("FIRE_STONE"), "ItemUseEvoStone"); assert.equal(routines.get("TEST_CUT"), "EditorFieldToolUse");
+  // Windows-style source line endings also support a new table entry.
+  const crlfSource: ProjectSource = { ...source, readText: async p => (await source.readText(p)).replace(/\r?\n/g, "\r\n") };
+  const crlfDocument = await loadItemCreateDocument(crlfSource), crlfSlot = crlfDocument.slots.find(s => s.append)!;
+  const crlfWrites = await prepareItemCreateWrites(crlfSource, crlfDocument, { slotId: crlfSlot.id, constant: "CRLF_TEST_ITEM", name: "CRLF ITEM", price: 500, keyItem: false, template: "unusable" });
+  const crlfConstants = crlfWrites.find(w => w.path === "constants/item_constants.asm")!.contents;
+  assert.equal(parseItemConstantDefinitions(crlfConstants).find(i => i.constant === "CRLF_TEST_ITEM")!.id, crlfSlot.id);
+  for (const write of crlfWrites) assert.ok(!/(^|[^\r])\n/.test(write.contents), `${write.path} preserves CRLF`);
   // Requirements are per item and survive ordinary property edits.
   let edit = await loadItemEditDocument(source, firstId);
   const gated = { ...edit.fieldTool!, badge: "SOUL", requireMove: true, condition: { kind: "hall-of-fame" as const } };
@@ -66,6 +73,15 @@ for (const directory of args) test(`${directory}: field tool creation, editing, 
   overlay.set("engine/items/item_effects.asm", boundEffects.replace(/dw EditorFieldToolUse(\s*; TEST_SURF)/, "dw UnusableItem$1"));
   assert.match((await loadItemEditDocument(source, firstId)).fieldToolSupport!.reason!, /binding changed/);
   overlay.set("engine/items/item_effects.asm", boundEffects);
+  // An exact earlier v1 beta block remains editable and upgrades on Save.
+  const modernEffects = await source.readText("engine/items/item_effects.asm");
+  const legacyEffects = modernEffects.split("\tfarcall ItemUseReloadOverworldData\n").join("");
+  assert.notEqual(legacyEffects, modernEffects);
+  overlay.set("engine/items/item_effects.asm", legacyEffects);
+  const legacyDocument = await loadItemEditDocument(source, firstId); assert.equal(legacyDocument.fieldToolSupport?.reason, null);
+  const upgrade = await prepareItemEditWrites(source, legacyDocument, { ...legacyDocument });
+  assert.equal(upgrade.length, 1); assert.equal(upgrade[0].contents, modernEffects);
+  overlay.set("engine/items/item_effects.asm", modernEffects);
   // The metadata/code contract refuses external changes and stale forms.
   edit = await loadItemEditDocument(source, firstId);
   const itemNames = await source.readText("data/items/names.asm"); overlay.set("data/items/names.asm", itemNames + "\n; external\n");
