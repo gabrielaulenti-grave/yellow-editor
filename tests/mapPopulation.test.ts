@@ -81,6 +81,7 @@ for (const directory of args) test(`${directory}: populate a new cave with indep
   assert.equal(npc.spriteConstant, "SPRITE_POKE_BALL"); assert.equal(npc.x, 1); assert.equal(npc.y, 1);
   const interaction = await loadScriptInteractionDocument(source, npc.scriptPath, npc.textLabel!);
   assert.equal(interaction.values.pickup, true); assert.deepEqual(interaction.values.reward, { item: "RARE_CANDY", quantity: 2 }); assert.ok(interaction.values.visibleWhen);
+  assert.deepEqual(interaction.values.dialogue, ["<PLAYER> received", "RARE CANDY!"]);
   assert.match(await source.readText(npc.scriptPath), /SetEvent[^\n]+\n\tSetEvent[^\n]+\n\tcall UpdateSprites/);
   assert.ok((await prepareScriptInteractionWrites(source, interaction, interaction.values)).every(w => overlay.has(w.path) && new TextDecoder().decode(overlay.get(w.path)) === w.contents));
   await assert.rejects(prepareMapItemWrites(source, item, itemValues), /sources changed/);

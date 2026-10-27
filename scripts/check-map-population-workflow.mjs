@@ -81,6 +81,7 @@ try {
       await page.locator(".world-map-npc-inspector").getByRole("button", { name: "Edit interaction", exact: true }).click();
       const interaction = page.getByRole("dialog", { name: "Edit interaction", exact: true });
       assert.equal(await interaction.getByLabel("Reward item", { exact: true }).inputValue(), "TM_DIG");
+      assert.equal(await interaction.getByLabel("Interaction dialogue", { exact: true }).inputValue(), "<PLAYER> received\nTM28!");
       assert.equal(await interaction.getByLabel("Reward quantity", { exact: true }).inputValue(), "2");
       assert.equal(await interaction.getByLabel("Run once per save file", { exact: true }).isDisabled(), true);
       await interaction.getByLabel("Reward quantity", { exact: true }).fill("3");
@@ -92,6 +93,7 @@ try {
       await page.locator(".world-map-npc-list button").first().click();
       await page.locator(".world-map-npc-inspector").getByRole("button", { name: "Edit interaction", exact: true }).click();
       assert.equal(await interaction.getByLabel("Reward quantity", { exact: true }).inputValue(), "3");
+      assert.equal(await interaction.getByLabel("Interaction dialogue", { exact: true }).inputValue(), "<PLAYER> received\nTM28!");
       assert.deepEqual(errors, []);
       console.log(`${root} ${width}px: new map, empty/copy encounter assignment, independent files, replacement confirmation, item placement and reward save/reopen passed`);
       await page.close();

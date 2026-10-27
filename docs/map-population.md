@@ -36,6 +36,10 @@ Choose **Place item** in the map's **NPCs & items** panel. Select an item
 Tap the placement map or enter coordinates. Existing objects, warps and signs
 are marked. Place items where the player can reach and interact with them.
 
+New pickups default to two receipt rows: `<PLAYER> received` and the in-game
+item name followed by `!` (for example, `TM28!`). Existing pickups keep their
+saved dialogue; change it through **Edit interaction → Dialogue after delivery**.
+
 Each pickup uses one object slot and compatible Poké Ball graphics. If a map's
 graphics budget is full, the editor explains why placement is unavailable.
 Successful delivery hides the object immediately and keeps it collected in

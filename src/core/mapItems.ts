@@ -1,6 +1,7 @@
 import { hashText } from "./history";
 import { loadMapNpcSourceState, prepareMapNpcWrites } from "./npcCreation";
 import { parseItemConstantDefinitions } from "./itemConstants";
+import { parseItems } from "./itemParsing";
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites } from "./scriptInteractions";
 import { sharedSceneFlag } from "./sceneFlags";
 import type { MapNpcCreateDocument, ProjectSource, TextWriteRequest } from "./types";
@@ -30,9 +31,11 @@ export async function prepareMapItemWrites(source: ProjectSource, document: MapI
   do { flag = sharedSceneFlag(`Pickup ${fresh.npc.mapConstant.slice(0, 24)} ${fresh.npc.objectId} ${suffix++}`); }
   while (interaction.events.includes(flag.event) || interaction.sharedFlags?.some(f => f.event === flag.event));
   const condition = { event: flag.event, set: false };
+  const itemName = (await parseItems(source)).find(item => item.constant === values.item)?.name;
+  if (!itemName) throw new Error("Could not read this item's in-game name.");
   const rewardWrites = await prepareScriptInteractionWrites(staged, interaction, { ...interaction.values,
     pickup: true, once: true, showOriginal: false, reward: { item: values.item, quantity: values.quantity },
-    dialogue: [`Found ${values.quantity} item${values.quantity === 1 ? "" : "s"}!`, ...(values.item.replace(/_/g, " ").match(/.{1,17}/g) ?? [])], bagFull: ["Your BAG is full."], already: ["Nothing here."],
+    dialogue: ["<PLAYER> received", `${itemName}!`], bagFull: ["Your BAG is full."], already: ["Nothing here."],
     sharedFlags: [...(interaction.sharedFlags ?? []), flag], condition, visibleWhen: condition, events: [{ event: flag.event, set: true }],
   });
   for (const w of rewardWrites) changed.set(w.path, w.contents);
