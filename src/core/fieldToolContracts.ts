@@ -1,5 +1,6 @@
 // Reviewed pinned pret Red/Yellow field-action sources.
 export const fieldToolContracts: Array<[string, string, string | undefined, string[]]> = [
+  ["engine/items/item_effects.asm", "ItemUseReloadOverworldData", undefined, ["603d36d3eec1f96fd87141112f5edb7d345961e6741d762df96cfbae7de3a001"]],
   [
     "engine/items/item_effects.asm",
     "ItemUseSurfboard",

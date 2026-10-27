@@ -162,6 +162,7 @@ export function renderFieldTools(m: Model, files: Map<string, string>): string {
     if (["teleport", "dig"].includes(v.action)) code.push("\tld a, [wLastBlackoutMap]", "\tld hl, EditorFieldToolHealingMaps", "\tld de, 1", "\tcall IsInArray", `\tjp nc, ${p}Failed`);
     if (v.action === "flash") code.push("\tld a, [wMapPalOffset]", "\tand a", `\tjp z, ${p}Failed`);
     if (v.action === "strength") code.push("\tld hl, wStatusFlags1", "\tbit BIT_STRENGTH_ACTIVE, [hl]", `\tjp nz, ${p}Failed`);
+    if (!["cut", "fly"].includes(v.action)) code.push("\tfarcall ItemUseReloadOverworldData");
     code.push(...set("wCurItem", t.constant), `\tld a, ${v.allFlyDestinations ? 1 : 0}`, "\tcall EditorFieldToolAction" + v.action.toUpperCase(), "\tld a, [wActionResultOrTookBattleTurn]", "\tand a", `\tjp z, ${v.action === "fly" ? p + "Cancelled" : p + "Failed"}`, ...set("wNamedObjectIndex", t.constant), "\tcall GetItemName", "\tcall CopyToStringBuffer", ...print(p + "Success"), ...set("wActionResultOrTookBattleTurn", 1), "\tret");
     // Re-establish the Run scope after generated predicate/global labels.
     code.push(`${p}Failed:`, ...print(p + "Invalid"), ...set("wActionResultOrTookBattleTurn", 0), "\tret", `${p}Missing:`, ...print(p + "Requirement"), ...set("wActionResultOrTookBattleTurn", 0), "\tret", `${p}Cancelled:`, ...print(p + "Cancel"), ...set("wActionResultOrTookBattleTurn", 0), "\tret");
