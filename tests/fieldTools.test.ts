@@ -10,6 +10,7 @@ import { defaultFieldTool, fieldActions, fieldToolForItem, type FieldToolValues 
 import { parseItemConstantDefinitions } from "../src/core/itemConstants";
 import { parseItems } from "../src/core/itemParsing";
 import { ordinaryItemRoutines } from "../src/core/itemEvolutionHooks";
+import { loadScriptInteractionDocument } from "../src/core/scriptInteractions";
 import { createProjectHistoryManager } from "../src/core/history";
 import type { ProjectSource, HistoryState, TextWriteRequest } from "../src/core/types";
 import { fieldToolGameplayProbes } from "./fieldToolGameplay";
@@ -48,6 +49,9 @@ for (const directory of args) test(`${directory}: field tool creation, editing, 
   const items = await parseItems(source);
   for (const action of fieldActions) { const item = items.find(i => i.constant === `TEST_${action.toUpperCase()}`)!; assert.equal(item.name, action.toUpperCase()); assert.equal(item.useRoutine, "EditorFieldToolUse"); }
   assert.ok(!items.some(i => i.constant.startsWith("ITEM_RESERVED_")));
+  const npcInteraction = await loadScriptInteractionDocument(source, "scripts/PalletTown.asm", "PalletTownGirlText");
+  assert.ok(!npcInteraction.items.some(item => item.startsWith("ITEM_RESERVED_")));
+  assert.ok(npcInteraction.items.includes("TEST_CUT") && npcInteraction.items.includes("TM_DIG"));
   const routines = ordinaryItemRoutines(await source.readText("constants/item_constants.asm"), await source.readText("engine/items/item_effects.asm"));
   assert.equal(routines.get("FIRE_STONE"), "ItemUseEvoStone"); assert.equal(routines.get("TEST_CUT"), "EditorFieldToolUse");
   // Requirements are per item and survive ordinary property edits.
@@ -57,6 +61,11 @@ for (const directory of args) test(`${directory}: field tool creation, editing, 
   assert.equal((await loadItemEditDocument(source, firstId)).fieldTool?.badge, "SOUL");
   await history.undo(); assert.equal((await loadItemEditDocument(source, firstId)).fieldTool?.badge, null);
   await history.redo(); assert.equal((await loadItemEditDocument(source, firstId)).fieldTool?.badge, "SOUL");
+  // A detached native dispatch pointer cannot silently retain editable tool controls.
+  const boundEffects = await source.readText("engine/items/item_effects.asm");
+  overlay.set("engine/items/item_effects.asm", boundEffects.replace(/dw EditorFieldToolUse(\s*; TEST_SURF)/, "dw UnusableItem$1"));
+  assert.match((await loadItemEditDocument(source, firstId)).fieldToolSupport!.reason!, /binding changed/);
+  overlay.set("engine/items/item_effects.asm", boundEffects);
   // The metadata/code contract refuses external changes and stale forms.
   edit = await loadItemEditDocument(source, firstId);
   const itemNames = await source.readText("data/items/names.asm"); overlay.set("data/items/names.asm", itemNames + "\n; external\n");

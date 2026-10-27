@@ -72,7 +72,13 @@ async function inspect(source: ProjectSource) {
   const yellow = files.has("scripts/OaksLab_2.asm");
   if (model) {
     if (model.yellow !== yellow) throw new Error("Field tool records belong to a different game.");
-    for (const t of model.tools) validateFieldTool(t.values, domains, files);
+    const bindings = [...fieldRoutine(effects, "ItemUsePtrTable", "ItemUseBall").matchAll(/^\s*dw\s+(\w+)/gm)].map(m => m[1]);
+    for (const t of model.tools) {
+      validateFieldTool(t.values, domains, files);
+      const definition = parseItemConstantDefinitions(files.get("constants/item_constants.asm")!).find(d => d.constant === t.constant && d.machineKind === null);
+      const usedIn = (file: string) => new RegExp(`^\\s*db\\s+${t.constant}\\b`, "m").test(files.get(file) ?? "");
+      if (!definition || bindings[definition.id - 1] !== "EditorFieldToolUse" || !usedIn("data/items/use_overworld.asm") || usedIn("data/items/use_party.asm")) throw new Error(`The ${t.constant} field tool's item-menu binding changed in source.`);
+    }
     const expected = renderFieldTools(model, files).replace(/\n/g, effects.includes("\r\n") ? "\r\n" : "\n");
     if (effects.split(expected).length !== 2) throw new Error("Managed field tool code changed in source. Restore it before editing field tools.");
   } else if (effects.includes("EditorFieldTool")) throw new Error("Unrecognized field tool code needs source review.");

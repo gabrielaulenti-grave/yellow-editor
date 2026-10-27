@@ -29,7 +29,7 @@ export function ordinaryItemRoutines(
     if (routines.length && line) break;
   }
 
-  if (routines.length < definitions.length) {
+  if (routines.length < Math.max(0, ...definitions.map(item => item.id))) {
     throw new Error("ItemUsePtrTable is shorter than the ordinary item table.");
   }
 
