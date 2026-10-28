@@ -20,6 +20,7 @@ export interface MapIndexEntry {
 }
 
 export interface MapNpcCreateDocument {
+  appearanceReason?: string | null;
   mapConstant: string;
   mapName: string;
   width: number;
@@ -50,6 +51,7 @@ export interface MapNpcEditValues {
   moveSceneStart: boolean;
 }
 export interface MapNpcEditDocument {
+  appearanceReason?: string | null;
   mapConstant: string; mapName: string; objectId: number; objectConstant: string;
   width: number; height: number; sprites: string[]; stationarySprites: string[]; spriteNote: string;
   occupied: Array<{ x: number; y: number }>;
@@ -87,6 +89,9 @@ export interface MapSignEvent {
 }
 
 export interface MapNpcEvent {
+  sourcePath?: string;
+  sourceLine?: number;
+  sourceIssue?: string;
   objectKind?: "npc" | "trainer" | "item" | "special";
   nativeObject?: boolean;
   managedTrainer?: boolean;

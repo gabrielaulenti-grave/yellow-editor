@@ -65,6 +65,14 @@ jobs:
       - name: Check native map object editing on mobile and desktop
         run: npm run test:maps:native:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check imported map source analysis and independent field editing
+        run: npm run test:maps:imported -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Edit imported hacks on mobile and desktop
+        env:
+          IMPORTED_MAP_OBJECTS: "1"
+        run: npm run test:maps:native:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check independent map creation and undoable file lifecycle
         run: npm run test:maps:create -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -190,6 +198,9 @@ jobs:
 
       - name: Compile edited native map objects and execute native battle and pickup probes
         run: npm run test:maps:native -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Compile independently modified Red and Yellow source projects after edits
+        run: npm run test:maps:imported -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
 
       - name: Execute NPC condition, payment and visibility probes and compile edited ROMs
         run: npm run test:npcs:tools -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

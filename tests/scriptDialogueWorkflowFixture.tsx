@@ -2,6 +2,7 @@ import { loadMapCreateDocument, prepareMapCreateWrites } from "../src/core/mapCr
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "../src/core/mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "../src/core/mapItems";
 import { loadNativeMapObjectDocument, prepareNativeMapObjectWrites, type NativeMapObjectDocument } from "../src/core/nativeMapObjects";
+import { importedMapObjectFixture } from "./importedMapObjectFixture";
 import { loadMapTrainerDocument, prepareMapTrainerWrites, type MapTrainerDocument } from "../src/core/mapTrainers";
 import { parseEncounterIndex, loadEncounterTableEditDocument } from "../src/core/encounterEditing";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "../src/core/mapStrength";
@@ -23,6 +24,7 @@ import type { ProjectSession, ProjectSource, TextWriteRequest } from "../src/cor
 
 const fixture = window as unknown as {
   nativeObjectDocument?: NativeMapObjectDocument;
+  importedMapObjects?: boolean;
   dialogueFiles: Record<string, string>;
   trainerDocument?: MapTrainerDocument;
   openedTrainerParty?: string;
@@ -165,6 +167,7 @@ function Fixture() {
   </>;
 }
 async function start() {
+  if (fixture.importedMapObjects) { fixture.dialogueFiles = importedMapObjectFixture(fixture.dialogueFiles); fixture.mapFocus = "IMPORTED_CAVE"; }
   if (fixture.sceneFixture) {
     const center = fixture.mapFocus === "VIRIDIAN_POKECENTER", map = center ? "VIRIDIAN_POKECENTER" : "PALLET_TOWN";
     const doc = await loadMapNpcCreateDocument(source, map);

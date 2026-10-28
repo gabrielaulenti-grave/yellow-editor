@@ -4,6 +4,8 @@ import type {
   ProjectSource,
 } from "./types";
 import { convertGen1PngToTiles } from "./gen1Graphics";
+import { evaluateRgbdsExpression, readProjectRgbdsSources } from "./projectConstants";
+import { existingObjectEncodingReason, objectSourceConstants, resolveObjectExpression } from "./mapObjectAnalysis";
 
 const MAP_CONSTANTS_PATH = "constants/map_constants.asm";
 const MAP_POINTERS_PATH = "data/maps/map_header_pointers.asm";
@@ -143,79 +145,49 @@ function parseMapConnections(
   return connections;
 }
 
-function parseWarpEvents(
-  objectText: string,
-  index: MapIndexEntry[],
-): MapVisualization["warps"] {
-  const warps: MapVisualization["warps"] = [];
-
-  for (const rawLine of objectText.split(/\r?\n/)) {
-    const match = codeOnly(rawLine).match(
-      /^warp_event\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*([A-Z0-9_]+)\s*,\s*(\d+)\b/i,
-    );
-    if (!match) continue;
-
-    const isLastMap = match[3].toUpperCase() === "LAST_MAP";
-    const destinationMapConstant = isLastMap ? null : match[3];
-    const destination = destinationMapConstant
-      ? index.find((entry) => entry.constant === destinationMapConstant)
-      : null;
-
-    warps.push({
-      id: warps.length + 1,
-      x: Number.parseInt(match[1], 10),
-      y: Number.parseInt(match[2], 10),
-      destinationMapConstant,
-      destinationMapDisplayName: destination?.displayName ?? null,
-      destinationWarpId: Number.parseInt(match[4], 10),
-      isLastMap,
-    });
-  }
-
-  return warps;
+function parseWarpEvents(objectText: string, index: MapIndexEntry[], constants = new Map<string, number>()): MapVisualization["warps"] {
+  return objectText.split(/\r?\n/).flatMap(line => {
+    const m = codeOnly(line).match(/^warp_event\s+(.+)$/); if (!m) return [];
+    const args = splitAsmArguments(m[1]); if (args.length !== 4) return [];
+    const destinationId = evaluateRgbdsExpression(args[2], constants);
+    const isLastMap = args[2] === "LAST_MAP" || destinationId === -1 || destinationId === 255;
+    const destination = index.find(entry => entry.constant === args[2] || entry.id === destinationId);
+    return [{ id: 0, x: evaluateRgbdsExpression(args[0], constants) ?? Number.NaN, y: evaluateRgbdsExpression(args[1], constants) ?? Number.NaN, destinationMapConstant: isLastMap ? null : destination?.constant ?? args[2], destinationMapDisplayName: destination?.displayName ?? null, destinationWarpId: evaluateRgbdsExpression(args[3], constants) ?? Number.NaN, isLastMap }];
+  }).map((w, i) => ({ ...w, id: i + 1 }));
 }
 
 function parseTextPointers(scriptText: string): Map<string, string> {
   const pointers = new Map<string, string>();
-  for (const rawLine of scriptText.split(/\r?\n/)) {
+  const all = scriptText.split(/\r?\n/), start = all.findIndex(l => /^\w+_TextPointers:{1,2}$/.test(codeOnly(l)));
+  let end = start + 1; while (end < all.length && !/^[A-Za-z_]\w*:{1,2}$/.test(codeOnly(all[end]))) end++;
+  let slot = 0;
+  for (const rawLine of start < 0 ? all : all.slice(start + 1, end)) {
     const match = codeOnly(rawLine).match(
-      /^dw_const\s+([A-Za-z_.][A-Za-z0-9_.]*)\s*,\s*(TEXT_[A-Z0-9_]+)\b/i,
+      /^dw_const\s+([A-Za-z_.][A-Za-z0-9_.]*)\s*,\s*([A-Za-z_]\w*)\b/i,
     );
-    if (match) pointers.set(match[2], match[1]);
+    const plain = start >= 0 && codeOnly(rawLine).match(/^dw\s+([A-Za-z_]\w*)$/);
+    if (match) { pointers.set(match[2], match[1]); pointers.set(String(++slot), match[1]); }
+    else if (plain) pointers.set(String(++slot), plain[1]);
   }
   return pointers;
 }
 
-function parseSignEvents(
-  objectText: string,
-  scriptPath: string,
-  scriptText: string | null,
-): MapVisualization["signs"] {
-  const signs: MapVisualization["signs"] = [];
-  const textPointers = scriptText ? parseTextPointers(scriptText) : new Map<string, string>();
-
-  for (const rawLine of objectText.split(/\r?\n/)) {
-    const match = codeOnly(rawLine).match(
-      /^bg_event\s+(-?\d+)\s*,\s*(-?\d+)\s*,\s*(TEXT_[A-Z0-9_]+)\b/i,
-    );
-    if (!match) continue;
-    signs.push({
-      id: signs.length + 1,
-      x: Number.parseInt(match[1], 10),
-      y: Number.parseInt(match[2], 10),
-      textConstant: match[3],
-      textLabel: textPointers.get(match[3]) ?? null,
-      scriptPath,
-    });
-  }
-
-  return signs;
+function parseSignEvents(objectText: string, scriptPath: string, scriptText: string | null, constants = new Map<string, number>()): MapVisualization["signs"] {
+  const pointers = scriptText ? parseTextPointers(scriptText) : new Map<string, string>();
+  const numbers = new Map(constants); let slot = 0;
+  for (const [name] of pointers) if (!/^\d+$/.test(name)) numbers.set(name, ++slot);
+  return objectText.split(/\r?\n/).flatMap(line => {
+    const m = codeOnly(line).match(/^bg_event\s+(.+)$/); if (!m) return [];
+    const args = splitAsmArguments(m[1]); if (args.length !== 3) return [];
+    const textId = resolveObjectExpression(args[2], numbers, scriptText ? [{ path: scriptPath, contents: scriptText }] : []);
+    return [{ id: 0, x: evaluateRgbdsExpression(args[0], constants) ?? Number.NaN, y: evaluateRgbdsExpression(args[1], constants) ?? Number.NaN, textConstant: args[2], textLabel: pointers.get(args[2]) ?? (textId !== null ? pointers.get(String(textId)) : null) ?? null, scriptPath }];
+  }).map((sign, i) => ({ ...sign, id: i + 1 }));
 }
 
 function parseObjectConstants(objectText: string): string[] {
   return objectText
     .split(/\r?\n/)
-    .map((line) => codeOnly(line).match(/^const_export\s+([A-Z0-9_]+)\b/i)?.[1] ?? null)
+    .map((line) => codeOnly(line).match(/^const(?:_export)?\s+([A-Za-z_]\w*)\b/i)?.[1] ?? null)
     .filter((value): value is string => Boolean(value));
 }
 
@@ -274,6 +246,7 @@ export function parseNpcEvents(
   scriptText: string | null,
   alternateScriptPath: string,
   alternateScriptText: string | null,
+  constants = new Map<string, number>(),
 ): MapVisualization["npcs"] {
   const npcs: MapVisualization["npcs"] = [];
   const objectConstants = parseObjectConstants(objectText);
@@ -290,7 +263,7 @@ export function parseNpcEvents(
     if (record) placedTrainerIds = new Set((JSON.parse(record[1]) as { trainers: Array<{ id: number }> }).trainers.map(t => t.id));
   } catch { /* The dedicated trainer editor reports malformed managed source. */ }
 
-  for (const rawLine of objectText.split(/\r?\n/)) {
+  for (const [sourceLine, rawLine] of objectText.split(/\r?\n/).entries()) {
     const clean = codeOnly(rawLine);
     if (!/^object_event\b/i.test(clean)) continue;
 
@@ -301,13 +274,19 @@ export function parseNpcEvents(
 
     // Object slots are stable across ordinary NPCs, native pickups, trainers
     // and special encounters. Displaying one must not depend on edit support.
-    const trainerPartyId = args.length === 8 && /^OPP_[A-Z0-9_]+$/.test(args[6]) && /^\d+$/.test(args[7]) ? `${args[6].slice(4)}:${args[7]}` : undefined;
+    const classValue = args[6] && evaluateRgbdsExpression(args[6], constants);
+    const className = args.length === 8 ? [...constants].find(([name, value]) => name.startsWith("#opponent:") && value === classValue)?.[0].slice("#opponent:".length) ?? (/^OPP_[A-Z0-9_]+$/.test(args[6]) ? args[6].slice(4) : null) : null;
+    const party = args[7] && evaluateRgbdsExpression(args[7], constants);
+    const trainerPartyId = className && typeof party === "number" ? `${className}:${party}` : undefined;
     let objectKind: NonNullable<MapVisualization["npcs"][number]["objectKind"]> = trainerPartyId ? "trainer" : args.length === 7 ? "item" : args.length === 6 ? "npc" : "special";
     if (args.length < 6) continue;
-    if (!/^-?\d+$/.test(args[0]) || !/^-?\d+$/.test(args[1])) continue;
+    const x = evaluateRgbdsExpression(args[0], constants), y = evaluateRgbdsExpression(args[1], constants);
 
     const textConstant = args[5];
-    const textLabel = textPointers.get(textConstant) ?? null;
+    const textNumbers = new Map(constants);
+    let textSlot = 0; for (const [name] of textPointers) if (!/^\d+$/.test(name)) textNumbers.set(name, ++textSlot);
+    const textId = resolveObjectExpression(textConstant, textNumbers, scriptText ? [{ path: scriptPath, contents: scriptText }] : []);
+    const textLabel = textPointers.get(textConstant) ?? (textId !== null ? textPointers.get(String(textId)) : null) ?? null;
     const placedItem = textLabel ? placedItems.get(textLabel) : undefined;
     if (placedItem) objectKind = "item";
     const dialogueTarget = resolveNpcDialogueTarget(
@@ -319,14 +298,16 @@ export function parseNpcEvents(
     );
 
     npcs.push({
+      sourceLine: sourceLine + 1,
       objectKind, nativeObject: args.length !== 6 && !placedTrainerIds.has(id),
       ...(trainerPartyId ? { managedTrainer: placedTrainerIds.has(id) } : {}),
       ...(objectKind === "item" ? { itemConstant: placedItem ?? args[6] } : {}),
       ...(trainerPartyId ? { trainerPartyId } : {}),
       id,
       objectConstant,
-      x: Number.parseInt(args[0], 10),
-      y: Number.parseInt(args[1], 10),
+      x: x ?? Number.NaN,
+      y: y ?? Number.NaN,
+      ...(x === null || y === null ? { sourceIssue: "The position expression could not be resolved; this object stays listed without an invented map position." } : {}),
       spriteConstant: args[2],
       movementConstant: args[3],
       directionOrRangeConstant: args[4],
@@ -397,20 +378,13 @@ export async function parseMapIndex(source: ProjectSource): Promise<MapIndexEntr
     source.readText(MAP_POINTERS_PATH),
   ]);
 
-  const definitions = constantsText
-    .split(/\r?\n/)
-    .flatMap((line) => {
-      const match = codeOnly(line).match(
-        /^map_const\s+([A-Z0-9_]+)\s*,\s*(\d+)\s*,\s*(\d+)\b/,
-      );
-      return match
-        ? [{
-            constant: match[1],
-            width: Number.parseInt(match[2], 10),
-            height: Number.parseInt(match[3], 10),
-          }]
-        : [];
-    });
+  const rows = constantsText.split(/\r?\n/).flatMap(line => {
+    const m = codeOnly(line).match(/^map_const\s+([A-Z0-9_]+)\s*,\s*([^,]+),\s*([^,]+)$/);
+    return m ? [{ constant: m[1], width: m[2], height: m[3] }] : [];
+  });
+  let symbols = objectSourceConstants([{ path: MAP_CONSTANTS_PATH, contents: constantsText }]);
+  if (rows.some(r => evaluateRgbdsExpression(r.width, symbols) === null || evaluateRgbdsExpression(r.height, symbols) === null) && source.listFiles) symbols = objectSourceConstants(await readProjectRgbdsSources(source));
+  const definitions = rows.map(row => ({ constant: row.constant, width: evaluateRgbdsExpression(row.width, symbols) ?? Number.NaN, height: evaluateRgbdsExpression(row.height, symbols) ?? Number.NaN }));
 
   const pointers = pointersText
     .split(/\r?\n/)
@@ -458,6 +432,7 @@ export async function loadMapVisualization(
   if (!map.headerLabel || !map.headerPath) {
     throw new Error(`${map.displayName} does not have a map header pointer.`);
   }
+  if (!Number.isInteger(map.width) || !Number.isInteger(map.height)) throw new Error(`${map.displayName}: its dimension expressions could not be resolved. Other maps remain available.`);
   if (map.width <= 0 || map.height <= 0) {
     throw new Error(
       `${map.displayName} is an unused map ID with no drawable dimensions.`,
@@ -499,21 +474,43 @@ export async function loadMapVisualization(
 
   if (await source.exists(objectPath)) {
     const objectText = await source.readText(objectPath);
-    warps = parseWarpEvents(objectText, entries);
+
     const scriptText = await source.exists(scriptPath)
       ? await source.readText(scriptPath)
       : null;
     const alternateScriptText = await source.exists(alternateScriptPath)
       ? await source.readText(alternateScriptPath)
       : null;
-    signs = parseSignEvents(objectText, scriptPath, scriptText);
+    let sourceNumbers = new Map<string, number>();
+    const textPointers = scriptText ? parseTextPointers(scriptText) : new Map<string, string>();
+    const needsExpressions = objectText.split(/\r?\n/).some(line => {
+      const macro = codeOnly(line).match(/^(object_event|warp_event|bg_event)\s+(.+)/);
+      const args = macro?.[2].split(",").map(a => a.trim());
+      if (!args) return false;
+      if (args.slice(0, 2).some(a => evaluateRgbdsExpression(a, sourceNumbers) === null)) return true;
+      if (macro?.[1] === "warp_event") return evaluateRgbdsExpression(args[3], sourceNumbers) === null || args[2] !== "LAST_MAP" && !entries.some(e => e.constant === args[2]);
+      const textId = args[macro?.[1] === "object_event" ? 5 : 2];
+      if (!textPointers.has(textId) && evaluateRgbdsExpression(textId, sourceNumbers) === null) return true;
+      return macro?.[1] === "object_event" && args.length === 8 && (!/^OPP_/.test(args[6]) || evaluateRgbdsExpression(args[7], sourceNumbers) === null);
+    });
+    if (needsExpressions && source.listFiles) sourceNumbers = objectSourceConstants(await readProjectRgbdsSources(source));
+    entries.forEach(entry => { sourceNumbers.set(entry.constant, entry.id); sourceNumbers.set(`${entry.constant}_WIDTH`, entry.width); sourceNumbers.set(`${entry.constant}_HEIGHT`, entry.height); });
+    warps = parseWarpEvents(objectText, entries, sourceNumbers);
+    signs = parseSignEvents(objectText, scriptPath, scriptText, sourceNumbers);
     npcs = parseNpcEvents(
       objectText,
       scriptPath,
       scriptText,
       alternateScriptPath,
       alternateScriptText,
+      sourceNumbers,
     );
+    for (const npc of npcs) npc.sourcePath = objectPath;
+    if (await source.exists("macros/scripts/maps.asm")) {
+      const probe = new Map(sourceNumbers); if (!probe.has("TRAINER")) probe.set("TRAINER", 64); if (!probe.has("ITEM")) probe.set("ITEM", 128);
+      const reason = existingObjectEncodingReason(await source.readText("macros/scripts/maps.asm"), probe);
+      if (reason) { warnings.push(reason); for (const npc of npcs) { npc.sourceIssue = reason; npc.x = Number.NaN; npc.y = Number.NaN; npc.objectKind = "special"; npc.trainerPartyId = undefined; npc.itemConstant = undefined; npc.nativeObject = true; } }
+    }
     if (await source.exists("data/maps/toggleable_objects.asm")) {
       const toggles = await source.readText("data/maps/toggleable_objects.asm");
       const section = toggles.match(new RegExp(`^[ \\t]*toggleable_objects_for[ \\t]+${map.constant}[ \\t]*(?:;[^\\r\\n]*)?\\r?\\n([\\s\\S]*?)(?=^[ \\t]*toggleable_objects_for\\b|$(?![\\s\\S]))`, "m"))?.[1] ?? "";

@@ -1,6 +1,16 @@
 import { hashText } from "./history";
 
-export function npcSpriteCatalog(text: string, constants: Map<string, number>, spriteConstants: string) {
+export function npcSpriteCatalog(text: string, constants: Map<string, number>, spriteConstants: string, sourceDriven = false) {
+  if (sourceDriven) {
+    const names = [...spriteConstants.matchAll(/^\s*const(?:_export)?\s+(SPRITE_\w+)/gm)].map(m => m[1]);
+    const entries = [...text.matchAll(/^\s*overworld_sprite\s+\w+,\s*(4|12)\b/gm)].flatMap((m, i) => {
+      const id = names.find(name => constants.get(name) === i + 1);
+      return id ? [{ id, canWalk: m[1] === "12" }] : [];
+    });
+    const boundary = Math.min(...entries.filter(e => !e.canWalk).map(e => constants.get(e.id)!));
+    if (!entries.length || !Number.isFinite(boundary)) throw new Error("The imported sprite table could not be resolved.");
+    return { entries, boundary };
+  }
   const first = spriteConstants.match(/DEF FIRST_STILL_SPRITE EQU const_value\s+const (SPRITE_\w+)/)?.[1];
   const boundary = first ? constants.get(first) : undefined;
   if (boundary === undefined) throw new Error("Cannot identify stationary sprite graphics.");

@@ -10,6 +10,8 @@ The Maps tab has **Create map**, **Edit terrain**, **Strength puzzles**, **Map p
 
 The map displays ordinary NPCs (**N**), trainers (**T**), visible item pickups (**I**) and special encounter records (**?**) from the original object table, as well as objects placed with the editor. Object IDs stay in their original slots. Initially hidden objects remain visible in the editor with dashed markers and an explanation; these previews do not change in-game visibility. Mt. Moon 1F contains seven trainers, six pickups, one sign and five warps in both supported games.
 
+For externally authored hacks, see [Imported map analysis](imported-map-analysis.md). Existing-record reading follows source relationships and supports aliases, expressions and relocated helpers; unresolved behavior limits its affected fields rather than requiring editor metadata.
+
 Select a native pickup and choose **Edit item** to move it or change its item. Native pickups give one item and retain their original collection handler and saved visibility binding. A pickup already collected in a game save stays collected after these edits.
 
 Select a standard native trainer and choose **Edit trainer** to change position, graphics, facing, sight range, party and resolved challenge/defeat/post-battle text. Paragraph controls and text terminators are retained; supported plain text can also gain or lose rows. Changes are saved together in one undoable operation. The original defeat flag and dispatcher remain intact. Choosing a party reuses an existing party; **Edit trainer party** opens the party editor. Shared parties and text affect all their callers. Yellow's shared trainer-talk tails are followed without rewriting them.

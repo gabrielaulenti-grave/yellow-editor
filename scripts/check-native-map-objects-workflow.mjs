@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 const roots = process.argv.slice(2), directory = await mkdtemp(join("node_modules", ".native-map-ui-"));
+const imported = process.env.IMPORTED_MAP_OBJECTS === "1";
 const server = createServer((_req, res) => res.end('<!doctype html><div id="root"></div>'));
 let browser;
 try {
@@ -26,7 +27,7 @@ try {
       page.on("pageerror", e => errors.push(e.message));
       await page.goto(`http://127.0.0.1:${server.address().port}`);
       await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
-      await page.evaluate(({ files, bytes }) => { window.dialogueFiles = files; window.dialogueBytes = bytes; window.mapSurface = true; window.mapFocus = "MT_MOON_1F"; }, { files, bytes });
+      await page.evaluate(({ files, bytes, imported }) => { window.dialogueFiles = files; window.dialogueBytes = bytes; window.mapSurface = true; window.mapFocus = "MT_MOON_1F"; window.importedMapObjects = imported; }, { files, bytes, imported });
       await page.addScriptTag({ content: script });
       await page.getByRole("button", { name: "Item 8 at 2, 20", exact: true }).waitFor();
       assert.equal(await page.locator(".world-map-npc-list > button").count(), 13);
@@ -39,7 +40,7 @@ try {
       await dialog.getByLabel("Native object X", { exact: true }).fill(String(point.x)); await dialog.getByLabel("Native object Y", { exact: true }).fill(String(point.y));
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await dialog.getByRole("button", { name: "Save object", exact: true }).click(); await dialog.waitFor({ state: "hidden" });
-      await page.waitForFunction(() => window.dialogueFiles["data/maps/objects/MtMoon1F.asm"].includes("TEXT_MTMOON1F_POTION1, RARE_CANDY"));
+      await page.waitForFunction(prefix => window.dialogueFiles["data/maps/objects/MtMoon1F.asm"].includes(`${prefix}POTION1, RARE_CANDY`), imported ? "IMPORTED_TEXT_" : "TEXT_MTMOON1F_");
       await page.evaluate(async () => { await window.dialogueInvoke("undo_map_fixture"); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed")); });
       await page.getByRole("button", { name: "Item 8 at 2, 20", exact: true }).waitFor();
       await page.getByRole("button", { name: "Trainer 1 at 5, 6", exact: true }).click();
@@ -54,10 +55,19 @@ try {
       await text.getByRole("button", { name: "Apply text", exact: true }).click(); await text.waitFor({ state: "hidden" });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await dialog.getByRole("button", { name: "Save object", exact: true }).click(); await dialog.waitFor({ state: "hidden" });
-      await page.waitForFunction(() => window.dialogueFiles["data/maps/objects/MtMoon1F.asm"].includes("TEXT_MTMOON1F_HIKER, OPP_YOUNGSTER, 3"));
+      await page.waitForFunction(imported => window.dialogueFiles["data/maps/objects/MtMoon1F.asm"].includes(imported ? "IMPORTED_TEXT_HIKER, BATTLE_YOUNGSTER, 3" : "TEXT_MTMOON1F_HIKER, OPP_YOUNGSTER, 3"), imported);
       assert.ok(await page.evaluate(() => window.dialogueFiles["text/MtMoon1F.asm"].includes('text "Howdy!"')));
+      if (imported) {
+        await page.evaluate(() => { window.dialogueFiles["scripts/MtMoon1F.asm"] = window.dialogueFiles["scripts/MtMoon1F.asm"].replace(".other\n\tfarcall ImportedTrainerHelper", ".other\n\tld hl, MtMoon1TrainerHeader1\n\tcall TalkToTrainer"); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed")); });
+        await page.getByRole("button", { name: "Edit trainer", exact: true }).click();
+        dialog = page.getByRole("dialog", { name: /^Edit native trainer in/ });
+        await dialog.getByLabel("Native trainer party", { exact: true }).selectOption("LASS:5");
+        assert.equal(await dialog.getByLabel("Native trainer sight range", { exact: true }).isDisabled(), true);
+        await dialog.getByRole("button", { name: "Save object", exact: true }).click(); await dialog.waitFor({ state: "hidden" });
+        assert.deepEqual(await page.evaluate(() => window.dialogueSaves.at(-1).map(w => w.path)), ["data/maps/objects/MtMoon1F.asm"]);
+      }
       assert.deepEqual(errors, []); await page.close();
-      console.log(`${root}: native objects, pickup placement, trainer party/sight/text and undo through Maps passed at ${width}px`);
+      console.log(`${root}: ${imported ? "imported hack" : "native"} objects, pickup placement, trainer party/sight/text and undo through Maps passed at ${width}px`);
     }
   }
 } finally { await browser?.close(); server.close(); await rm(directory, { recursive: true, force: true }); }

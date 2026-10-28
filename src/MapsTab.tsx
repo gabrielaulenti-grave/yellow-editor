@@ -122,7 +122,7 @@ function MapCanvas({
       {placement && Number.isInteger(placement.x) && Number.isInteger(placement.y) && <span className="npc-placement-marker" aria-label={`New NPC at ${placement.x}, ${placement.y}`}
         style={{ left: placement.x * 16 * scale, top: placement.y * 16 * scale, width: 16 * scale, height: 16 * scale }}>+</span>}
 
-      {view === "map" && showWarps && visualization.warps.map((warp) => (
+      {view === "map" && showWarps && visualization.warps.filter(w => Number.isFinite(w.x) && Number.isFinite(w.y)).map((warp) => (
         <button
           key={`warp:${warp.id}`}
           type="button"
@@ -142,7 +142,7 @@ function MapCanvas({
           {warp.id}
         </button>
       ))}
-      {view === "map" && showSigns && visualization.signs.map((sign) => (
+      {view === "map" && showSigns && visualization.signs.filter(s => Number.isFinite(s.x) && Number.isFinite(s.y)).map((sign) => (
         <button
           key={`sign:${sign.id}`}
           type="button"
@@ -161,7 +161,7 @@ function MapCanvas({
           S
         </button>
       ))}
-      {view === "map" && showNpcs && visualization.npcs.map((npc) => (
+      {view === "map" && showNpcs && visualization.npcs.filter(n => Number.isFinite(n.x) && Number.isFinite(n.y)).map((npc) => (
         <button
           key={`npc:${npc.id}`}
           type="button"
@@ -1214,7 +1214,7 @@ export function MapsTab({
                             ? constantLabel(npc.objectConstant)
                             : `NPC #${npc.id}`}
                         </strong>
-                        <span>{npc.trainerPartyId ? "Trainer · " : npc.objectKind === "item" ? "Item · " : npc.objectKind === "special" ? "Special encounter · " : ""}({npc.x}, {npc.y}) · {npc.itemConstant ? constantLabel(npc.itemConstant) : constantLabel(npc.spriteConstant, "SPRITE_")}{npc.initiallyHidden ? " · initially hidden" : ""}</span>
+                        <span>{npc.trainerPartyId ? "Trainer · " : npc.objectKind === "item" ? "Item · " : npc.objectKind === "special" ? "Special encounter · " : ""}({Number.isFinite(npc.x) ? npc.x : "?"}, {Number.isFinite(npc.y) ? npc.y : "?"}) · {npc.itemConstant ? constantLabel(npc.itemConstant) : constantLabel(npc.spriteConstant, "SPRITE_")}{npc.initiallyHidden ? " · initially hidden" : ""}</span>
                       </button>
                     ))}
                   </div>
@@ -1228,7 +1228,8 @@ export function MapsTab({
                             ? constantLabel(selectedNpc.objectConstant)
                             : `NPC #${selectedNpc.id}`}
                         </strong>
-                        <code>x {selectedNpc.x}, y {selectedNpc.y}</code>
+                        <code>x {Number.isFinite(selectedNpc.x) ? selectedNpc.x : "?"}, y {Number.isFinite(selectedNpc.y) ? selectedNpc.y : "?"}</code>
+                        {selectedNpc.sourceIssue && <p role="status">{selectedNpc.sourceIssue}</p>}
                         {selectedNpc.itemConstant && <p>Item: <code>{selectedNpc.itemConstant}</code></p>}
                         {selectedNpc.initiallyHidden !== undefined && <p>{selectedNpc.initiallyHidden ? "Initially hidden; shown here so you can inspect its story placement." : "Initially visible; the game controls its saved visibility state."}</p>}
                         <dl>
@@ -1265,6 +1266,7 @@ export function MapsTab({
                         : <button type="button" className="small-button" onClick={() => setEditingNpcId(selectedNpc.id)}>Edit NPC</button>}
                         {selectedNpc.trainerPartyId && onOpenTrainerParty && <button type="button" className="small-button" onClick={() => onOpenTrainerParty(selectedNpc.trainerPartyId!)}>Edit trainer party</button>}
                         {selectedNpc.nativeObject && selectedNpc.textLabel && <button type="button" className="small-button" onClick={() => setMapLogic({ path: selectedNpc.scriptPath, label: selectedNpc.textLabel })}>Inspect map logic</button>}
+                        {selectedNpc.sourcePath && <button type="button" className="small-button" onClick={() => onOpenScript(selectedNpc.sourcePath!)}>View object source</button>}
                       </div>
                       {!selectedNpc.trainerPartyId && !(selectedNpc.objectKind === "item" && selectedNpc.nativeObject) && <div className="world-map-npc-dialogue">
                         <MapInteractionEditor
