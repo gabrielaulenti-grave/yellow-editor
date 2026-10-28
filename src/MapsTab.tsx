@@ -1266,7 +1266,7 @@ export function MapsTab({
                         {selectedNpc.trainerPartyId && onOpenTrainerParty && <button type="button" className="small-button" onClick={() => onOpenTrainerParty(selectedNpc.trainerPartyId!)}>Edit trainer party</button>}
                         {selectedNpc.nativeObject && selectedNpc.textLabel && <button type="button" className="small-button" onClick={() => setMapLogic({ path: selectedNpc.scriptPath, label: selectedNpc.textLabel })}>Inspect map logic</button>}
                       </div>
-                      {!selectedNpc.trainerPartyId && selectedNpc.objectKind !== "item" && <div className="world-map-npc-dialogue">
+                      {!selectedNpc.trainerPartyId && !(selectedNpc.objectKind === "item" && selectedNpc.nativeObject) && <div className="world-map-npc-dialogue">
                         <MapInteractionEditor
                           key={`npc:${selectedNpc.scriptPath}:${selectedNpc.id}:${selectedNpc.textLabel ?? selectedNpc.textConstant}`}
                           title="NPC dialogue"
@@ -1303,7 +1303,7 @@ export function MapsTab({
                   ? "Tile IDs run left-to-right, top-to-bottom. Each tile is decoded directly from the selected .2bpp source."
                   : view === "blocks"
                     ? "Block IDs run left-to-right, top-to-bottom. Every block is assembled from 16 tile IDs in the .bst blockset."
-                    : "Map markers use the game's 16×16 movement coordinates. Numbered markers are warps, S markers are signs, and N markers are ordinary NPC objects."}
+                    : "Map markers use the game's 16×16 movement coordinates. Numbers mark warps, S signs, N NPCs, T trainers, I pickups and ? special encounters. Dashed markers are initially hidden objects."}
               </p>
 
               {visualization.warnings.length > 0 && (

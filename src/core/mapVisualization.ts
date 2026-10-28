@@ -280,6 +280,11 @@ export function parseNpcEvents(
   const textPointers = scriptText ? parseTextPointers(scriptText) : new Map<string, string>();
   let objectIndex = 0;
   let placedTrainerIds = new Set<number>();
+  const placedItems = new Map<string, string>();
+  for (const record of scriptText?.matchAll(/^\s*; yellow-editor-interaction: (.+)$/gm) ?? []) {
+    try { const model = JSON.parse(record[1]) as { label: string; values?: { pickup?: boolean; reward?: { item: string } } }; if (model.values?.pickup && model.values.reward) placedItems.set(model.label, model.values.reward.item); }
+    catch { /* Keep the object visible; its interaction editor reports malformed metadata. */ }
+  }
   try {
     const record = scriptText?.match(/^; yellow-editor-map-trainers: (.+)$/m);
     if (record) placedTrainerIds = new Set((JSON.parse(record[1]) as { trainers: Array<{ id: number }> }).trainers.map(t => t.id));
@@ -297,12 +302,14 @@ export function parseNpcEvents(
     // Object slots are stable across ordinary NPCs, native pickups, trainers
     // and special encounters. Displaying one must not depend on edit support.
     const trainerPartyId = args.length === 8 && /^OPP_[A-Z0-9_]+$/.test(args[6]) && /^\d+$/.test(args[7]) ? `${args[6].slice(4)}:${args[7]}` : undefined;
-    const objectKind = trainerPartyId ? "trainer" : args.length === 7 ? "item" : args.length === 6 ? "npc" : "special";
+    let objectKind: NonNullable<MapVisualization["npcs"][number]["objectKind"]> = trainerPartyId ? "trainer" : args.length === 7 ? "item" : args.length === 6 ? "npc" : "special";
     if (args.length < 6) continue;
     if (!/^-?\d+$/.test(args[0]) || !/^-?\d+$/.test(args[1])) continue;
 
     const textConstant = args[5];
     const textLabel = textPointers.get(textConstant) ?? null;
+    const placedItem = textLabel ? placedItems.get(textLabel) : undefined;
+    if (placedItem) objectKind = "item";
     const dialogueTarget = resolveNpcDialogueTarget(
       textLabel,
       scriptPath,
@@ -314,7 +321,7 @@ export function parseNpcEvents(
     npcs.push({
       objectKind, nativeObject: args.length !== 6 && !placedTrainerIds.has(id),
       ...(trainerPartyId ? { managedTrainer: placedTrainerIds.has(id) } : {}),
-      ...(objectKind === "item" ? { itemConstant: args[6] } : {}),
+      ...(objectKind === "item" ? { itemConstant: placedItem ?? args[6] } : {}),
       ...(trainerPartyId ? { trainerPartyId } : {}),
       id,
       objectConstant,

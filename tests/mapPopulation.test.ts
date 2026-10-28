@@ -79,6 +79,7 @@ for (const directory of args) test(`${directory}: populate a new cave with indep
   await session.placeMapItem(item, itemValues);
   const populated = await session.getMapVisualization("DIGLETT_BASEMENT"), npc = populated.npcs[0];
   assert.equal(npc.spriteConstant, "SPRITE_POKE_BALL"); assert.equal(npc.x, 1); assert.equal(npc.y, 1);
+  assert.equal(npc.objectKind, "item"); assert.equal(npc.itemConstant, "RARE_CANDY"); assert.equal(npc.nativeObject, false);
   const interaction = await loadScriptInteractionDocument(source, npc.scriptPath, npc.textLabel!);
   assert.equal(interaction.values.pickup, true); assert.deepEqual(interaction.values.reward, { item: "RARE_CANDY", quantity: 2 }); assert.ok(interaction.values.visibleWhen);
   assert.deepEqual(interaction.values.dialogue, ["<PLAYER> received", "RARE CANDY!"]);
