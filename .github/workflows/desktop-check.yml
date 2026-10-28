@@ -62,6 +62,12 @@ jobs:
       - name: Check native map objects, vanilla coverage and edit history
         run: npm run test:maps:native -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check sign authoring, dependency-aware removal and project map review
+        run: npm run test:maps:signs -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check sign and removal workflows on mobile and desktop
+        run: npm run test:maps:signs:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check native map object editing on mobile and desktop
         run: npm run test:maps:native:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -201,6 +207,9 @@ jobs:
 
       - name: Compile independently modified Red and Yellow source projects after edits
         run: npm run test:maps:imported -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
+
+      - name: Compile sign and object removals and verify stable text IDs in ROM
+        run: npm run test:maps:signs -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
 
       - name: Execute NPC condition, payment and visibility probes and compile edited ROMs
         run: npm run test:npcs:tools -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

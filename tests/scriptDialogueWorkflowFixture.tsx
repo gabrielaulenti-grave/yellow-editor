@@ -7,7 +7,9 @@ import { loadMapTrainerDocument, prepareMapTrainerWrites, type MapTrainerDocumen
 import { parseEncounterIndex, loadEncounterTableEditDocument } from "../src/core/encounterEditing";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "../src/core/mapStrength";
 import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "../src/core/mapProperties";
-import { checkMap } from "../src/core/mapValidation";
+import { checkMap, checkProjectMaps } from "../src/core/mapValidation";
+import { loadMapSignDocument, prepareMapSignWrites } from "../src/core/mapSigns";
+import { loadMapRemovalDocument, prepareMapRemovalWrites } from "../src/core/mapRemoval";
 import { loadMapTerrainDocument, prepareMapTerrainWrites, loadMapWarpDocument, prepareMapWarpWrites } from "../src/core/mapEditing";
 import { createProjectHistoryManager } from "../src/core/history";
 import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "../src/core/npcEditing";
@@ -70,6 +72,17 @@ const session = attachTextEditing({ saveTextChanges: async (_title: string, chan
 } } as ProjectSession, source);
 fixture.dialogueInvoke = async (command, args) => {
   switch (command) {
+    case "check_project_maps": return checkProjectMaps(source);
+    case "get_map_sign_document": return loadMapSignDocument(source, args!.mapConstant as string, args!.signId as number | null);
+    case "save_map_sign": {
+      const changes = await prepareMapSignWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Edit sign", changes);
+    }
+    case "get_map_removal_document": return loadMapRemovalDocument(source, args!.mapConstant as string, args!.kind as "sign" | "object", args!.id as number);
+    case "remove_map_record": {
+      const changes = await prepareMapRemovalWrites(source, args!.document as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Remove record", changes);
+    }
     case "get_map_encounter_document": return loadMapEncounterDocument(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered", args!.mapConstant as string);
     case "get_encounter_index": return parseEncounterIndex(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered");
     case "get_encounter_table": return loadEncounterTableEditDocument(source, fixture.dialogueFiles["scripts/OaksLab_2.asm"] ? "pokeyellow" : "pokered", args!.path as string);

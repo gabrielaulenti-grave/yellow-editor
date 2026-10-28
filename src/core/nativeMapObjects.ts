@@ -24,7 +24,7 @@ export interface NativeMapObjectDocument {
   values: NativeMapObjectValues; sources: MapSourceSnapshot[];
 }
 const clean = (s: string) => s.split(";")[0].trim();
-async function importedTextLeaves(session: ReturnType<typeof attachTextEditing>, files: Array<{ path: string; contents: string }>, path: string, label: string, seen = new Set<string>()): Promise<TextDocument[]> {
+export async function importedTextLeaves(session: ReturnType<typeof attachTextEditing>, files: Array<{ path: string; contents: string }>, path: string, label: string, seen = new Set<string>()): Promise<TextDocument[]> {
   const key = `${path}:${label}`; if (seen.has(key) || seen.size > 32) throw new Error("Dialogue paths are cyclic or too deep."); seen.add(key);
   try { const leaves = await session.getTextLeafDocuments(path, label); if (leaves.some(l => l.editable && l.segments.length)) return leaves; } catch { /* Try actual definitions rather than filename conventions. */ }
   const definitions = files.filter(f => f.contents.includes(`${label}:`) && f.contents.split(/\r?\n/).some(l => clean(l) === `${label}:` || clean(l) === `${label}::`));

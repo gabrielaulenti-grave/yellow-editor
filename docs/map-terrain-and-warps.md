@@ -6,6 +6,8 @@ For post-game blockers, compound player conditions, payments and shops, see [NPC
 
 The Maps tab has **Create map**, **Edit terrain**, **Strength puzzles**, **Map properties**, **Check map**, **Add warp**, and **Edit selected warp**.
 
+Use **Place sign**, **Edit sign**, **Review removal** and **Check project maps** for background-event authoring, dependency-aware record removal and a project-wide review. See [Signs, removal and project checks](map-signs-and-removal.md) for supported operations and limits.
+
 ## Native map objects
 
 The map displays ordinary NPCs (**N**), trainers (**T**), visible item pickups (**I**) and special encounter records (**?**) from the original object table, as well as objects placed with the editor. Object IDs stay in their original slots. Initially hidden objects remain visible in the editor with dashed markers and an explanation; these previews do not change in-game visibility. Mt. Moon 1F contains seven trainers, six pickups, one sign and five warps in both supported games.

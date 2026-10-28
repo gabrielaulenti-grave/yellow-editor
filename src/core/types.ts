@@ -1596,6 +1596,11 @@ export interface ProjectSource {
 
 export interface ProjectSession {
   checkMap(mapConstant: string): Promise<import("./mapValidation").MapCheckReport>;
+  checkProjectMaps(): Promise<import("./mapValidation").ProjectMapCheckReport>;
+  getMapSignDocument(mapConstant: string, signId: number | null): Promise<import("./mapSigns").MapSignDocument>;
+  saveMapSign(document: import("./mapSigns").MapSignDocument, values: import("./mapSigns").MapSignValues): Promise<HistorySummary>;
+  getMapRemovalDocument(mapConstant: string, kind: "sign" | "object", id: number): Promise<import("./mapRemoval").MapRemovalDocument>;
+  removeMapRecord(document: import("./mapRemoval").MapRemovalDocument): Promise<HistorySummary>;
   getMapPropertiesDocument(mapConstant: string): Promise<import("./mapProperties").MapPropertiesDocument>;
   saveMapProperties(document: import("./mapProperties").MapPropertiesDocument, values: import("./mapProperties").MapPropertiesValues): Promise<HistorySummary>;
   getMapStrengthDocument(mapConstant: string): Promise<import("./mapStrength").MapStrengthDocument>;

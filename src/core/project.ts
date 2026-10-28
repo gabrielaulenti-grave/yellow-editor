@@ -5,7 +5,9 @@ import { loadNativeMapObjectDocument, prepareNativeMapObjectWrites } from "./nat
 import { loadMapTrainerDocument, prepareMapTrainerWrites } from "./mapTrainers";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "./mapStrength";
 import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "./mapProperties";
-import { checkMap } from "./mapValidation";
+import { checkMap, checkProjectMaps } from "./mapValidation";
+import { loadMapSignDocument, prepareMapSignWrites } from "./mapSigns";
+import { loadMapRemovalDocument, prepareMapRemovalWrites } from "./mapRemoval";
 import {
   parseBaseStats,
   parseMoves,
@@ -877,6 +879,21 @@ export async function createProjectSession(
       return result;
     },
     checkMap: mapConstant => checkMap(source, mapConstant),
+    checkProjectMaps: () => checkProjectMaps(source),
+    getMapSignDocument: (map, id) => loadMapSignDocument(source, map, id),
+    saveMapSign: async (document, values) => {
+      const changes = await prepareMapSignWrites(source, document, values);
+      const result = changes.length ? await history.save(`${document.signId === null ? "Place" : "Edit"} sign in ${document.mapName}`, changes) : await history.getSummary();
+      invalidateNonTrainerReadModels(changes.map(c => c.path));
+      return result;
+    },
+    getMapRemovalDocument: (map, kind, id) => loadMapRemovalDocument(source, map, kind, id),
+    removeMapRecord: async document => {
+      const changes = await prepareMapRemovalWrites(source, document);
+      const result = await history.save(`Remove ${document.name} from ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(c => c.path));
+      return result;
+    },
     getMapPropertiesDocument: mapConstant => loadMapPropertiesDocument(source, mapConstant),
     saveMapProperties: async (document, values) => {
       const changes = await prepareMapPropertiesWrites(source, document, values);

@@ -599,6 +599,19 @@ export async function invoke<T>(
 
     case "check_map":
       return await session.checkMap(stringArg(args, "mapConstant")) as T;
+    case "check_project_maps":
+      return await session.checkProjectMaps() as T;
+    case "get_map_sign_document":
+      return await session.getMapSignDocument(stringArg(args, "mapConstant"), typeof args?.signId === "number" ? args.signId : null) as T;
+    case "save_map_sign":
+      if (!args?.document || !args.values) throw new Error("Missing sign document or values.");
+      return await session.saveMapSign(args.document as import("../core/mapSigns").MapSignDocument, args.values as import("../core/mapSigns").MapSignValues) as T;
+    case "get_map_removal_document":
+      if (args?.kind !== "sign" && args?.kind !== "object") throw new Error("Choose a sign or object.");
+      return await session.getMapRemovalDocument(stringArg(args, "mapConstant"), args.kind, numberArg(args, "id")) as T;
+    case "remove_map_record":
+      if (!args?.document) throw new Error("Missing removal review.");
+      return await session.removeMapRecord(args.document as import("../core/mapRemoval").MapRemovalDocument) as T;
     case "get_map_properties_document":
       return await session.getMapPropertiesDocument(stringArg(args, "mapConstant")) as T;
     case "save_map_properties":

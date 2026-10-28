@@ -19,6 +19,9 @@
 .warp-edit-grid label { display: grid; gap: 4px; min-width: 0; max-width: 100%; }
 .warp-edit-grid input { width: 90px; }
 .map-edit-dialog select { max-width: 100%; }
+.map-edit-dialog code { overflow-wrap: anywhere; }
+.map-sign-dialogue { display: grid; gap: 8px; margin: 16px 0; }
+.map-sign-dialogue textarea { width: 100%; box-sizing: border-box; }
 .trainer-dialogues { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .trainer-dialogues label { display: grid; gap: 6px; min-width: 0; }
 .trainer-dialogues textarea { width: 100%; min-width: 0; box-sizing: border-box; }
