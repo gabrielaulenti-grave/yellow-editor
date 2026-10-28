@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { loadMapSignDocument, prepareMapSignWrites } from "../src/core/mapSigns";
 import { loadMapRemovalDocument, prepareMapRemovalWrites } from "../src/core/mapRemoval";
 import { checkMap, checkProjectMaps } from "../src/core/mapValidation";
-import { loadMapVisualization } from "../src/core/mapVisualization";
+import { loadMapVisualization, parseMapIndex } from "../src/core/mapVisualization";
 import { createProjectHistoryManager } from "../src/core/history";
 import type { ProjectSource, HistoryState } from "../src/core/types";
 
@@ -65,6 +65,7 @@ for (const directory of roots) test(`${directory}: signs, dependency-aware remov
   // An unreadable map is reported without preventing review of other maps.
   overlay.set("data/maps/headers/Route1.asm", "custom_header\n");
   const report = await checkProjectMaps(source); assert.ok(report.checkedMaps > 200); assert.ok(report.reports.find(r => r.mapConstant === "ROUTE_1")!.issues.some(i => i.code === "map-unreadable")); assert.ok(report.reports.some(r => r.mapConstant === "PALLET_TOWN")); overlay.delete("data/maps/headers/Route1.asm");
+  const drawable = (await parseMapIndex(source)).filter(m => !m.isUnused); assert.equal(report.checkedMaps, new Set(drawable.map(m => m.headerPath ?? m.constant)).size, "shared headers are checked once, rather than skipping every alias");
   const beforeInvalid = await source.readText(objects); overlay.set(objects, beforeInvalid.replace(/bg_event\s+7,\s*9,/, "bg_event UNKNOWN_X, UNKNOWN_Y,"));
   const unknown = await checkMap(source, "PALLET_TOWN"); assert.ok(unknown.issues.some(i => i.code === "unresolved-position" && i.kind === "sign")); assert.ok(!unknown.issues.some(i => i.code === "overlap" && i.message.includes("NaN"))); overlay.set(objects, beforeInvalid);
   const stale = await loadMapSignDocument(source, "PALLET_TOWN", 1); overlay.set(objects, beforeInvalid + "; external edit\n"); await assert.rejects(prepareMapSignWrites(source, stale, stale.values), /sources changed/); overlay.set(objects, beforeInvalid);

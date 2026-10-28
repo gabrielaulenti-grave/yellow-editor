@@ -62,7 +62,9 @@ export async function checkProjectMaps(source: ProjectSource): Promise<ProjectMa
     readText: p => { if (!text.has(p)) text.set(p, source.readText(p)); return text.get(p)!; },
     readBytes: p => { if (!bytes.has(p)) bytes.set(p, source.readBytes(p)); return bytes.get(p)!; },
   };
-  const index = await parseMapIndex(snapshot), maps = index.filter(m => !m.isUnused && !m.isAlias), cache = new Map<string, Promise<MapVisualization>>();
+  const index = await parseMapIndex(snapshot), headers = new Set<string>();
+  const maps = index.filter(m => { if (m.isUnused) return false; const key = m.headerPath ?? m.constant; if (headers.has(key)) return false; headers.add(key); return true; });
+  const cache = new Map<string, Promise<MapVisualization>>();
   const load = (map: string) => { if (!cache.has(map)) { cache.set(map, loadMapVisualization(snapshot, map, index)); if (cache.size > 8) cache.delete(cache.keys().next().value!); } return cache.get(map)!; };
   const reports: MapCheckReport[] = [];
   for (const map of maps) {
