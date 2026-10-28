@@ -112,10 +112,22 @@ function range(text: string, label: string) {
   while (end < all.length && !/^[A-Za-z_][A-Za-z0-9_]*:{1,2}$/.test(clean(all[end]))) end++;
   const offsets = [0];
   for (const m of text.matchAll(/\n/g)) offsets.push(m.index + 1);
-  return { start, end, from: offsets[start], to: offsets[end] ?? text.length, all, body: all.slice(start + 1, end) };
+  return { start, end, from: offsets[start], to: offsets[end] ?? text.length, offsets, all, body: all.slice(start + 1, end) };
+}
+// Comments between global labels can introduce a different editor's managed
+// section. They are not part of the preceding dialogue leaf: copying them into
+// regenerated text moves its boundary; removing a leaf can erase its metadata.
+function textRange(text: string, label: string) {
+  const r = range(text, label);
+  let end = r.end;
+  while (end > r.start + 1 && !clean(r.all[end - 1])) end--;
+  const comment = r.all.slice(end, r.end).findIndex(line => /^[ \t]*;/.test(line));
+  if (comment < 0) return r;
+  end += comment;
+  return { ...r, end, to: r.offsets[end] ?? text.length, body: r.all.slice(r.start + 1, end) };
 }
 function replaceBlock(text: string, label: string, body: string) {
-  const r = range(text, label);
+  const r = textRange(text, label);
   const nl = text.includes("\r\n") ? "\r\n" : "\n";
   return text.slice(0, r.from) + body.replace(/\n/g, nl) + text.slice(r.to);
 }
@@ -428,7 +440,7 @@ function textBlock(label: string, input: string[], state: Awaited<ReturnType<typ
   if (input.some(line => [...line.matchAll(/<[^>]*>/g)].some(match => !tokens.has(match[0])) || [...line.replace(/<[^>]*>/g, "")].some(char => !chars.has(char)))) throw new Error("Dialogue contains an unsupported token or characters unavailable in this game's font.");
   let originalBlock: string | null = null;
   if (state.old && new RegExp(`^${label}:{1,2}$`, "m").test(state.text.replace(/\r\n/g, "\n"))) {
-    const existing = range(state.text, label);
+    const existing = textRange(state.text, label);
     originalBlock = state.text.slice(existing.from, existing.to).replace(/\r\n/g, "\n").trimEnd() + "\n";
   }
   const controls = originalBlock ? rows(originalBlock).flatMap(row => {
@@ -733,7 +745,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   } else {
     const leaves = await attachTextEditing({} as ProjectSession, source).getTextLeafDocuments(document.path, document.label);
     const original = leaves[0].path === document.path && leaves[0].label === document.label
-      ? script.slice(range(script, document.label).from, range(script, document.label).to).replace(new RegExp(`^${document.label}:{1,2}`), `${prefix}Original:`)
+      ? script.slice(textRange(script, document.label).from, textRange(script, document.label).to).replace(new RegExp(`^${document.label}:{1,2}`), `${prefix}Original:`)
       : ` ${prefix}Original:\n\ttext_far ${leaves[0].label}\n\ttext_end\n`.trimStart();
     script = replaceBlock(script, document.label, code + original.replace(/\r\n/g, "\n") + "\n");
   }
@@ -750,7 +762,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   const actionBlocks = (values.actions ? sequenceDialogue(values.actions) : []).map(block => ({ label: `${prefix}${block.key}Text`, lines: block.lines, terminator: prompts.get(block.key) ? "prompt" as const : "done" as const }));
   const renderedBlocks = actionBlocks.map(block => ({ ...block, contents: textBlock(block.label, block.lines, state, block.terminator) }));
   for (const block of state.old?.values.actions ? sequenceDialogue(state.old.values.actions) : []) {
-    const r = range(script, `${prefix}${block.key}Text`);
+    const r = textRange(script, `${prefix}${block.key}Text`);
     script = script.slice(0, r.from) + script.slice(r.to);
   }
   for (const block of renderedBlocks) {

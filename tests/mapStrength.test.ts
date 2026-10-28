@@ -13,6 +13,8 @@ import { loadMapCreateDocument, prepareMapCreateWrites } from "../src/core/mapCr
 import { createProjectHistoryManager, hexToBytes } from "../src/core/history";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCreation";
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites } from "../src/core/scriptInteractions";
+import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "../src/core/npcEditing";
+import { loadMapItemDocument, prepareMapItemWrites } from "../src/core/mapItems";
 import { identifySequenceDialogue } from "../src/core/interactionSequence";
 import type { ProjectSource, HistoryState, TextWriteRequest } from "../src/core/types";
 
@@ -44,6 +46,76 @@ const roots = process.argv.slice(2), at = roots.indexOf("--rom"), rgbds = at < 0
 if (at >= 0) roots.splice(at, 3);
 assert.ok(roots.length, "Supply Red/Yellow sources.");
 for (const directory of roots) {
+  for (const newline of ["\n", "\r\n"]) test(`${directory}: moving unrelated NPCs and pickups preserves Strength ownership (${newline.length === 1 ? "LF" : "CRLF"})`, async () => {
+    const { source, apply, overlay } = await fixture(resolve(directory));
+    const creation = await loadMapCreateDocument(source, "SEAFOAM_ISLANDS_1F");
+    await apply(await prepareMapCreateWrites(source, creation, { constant: "EDITOR_STRENGTH_CAVE", width: creation.visualization.map.width, height: creation.visualization.map.height, layout: "copy", fillBlock: 0, borderBlock: creation.borderBlock, locationMap: "PALLET_TOWN", musicMap: "PALLET_TOWN", connection: null }));
+    await apply(await prepareAddBoulderWrites(source, "EDITOR_STRENGTH_CAVE", 17, 5));
+    const npc = await loadMapNpcCreateDocument(source, "EDITOR_STRENGTH_CAVE");
+    await apply(await prepareMapNpcWrites(source, npc, { x: 8, y: 4, sprite: "SPRITE_GENTLEMAN", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Hello!"] } }));
+    const item = await loadMapItemDocument(source, "EDITOR_STRENGTH_CAVE");
+    await apply(await prepareMapItemWrites(source, item, { x: 19, y: 4, item: "POTION", quantity: 1 }));
+    let puzzle = await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE");
+    const values = structuredClone(puzzle.values);
+    values.goals.push({ id: 1, event: "", x: 18, y: 5, boulderId: 1, kind: "switch", destination: null });
+    values.changes.push({ x: 0, y: 0, block: 1, goals: [1] });
+    await apply(await prepareMapStrengthWrites(source, puzzle, values));
+    const path = "scripts/EditorStrengthCave.asm";
+    overlay.set(path, (await source.readText(path)).replace(/\r?\n/g, newline));
+    puzzle = await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE");
+    const original = await source.readText(path), expected = structuredClone(puzzle.values);
+    const strength = (text: string) => text.slice(text.indexOf("; yellow-editor-strength: "), text.indexOf("; yellow-editor-strength-code-end") + "; yellow-editor-strength-code-end".length);
+    const history = createProjectHistoryManager(source);
+    // Moving any NPC regenerates authored interactions, including this pickup's
+    // final dialogue leaf immediately before the Strength metadata and code.
+    for (const id of [npc.objectId, item.npc.objectId]) {
+      const doc = await loadMapNpcEditDocument(source, "EDITOR_STRENGTH_CAVE", id);
+      assert.equal(doc.reason, null);
+      const point = doc.walkable.find(p => (p.x !== doc.values.x || p.y !== doc.values.y) && !doc.occupied.some(o => o.x === p.x && o.y === p.y))!;
+      await history.save("Move unrelated object", await prepareMapNpcEditWrites(source, doc, { ...doc.values, ...point }));
+      assert.deepEqual((await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE")).values, expected);
+      assert.equal(strength(await source.readText(path)), strength(original), "NPC edits preserve the complete adjacent puzzle byte for byte");
+      assert.deepEqual(await prepareMapStrengthWrites(source, await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE"), expected), []);
+      await history.undo();
+      assert.deepEqual((await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE")).values, expected);
+      await history.redo();
+      assert.equal((await loadMapNpcEditDocument(source, "EDITOR_STRENGTH_CAVE", id)).values.x, point.x);
+    }
+    // Sequence dialogue leaves are removed and re-appended during regeneration.
+    // A later puzzle save can place its metadata directly after such a leaf.
+    const interaction = await loadScriptInteractionDocument(source, path, `EditorStrengthCaveEditorNpc${npc.objectId}Text`);
+    await apply(await prepareScriptInteractionWrites(source, interaction, { ...interaction.values, showOriginal: false, actions: identifySequenceDialogue([{ kind: "dialogue", lines: ["Puzzle ahead!"] }]) }));
+    puzzle = await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE");
+    expected.goals[0].x++;
+    await apply(await prepareMapStrengthWrites(source, puzzle, expected));
+    const beforeSequenceMove = await source.readText(path);
+    const itemDoc = await loadMapNpcEditDocument(source, "EDITOR_STRENGTH_CAVE", item.npc.objectId);
+    const nextItemPosition = itemDoc.walkable.find(p => (p.x !== itemDoc.values.x || p.y !== itemDoc.values.y) && !itemDoc.occupied.some(o => o.x === p.x && o.y === p.y))!;
+    await apply(await prepareMapNpcEditWrites(source, itemDoc, { ...itemDoc.values, ...nextItemPosition }));
+    assert.equal(strength(await source.readText(path)), strength(beforeSequenceMove), "removing an old action leaf preserves the next tool's metadata");
+    assert.deepEqual((await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE")).values, expected);
+    // Earlier editor versions could insert trivia between another tool's
+    // markers. Opening these projects must remain read-only and editable.
+    const canonical = await source.readText(path);
+    const harmless = canonical.replace(`; yellow-editor-strength-code-begin${newline}`, `; yellow-editor-strength-code-begin${newline}${newline}; retained comment${newline}`);
+    overlay.set(path, harmless);
+    const recovered = await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE");
+    assert.deepEqual(recovered.values, expected);
+    assert.equal(await source.readText(path), harmless);
+    const updated = structuredClone(recovered.values); updated.goals[0].x++;
+    await apply(await prepareMapStrengthWrites(source, recovered, updated));
+    assert.deepEqual((await loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE")).values, updated);
+    assert.ok(newline.length === 1 || !/(?<!\r)\n/.test(await source.readText(path)));
+    for (const broken of [
+      canonical.replace("call CheckBoulderCoords", "call IgnoreInputForHalfSecond"),
+      canonical.replace("\tcall EditorStrengthCaveEditorStrength", "\tcall IgnoreInputForHalfSecond"),
+      canonical + `${newline}; yellow-editor-strength-code-begin${newline}`,
+      canonical.replace(/^; yellow-editor-strength: .*\r?\n/m, ""),
+    ]) {
+      overlay.set(path, broken);
+      await assert.rejects(loadMapStrengthDocument(source, "EDITOR_STRENGTH_CAVE"), /managed Strength/);
+    }
+  });
   test(`${directory}: native switches, holes, gates and cross-floor landing edits preserve scripts`, async () => {
     const { source, apply } = await fixture(resolve(directory));
     for (const [map, targets, gates, landings] of [["VICTORY_ROAD_1F", 1, 1, 0], ["VICTORY_ROAD_2F", 2, 2, 0], ["VICTORY_ROAD_3F", 2, 1, 1], ["SEAFOAM_ISLANDS_1F", 2, 0, 2], ["SEAFOAM_ISLANDS_B1F", 2, 0, 2], ["SEAFOAM_ISLANDS_B2F", 2, 0, 2], ["SEAFOAM_ISLANDS_B3F", 2, 0, 2]] as const) {

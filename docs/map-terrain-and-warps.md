@@ -49,6 +49,8 @@ To build a new puzzle:
 
 New holes require CAVERN hole tiles, and new current routes must remain on CAVERN water. A map supports up to eight targets, eight terrain changes and eight current triggers. Each current supports up to sixteen movement runs totaling sixty-four steps. Existing target identities and types stay stable; positions, boulder links, destinations, terrain changes and currents can be edited. Hole-owned warps must be moved through **Strength puzzles**, keeping player and boulder routes together.
 
+Unrelated NPCs and item pickups can still be added, moved and edited after saving a puzzle. Their dialogue regeneration preserves adjacent puzzle metadata and code. Strength loading accepts comments and blank lines within its managed section, including spacing introduced by older NPC edits; opening the wizard does not rewrite the source. Changed puzzle instructions, missing metadata or altered hooks still require source review.
+
 ## Map properties and checks
 
 **Map properties** provides Default / Allowed / Blocked overrides for cycling, Dig/Escape Rope, Teleport, Fly departure and Flash. Defaults reflect native map/tileset rules. Overrides affect one map while preserving normal move, item and badge requirements. Scripted forced-bike routes retain their native behavior. Fly destination registration is separate. Dig and Escape Rope share their native routine and last-healing-location destination.

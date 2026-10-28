@@ -85,6 +85,24 @@ function goalCode(m: Managed, width: number) {
   return out.join("\n") + "\n";
 }
 function managedBlock(m: Managed, width: number) { return `${marker}${JSON.stringify(m)}\n${begin}\n${goalCode(m, width)}${end}\n`; }
+function reviewManagedPuzzle(script: string, m: Managed | null, map: string, name: string, width: number) {
+  const lines = rows(script);
+  const starts = lines.flatMap((line, i) => line.trim() === begin ? [i] : []);
+  const ends = lines.flatMap((line, i) => line.trim() === end ? [i] : []);
+  if (!m) {
+    if (starts.length || ends.length) throw new Error("The managed Strength record is missing. Restore its metadata before editing the puzzle.");
+    return;
+  }
+  const record = lines.findIndex(line => line.startsWith(marker));
+  const instructions = (text: string[]) => text.map(clean).filter(Boolean).join("\n");
+  // Compare the owned instructions rather than adjoining whitespace. Earlier
+  // NPC edits could add blank lines between this section's metadata and label.
+  if (m.map !== map || m.name !== name || starts.length !== 1 || ends.length !== 1 || record >= starts[0] || starts[0] >= ends[0]
+    || instructions(lines.slice(record + 1, starts[0])) || instructions(lines.slice(starts[0] + 1, ends[0])) !== instructions(rows(goalCode(m, width)))
+    || lines.filter(line => clean(line) === `call ${name}EditorStrength`).length !== 1) {
+    throw new Error("The managed Strength hook or generated code was edited in source.");
+  }
+}
 function visibilityCode(all: Managed[]) {
   const conditions = new Map<string, { map: string; object: number; incoming?: string; outgoing?: string }>();
   for (const m of all) for (const g of m.goals.filter(g => g.kind === "hole")) {
@@ -149,7 +167,7 @@ async function state(source: ProjectSource, mapConstant: string) {
   const script = byPath.get(scriptPath), object = byPath.get(objectPath);
   if (script === undefined || object === undefined) throw new Error("Map scripts or objects are missing.");
   const old = metadata(script), all = files.filter(f => f.path.startsWith("scripts/")).flatMap(f => { const m = metadata(f.contents); return m ? [m] : []; });
-  if (old && (old.map !== mapConstant || old.name !== name || !script.includes(managedBlock(old, map.width).replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n")) || rows(script).filter(line => clean(line) === `call ${name}EditorStrength`).length !== 1)) throw new Error("The managed Strength hook or generated code was edited in source.");
+  reviewManagedPuzzle(script, old, mapConstant, name, map.width);
   return { files, byPath, index, map, name, scriptPath, objectPath, script, object, old, all };
 }
 export async function loadMapStrengthDocument(source: ProjectSource, mapConstant: string): Promise<MapStrengthDocument> {
