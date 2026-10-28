@@ -1,6 +1,7 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "../src/core/mapCreation";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "../src/core/mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "../src/core/mapItems";
+import { loadNativeMapObjectDocument, prepareNativeMapObjectWrites, type NativeMapObjectDocument } from "../src/core/nativeMapObjects";
 import { loadMapTrainerDocument, prepareMapTrainerWrites, type MapTrainerDocument } from "../src/core/mapTrainers";
 import { parseEncounterIndex, loadEncounterTableEditDocument } from "../src/core/encounterEditing";
 import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "../src/core/mapStrength";
@@ -21,6 +22,7 @@ import { loadScriptCatalog, loadScriptDocument } from "../src/core/scriptCatalog
 import type { ProjectSession, ProjectSource, TextWriteRequest } from "../src/core/types";
 
 const fixture = window as unknown as {
+  nativeObjectDocument?: NativeMapObjectDocument;
   dialogueFiles: Record<string, string>;
   trainerDocument?: MapTrainerDocument;
   openedTrainerParty?: string;
@@ -74,6 +76,13 @@ fixture.dialogueInvoke = async (command, args) => {
       fixture.dialogueSaves.push(changes); return mapHistory.save("Assign encounters", changes);
     }
     case "get_map_item_document": return loadMapItemDocument(source, args!.mapConstant as string);
+    case "get_native_map_object_document": {
+      const doc = await loadNativeMapObjectDocument(source, args!.mapConstant as string, args!.objectId as number); fixture.nativeObjectDocument = doc; return doc;
+    }
+    case "save_native_map_object": {
+      const changes = await prepareNativeMapObjectWrites(source, args!.document as never, args!.values as never);
+      fixture.dialogueSaves.push(changes); return mapHistory.save("Edit native object", changes);
+    }
     case "get_map_trainer_document": {
       const doc = await loadMapTrainerDocument(source, args!.mapConstant as string, args!.objectId as number | undefined); fixture.trainerDocument = doc; return doc;
     }

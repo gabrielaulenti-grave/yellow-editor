@@ -60,30 +60,9 @@ async function inspect(source: ProjectSource, mapConstant: string, objectId: num
 export async function loadMapNpcEditDocument(source: ProjectSource, mapConstant: string, objectId: number): Promise<MapNpcEditDocument> {
   return (await inspect(source, mapConstant, objectId)).document;
 }
-export async function prepareMapNpcEditWrites(source: ProjectSource, document: MapNpcEditDocument, values: MapNpcEditValues): Promise<TextWriteRequest[]> {
-  const current = await inspect(source, document.mapConstant, document.objectId), d = current.document, state = current.state;
-  if (JSON.stringify(d.sources) !== JSON.stringify(document.sources)) throw new Error("NPC sources changed while the form was open. Reopen Edit NPC before saving.");
-  if (d.reason) throw new Error(d.reason);
-  if (!Number.isInteger(values.x) || !Number.isInteger(values.y) || values.x < 0 || values.y < 0 || values.x >= Math.min(d.width, 252) || values.y >= Math.min(d.height, 252)) throw new Error("Choose a whole-number position inside this map.");
+async function refreshInteractions(source: ProjectSource, current: Awaited<ReturnType<typeof inspect>>, values: MapNpcEditValues, changed: Map<string, string>) {
+  const { state, document: d } = current;
   const moved = values.x !== d.values.x || values.y !== d.values.y;
-  if (moved && !d.walkable.some(point => point.x === values.x && point.y === values.y)) throw new Error("Choose walkable ground for the NPC.");
-  if (moved && d.occupied.some(point => point.x === values.x && point.y === values.y)) throw new Error("This position contains an object, warp or sign.");
-  if (!d.sprites.includes(values.sprite)) throw new Error("Choose a sprite compatible with this map.");
-  validateNpcSpriteMovement(d.stationarySprites, values.sprite, values.movement, values.direction);
-  const directions = values.movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : values.movement === "WALK" ? ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"] : [];
-  if (!directions.includes(values.direction) || typeof values.moveSceneStart !== "boolean") throw new Error("Choose a supported movement and facing direction.");
-  if (d.linkedScenes.length && values.movement !== "STAY") throw new Error("An NPC used in walking or visibility scenes must stay stationary.");
-  const changed = new Map<string, string>();
-  let index = 0;
-  const objects = state.objects.replace(/^(\s*object_event\s+)([^\r\n;]+)(.*)$/gm, (all, prefix: string, fields: string, suffix: string) => {
-    if (++index !== d.objectId) return all;
-    const valuesByField = [String(values.x), String(values.y), values.sprite, values.movement, values.direction];
-    const args = fields.split(",");
-    for (let i = 0; i < 5; i++) if (args[i].trim() !== valuesByField[i]) args[i] = args[i].replace(/\S(?:[\s\S]*\S)?/, valuesByField[i]);
-    return prefix + args.join(",") + suffix;
-  });
-  if (index !== state.events.length) throw new Error("The object table changed unexpectedly.");
-  changed.set(state.objectPath, objects);
   const overlay: ProjectSource = { ...source, readText: async path => changed.get(path) ?? source.readText(path) };
   // Regenerate and validate every authored scene on the map: even an NPC that
   // has no actions may become a blocker in another actor's route.
@@ -109,6 +88,35 @@ export async function prepareMapNpcEditWrites(source: ProjectSource, document: M
       for (const write of await prepareScriptInteractionWrites(overlay, sceneDoc, next)) changed.set(write.path, write.contents);
     } catch (error) { throw new Error(`Cannot save this NPC placement because interaction ${model.label} would be invalid: ${String(error)} Choose another position or adjust its scene first.`); }
   }
+}
+export async function refreshMapNpcInteractions(source: ProjectSource, map: string, id: number, values: MapNpcEditValues, changed: Map<string, string>) {
+  await refreshInteractions(source, await inspect(source, map, id), values, changed);
+}
+export async function prepareMapNpcEditWrites(source: ProjectSource, document: MapNpcEditDocument, values: MapNpcEditValues): Promise<TextWriteRequest[]> {
+  const current = await inspect(source, document.mapConstant, document.objectId), d = current.document, state = current.state;
+  if (JSON.stringify(d.sources) !== JSON.stringify(document.sources)) throw new Error("NPC sources changed while the form was open. Reopen Edit NPC before saving.");
+  if (d.reason) throw new Error(d.reason);
+  if (!Number.isInteger(values.x) || !Number.isInteger(values.y) || values.x < 0 || values.y < 0 || values.x >= Math.min(d.width, 252) || values.y >= Math.min(d.height, 252)) throw new Error("Choose a whole-number position inside this map.");
+  const moved = values.x !== d.values.x || values.y !== d.values.y;
+  if (moved && !d.walkable.some(point => point.x === values.x && point.y === values.y)) throw new Error("Choose walkable ground for the NPC.");
+  if (moved && d.occupied.some(point => point.x === values.x && point.y === values.y)) throw new Error("This position contains an object, warp or sign.");
+  if (!d.sprites.includes(values.sprite)) throw new Error("Choose a sprite compatible with this map.");
+  validateNpcSpriteMovement(d.stationarySprites, values.sprite, values.movement, values.direction);
+  const directions = values.movement === "STAY" ? ["DOWN", "UP", "LEFT", "RIGHT"] : values.movement === "WALK" ? ["ANY_DIR", "UP_DOWN", "LEFT_RIGHT"] : [];
+  if (!directions.includes(values.direction) || typeof values.moveSceneStart !== "boolean") throw new Error("Choose a supported movement and facing direction.");
+  if (d.linkedScenes.length && values.movement !== "STAY") throw new Error("An NPC used in walking or visibility scenes must stay stationary.");
+  const changed = new Map<string, string>();
+  let index = 0;
+  const objects = state.objects.replace(/^(\s*object_event\s+)([^\r\n;]+)(.*)$/gm, (all, prefix: string, fields: string, suffix: string) => {
+    if (++index !== d.objectId) return all;
+    const valuesByField = [String(values.x), String(values.y), values.sprite, values.movement, values.direction];
+    const args = fields.split(",");
+    for (let i = 0; i < 5; i++) if (args[i].trim() !== valuesByField[i]) args[i] = args[i].replace(/\S(?:[\s\S]*\S)?/, valuesByField[i]);
+    return prefix + args.join(",") + suffix;
+  });
+  if (index !== state.events.length) throw new Error("The object table changed unexpectedly.");
+  changed.set(state.objectPath, objects);
+  await refreshInteractions(source, current, values, changed);
   return (await Promise.all([...changed].map(async ([path, contents]) => {
     const original = state.read(path);
     return contents === original ? null : { path, contents, expectedHash: await hashText(original) };

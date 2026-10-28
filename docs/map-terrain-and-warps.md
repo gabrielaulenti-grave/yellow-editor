@@ -6,6 +6,18 @@ For post-game blockers, compound player conditions, payments and shops, see [NPC
 
 The Maps tab has **Create map**, **Edit terrain**, **Strength puzzles**, **Map properties**, **Check map**, **Add warp**, and **Edit selected warp**.
 
+## Native map objects
+
+The map displays ordinary NPCs (**N**), trainers (**T**), visible item pickups (**I**) and special encounter records (**?**) from the original object table, as well as objects placed with the editor. Object IDs stay in their original slots. Initially hidden objects remain visible in the editor with dashed markers and an explanation; these previews do not change in-game visibility. Mt. Moon 1F contains seven trainers, six pickups, one sign and five warps in both supported games.
+
+Select a native pickup and choose **Edit item** to move it or change its item. Native pickups give one item and retain their original collection handler and saved visibility binding. A pickup already collected in a game save stays collected after these edits.
+
+Select a standard native trainer and choose **Edit trainer** to change position, graphics, facing, sight range, party and resolved challenge/defeat/post-battle text. Paragraph controls and text terminators are retained; supported plain text can also gain or lose rows. Changes are saved together in one undoable operation. The original defeat flag and dispatcher remain intact. Choosing a party reuses an existing party; **Edit trainer party** opens the party editor. Shared parties and text affect all their callers. Yellow's shared trainer-talk tails are followed without rewriting them.
+
+Unrecognized story interactions and special encounters stay selectable, with **Inspect map logic** and an explanation of editing limits. A script-controlled position is protected while independently supported fields remain available. Moving an object also checks authored scene routes for new blockers. Concealed items stored outside the map object table are not part of this layer.
+
+`npm run test:maps:native -- <red> <yellow>` sweeps every object source, verifies stable IDs and Mt. Moon counts, edits, no-op saves, flags, undo/redo, stale sources and CRLF. Add `--rom <rgbds> <binjgb>` to compile whole edited games, inspect native object/header/visibility bytes and run native trainer and pickup CPU probes. The probes instrument rendering/audio and do not simulate a full battle or a battery save/Continue cycle. `test:maps:native:ui` tests authoring through Maps at 320, 375 and 1280 pixels.
+
 ## Create an independent map
 
 1. Choose **Create map** and enter an uppercase map constant such as `PALLET_NEW_HOUSE`.

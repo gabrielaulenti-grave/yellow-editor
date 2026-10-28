@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:maps:native": "node scripts/check-native-map-objects.mjs",
+    "test:maps:native:ui": "node scripts/check-native-map-objects-workflow.mjs",
     "test:maps:create": "node scripts/check-map-creation.mjs",
     "test:maps:create:ui": "node scripts/check-map-create-workflow.mjs",
     "test:maps:edit": "node scripts/check-map-editing.mjs",

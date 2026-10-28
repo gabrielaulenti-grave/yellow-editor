@@ -268,7 +268,7 @@ function resolveNpcDialogueTarget(
   return { path: scriptPath, label: textLabel };
 }
 
-function parseNpcEvents(
+export function parseNpcEvents(
   objectText: string,
   scriptPath: string,
   scriptText: string | null,
@@ -294,10 +294,11 @@ function parseNpcEvents(
     const objectConstant = objectConstants[objectIndex] ?? null;
     objectIndex += 1;
 
-    // Six arguments is the ordinary NPC form. Items add one more field and
-    // trainers add two, so keep those for their dedicated map layers.
-    const trainerPartyId = args.length === 8 && placedTrainerIds.has(id) && /^OPP_[A-Z0-9_]+$/.test(args[6]) && /^\d+$/.test(args[7]) ? `${args[6].slice(4)}:${args[7]}` : undefined;
-    if (args.length !== 6 && !trainerPartyId) continue;
+    // Object slots are stable across ordinary NPCs, native pickups, trainers
+    // and special encounters. Displaying one must not depend on edit support.
+    const trainerPartyId = args.length === 8 && /^OPP_[A-Z0-9_]+$/.test(args[6]) && /^\d+$/.test(args[7]) ? `${args[6].slice(4)}:${args[7]}` : undefined;
+    const objectKind = trainerPartyId ? "trainer" : args.length === 7 ? "item" : args.length === 6 ? "npc" : "special";
+    if (args.length < 6) continue;
     if (!/^-?\d+$/.test(args[0]) || !/^-?\d+$/.test(args[1])) continue;
 
     const textConstant = args[5];
@@ -311,6 +312,9 @@ function parseNpcEvents(
     );
 
     npcs.push({
+      objectKind, nativeObject: args.length !== 6 && !placedTrainerIds.has(id),
+      ...(trainerPartyId ? { managedTrainer: placedTrainerIds.has(id) } : {}),
+      ...(objectKind === "item" ? { itemConstant: args[6] } : {}),
       ...(trainerPartyId ? { trainerPartyId } : {}),
       id,
       objectConstant,
@@ -503,6 +507,14 @@ export async function loadMapVisualization(
       alternateScriptPath,
       alternateScriptText,
     );
+    if (await source.exists("data/maps/toggleable_objects.asm")) {
+      const toggles = await source.readText("data/maps/toggleable_objects.asm");
+      const section = toggles.match(new RegExp(`^[ \\t]*toggleable_objects_for[ \\t]+${map.constant}[ \\t]*(?:;[^\\r\\n]*)?\\r?\\n([\\s\\S]*?)(?=^[ \\t]*toggleable_objects_for\\b|$(?![\\s\\S]))`, "m"))?.[1] ?? "";
+      for (const npc of npcs) {
+        const state = npc.objectConstant && section.match(new RegExp(`\\btoggle_object_state[ \\t]+${npc.objectConstant},[ \\t]*(ON|OFF)\\b`))?.[1];
+        if (state) npc.initiallyHidden = state === "OFF";
+      }
+    }
 
     const movementWidth = map.width * 2;
     const movementHeight = map.height * 2;

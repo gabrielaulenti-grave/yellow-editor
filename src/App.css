@@ -2408,6 +2408,10 @@ pre {
   outline-offset: 1px;
 }
 
+.world-map-trainer-marker { background: #a33131; }
+.world-map-item-marker { background: #237044; border-radius: 4px; }
+.world-map-npc-marker.initially-hidden { border-style: dashed; }
+
 .world-map-npc-panel {
   display: grid;
   gap: 10px;

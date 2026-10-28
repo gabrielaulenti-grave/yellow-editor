@@ -87,6 +87,11 @@ export interface MapSignEvent {
 }
 
 export interface MapNpcEvent {
+  objectKind?: "npc" | "trainer" | "item" | "special";
+  nativeObject?: boolean;
+  managedTrainer?: boolean;
+  itemConstant?: string;
+  initiallyHidden?: boolean;
   trainerPartyId?: string;
   id: number;
   objectConstant: string | null;
@@ -1632,6 +1637,8 @@ export interface ProjectSession {
   getMapEncounterDocument(mapConstant: string): Promise<import("./mapEncounters").MapEncounterDocument>;
   assignMapEncounters(document: import("./mapEncounters").MapEncounterDocument, values: import("./mapEncounters").MapEncounterValues): Promise<HistorySummary>;
   getMapItemDocument(mapConstant: string): Promise<import("./mapItems").MapItemDocument>;
+  getNativeMapObjectDocument(mapConstant: string, objectId: number): Promise<import("./nativeMapObjects").NativeMapObjectDocument>;
+  saveNativeMapObject(document: import("./nativeMapObjects").NativeMapObjectDocument, values: import("./nativeMapObjects").NativeMapObjectValues): Promise<HistorySummary>;
   getMapTrainerDocument(mapConstant: string, objectId?: number): Promise<import("./mapTrainers").MapTrainerDocument>;
   saveMapTrainer(document: import("./mapTrainers").MapTrainerDocument, values: import("./mapTrainers").MapTrainerDocument["values"]): Promise<HistorySummary>;
   placeMapItem(document: import("./mapItems").MapItemDocument, values: import("./mapItems").MapItemValues): Promise<HistorySummary>;

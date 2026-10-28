@@ -620,6 +620,11 @@ export async function invoke<T>(
       return await session.assignMapEncounters(args.document as import("../core/mapEncounters").MapEncounterDocument, args.values as import("../core/mapEncounters").MapEncounterValues) as T;
     case "get_map_item_document":
       return await session.getMapItemDocument(stringArg(args, "mapConstant")) as T;
+    case "get_native_map_object_document":
+      return await session.getNativeMapObjectDocument(stringArg(args, "mapConstant"), numberArg(args, "objectId")) as T;
+    case "save_native_map_object":
+      if (!args?.document || !args.values) throw new Error("Missing native object document or values.");
+      return await session.saveNativeMapObject(args.document as import("../core/nativeMapObjects").NativeMapObjectDocument, args.values as import("../core/nativeMapObjects").NativeMapObjectValues) as T;
     case "get_map_trainer_document":
       return await session.getMapTrainerDocument(stringArg(args, "mapConstant"), typeof args?.objectId === "number" ? args.objectId : undefined) as T;
     case "save_map_trainer":

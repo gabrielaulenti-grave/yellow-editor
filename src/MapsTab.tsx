@@ -2,6 +2,7 @@ import { MapCreateWizard } from "./MapCreateWizard";
 import { MapEncounterEditor } from "./MapEncounterEditor";
 import { MapItemEditor } from "./MapItemEditor";
 import { MapTrainerEditor } from "./MapTrainerEditor";
+import { NativeMapObjectEditor } from "./NativeMapObjectEditor";
 import { renderTiles, renderBlocks, renderMap } from "./editor/mapCanvasDrawing";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -166,6 +167,8 @@ function MapCanvas({
           type="button"
           className={[
             "world-map-npc-marker",
+            npc.objectKind === "item" ? "world-map-item-marker" : npc.trainerPartyId ? "world-map-trainer-marker" : "",
+            npc.initiallyHidden ? "initially-hidden" : "",
             npc.id === selectedNpcId ? "selected" : "",
           ].filter(Boolean).join(" ")}
           style={{
@@ -173,10 +176,10 @@ function MapCanvas({
             top: (npc.y * 16 + 8) * scale,
           }}
           onClick={() => onSelectNpc(npc.id)}
-          aria-label={`NPC ${npc.id} at ${npc.x}, ${npc.y}`}
-          title={`NPC #${npc.id} · (${npc.x}, ${npc.y}) · ${npc.spriteConstant}`}
+          aria-label={`${npc.trainerPartyId ? "Trainer" : npc.objectKind === "item" ? "Item" : "NPC"} ${npc.id} at ${npc.x}, ${npc.y}`}
+          title={`${npc.objectConstant ?? `Object #${npc.id}`} · (${npc.x}, ${npc.y}) · ${npc.itemConstant ?? npc.spriteConstant}${npc.initiallyHidden ? " · initially hidden" : ""}`}
         >
-          {npc.trainerPartyId ? "T" : "N"}
+          {npc.trainerPartyId ? "T" : npc.objectKind === "item" ? "I" : npc.objectKind === "special" ? "?" : "N"}
         </button>
       ))}
     </div>
@@ -252,6 +255,7 @@ export function MapsTab({
   const [warpEditor, setWarpEditor] = useState<{ id: number | null } | null>(null);
   const [npcWizardOpen, setNpcWizardOpen] = useState(false);
   const [editingNpcId, setEditingNpcId] = useState<number | null>(null);
+  const [nativeObjectId, setNativeObjectId] = useState<number | null>(null);
   const [mapRevision, setMapRevision] = useState(0);
   useEffect(() => { checkSequence.current++; setMapCheck(null); setCheckingMap(false); }, [selectedConstant]);
   const newNpcSelection = useRef<{ map: string; id: number } | null>(null);
@@ -276,6 +280,7 @@ export function MapsTab({
     setWarpEditor(null);
     setNpcWizardOpen(false);
     setEditingNpcId(null);
+    setNativeObjectId(null);
     newNpcSelection.current = null;
     if (!project) {
       setMaps([]);
@@ -946,7 +951,7 @@ export function MapsTab({
                         checked={showNpcs}
                         onChange={(event) => setShowNpcs(event.target.checked)}
                       />
-                      <span>NPC markers</span>
+                      <span>Object markers (N / T / I)</span>
                     </label>
                   </>
                 )}
@@ -1159,7 +1164,7 @@ export function MapsTab({
                 <div className="world-map-npc-panel">
                   <div className="world-map-npc-heading">
                     <div>
-                      <strong>NPCs &amp; items</strong>
+                      <strong>NPCs, trainers &amp; items</strong>
                       <small>
                         Select a character to edit their placement, appearance, dialogue and interaction, or add a new NPC.
                       </small>
@@ -1190,6 +1195,8 @@ export function MapsTab({
                       setEditingNpcId(null);
                       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
                     }} />}
+                  {nativeObjectId !== null && <NativeMapObjectEditor key={`${project?.storageKey}:${visualization.map.constant}:${nativeObjectId}`} visualization={visualization} objectId={nativeObjectId} onClose={() => setNativeObjectId(null)} onDirtyChange={onDirtyChange}
+                    onSaved={(id, history) => { newNpcSelection.current = { map: visualization.map.constant, id }; setNativeObjectId(null); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history })); }} />}
                   <div className="world-map-npc-list" aria-label="Map NPCs">
                     {visualization.npcs.map((npc) => (
                       <button
@@ -1207,7 +1214,7 @@ export function MapsTab({
                             ? constantLabel(npc.objectConstant)
                             : `NPC #${npc.id}`}
                         </strong>
-                        <span>{npc.trainerPartyId ? "Trainer · " : ""}({npc.x}, {npc.y}) · {constantLabel(npc.spriteConstant, "SPRITE_")}</span>
+                        <span>{npc.trainerPartyId ? "Trainer · " : npc.objectKind === "item" ? "Item · " : npc.objectKind === "special" ? "Special encounter · " : ""}({npc.x}, {npc.y}) · {npc.itemConstant ? constantLabel(npc.itemConstant) : constantLabel(npc.spriteConstant, "SPRITE_")}{npc.initiallyHidden ? " · initially hidden" : ""}</span>
                       </button>
                     ))}
                   </div>
@@ -1215,13 +1222,15 @@ export function MapsTab({
                   {selectedNpc ? (
                     <div className="world-map-npc-inspector">
                       <div className="world-map-npc-details">
-                        <span>{selectedNpc.trainerPartyId ? "Selected trainer" : "Selected NPC"}</span>
+                        <span>{selectedNpc.trainerPartyId ? "Selected trainer" : selectedNpc.objectKind === "item" ? "Selected item" : selectedNpc.objectKind === "special" ? "Selected special encounter" : "Selected NPC"}</span>
                         <strong>
                           {selectedNpc.objectConstant
                             ? constantLabel(selectedNpc.objectConstant)
                             : `NPC #${selectedNpc.id}`}
                         </strong>
                         <code>x {selectedNpc.x}, y {selectedNpc.y}</code>
+                        {selectedNpc.itemConstant && <p>Item: <code>{selectedNpc.itemConstant}</code></p>}
+                        {selectedNpc.initiallyHidden !== undefined && <p>{selectedNpc.initiallyHidden ? "Initially hidden; shown here so you can inspect its story placement." : "Initially visible; the game controls its saved visibility state."}</p>}
                         <dl>
                           <div>
                             <dt>Sprite</dt>
@@ -1250,8 +1259,14 @@ export function MapsTab({
                         </dl>
                       </div>
 
-                      <div className="world-map-npc-actions">{selectedNpc.trainerPartyId ? <><button type="button" className="small-button" onClick={() => setTrainerEditor({ id: selectedNpc.id })}>Edit trainer</button>{onOpenTrainerParty && <button type="button" className="small-button" onClick={() => onOpenTrainerParty(selectedNpc.trainerPartyId!)}>Edit trainer party</button>}</> : <button type="button" className="small-button" onClick={() => setEditingNpcId(selectedNpc.id)}>Edit NPC</button>}</div>
-                      {!selectedNpc.trainerPartyId && <div className="world-map-npc-dialogue">
+                      <div className="world-map-npc-actions">{selectedNpc.nativeObject
+                        ? <button type="button" className="small-button" onClick={() => setNativeObjectId(selectedNpc.id)}>{selectedNpc.trainerPartyId ? "Edit trainer" : selectedNpc.objectKind === "item" ? "Edit item" : "Inspect object"}</button>
+                        : selectedNpc.trainerPartyId ? <button type="button" className="small-button" onClick={() => setTrainerEditor({ id: selectedNpc.id })}>Edit trainer</button>
+                        : <button type="button" className="small-button" onClick={() => setEditingNpcId(selectedNpc.id)}>Edit NPC</button>}
+                        {selectedNpc.trainerPartyId && onOpenTrainerParty && <button type="button" className="small-button" onClick={() => onOpenTrainerParty(selectedNpc.trainerPartyId!)}>Edit trainer party</button>}
+                        {selectedNpc.nativeObject && selectedNpc.textLabel && <button type="button" className="small-button" onClick={() => setMapLogic({ path: selectedNpc.scriptPath, label: selectedNpc.textLabel })}>Inspect map logic</button>}
+                      </div>
+                      {!selectedNpc.trainerPartyId && selectedNpc.objectKind !== "item" && <div className="world-map-npc-dialogue">
                         <MapInteractionEditor
                           key={`npc:${selectedNpc.scriptPath}:${selectedNpc.id}:${selectedNpc.textLabel ?? selectedNpc.textConstant}`}
                           title="NPC dialogue"
@@ -1277,7 +1292,7 @@ export function MapsTab({
                     </div>
                   ) : (
                     <p className="world-map-warp-empty">
-                      Select an N marker or NPC card to inspect its sprite, movement, and dialogue.
+                      Select an N, T or I marker or object card to inspect and edit it. Special encounters use ? markers.
                     </p>
                   )}
                 </div>

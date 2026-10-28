@@ -92,6 +92,12 @@ jobs:
       - name: Check Strength puzzles, map permissions and history
         run: npm run test:maps:strength -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check native map objects, vanilla coverage and edit history
+        run: npm run test:maps:native -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check native map object editing on mobile and desktop
+        run: npm run test:maps:native:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check Strength puzzle and map property editors
         run: npm run test:maps:strength:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -181,6 +187,9 @@ jobs:
 
       - name: Execute Strength and field permission CPU probes and compile edited ROMs
         run: npm run test:maps:strength -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Compile edited native map objects and execute native battle and pickup probes
+        run: npm run test:maps:native -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Execute NPC condition, payment and visibility probes and compile edited ROMs
         run: npm run test:npcs:tools -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
