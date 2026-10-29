@@ -62,7 +62,8 @@
     "test:maps:trainers:ui": "node scripts/check-map-trainers-workflow.mjs",
     "test:maps:trainers:gameplay": "node scripts/check-map-trainer-gameplay.mjs",
     "test:items:field": "node scripts/check-field-tools.mjs",
-    "test:items:field:ui": "node scripts/check-field-tools-workflow.mjs"
+    "test:items:field:ui": "node scripts/check-field-tools-workflow.mjs",
+    "test:animations": "node scripts/check-battle-animations.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

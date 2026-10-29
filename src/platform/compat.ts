@@ -520,6 +520,8 @@ export async function invoke<T>(
   const session = requireSession();
 
   switch (command) {
+    case "get_battle_animation_catalog":
+      return await session.getBattleAnimationCatalog() as T;
     case "get_graphics_catalog":
       return await session.getGraphicsCatalog(args?.refresh === true) as T;
     case "get_graphics_document":

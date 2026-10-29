@@ -1,3 +1,4 @@
+import { evaluateRgbdsExpression, projectConstantCatalogFromSources } from "./projectConstants";
 import type {
   Evolution,
   LearnsetMove,
@@ -809,12 +810,16 @@ export async function parseMoves(source: ProjectSource): Promise<MoveData[]> {
   const constants = parseMoveConstants(constantsContents);
   const names = parseMoveNames(namesContents);
   const animationLabels = parseAnimationLabels(animationsContents);
+  const animationConstants = new Map(projectConstantCatalogFromSources([
+    { path: "constants/move_constants.asm", contents: constantsContents },
+  ]).constants.map(entry => [entry.symbol, entry.value]));
 
   return rows.map((row, index) => {
     const id = index + 1;
     const constant = constants[index] ?? row.animation;
     const name = names[index] ?? constant;
-    const animationLabel = animationLabels[index] ?? null;
+    const animationId = evaluateRgbdsExpression(row.animation, animationConstants);
+    const animationLabel = animationId !== null ? animationLabels[animationId - 1] ?? null : null;
 
     return {
       id,

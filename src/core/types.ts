@@ -1595,6 +1595,7 @@ export interface ProjectSource {
 }
 
 export interface ProjectSession {
+  getBattleAnimationCatalog(): Promise<import("./battleAnimations").BattleAnimationCatalog>;
   getGraphicsCatalog(refresh?: boolean): Promise<import("./graphics").GraphicsCatalog>;
   getGraphicsDocument(path: string): Promise<import("./graphics").GraphicsDocument>;
   getGraphicsAssetUrl(path: string): Promise<string | null>;

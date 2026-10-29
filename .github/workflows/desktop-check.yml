@@ -67,6 +67,9 @@ jobs:
       - name: Check graphics tracing, drafts, saves and responsive workspace
         run: npm run test:graphics:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Check move animation graphs, engine hooks and shared source assignments
+        run: npm run test:animations -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check native map objects, vanilla coverage and edit history
         run: npm run test:maps:native -- .script-fixtures/pokered .script-fixtures/pokeyellow
 

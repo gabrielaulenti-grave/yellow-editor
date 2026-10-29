@@ -1,0 +1,27 @@
+.animation-layout { display: grid; grid-template-columns: minmax(180px, 230px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.animation-library, .animation-inspector, .animation-engine { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.animation-layout > *, .animation-frame-detail > * { min-width: 0; }
+.animation-library .editor-field { margin-bottom: 12px; }
+.animation-entry-list { display: grid; gap: 6px; max-height: 650px; overflow: auto; }
+.animation-entry-list button { display: flex; justify-content: space-between; gap: 8px; text-align: left; overflow-wrap: anywhere; }
+.animation-entry-list small { color: var(--muted); }
+.animation-entry-list .active, .animation-step-list [aria-pressed="true"], .animation-frame-strip [aria-pressed="true"], .graphics-modes [aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.animation-step-list { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 8px; }
+.animation-step-list button { width: 100%; height: 100%; text-align: left; display: grid; gap: 6px; padding: 12px; overflow-wrap: anywhere; }
+.animation-step-list span { color: var(--muted); font-size: 12px; }
+.animation-inspector h3 { margin-top: 0; }
+.animation-facts { display: flex; flex-wrap: wrap; gap: 10px 28px; }
+.animation-facts p { flex: 1 1 150px; overflow-wrap: anywhere; }
+.animation-source, .animation-engine, .animation-shared { margin-top: 16px; }
+.animation-source summary { overflow-wrap: anywhere; cursor: pointer; }
+.animation-source pre { max-width: 100%; max-height: 340px; overflow: auto; font-size: 12px; white-space: pre; }
+.animation-frame-strip { display: flex; gap: 6px; padding: 10px 0; overflow-x: auto; }
+.animation-frame-strip button { flex: 0 0 auto; min-width: 38px; }
+.animation-frame-detail { display: grid; grid-template-columns: minmax(80px, 180px) minmax(0, 1fr); gap: 16px; margin-top: 12px; }
+.animation-composition { display: grid; place-items: center; align-self: start; min-height: 120px; padding: 12px; overflow: auto; background: repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 0 0 / 16px 16px; border: 1px solid var(--border); border-radius: 6px; }
+.animation-composition canvas { image-rendering: pixelated; max-width: 100%; object-fit: contain; height: auto !important; }
+.animation-content { overflow-wrap: anywhere; }
+.animation-use-list { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
+.animation-use-list button { font-size: 12px; padding: 6px 9px; }
+@media (max-width: 700px) { .animation-layout { display: block; } .animation-library { margin-bottom: 18px; } .animation-entry-list { max-height: 200px; } }
+@media (max-width: 420px) { .animation-frame-detail { grid-template-columns: minmax(0, 1fr); } .animation-composition { justify-self: start; max-width: 100%; } }

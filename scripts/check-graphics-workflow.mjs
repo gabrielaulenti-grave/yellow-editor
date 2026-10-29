@@ -18,7 +18,7 @@ try {
       builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: 'export const invoke = (command,args) => window.graphicsInvoke(command,args); export const convertFileSrc = path => path; export const open = async () => "graphics-fixture"; export const saveProjectCopy = async () => null;' }));
     } }] });
   const script = await readFile(outfile, "utf8");
-  const styles = (await Promise.all(["App.css", "GraphicsTab.css", "editor/SearchableSelect.css"].map(path => readFile(join("src", path), "utf8")))).join("\n");
+  const styles = (await Promise.all(["App.css", "GraphicsTab.css", "BattleAnimationsPanel.css", "editor/SearchableSelect.css"].map(path => readFile(join("src", path), "utf8")))).join("\n");
   browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
     args: process.env.PLAYWRIGHT_CHROMIUM_ARGS ? JSON.parse(process.env.PLAYWRIGHT_CHROMIUM_ARGS) : undefined });
   for (const root of roots) {
@@ -45,7 +45,7 @@ try {
       await page.addScriptTag({ type: "module", content: script });
       const canvas = page.getByLabel("Pixel drawing canvas", { exact: true });
       await canvas.waitFor();
-      await page.waitForFunction(() => !document.querySelector('.graphics-edit-panel select').disabled);
+      await page.waitForFunction(() => document.querySelector('.graphics-edit-panel select')?.disabled === false);
       const initial = await page.evaluate(asset => window.inspectArtwork(asset), asset);
       const referencePng = await page.evaluate(() => {
         const c = document.createElement("canvas"); c.width = 64; c.height = 64;
@@ -78,6 +78,35 @@ try {
       await page.waitForFunction(() => !window.graphicsDirty);
       await page.getByRole("button", { name: "Redo stroke", exact: true }).click();
       await page.waitForFunction(() => window.graphicsDirty);
+      await page.getByRole("button", { name: "Move animations", exact: true }).click();
+      const animationLibrary = page.getByLabel("Animation library", { exact: true });
+      await animationLibrary.waitFor();
+      await page.getByLabel("Find animations", { exact: true }).fill("THUNDERPUNCH");
+      await animationLibrary.locator('.animation-entry-list button').first().click();
+      const steps = page.getByLabel("Animation sequence", { exact: true }).locator("button");
+      assert.equal(await steps.count(), 4);
+      await steps.nth(2).click();
+      await page.getByLabel("Animation step inspector", { exact: true }).getByRole("button", { name: "Edit tile sheet 1", exact: true }).waitFor();
+      await page.locator('.animation-composition canvas').waitFor();
+      await steps.nth(1).click();
+      await page.getByText("AnimationDarkScreenPalette", { exact: true }).waitFor();
+      await page.getByLabel("Find animations", { exact: true }).fill("ROCK_SLIDE");
+      await animationLibrary.locator('.animation-entry-list button').first().click();
+      await page.getByText("DoRockSlideSpecialEffects", { exact: true }).waitFor();
+      await page.getByLabel("Browse animations", { exact: true }).selectOption("effects");
+      await page.getByLabel("Find animations", { exact: true }).fill("SE_SHAKE_SCREEN");
+      await animationLibrary.locator('.animation-entry-list button').first().click();
+      await page.locator('.animation-content .muted-code').filter({ hasText: "AnimationShakeScreen" }).waitFor();
+      await page.getByLabel("Browse animations", { exact: true }).selectOption("other");
+      await page.getByLabel("Find animations", { exact: true }).fill("ConfusedEnemyAnim");
+      await animationLibrary.locator('.animation-entry-list button').first().click();
+      await page.getByLabel("Sequence frame", { exact: true }).waitFor();
+      assert.equal(await page.evaluate(() => window.graphicsDirty), true, "animation inspection retains dirty artwork");
+      assert.deepEqual(await page.evaluate(asset => window.graphicsBytes[asset], asset), bytes[asset], "animation inspection writes no pixels");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `animation explorer overflow at ${width}px`);
+      if (process.env.ANIMATIONS_SCREENSHOT && width === 1280) await page.screenshot({ path: process.env.ANIMATIONS_SCREENSHOT, fullPage: true });
+      await page.getByRole("button", { name: "Artwork", exact: true }).click();
+      await page.getByLabel("Reference scale (%)", { exact: true }).waitFor();
       assert.equal(await page.getByRole("button", { name: "Save graphic", exact: true }).isDisabled(), true);
       await page.getByRole("button", { name: "Close graphics", exact: true }).click();
       await page.getByRole("button", { name: "Reopen graphics", exact: true }).click();
@@ -96,6 +125,18 @@ try {
       await page.waitForFunction(({ asset, original }) => JSON.stringify(window.graphicsBytes[asset]) === JSON.stringify(original), { asset, original: bytes[asset] });
       await page.getByRole("button", { name: "Redo saved graphic", exact: true }).click();
       await page.waitForFunction(async ({ asset, original }) => (await window.inspectArtwork(asset))[0] !== original, { asset, original: initial[0] });
+      // Follow a sequence to its editable source, and retain the explorer's selection on return.
+      await page.getByRole("button", { name: "Move animations", exact: true }).click();
+      await page.getByLabel("Browse animations", { exact: true }).selectOption("moves");
+      await page.getByLabel("Find animations", { exact: true }).fill("FIRE_PUNCH");
+      await animationLibrary.locator('.animation-entry-list button').first().click();
+      await page.getByLabel("Animation sequence", { exact: true }).locator('button').nth(1).click();
+      await page.getByRole("button", { name: "Edit tile sheet 1", exact: true }).click();
+      await page.locator('.graphics-edit-panel .graphics-source').filter({ hasText: "gfx/battle/move_anim_1.png" }).waitFor();
+      await page.waitForFunction(() => document.querySelector('.graphics-edit-panel select')?.disabled === false);
+      await page.getByRole("button", { name: "Move animations", exact: true }).click();
+      await page.getByLabel("Animation step inspector", { exact: true }).getByText("SUBANIM_1_FLAMES", { exact: true }).waitFor();
+      await page.getByRole("button", { name: "Artwork", exact: true }).click();
       await page.getByLabel("Category", { exact: true }).selectOption("tilesets");
       await page.getByLabel("Find graphics", { exact: true }).fill("overworld");
       await page.locator(".graphics-asset").filter({ hasText: "Tilesets / Overworld" }).click();
@@ -122,6 +163,13 @@ try {
     await page.getByRole("button", { name: "Graphics", exact: true }).waitFor();
     await page.getByRole("button", { name: "Graphics", exact: true }).click();
     await page.getByLabel("Pixel drawing canvas", { exact: true }).waitFor();
+    await page.waitForFunction(() => document.querySelector(".graphics-edit-panel select")?.disabled === false);
+    await page.getByRole("button", { name: "Moves", exact: true }).click();
+    await page.getByRole("button", { name: "Inspect move animation in Graphics", exact: true }).click();
+    await page.getByLabel("Move animation explorer", { exact: true }).waitFor();
+    await page.getByLabel("Animation sequence", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Return to Moves", exact: true }).click();
+    await page.getByRole("button", { name: "Inspect move animation in Graphics", exact: true }).waitFor();
     await page.getByRole("button", { name: "Open Project", exact: true }).waitFor();
     await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Open Project').disabled);
     await page.getByRole("button", { name: "Maps", exact: true }).click();

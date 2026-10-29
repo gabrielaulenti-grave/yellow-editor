@@ -1,4 +1,5 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
+import { loadBattleAnimationCatalog } from "./battleAnimations";
 import { loadGraphicsCatalog, loadGraphicsDocument, prepareGraphicsWrites, type GraphicsCatalog } from "./graphics";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "./mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "./mapItems";
@@ -849,6 +850,7 @@ export async function createProjectSession(
       tmhmCompatibilityIndexPromise = null;
       return result;
     },
+    getBattleAnimationCatalog: async () => loadBattleAnimationCatalog(source, await getGraphicsCatalog(true)),
     getGraphicsCatalog,
     getGraphicsDocument: async path => loadGraphicsDocument(source, path, await getGraphicsCatalog()),
     getGraphicsAssetUrl: async path => {

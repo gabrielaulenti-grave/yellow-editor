@@ -29,6 +29,7 @@ jobs:
           path: .graphics-fixtures/pokeyellow
           persist-credentials: false
       - run: npm run test:graphics -- --native .graphics-fixtures/pokered .graphics-fixtures/pokeyellow
+      - run: npm run test:animations -- .graphics-fixtures/pokered .graphics-fixtures/pokeyellow
       - run: npm exec playwright -- install --with-deps chromium
       - run: npm run test:graphics:ui -- .graphics-fixtures/pokered .graphics-fixtures/pokeyellow
         env:

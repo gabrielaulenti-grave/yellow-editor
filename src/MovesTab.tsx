@@ -1,6 +1,7 @@
 import type { MoveData, ProjectInfo } from "./core/types";
 import { ReadonlyField } from "./editor/EditorFields";
 import { formatHex } from "./editor/format";
+import { requestGraphicsEditor } from "./editor/graphicsNavigation";
 
 interface MovesTabProps {
   project: ProjectInfo | null;
@@ -84,6 +85,7 @@ export function MovesTab({
                 </div>
 
                 <h4>Animation</h4>
+                <button type="button" onClick={() => requestGraphicsEditor({ moveId: selectedMove.id, returnTab: "moves" })}>Inspect move animation in Graphics</button>
                 <div className="field-grid two-column-fields">
                   <ReadonlyField label="Animation Constant" value={selectedMove.animation} />
                   <ReadonlyField

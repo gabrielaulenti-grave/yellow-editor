@@ -8,6 +8,7 @@ import { renderMap } from "./editor/mapCanvasDrawing";
 import { convertFileSrc, invoke } from "./platform/compat";
 import { graphicsDraftOperation, type GraphicsDraft } from "./platform/graphicsDraftStore";
 import "./GraphicsTab.css";
+import { BattleAnimationsPanel } from "./BattleAnimationsPanel";
 
 const GRAY = ["#ffffff", "#aaaaaa", "#555555", "#000000"];
 const GREEN = ["#e0f8cf", "#86c06c", "#306850", "#071821"];
@@ -56,6 +57,10 @@ export function GraphicsTab({ project, focus, onControllerChange, onReturn }: {
   onControllerChange(controller: EditorController | null): void;
   onReturn(): void;
 }) {
+  const [workspace, setWorkspace] = useState<"artwork" | "animations">(focus?.moveId !== undefined ? "animations" : "artwork");
+  const [animationsOpened, setAnimationsOpened] = useState(focus?.moveId !== undefined);
+  useEffect(() => { setWorkspace(focus?.moveId !== undefined ? "animations" : "artwork"); }, [focus]);
+  useEffect(() => { if (workspace === "animations") setAnimationsOpened(true); }, [workspace]);
   const [catalog, setCatalog] = useState<GraphicsCatalog | null>(null), [category, setCategory] = useState("all"), [search, setSearch] = useState("");
   const [visibleCount, setVisibleCount] = useState(60), [path, setPath] = useState<string | null>(null), [revision, setRevision] = useState(0);
   const [doc, setDoc] = useState<GraphicsDocument | null>(null), [pixels, setPixels] = useState<number[]>([]);
@@ -116,7 +121,7 @@ export function GraphicsTab({ project, focus, onControllerChange, onReturn }: {
       if (cancelled) return;
       setCatalog(catalog);
       const focused = catalog.assets.find(asset => asset.path === focus?.path || focus?.path && asset.path.replace(/\.(?:png|1bpp|2bpp|pic)$/, "") === focus.path.replace(/\.(?:png|1bpp|2bpp|pic)$/, "") || focus?.label && asset.references.some(ref => ref.labels.includes(focus.label!)));
-      if (focus && !focused) setNotice("The requested graphic was not found. Choose an asset from the browser.");
+      if (focus && focus.moveId === undefined && !focused) setNotice("The requested graphic was not found. Choose an asset from the browser.");
       if (focused) setCategory(focused.category);
       setPath(focused?.path ?? catalog.assets.find(asset => !asset.reason)?.path ?? catalog.assets[0]?.path ?? null);
       if (!catalog.assets.length) setLoading(false);
@@ -215,10 +220,12 @@ export function GraphicsTab({ project, focus, onControllerChange, onReturn }: {
   }, [doc, pixels, palette, tile, rect.x, rect.y]);
 
   async function chooseAsset(asset: GraphicsAsset) {
-    if (asset.path === path || busy || loading) return;
-    if (dirty && !window.confirm("Leave unsaved pixels and open another graphic? A recoverable draft will be kept.")) return;
+    if (busy || loading) return false;
+    if (asset.path === path) return true;
+    if (dirty && !window.confirm("Leave unsaved pixels and open another graphic? A recoverable draft will be kept.")) return false;
     if (doc && dirty) await graphicsDraftOperation(project.storageKey, doc.asset.path, "write", { version: 1, sourceHash: doc.sourceHash, width: doc.width, height: doc.height, depth: doc.depth, pixels: pixelsRef.current }).catch(error => setDraftWarning(String(error)));
     setNotice(""); setPath(asset.path);
+    return true;
   }
   function undoStroke(direction: "undo" | "redo") {
     if (busy || stroke.current) return;
@@ -295,11 +302,12 @@ export function GraphicsTab({ project, focus, onControllerChange, onReturn }: {
   const validRecovery = Boolean(recovery && doc && recovery.sourceHash === doc.sourceHash && recovery.width === doc.width && recovery.height === doc.height && recovery.depth === doc.depth);
   const canEdit = Boolean(doc && !busy && !loading && !compare && !recovery);
   return <section className="tab-content graphics-workspace" aria-label="Graphics workspace">
-    <div className="tab-heading-row"><div><h2>Graphics</h2><p>Edit source artwork and trace from a reference image.</p></div>{focus && <button type="button" onClick={onReturn} disabled={busy || loading}>Return to {focus.returnTab === "pokemon" ? "Pokémon" : focus.returnTab === "trainers" ? "Trainers" : "Maps"}</button>}</div>
+    <div className="tab-heading-row"><div><h2>Graphics</h2><p>Edit source artwork, trace references and inspect move animations.</p></div>{focus && <button type="button" onClick={onReturn} disabled={busy || loading}>Return to {focus.returnTab === "pokemon" ? "Pokémon" : focus.returnTab === "trainers" ? "Trainers" : focus.returnTab === "moves" ? "Moves" : "Maps"}</button>}</div>
+    <div className="graphics-controls graphics-modes" aria-label="Graphics workspace views"><button type="button" aria-pressed={workspace === "artwork"} disabled={busy || loading} onClick={() => setWorkspace("artwork")}>Artwork</button><button type="button" aria-pressed={workspace === "animations"} disabled={busy || loading} onClick={() => setWorkspace("animations")}>Move animations</button>{workspace === "animations" && dirty && <span className="help-text">Your unsaved artwork is retained in Artwork.</span>}</div>
     {error && <p className="graphics-error" role="alert">{error}</p>}
     {notice && <p className="help-text" role="status">{notice}</p>}
     {draftWarning && <p className="graphics-error" role="status">{draftWarning} You can export the artwork as a PNG to retain it.</p>}
-    <div className="graphics-layout">
+    <div hidden={workspace !== "artwork"}><div className="graphics-layout">
       <aside className="graphics-browser" aria-label="Graphics asset browser">
         <label className="editor-field"><span>Category</span><select aria-label="Category" value={category} onChange={e => setCategory(e.target.value)}>{Object.entries(categories).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
         <label className="editor-field"><span>Find graphics</span><input type="search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, label or file path" /></label>
@@ -338,6 +346,11 @@ export function GraphicsTab({ project, focus, onControllerChange, onReturn }: {
         {reference && <div className="graphics-reference-controls"><p className="graphics-source">{reference.name}</p><label><input type="checkbox" checked={reference.visible} onChange={e => setReference({ ...reference, visible: e.target.checked })} /> Show reference</label><label className="editor-field"><span>Reference opacity ({reference.opacity}%)</span><input type="range" min="0" max="100" value={reference.opacity} onChange={e => setReference({ ...reference, opacity: Number(e.target.value) })} /></label><label className="editor-field"><span>Reference scale (%)</span><input type="number" min="0.01" max="1600" step="0.1" value={Number(reference.scale.toFixed(3))} onChange={e => { const value = Number(e.target.value); if (Number.isFinite(value) && value > 0 && value <= 1600) setReference({ ...reference, scale: value }); }} /></label><div className="graphics-reference-position">{(["x", "y"] as const).map(axis => <label className="editor-field" key={axis}><span>Reference {axis.toUpperCase()}</span><input type="number" min="-8192" max="8192" value={reference[axis]} onChange={e => { const value = Number(e.target.value); if (Number.isFinite(value)) setReference({ ...reference, [axis]: Math.max(-8192, Math.min(8192, value)) }); }} /></label>)}</div><div className="graphics-controls"><button type="button" onClick={() => setReference({ ...reference, x: 0, y: 0, scale: Math.min(rect.width / reference.image.width, rect.height / reference.image.height) * 100 })}>Fit reference</button><button type="button" onClick={() => { ++referenceRequest.current; URL.revokeObjectURL(reference.url); referenceRef.current = null; setReference(null); if (tool === "reference") setTool("pencil"); }}>Remove reference</button></div></div>}
         {doc && <><h3>Artwork preview</h3><label className="editor-field"><span>Preview palette</span><select aria-label="Preview palette" value={paletteChoice} onChange={e => setPaletteChoice(e.target.value)}><option value="gray">Grayscale</option><option value="green">DMG green</option>{focus?.palette?.length === 4 && <option value="game">Selected game palette</option>}</select></label><div className="graphics-native-preview"><PixelPreview doc={doc} pixels={pixels} palette={palette} /></div><p className="help-text">Palette previews do not change pixel indices or game palette assignments.</p>{mapContext && doc.asset.category === "tilesets" && mapContext.tilesetGfxPath.replace(/\.(?:png|2bpp)$/, "") === doc.asset.path.replace(/\.(?:png|2bpp)$/, "") && <><h4>{mapContext.map.displayName}</h4><MapPreview doc={doc} pixels={pixels} map={mapContext} /></>}<h3>Source references</h3><p className="help-text">Direct binary references, including aliases and dimension headers. Computed paths and engine callers may have additional uses.</p><ul className="graphics-references">{doc.asset.references.map(ref => <li key={`${ref.path}:${ref.line}`}><strong>{ref.labels.join(", ") || "Binary include"}</strong><code>{ref.path}:{ref.line}</code></li>)}</ul>{!doc.asset.references.length && <p className="help-text">No literal binary references found.</p>}{doc.asset.references.length > 0 && <label className="graphics-shared"><input type="checkbox" checked={confirmShared} onChange={e => setConfirmShared(e.target.checked)} /> Apply this artwork to every use of this source.</label>}<p className="help-text">Dimensions and tile order stay fixed. Tile collision and animation commands are edited separately.</p></>}
       </aside>
-    </div>
+    </div></div>
+    {animationsOpened && <div hidden={workspace !== "animations"}><BattleAnimationsPanel moveId={focus?.moveId} onArtwork={assetPath => {
+      const asset = catalog?.assets.find(asset => asset.path === assetPath);
+      if (!asset) { setError("The linked artwork is unavailable. Refresh the asset browser."); return; }
+      void chooseAsset(asset).then(opened => { if (opened) { setCategory(asset.category); setSearch(""); setWorkspace("artwork"); } });
+    }} /></div>}
   </section>;
 }

@@ -21,7 +21,7 @@ export interface GraphicsDocument extends GraphicsPixels {
   referenceHash: string;
 }
 export interface GraphicsValues { pixels: number[]; confirmShared: boolean }
-export interface GraphicsFocus { path?: string; label?: string; mapConstant?: string; returnTab: "pokemon" | "trainers" | "maps"; palette?: string[] }
+export interface GraphicsFocus { path?: string; label?: string; mapConstant?: string; moveId?: number; returnTab: "pokemon" | "trainers" | "maps" | "moves"; palette?: string[] }
 
 function category(path: string): GraphicsCategory {
   if (/\/(?:pokemon|pics)\//i.test(path)) return "pokemon";
