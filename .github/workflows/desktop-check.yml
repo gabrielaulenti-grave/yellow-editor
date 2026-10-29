@@ -59,6 +59,68 @@ jobs:
           path: .script-fixtures/pokered
           persist-credentials: false
 
+      - name: Check native map objects, vanilla coverage and edit history
+        run: npm run test:maps:native -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check sign authoring, dependency-aware removal and project map review
+        run: npm run test:maps:signs -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check sign and removal workflows on mobile and desktop
+        run: npm run test:maps:signs:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check native map object editing on mobile and desktop
+        run: npm run test:maps:native:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check imported map source analysis and independent field editing
+        run: npm run test:maps:imported -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Edit imported hacks on mobile and desktop
+        env:
+          IMPORTED_MAP_OBJECTS: "1"
+        run: npm run test:maps:native:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check independent map creation and undoable file lifecycle
+        run: npm run test:maps:create -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check new map creation through Maps
+        run: npm run test:maps:create:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check new-map encounters, item pickups, atomic history and source guards
+        run: npm run test:maps:populate -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check encounter assignment and item placement through Maps
+        run: npm run test:maps:populate:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check field tool items, table extension, map permissions and atomic history
+        run: npm run test:items:field -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check field tool authoring at mobile and desktop widths
+        run: npm run test:items:field:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check native trainer placement, independent parties and history
+        run: npm run test:maps:trainers -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check trainer placement and editing through Maps
+        run: npm run test:maps:trainers:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check map terrain and warp sources, binary history and Save As
+        run: npm run test:maps:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check map terrain and warp editing through Maps
+        run: npm run test:maps:edit:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check Strength puzzles, map permissions and history
+        run: npm run test:maps:strength -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check Strength puzzle and map property editors
+        run: npm run test:maps:strength:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check NPC conditions, visibility, services and history
+        run: npm run test:npcs:tools -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check NPC condition and service authoring through Maps
+        run: npm run test:npcs:tools:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check scene drafts, stationary sprites and diagnostics
         run: npm run test:scenes:readiness:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
@@ -118,6 +180,39 @@ jobs:
           curl --fail --location --output .script-fixtures/rgbds.tar.xz https://github.com/gbdev/rgbds/releases/download/v1.0.4/rgbds-linux-x86_64.tar.xz
           echo "3e19e50ea602e316be709160acaf0a708b1fa6d32d219ec541f244442895dbb7  .script-fixtures/rgbds.tar.xz" | sha256sum --check
           tar --no-same-owner -xf .script-fixtures/rgbds.tar.xz -C .script-fixtures/rgbds
+
+      - name: Compile independent maps and verify registry and warp records
+        run: npm run test:maps:create -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
+
+      - name: Compile new houses and verify map and warp bytes in ROM
+        run: npm run test:maps:edit -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
+
+      - name: Compile populated new maps and test pickup persistence on the CPU
+        run: npm run test:maps:populate -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Compile field tools, execute banked probes and play native item menus
+        run: npm run test:items:field -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Compile trainer maps and execute native battle dispatcher probes
+        run: npm run test:maps:trainers -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Play trainer sight, talk challenges, blackout and battery reloads
+        run: npm run test:maps:trainers:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Execute Strength and field permission CPU probes and compile edited ROMs
+        run: npm run test:maps:strength -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Compile edited native map objects and execute native battle and pickup probes
+        run: npm run test:maps:native -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
+      - name: Compile independently modified Red and Yellow source projects after edits
+        run: npm run test:maps:imported -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
+
+      - name: Compile sign and object removals and verify stable text IDs in ROM
+        run: npm run test:maps:signs -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
+
+      - name: Execute NPC condition, payment and visibility probes and compile edited ROMs
+        run: npm run test:npcs:tools -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Check repeated item gifts and inventory map boundaries
         run: npm run test:items:gifts -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

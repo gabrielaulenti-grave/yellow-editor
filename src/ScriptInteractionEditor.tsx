@@ -4,6 +4,7 @@ import { SceneReview } from "./SceneReview";
 import { maximumSceneStarts, scenePlayerStarts } from "./core/interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./core/interactionValidation";
 import { InteractionSequenceEditor } from "./InteractionSequenceEditor";
+import { PlayerConditionEditor } from "./PlayerConditionEditor";
 import { SharedSceneFlags } from "./SharedSceneFlags";
 import { newSequenceDialogueId, type InteractionAction } from "./core/interactionSequence";
 import { readInteractionDraft, writeInteractionDraft, deleteInteractionDraft, interactionDraftBaseline, type InteractionDraft, type InteractionDraftData } from "./platform/interactionDraftStore";
@@ -173,10 +174,10 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
       </div>}
       {document && !document.canCreate && !document.reward && !document.gift && <p>{document.reason}</p>}
       {document?.canCreate && values && <div className="interaction-fields" inert={Boolean(pendingDraft)}>
-        <p>Choose what happens when the player interacts. Gifts remain available if delivery fails; approach sequences return the NPC to its starting tile.</p>
+        <p>{values.pickup ? "Edit this map pickup’s item, quantity and dialogue. It is collected once and disappears after successful delivery; a full bag leaves it available." : "Choose what happens when the player interacts. Gifts remain available if delivery fails; approach sequences return the NPC to its starting tile."}</p>
         <label><input type="checkbox" disabled={busy} checked={values.showOriginal} onChange={event => update({ showOriginal: event.target.checked })} />Show the original dialogue first</label>
-        <label><input type="checkbox" disabled={busy} checked={values.once} onChange={event => update({ once: event.target.checked, hideObject: event.target.checked ? values.hideObject : null })} />Run once per save file</label>
-        {!values.actions && <button type="button" className="small-button" disabled={busy || Boolean(values.hideObject)} onClick={() => {
+        <label><input type="checkbox" disabled={busy || Boolean(values.pickup)} checked={values.once} onChange={event => update({ once: event.target.checked, hideObject: event.target.checked ? values.hideObject : null })} />Run once per save file</label>
+        {!values.actions && <button type="button" className="small-button" disabled={busy || Boolean(values.hideObject) || Boolean(values.pickup)} onClick={() => {
           const actions: InteractionAction[] = [
             ...(values.reward ? [{ kind: "item" as const, ...values.reward }] : []),
             ...(values.pokemon ? [{ kind: "pokemon" as const, ...values.pokemon }] : []),
@@ -233,11 +234,8 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
                 if (e.target.checked) scene.automaticCondition = { event: values.sharedFlags?.[0]?.event ?? document.sharedFlags?.[0]?.event ?? document.events[0], set: false };
                 else delete scene.automaticCondition;
                 update({ scene });
-              }} />Require an event for the automatic trigger</label>
-              {values.scene.automaticCondition && <>
-                <label>Automatic trigger event{eventSelect(values.scene.automaticCondition.event, event => update({ scene: { ...values.scene!, automaticCondition: { ...values.scene!.automaticCondition!, event } } }), "Automatic trigger event")}</label>
-                <label><input type="checkbox" disabled={busy} checked={values.scene.automaticCondition.set} onChange={e => update({ scene: { ...values.scene!, automaticCondition: { ...values.scene!.automaticCondition!, set: e.target.checked } } })} />Automatic trigger event must be set (uncheck for clear)</label>
-              </>}
+              }} />Require a condition for the automatic trigger</label>
+              {values.scene.automaticCondition && <PlayerConditionEditor label="Automatic trigger condition" eventLabel="Automatic trigger event" setLabel="Automatic trigger event must be set (uncheck for clear)" busy={busy} value={values.scene.automaticCondition} domains={{ ...document, sharedFlags: [...(document.sharedFlags ?? []), ...(values.sharedFlags ?? [])], events: [...new Set([...document.events, ...(values.sharedFlags ?? []).map(flag => flag.event)])] }} onChange={automaticCondition => update({ scene: { ...values.scene!, automaticCondition } })} />}
               <p className="help-text">The NPC can still be addressed manually from every listed start. Use a separate automatic condition to stop an automatic challenge after a battle while keeping later conversations available. Automatic triggers rearm after leaving their tiles.</p>
             </>}
             <label>Native idle state<select aria-label="Scene idle state" disabled={busy} value={values.scene.idleState} onChange={e => update({ scene: { ...values.scene!, idleState: Number(e.target.value) } })}>{document.scene.idleStates.map(state => <option key={state.id} value={state.id}>{state.id}: {state.label}</option>)}</select></label>
@@ -249,13 +247,13 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
           {document.choiceReason && <p className="help-text">{document.choiceReason}</p>}
           {document.soundReason && <p className="help-text">{document.soundReason}</p>}
         </> : <>
-        <label><input type="checkbox" disabled={busy} checked={Boolean(values.reward)} onChange={event => update({ reward: event.target.checked ? { item: document.items.includes("POTION") ? "POTION" : document.items[0], quantity: 1 } : null, ...(event.target.checked ? { pokemon: null, hideObject: null, bagFull: ["Your BAG is full."] } : {}) })} />Give an item</label>
+        <label><input type="checkbox" disabled={busy || Boolean(values.pickup)} checked={Boolean(values.reward)} onChange={event => update({ reward: event.target.checked ? { item: document.items.includes("POTION") ? "POTION" : document.items[0], quantity: 1 } : null, ...(event.target.checked ? { pokemon: null, hideObject: null, bagFull: ["Your BAG is full."] } : {}) })} />Give an item</label>
         {values.reward && <>
           <label>Reward item<SearchableSelect aria-label="Reward item" value={values.reward.item} disabled={busy} onChange={event => update({ reward: { ...values.reward!, item: event.target.value } })}>{document.items.map(value => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</SearchableSelect></label>
           <label>Quantity<input aria-label="Reward quantity" type="number" min={1} max={99} disabled={busy} value={values.reward.quantity} onChange={event => update({ reward: { ...values.reward!, quantity: Number(event.target.value) } })} /></label>
           <label>Bag full dialogue<textarea aria-label="Bag full dialogue" rows={3} disabled={busy} value={values.bagFull.join("\n")} onChange={event => update({ bagFull: event.target.value.split("\n") })} /></label>
         </>}
-        <label><input type="checkbox" disabled={busy || Boolean(document.pokemonReason) || !document.pokemon.length} checked={Boolean(values.pokemon)} onChange={event => update({ pokemon: event.target.checked ? { species: document.pokemon.includes("EEVEE") ? "EEVEE" : document.pokemon[0], level: 25 } : null, hideObject: null, ...(event.target.checked ? { reward: null, bagFull: ["Make room in your", "party or PC BOX."] } : {}) })} />Give a Pokémon</label>
+        <label><input type="checkbox" disabled={busy || Boolean(values.pickup) || Boolean(document.pokemonReason) || !document.pokemon.length} checked={Boolean(values.pokemon)} onChange={event => update({ pokemon: event.target.checked ? { species: document.pokemon.includes("EEVEE") ? "EEVEE" : document.pokemon[0], level: 25 } : null, hideObject: null, ...(event.target.checked ? { reward: null, bagFull: ["Make room in your", "party or PC BOX."] } : {}) })} />Give a Pokémon</label>
         {document.pokemonReason && <p className="help-text">{document.pokemonReason}</p>}
         {values.pokemon && <>
           <label>Gift Pokémon<SearchableSelect aria-label="Gift Pokémon" value={values.pokemon.species} disabled={busy} onChange={event => update({ pokemon: { ...values.pokemon!, species: event.target.value } })}>{document.pokemon.map(value => <option key={value} value={value}>{value.replace(/_/g, " ")}</option>)}</SearchableSelect></label>
@@ -265,7 +263,7 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
           {document.hideObject && <label><input type="checkbox" disabled={busy || !values.once || Boolean(values.movement)} checked={Boolean(values.hideObject)} onChange={event => update({ hideObject: event.target.checked ? document.hideObject : null })} />Hide the Poké Ball after delivery</label>}
         </>}
         </>}
-        {!values.scene && <label><input type="checkbox" disabled={busy || Boolean(values.hideObject) || Boolean(document.movementReason) || document.npcs.length === 0} checked={Boolean(values.movement)} onChange={event => update({ movement: event.target.checked ? { npc: document.npcs[0].constant, steps: ["DOWN"], playerX: document.sign!.x, playerY: document.sign!.y + 1 } : null })} />Have an NPC approach</label>}
+        {!values.scene && <label><input type="checkbox" disabled={busy || Boolean(values.pickup) || Boolean(values.hideObject) || Boolean(document.movementReason) || document.npcs.length === 0} checked={Boolean(values.movement)} onChange={event => update({ movement: event.target.checked ? { npc: document.npcs[0].constant, steps: ["DOWN"], playerX: document.sign!.x, playerY: document.sign!.y + 1 } : null })} />Have an NPC approach</label>}
         {!values.scene && document.movementReason && <p className="help-text">{document.movementReason}</p>}
         {!values.scene && !document.movementReason && !document.npcs.length && <p className="help-text">Add a stationary NPC near the sign before creating an approach sequence.</p>}
         {values.movement && <>
@@ -281,16 +279,17 @@ export function ScriptInteractionEditor({ path, label, disabled, onEditStateChan
         {!values.actions && <label>{values.reward || values.pokemon ? "Dialogue after delivery" : "NPC or interaction dialogue"}<textarea aria-label="Interaction dialogue" rows={3} disabled={busy} value={values.dialogue.join("\n")} onChange={event => update({ dialogue: event.target.value.split("\n") })} /></label>}
         <p className="help-text">Press Enter for another game text row: up to 18 character spaces on the first row and 17 on later rows. Tokens such as &lt;PLAYER&gt; are supported; player and rival names count as up to 7 spaces.</p>
         {values.once && <label>Repeat dialogue<textarea aria-label="Repeat dialogue" rows={3} disabled={busy} value={values.already.join("\n")} onChange={event => update({ already: event.target.value.split("\n") })} /></label>}
-        <label><input type="checkbox" disabled={busy || !document.events.length} checked={Boolean(values.condition)} onChange={event => update({ condition: event.target.checked ? { event: document.events[0], set: true } : null })} />Require an event condition</label>
-        {values.condition && <>{eventSelect(values.condition.event, event => update({ condition: { ...values.condition!, event } }), "Required event")}
-          <label><input type="checkbox" disabled={busy} checked={values.condition.set} onChange={event => update({ condition: { ...values.condition!, set: event.target.checked } })} />Event must be set</label>
-          <p className="help-text">When the condition does not match, the original dialogue is shown.</p></>}
+        {!values.pickup && <><label><input type="checkbox" disabled={busy} checked={Boolean(values.condition)} onChange={event => update({ condition: event.target.checked ? { event: document.events[0], set: true } : null })} />Require a condition</label>
+        {values.condition && <><PlayerConditionEditor label="Interaction condition" eventLabel="Required event" busy={busy} value={values.condition} domains={{ ...document, sharedFlags: [...(document.sharedFlags ?? []), ...(values.sharedFlags ?? [])], events: [...new Set([...document.events, ...(values.sharedFlags ?? []).map(flag => flag.event)])] }} onChange={condition => update({ condition })} /><p className="help-text">When the condition does not match, the original dialogue is shown.</p></>}
+        {document.visibilityNpc && <><label><input type="checkbox" disabled={busy} checked={Boolean(values.visibleWhen)} onChange={e => update({ visibleWhen: e.target.checked ? { kind: "not", condition: { kind: "hall-of-fame" } } : null, ...(e.target.checked && !document.managed && !values.actions && !values.reward && !values.pokemon && !values.movement && JSON.stringify(values.dialogue) === JSON.stringify(["Here you go!"]) ? { actions: [], once: false, showOriginal: true } : {}) })} />Show this NPC only when a condition matches</label>
+          {values.visibleWhen && <><PlayerConditionEditor label="NPC visibility condition" busy={busy} value={values.visibleWhen} domains={{ ...document, sharedFlags: [...(document.sharedFlags ?? []), ...(values.sharedFlags ?? [])], events: [...new Set([...document.events, ...(values.sharedFlags ?? []).map(flag => flag.event)])] }} onChange={visibleWhen => update({ visibleWhen })} /><p className="help-text">Applies automatically when map sprites load or refresh, including after loading a saved game. “Not → Hall of Fame completed” keeps a blocker visible until the player becomes Champion. Native and scene rules can still hide an eligible NPC.</p></>}
+        </>}
         <strong>Event changes after success</strong>
         {values.events.map((entry, i) => <div key={i}>{eventSelect(entry.event, event => update({ events: values.events.map((old, n) => n === i ? { ...old, event } : old) }), `Changed event ${i + 1}`)}
           <label><input type="checkbox" disabled={busy} checked={entry.set} onChange={event => update({ events: values.events.map((old, n) => n === i ? { ...old, set: event.target.checked } : old) })} />Set event (uncheck to clear)</label>
           <button className="small-button" disabled={busy} onClick={() => update({ events: values.events.filter((_, n) => n !== i) })}>Remove event change</button>
         </div>)}
-        <button className="small-button" disabled={busy || !document.events.length || values.events.length >= 16} onClick={() => update({ events: [...values.events, { event: document.events[0], set: true }] })}>Add event change</button>
+        <button className="small-button" disabled={busy || !document.events.length || values.events.length >= 16} onClick={() => update({ events: [...values.events, { event: document.events[0], set: true }] })}>Add event change</button></>}
         <div className="text-editor-actions"><button className="small-button" disabled={busy} onClick={() => void close()}>Close and keep draft</button><button className="small-button primary-action" disabled={busy} onClick={() => void save("interaction")}>{busy ? "Saving…" : "Save interaction"}</button></div>
       </div>}
     </section></div>}

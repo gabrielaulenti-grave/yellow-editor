@@ -1,3 +1,5 @@
+import type { MapCreateDocument, MapCreateValues } from "../core/types";
+import type { MapTerrainDocument, MapTerrainValues, MapWarpDocument, MapWarpValues } from "../core/types";
 import type { InteractionDocument, InteractionValues } from "../core/scriptInteractions";
 import type {
   BuildProgressListener,
@@ -595,6 +597,68 @@ export async function invoke<T>(
         itemCreateValuesArg(args),
       )) as T;
 
+    case "check_map":
+      return await session.checkMap(stringArg(args, "mapConstant")) as T;
+    case "check_project_maps":
+      return await session.checkProjectMaps() as T;
+    case "get_map_sign_document":
+      return await session.getMapSignDocument(stringArg(args, "mapConstant"), typeof args?.signId === "number" ? args.signId : null) as T;
+    case "save_map_sign":
+      if (!args?.document || !args.values) throw new Error("Missing sign document or values.");
+      return await session.saveMapSign(args.document as import("../core/mapSigns").MapSignDocument, args.values as import("../core/mapSigns").MapSignValues) as T;
+    case "get_map_removal_document":
+      if (args?.kind !== "sign" && args?.kind !== "object") throw new Error("Choose a sign or object.");
+      return await session.getMapRemovalDocument(stringArg(args, "mapConstant"), args.kind, numberArg(args, "id")) as T;
+    case "remove_map_record":
+      if (!args?.document) throw new Error("Missing removal review.");
+      return await session.removeMapRecord(args.document as import("../core/mapRemoval").MapRemovalDocument) as T;
+    case "get_map_properties_document":
+      return await session.getMapPropertiesDocument(stringArg(args, "mapConstant")) as T;
+    case "save_map_properties":
+      if (!args?.document || !args.values) throw new Error("Missing map property document or values.");
+      return await session.saveMapProperties(args.document as import("../core/mapProperties").MapPropertiesDocument, args.values as import("../core/mapProperties").MapPropertiesValues) as T;
+    case "get_map_strength_document":
+      return await session.getMapStrengthDocument(stringArg(args, "mapConstant")) as T;
+    case "save_map_strength":
+      if (!args?.document || !args.values) throw new Error("Missing Strength puzzle document or values.");
+      return await session.saveMapStrength(args.document as import("../core/mapStrength").MapStrengthDocument, args.values as import("../core/mapStrength").MapStrengthValues) as T;
+    case "add_map_boulder":
+      return await session.addMapBoulder(stringArg(args, "mapConstant"), numberArg(args, "x"), numberArg(args, "y")) as T;
+    case "get_map_create_document":
+      return await session.getMapCreateDocument(typeof args?.templateConstant === "string" ? args.templateConstant : undefined) as T;
+    case "get_map_encounter_document":
+      return await session.getMapEncounterDocument(stringArg(args, "mapConstant")) as T;
+    case "assign_map_encounters":
+      if (!args?.document || !args.values) throw new Error("Missing map encounter document or values.");
+      return await session.assignMapEncounters(args.document as import("../core/mapEncounters").MapEncounterDocument, args.values as import("../core/mapEncounters").MapEncounterValues) as T;
+    case "get_map_item_document":
+      return await session.getMapItemDocument(stringArg(args, "mapConstant")) as T;
+    case "get_native_map_object_document":
+      return await session.getNativeMapObjectDocument(stringArg(args, "mapConstant"), numberArg(args, "objectId")) as T;
+    case "save_native_map_object":
+      if (!args?.document || !args.values) throw new Error("Missing native object document or values.");
+      return await session.saveNativeMapObject(args.document as import("../core/nativeMapObjects").NativeMapObjectDocument, args.values as import("../core/nativeMapObjects").NativeMapObjectValues) as T;
+    case "get_map_trainer_document":
+      return await session.getMapTrainerDocument(stringArg(args, "mapConstant"), typeof args?.objectId === "number" ? args.objectId : undefined) as T;
+    case "save_map_trainer":
+      if (!args?.document || !args.values) throw new Error("Missing map trainer document or values.");
+      return await session.saveMapTrainer(args.document as import("../core/mapTrainers").MapTrainerDocument, args.values as import("../core/mapTrainers").MapTrainerDocument["values"]) as T;
+    case "place_map_item":
+      if (!args?.document || !args.values) throw new Error("Missing map item document or values.");
+      return await session.placeMapItem(args.document as import("../core/mapItems").MapItemDocument, args.values as import("../core/mapItems").MapItemValues) as T;
+    case "create_map":
+      if (!args?.document || !args.values) throw new Error("Missing map creation document or values.");
+      return await session.createMap(args.document as MapCreateDocument, args.values as MapCreateValues) as T;
+    case "get_map_terrain_document":
+      return await session.getMapTerrainDocument(stringArg(args, "mapConstant")) as T;
+    case "save_map_terrain":
+      if (!args?.document || !args.values) throw new Error("Missing terrain document or values.");
+      return await session.saveMapTerrain(args.document as MapTerrainDocument, args.values as MapTerrainValues) as T;
+    case "get_map_warp_document":
+      return await session.getMapWarpDocument(stringArg(args, "mapConstant")) as T;
+    case "save_map_warp":
+      if (!args?.document || !args.values) throw new Error("Missing warp document or values.");
+      return await session.saveMapWarp(args.document as MapWarpDocument, args.values as MapWarpValues) as T;
     case "get_map_index":
       return (await session.getMapIndex()) as T;
 

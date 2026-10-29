@@ -1,4 +1,5 @@
 import { inspectScenePartner } from "./scenePartner";
+import { insertAfterTrainerResume } from "./mapTrainerRuntime";
 import { hasItemReward, itemInventoryPath, prepareItemDeliveryWrites } from "./itemDelivery";
 import { buildScenePlan, needsScene, prepareSceneRuntime, renderScene, sceneRootHook, sceneModels, type SceneDomain, type SceneOptions, type ScenePlan } from "./interactionScene";
 import { InteractionValidationError, type InteractionCheckReport } from "./interactionValidation";
@@ -7,7 +8,10 @@ import { inspectSceneEmotes } from "./sceneEmotes";
 import { inspectSceneEffects, type SceneEffectsDomain } from "./sceneEffects";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { hashText } from "./history";
-import { identifySequenceDialogue, renderInteractionSequence, sequenceDialogue, sequenceDialoguePrompts, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
+import { identifySequenceDialogue, renderInteractionSequence, renderSequenceServices, sequenceDialogue, sequenceDialoguePrompts, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
+import { inspectPlayerConditions, validatePlayerCondition, renderConditionFailure, type PlayerCondition, type PlayerConditionDomain } from "./playerConditions";
+import { inspectNpcServices, type NpcServicesDomain } from "./npcServices";
+import { prepareNpcVisibility, type NpcVisibilityRule } from "./npcVisibility";
 import { reviewScriptEngineContracts } from "./scriptEngineContracts";
 import { evaluateRgbdsExpression, projectConstantCatalogFromSources, readProjectRgbdsSources } from "./projectConstants";
 import { parseMapIndex } from "./mapVisualization";
@@ -16,6 +20,7 @@ import type { ProjectSession, ProjectSource, TextWriteRequest } from "./types";
 import { mergeSharedSceneFlags, readSharedSceneFlags, validateItemClaims, type SharedSceneFlag } from "./sceneFlags";
 
 export interface InteractionValues {
+  pickup?: boolean;
   sharedFlags?: SharedSceneFlag[];
   scene?: SceneOptions;
   actions?: InteractionAction[];
@@ -28,10 +33,12 @@ export interface InteractionValues {
   pokemon?: { species: string; level: number } | null;
   hideObject?: string | null;
   movement: { npc: string; steps: string[]; playerX: number; playerY: number } | null;
-  condition: { event: string; set: boolean } | null;
+  condition: PlayerCondition | null;
+  visibleWhen?: PlayerCondition | null;
   events: Array<{ event: string; set: boolean }>;
 }
 export interface ManagedInteraction {
+  visibilityRule?: NpcVisibilityRule;
   scene?: ScenePlan;
   version: 1 | 2 | 3;
   originalHasPrompt?: boolean;
@@ -64,6 +71,10 @@ export interface PokemonGiftDocument {
   hidesObject: boolean;
 }
 export interface InteractionDocument {
+  managed?: boolean;
+  conditions?: PlayerConditionDomain;
+  services?: NpcServicesDomain;
+  visibilityNpc?: { id: number; constant: string } | null;
   sharedFlags?: SharedSceneFlag[];
   projectKey: string;
   effects: SceneEffectsDomain;
@@ -101,10 +112,22 @@ function range(text: string, label: string) {
   while (end < all.length && !/^[A-Za-z_][A-Za-z0-9_]*:{1,2}$/.test(clean(all[end]))) end++;
   const offsets = [0];
   for (const m of text.matchAll(/\n/g)) offsets.push(m.index + 1);
-  return { start, end, from: offsets[start], to: offsets[end] ?? text.length, all, body: all.slice(start + 1, end) };
+  return { start, end, from: offsets[start], to: offsets[end] ?? text.length, offsets, all, body: all.slice(start + 1, end) };
+}
+// Comments between global labels can introduce a different editor's managed
+// section. They are not part of the preceding dialogue leaf: copying them into
+// regenerated text moves its boundary; removing a leaf can erase its metadata.
+function textRange(text: string, label: string) {
+  const r = range(text, label);
+  let end = r.end;
+  while (end > r.start + 1 && !clean(r.all[end - 1])) end--;
+  const comment = r.all.slice(end, r.end).findIndex(line => /^[ \t]*;/.test(line));
+  if (comment < 0) return r;
+  end += comment;
+  return { ...r, end, to: r.offsets[end] ?? text.length, body: r.all.slice(r.start + 1, end) };
 }
 function replaceBlock(text: string, label: string, body: string) {
-  const r = range(text, label);
+  const r = textRange(text, label);
   const nl = text.includes("\r\n") ? "\r\n" : "\n";
   return text.slice(0, r.from) + body.replace(/\n/g, nl) + text.slice(r.to);
 }
@@ -113,6 +136,7 @@ function managed(text: string, label: string): ManagedInteraction | null {
   if (!match) return null;
   const value = JSON.parse(match.replace(/^\s*; yellow-editor-interaction: /, "")) as ManagedInteraction;
   if (![1, 2, 3].includes(value.version) || value.label !== label || !namePattern.test(value.prefix)) throw new Error("Unsupported interaction format. Review its source before editing.");
+  if (Boolean(value.visibilityRule) !== Boolean(value.values.visibleWhen) || value.visibilityRule && JSON.stringify(value.visibilityRule.condition) !== JSON.stringify(value.values.visibleWhen)) throw new Error("The NPC visibility condition record was changed in source.");
   return value;
 }
 function macro(files: Map<string, string>, path: string, name: string, body: string) {
@@ -203,7 +227,11 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     const snapshot = line.match(/^DEF (\w+) EQU (.*\bconst_value\b.*)$/);
     if (snapshot) { const value = number(snapshot[2].replace(/\bconst_value\b/g, String(eventValue))); if (value !== null) symbols.set(snapshot[1], value); }
   }
-  const items = constants.constants.filter(entry => entry.sourcePath === "constants/item_constants.asm" && entry.symbol !== "NO_ITEM" && entry.value > 0 && entry.value < (symbols.get("NUM_ITEMS") ?? 256)).map(entry => entry.symbol);
+  const itemConstants = byPath.get("constants/item_constants.asm") ?? "";
+  // The same file also defines elevator floors and helper constants. Only the
+  // actual item enum and canonical TM/HM declarations are inventory choices.
+  const items = [...new Set([...[...itemConstants.split(/^DEF NUM_ITEMS EQU/m)[0].matchAll(/^\s*const\s+(\w+)\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter(name => name !== "NO_ITEM" && !name.startsWith("ITEM_RESERVED_") && (symbols.get(name) ?? 0) > 0 && (symbols.get(name) ?? 255) < 255), ...[...itemConstants.matchAll(/^\s*add_(hm|tm)\s+(\w+)/gm)].map(m => `${m[1].toUpperCase()}_${m[2]}`)])];
+  const conditions = inspectPlayerConditions(byPath, symbols), services = await inspectNpcServices(byPath);
   const dexOrder = rows(byPath.get("data/pokemon/dex_order.asm") ?? "").flatMap(row => { const match = clean(row).match(/^db (.+)$/); return match ? [number(match[1])] : []; });
   const pokemon = constants.constants.filter(entry => entry.sourcePath === "constants/pokemon_constants.asm" && entry.groupId !== null && entry.value > 0 && entry.value <= 255 && (dexOrder[entry.value - 1] ?? 0) > 0 && (dexOrder[entry.value - 1] ?? Infinity) <= (symbols.get("NUM_POKEMON") ?? 151)).map(entry => entry.symbol);
   const pokemonReason = pokemonDeliveryReason(byPath);
@@ -277,6 +305,8 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const sign = signRow ? { x: Number(signRow[1]), y: Number(signRow[2]) } : null;
   const npcConstants = [...objects.matchAll(/^\s*const_export (\w+)\s*$/gm)].map(m => m[1]);
   const objectRows = [...objects.matchAll(/^\s*object_event\s+(\d+),\s*(\d+),\s*(\w+),\s*(\w+),\s*(\w+),\s*([^\r\n;]+)/gm)];
+  const boundNpcIds = pointers ? objectRows.flatMap((row, i) => row[6].trim() === pointers[1] ? [i + 1] : []) : [];
+  const visibilityNpc = boundNpcIds.length === 1 && npcConstants[boundNpcIds[0] - 1] ? { id: boundNpcIds[0], constant: npcConstants[boundNpcIds[0] - 1] } : null;
   // Hiding is offered only for this entry's Poké Ball and an existing persistent
   // toggle slot. Never resize or renumber the game's object-state save array.
   const boundObjects = pointers ? objectRows.flatMap((row, i) => row[3] === "SPRITE_POKE_BALL" && row[6].trim() === pointers[1] ? [npcConstants[i]] : []) : [];
@@ -327,7 +357,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
     actors: npcs.map(npc => ({ ...npc, id: npcConstants.indexOf(npc.constant) + 1 })),
     defaultPlayer: sign ? { x: sign.x, y: sign.y + 1 } : pointers && objectRows.find(row => row[6].trim() === pointers[1]) ? (() => { const row = objectRows.find(row => row[6].trim() === pointers[1])!; return { x: +row[1], y: +row[2] + 1 }; })() : { x: 0, y: 0 },
   };
-  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/pikachu/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || [path, itemInventoryPath, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "engine/events/pokedex_rating.asm", "data/predef_pointers.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
+  const dependencies = files.filter(file => file.path.startsWith("constants/") || file.path.startsWith("macros/") || file.path.startsWith("home/") || file.path.startsWith("engine/overworld/") || file.path.startsWith("engine/pikachu/") || file.path.startsWith("engine/battle/") || file.path.startsWith("audio/headers/") || file.path.startsWith("data/trainers/") || ["engine/events/pokemart.asm", path, itemInventoryPath, primaryPath, `scripts/${mapName}_2.asm`, objectsPath, "main.asm", "engine/events/pokedex_rating.asm", "data/predef_pointers.asm", "data/events/hidden_events.asm", "ram/wram.asm", "engine/menus/text_box.asm", "engine/events/give_pokemon.asm", "data/pokemon/dex_order.asm", "data/sprites/sprites.asm", "data/maps/toggleable_objects.asm", `data/maps/headers/${mapName}.asm`, "data/maps/map_header_pointers.asm", "gfx/tilesets.asm", "data/tilesets/tileset_headers.asm", "data/tilesets/collision_tile_ids.asm"].includes(file.path));
   const binaryPaths = (await source.listFiles!()).filter(path => path === `maps/${mapName}.blk` || /^gfx\/blocksets\/[^/]+\.bst$/.test(path)).sort();
   const binarySources = await Promise.all(binaryPaths.map(async path => ({ path, hash: await hashText(Array.from(await source.readBytes(path)).join(",")) })));
   let editableValues = old?.values ?? defaults();
@@ -348,7 +378,7 @@ async function inspect(source: ProjectSource, path: string, label: string) {
       editableValues[field] = leaf.segments.map(segment => segment.text);
     }
   }
-  const document: InteractionDocument = { sharedFlags, projectKey: source.storageKey, effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs: npcs.filter(npc => npc.canWalk), movementReason, sign };
+  const document: InteractionDocument = { managed: Boolean(old), conditions, services, visibilityNpc, sharedFlags, projectKey: source.storageKey, effects, path, label, sources: await Promise.all(dependencies.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))).then(entries => [...entries, ...binarySources]), items, pokemon, pokemonReason, hideObject, events, sounds, choiceReason, soundReason, scene, reward, gift, canCreate, reason, values: editableValues, npcs: npcs.filter(npc => npc.canWalk), movementReason, sign };
   return { document, byPath, files, text, primary, mapName, primaryPath, symbols, number, old, stateCount, objects, objectsPath, npcConstants, objectRows };
 }
 export type InteractionInspection = Awaited<ReturnType<typeof inspect>>;
@@ -410,7 +440,7 @@ function textBlock(label: string, input: string[], state: Awaited<ReturnType<typ
   if (input.some(line => [...line.matchAll(/<[^>]*>/g)].some(match => !tokens.has(match[0])) || [...line.replace(/<[^>]*>/g, "")].some(char => !chars.has(char)))) throw new Error("Dialogue contains an unsupported token or characters unavailable in this game's font.");
   let originalBlock: string | null = null;
   if (state.old && new RegExp(`^${label}:{1,2}$`, "m").test(state.text.replace(/\r\n/g, "\n"))) {
-    const existing = range(state.text, label);
+    const existing = textRange(state.text, label);
     originalBlock = state.text.slice(existing.from, existing.to).replace(/\r\n/g, "\n").trimEnd() + "\n";
   }
   const controls = originalBlock ? rows(originalBlock).flatMap(row => {
@@ -438,6 +468,7 @@ function rewardCode(m: ManagedInteraction, textPrefix = m.prefix) {
   if (v.pokemon) code.push(`\tlb bc, ${v.pokemon.species}, ${v.pokemon.level}`, "\tcall GivePokemon", `\tjp nc, ${p}BagFull`, "\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing");
   if (m.flag) code.push(`\tSetEvent ${m.flag}`);
   for (const event of v.events) code.push(`\t${event.set ? "SetEvent" : "ResetEvent"} ${event.event}`);
+  if (v.pickup) code.push("\tcall UpdateSprites");
   if (v.hideObject) code.push(`\tld a, ${v.hideObject}`, "\tld [wToggleableObjectIndex], a", "\tpredef HideObject");
   if (v.reward) code.push("\tld a, SFX_GET_ITEM_1", "\tcall PlaySound", "\tcall WaitForSoundToFinish");
   code.push(...print(`${textPrefix}Dialogue`), `\tjp ${p}Finish`);
@@ -451,7 +482,7 @@ function render(m: ManagedInteraction, npcId: number | null, mapName: string, re
     ...(!m.originalHasPrompt ? [`\tld hl, ${p}AdvanceText`, "\tcall PrintText_NoCreatingTextBox"] : []),
     "\tld a, 1", "\tld [wDoNotWaitForButtonPressAfterDisplayingText], a",
   ] : [])];
-  if (v.condition) code.push(`\tCheckEvent ${v.condition.event}`, `\tjp ${v.condition.set ? "z" : "nz"}, ${p}OriginalOnly`);
+  if (v.condition) code.push(...renderConditionFailure(v.condition, `${p}OriginalOnly`, `${p}Entry`));
   if (m.flag) code.push(`\tCheckEvent ${m.flag}`, `\tjp nz, ${p}Already`);
   if (v.movement) {
     const slot = String(npcId!.toString(16)).padStart(2, "0").toUpperCase();
@@ -475,6 +506,7 @@ function render(m: ManagedInteraction, npcId: number | null, mapName: string, re
   }
   code.push(`${p}Already:`, ...print(`${textPrefix}AlreadyText`), "\tjp TextScriptEnd", `${p}OriginalOnly:`, ...print(`${textPrefix}Original`), "\tjp TextScriptEnd", "");
   if (m.version === 2 && v.showOriginal && !m.originalHasPrompt) code.push(`${p}AdvanceText:`, "\ttext_promptbutton", "\ttext_end", "");
+  if (v.actions) code.push(...renderSequenceServices(v.actions, p));
   return code.join("\n").replace(`\tld a, [w${mapName}CurScript]\n\tand a`, `\tld a, [w${mapName}CurScript]\n${resumeState ? `\tcp ${resumeState}` : "\tand a"}`);
 }
 const opposite: Record<string, string> = { UP: "DOWN", DOWN: "UP", LEFT: "RIGHT", RIGHT: "LEFT" };
@@ -544,7 +576,10 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     if (!state.document.pokemon.includes(values.pokemon.species) || !Number.isInteger(values.pokemon.level) || values.pokemon.level < 1 || values.pokemon.level > 100) throw new Error("Choose a valid Pokémon and a level from 1 to 100.");
   }
   if (values.hideObject && (!values.pokemon || !values.once || values.movement || values.hideObject !== state.document.hideObject)) throw new Error("Only a one-time Pokémon gift can hide its own existing Poké Ball object.");
-  if (values.condition && (!domains.events.includes(values.condition.event) || typeof values.condition.set !== "boolean") || values.events.some(event => !domains.events.includes(event.event) || typeof event.set !== "boolean")) throw new Error("Choose existing project events for conditions and changes.");
+  if (values.pickup && (!values.once || !values.reward || values.pokemon || values.actions || values.movement || !state.document.visibilityNpc || !values.visibleWhen || "kind" in values.visibleWhen || values.visibleWhen.set !== false || !values.events.some(e => e.event === (values.visibleWhen as { event: string }).event && e.set))) throw new Error("Map item pickups need a one-time item reward and their collected visibility flag. Change the reward and dialogue while keeping those settings.");
+  if (values.condition) validatePlayerCondition(values.condition, domains);
+  if (values.visibleWhen) validatePlayerCondition(values.visibleWhen, domains);
+  if (values.events.some(event => !domains.events.includes(event.event) || typeof event.set !== "boolean")) throw new Error("Choose existing project events for conditions and changes.");
   const semantics = deriveProjectEventMacroSemantics(state.files);
   if (!semantics.some(event => event.name === "CheckEvent" && event.action === "check" && event.zeroMeaning === "event-clear")) throw new Error("Cannot prove this project's event-check convention.");
   macro(state.byPath, "macros/scripts/text.asm", "text_asm", "db TX_START_ASM");
@@ -627,7 +662,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     const hook = sceneRootHook(prefix), nl = primary.includes("\r\n") ? "\r\n" : "\n";
     if (state.old?.version === 3) {
       if (!primary.includes(hook.replace(/\n/g, nl))) throw new Error("The map scene hook was changed in source.");
-    } else primary = primary.replace(new RegExp(`^${state.mapName}_Script:{1,2}\\r?\\n`, "m"), match => match + hook.replace(/\n/g, nl));
+    } else primary = insertAfterTrainerResume(primary, state.mapName, hook);
     if (!primary.includes(hook.replace(/\n/g, nl))) throw new Error("Could not install the map scene hook.");
     const r = range(primary, `${state.mapName}_TextPointers`);
     const table = r.body.map(clean).filter(Boolean);
@@ -695,6 +730,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     if (dispatch.length) code = code.replace(`\tld a, [w${state.mapName}CurScript]\n\tand a`, `\tld a, [w${state.mapName}CurScript]\n${dispatch.join("\n")}\n\tand a`);
     return code + `; yellow-editor-interaction-code-end ${model.label}\n\n`;
   };
+  await prepareNpcVisibility(state, m, changed);
   const code = renderManaged(m, movement);
   let script = changed.get(document.path) ?? state.text;
   if (state.old) {
@@ -709,7 +745,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   } else {
     const leaves = await attachTextEditing({} as ProjectSession, source).getTextLeafDocuments(document.path, document.label);
     const original = leaves[0].path === document.path && leaves[0].label === document.label
-      ? script.slice(range(script, document.label).from, range(script, document.label).to).replace(new RegExp(`^${document.label}:{1,2}`), `${prefix}Original:`)
+      ? script.slice(textRange(script, document.label).from, textRange(script, document.label).to).replace(new RegExp(`^${document.label}:{1,2}`), `${prefix}Original:`)
       : ` ${prefix}Original:\n\ttext_far ${leaves[0].label}\n\ttext_end\n`.trimStart();
     script = replaceBlock(script, document.label, code + original.replace(/\r\n/g, "\n") + "\n");
   }
@@ -726,7 +762,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
   const actionBlocks = (values.actions ? sequenceDialogue(values.actions) : []).map(block => ({ label: `${prefix}${block.key}Text`, lines: block.lines, terminator: prompts.get(block.key) ? "prompt" as const : "done" as const }));
   const renderedBlocks = actionBlocks.map(block => ({ ...block, contents: textBlock(block.label, block.lines, state, block.terminator) }));
   for (const block of state.old?.values.actions ? sequenceDialogue(state.old.values.actions) : []) {
-    const r = range(script, `${prefix}${block.key}Text`);
+    const r = textRange(script, `${prefix}${block.key}Text`);
     script = script.slice(0, r.from) + script.slice(r.to);
   }
   for (const block of renderedBlocks) {

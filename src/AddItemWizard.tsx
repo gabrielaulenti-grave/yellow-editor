@@ -1,3 +1,5 @@
+import { FieldToolEditor, fieldToolError } from "./FieldToolEditor";
+import { defaultFieldTool } from "./core/fieldTools";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useState } from "react";
 import type {
@@ -23,6 +25,7 @@ interface TemplateOption {
 }
 
 const TEMPLATE_OPTIONS: TemplateOption[] = [
+  { value: "field-tool", label: "Field tool", description: "Use Cut, Fly, Surf, Strength, Flash, Dig or Teleport with configurable badge and party requirements.", defaultKeyItem: true },
   {
     value: "unusable",
     label: "Script / key item",
@@ -113,6 +116,7 @@ export function AddItemWizard({
   const [name, setName] = useState("NEW ITEM");
   const [price, setPrice] = useState(0);
   const [keyItem, setKeyItem] = useState(true);
+  const [fieldTool, setFieldTool] = useState(defaultFieldTool);
   const [template, setTemplate] = useState<ItemCreateTemplate>("unusable");
 
   useEffect(() => {
@@ -150,7 +154,8 @@ export function AddItemWizard({
     price,
     keyItem,
     template,
-  }), [slotId, normalizedConstant, name, price, keyItem, template]);
+    ...(template === "field-tool" ? { fieldTool } : {}),
+  }), [slotId, normalizedConstant, name, price, keyItem, template, fieldTool]);
 
   function selectTemplate(value: ItemCreateTemplate) {
     setTemplate(value);
@@ -159,7 +164,7 @@ export function AddItemWizard({
   }
 
   function next() {
-    if (step === 0 && !identityValid) return;
+    if (step === 0 && !identityValid || step === 1 && template === "field-tool" && fieldToolError(fieldTool, document.fieldToolSupport)) return;
     setStep((current) => Math.min(2, current + 1));
   }
 
@@ -179,8 +184,7 @@ export function AddItemWizard({
           <div>
             <h2 id="add-item-wizard-title">Add Item</h2>
             <p>
-              Repurpose a genuinely unused Gen I item slot without reindexing the
-              item table.
+              Create an item while preserving existing item IDs.
             </p>
           </div>
           <button
@@ -206,24 +210,24 @@ export function AddItemWizard({
 
         {document.slots.length === 0 ? (
           <div className="wizard-empty">
-            <h3>No unused vanilla slots remain</h3>
+            <h3>No safe item slots remain</h3>
             <p>
-              The wizard only repurposes placeholder <code>ITEM_XX</code> entries
+              The wizard reuses placeholder <code>ITEM_XX</code> entries
               that still use <code>UnusableItem</code> and are absent from the
-              party/overworld-use lists. This project no longer has one available.
+              party/overworld-use lists. This project has no free placeholder or supported extension entry.
             </p>
             <p className="help-text">
-              A later advanced mode can expand the ordinary item table, but that
-              requires reindexing and broader compatibility checks.
+              New entries require the reviewed native item tables and remain below the supported key-item flag capacity.
             </p>
           </div>
         ) : step === 0 ? (
           <div className="wizard-page">
-            <h3>Choose an unused slot and give it an identity</h3>
+            <h3>Choose an item slot and give it an identity</h3>
             <div className="field-grid two-column-fields">
               <label className="editor-field">
-                <span>Unused Slot</span>
+                <span>Item slot</span>
                 <SearchableSelect
+                  aria-label="Item slot"
                   value={slotId}
                   disabled={busy}
                   onChange={(event) => {
@@ -243,6 +247,7 @@ export function AddItemWizard({
               <label className="editor-field">
                 <span>Assembly Constant</span>
                 <input
+                  aria-label="Assembly Constant"
                   value={constant}
                   disabled={busy}
                   onChange={(event) => setConstant(event.target.value.toUpperCase())}
@@ -257,6 +262,7 @@ export function AddItemWizard({
               <label className="editor-field">
                 <span>Display Name</span>
                 <input
+                  aria-label="Display Name"
                   value={name}
                   maxLength={document.maxNameLength}
                   disabled={busy}
@@ -323,7 +329,7 @@ export function AddItemWizard({
                       ? "item-template-option active"
                       : "item-template-option"
                   }
-                  disabled={busy}
+                  disabled={busy || option.value === "field-tool" && Boolean(!document.fieldToolSupport || document.fieldToolSupport.reason)}
                   onClick={() => selectTemplate(option.value)}
                 >
                   <strong>{option.label}</strong>
@@ -332,6 +338,8 @@ export function AddItemWizard({
               ))}
             </div>
 
+            {template === "field-tool" && <FieldToolEditor value={fieldTool} support={document.fieldToolSupport} disabled={busy} onChange={setFieldTool} />}
+            {document.fieldToolSupport?.reason && <p className="help-text">Field tools unavailable: {document.fieldToolSupport.reason}</p>}
             <label className="editor-field item-boolean-field wizard-key-item">
               <span>Key Item</span>
               <input
@@ -391,9 +399,7 @@ export function AddItemWizard({
             </div>
 
             <p className="help-text">
-              This first version deliberately reuses an existing unused ID. It
-              does not change <code>NUM_ITEMS</code>, elevator pseudo-items, or
-              the HM/TM boundary.
+              New table entries preserve all existing item IDs, elevator names and floor IDs, and the HM/TM boundary. Reserved floor rows remain unavailable as items.
             </p>
           </div>
         )}
@@ -412,7 +418,7 @@ export function AddItemWizard({
               type="button"
               className="primary-button"
               onClick={next}
-              disabled={busy || (step === 0 && !identityValid)}
+              disabled={busy || (step === 0 && !identityValid) || (step === 1 && template === "field-tool" && Boolean(fieldToolError(fieldTool, document.fieldToolSupport)))}
             >
               Next
             </button>

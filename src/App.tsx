@@ -1,3 +1,4 @@
+import { fieldToolError } from "./FieldToolEditor";
 import { useEffect, useRef, useState } from "react";
 import type {
   EncounterTableEditDocument,
@@ -283,6 +284,7 @@ function App() {
         keyItem: document.keyItem,
         routineParameters: document.routineParameters,
         itemEvolution: document.itemEvolution,
+        fieldTool: document.fieldTool,
       });
     }).catch((error) => {
       if (cancelled) return;
@@ -432,12 +434,14 @@ function App() {
       || itemEditDraft.keyItem !== itemEditDocument.keyItem
       || JSON.stringify(itemEditDraft.routineParameters)
         !== JSON.stringify(itemEditDocument.routineParameters)
+      || JSON.stringify(itemEditDraft.fieldTool) !== JSON.stringify(itemEditDocument.fieldTool)
       || JSON.stringify(itemEditDraft.itemEvolution)
         !== JSON.stringify(itemEditDocument.itemEvolution)
     )
   );
   const itemRoutineValid = (() => {
     if (!itemEditDraft) return false;
+    if (itemEditDraft.fieldTool && fieldToolError(itemEditDraft.fieldTool, itemEditDocument?.fieldToolSupport)) return false;
     const routine = itemEditDraft.routineParameters;
     if (routine.kind === "fixed-heal") {
       return Number.isInteger(routine.healAmount)
@@ -1183,6 +1187,7 @@ function App() {
         keyItem: itemEditDocument.keyItem,
         routineParameters: itemEditDocument.routineParameters,
         itemEvolution: itemEditDocument.itemEvolution,
+        fieldTool: itemEditDocument.fieldTool,
       });
     }
     setActiveTab("pokemon");
@@ -1274,6 +1279,7 @@ function App() {
       keyItem: itemEditDocument.keyItem,
       routineParameters: itemEditDocument.routineParameters,
       itemEvolution: itemEditDocument.itemEvolution,
+        fieldTool: itemEditDocument.fieldTool,
     });
     setStatus(`Unsaved ${itemEditDocument.name} changes reverted.`);
   }
@@ -2136,6 +2142,20 @@ function App() {
     setFishingFocusMapConstant(mapConstant);
   }
 
+  async function openTrainerPartyFromMap(partyId: string) {
+    if (!(await selectTab("trainers"))) return;
+    setTrainerSection("parties");
+    setEditBusy(true); setStatus("Reading trainer party…");
+    const generation = projectLoadGeneration.current;
+    try {
+      const catalog = await invoke<TrainerCatalog>("get_trainers");
+      if (generation !== projectLoadGeneration.current) return;
+      installTrainerCatalog(catalog, partyId, partyId.split(":")[0]);
+      setStatus("Trainer party loaded. Shared parties affect every battle using them.");
+    } catch (error) { setStatus(String(error)); }
+    finally { setEditBusy(false); }
+  }
+
   async function openScript(
     path: string,
     routineLabel?: string | null,
@@ -2412,6 +2432,8 @@ function App() {
         <MapsTab
           project={project}
           encounters={encounters}
+          onEncountersChanged={setEncounters}
+          onOpenTrainerParty={partyId => void openTrainerPartyFromMap(partyId)}
           fishingDocument={fishingDocument}
           pokemonIndex={pokemonIndex}
           focusMapConstant={mapFocusConstant}

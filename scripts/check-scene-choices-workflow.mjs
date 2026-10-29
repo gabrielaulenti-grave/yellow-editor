@@ -60,7 +60,7 @@ try {
       await actions.getByLabel("Actions Reward group flag", { exact: true }).selectOption({ label: "Fossil reward claimed" });
       await actions.getByLabel("Actions Chosen option flag", { exact: true }).selectOption({ label: "Dome reward chosen" });
       await dialog.getByLabel("Start automatically at player start 1", { exact: true }).check();
-      await dialog.getByLabel("Require an event for the automatic trigger", { exact: true }).check();
+      await dialog.getByLabel("Require a condition for the automatic trigger", { exact: true }).check();
       await dialog.getByLabel("Automatic trigger event", { exact: true }).selectOption({ label: "Fossil reward claimed" });
       await dialog.getByLabel("Automatic trigger event must be set (uncheck for clear)", { exact: true }).uncheck();
       await dialog.getByLabel("Scene player Y", { exact: true }).fill("4");

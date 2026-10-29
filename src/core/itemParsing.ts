@@ -147,7 +147,7 @@ export async function parseItems(source: ProjectSource): Promise<ItemData[]> {
 
   const definitions = parseItemConstantDefinitions(constantsContents);
   const regularDefinitions = definitions.filter((item) => item.machineKind === null);
-  const regularIndex = new Map(regularDefinitions.map((item, index) => [item.id, index]));
+  const regularIndex = new Map(regularDefinitions.map((item) => [item.id, item.id - 1]));
   const names = parseItemNames(namesContents);
   const prices = parseItemPrices(pricesContents);
   const keyFlags = parseKeyItemFlags(keyItemsContents);

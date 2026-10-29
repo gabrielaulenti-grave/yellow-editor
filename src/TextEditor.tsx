@@ -29,6 +29,7 @@ interface TextEditorProps {
   disabled?: boolean;
   controlledSegments?: TextSegment[];
   controlledTerminator?: TextTerminator;
+  controlledCanEditStructure?: boolean;
   onControlledSegmentsChange?(segments: TextSegment[]): void;
   onSaved?(history: HistorySummary): void;
   onEditStateChange?(open: boolean, dirty: boolean): void;
@@ -75,6 +76,7 @@ export function TextEditor({
   disabled = false,
   controlledSegments,
   controlledTerminator = null,
+  controlledCanEditStructure = false,
   onControlledSegmentsChange,
   onSaved,
   onEditStateChange,
@@ -135,6 +137,7 @@ export function TextEditor({
       displayParts: textSegmentsDisplayParts(segments),
       terminator: controlledTerminator,
       editable: true,
+      canEditStructure: controlledCanEditStructure,
       warnings: [],
     };
     setDocument(localDocument);
@@ -144,6 +147,7 @@ export function TextEditor({
     controlled,
     controlledSegments,
     controlledTerminator,
+    controlledCanEditStructure,
     open,
     target?.path,
     target?.label,
@@ -225,6 +229,7 @@ export function TextEditor({
         displayParts: textSegmentsDisplayParts(segments),
         terminator: controlledTerminator,
         editable: true,
+        canEditStructure: controlledCanEditStructure,
         warnings: [],
       };
       setDocument(next);

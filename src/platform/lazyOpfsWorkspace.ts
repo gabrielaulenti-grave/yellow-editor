@@ -1,3 +1,4 @@
+import { createBrowserProjectFile, removeBrowserProjectFile, verifyBrowserProjectBytes } from "./projectFileLifecycle";
 import type {
   HistoryStore,
   ProjectBuildReadPreparation,
@@ -334,10 +335,13 @@ export async function createLazyOpfsProjectSource(
       }
     },
 
-    async writeText(relativePath, contents) {
+    async writeText(this: ProjectSource, relativePath, contents) {
+      await this.writeBytes!(relativePath, new TextEncoder().encode(contents));
+    },
+
+    async writeBytes(relativePath, contents) {
       const path = normalizePath(relativePath);
       const beforeBytes = await loadBytes(path);
-      const beforeText = new TextDecoder().decode(beforeBytes);
 
       // If a first-read cache write is still queued, let it finish so an old
       // background write cannot race with this user edit.
@@ -345,14 +349,14 @@ export async function createLazyOpfsProjectSource(
 
       const externalHandle = await externalFileForPath(options.externalRoot, path);
       const externalFile = await externalHandle.getFile();
-      const currentExternalText = await externalFile.text();
-      if (currentExternalText !== beforeText) {
+      const externalBytes = new Uint8Array(await externalFile.arrayBuffer());
+      if (externalBytes.length !== beforeBytes.length || externalBytes.some((byte, index) => byte !== beforeBytes[index])) {
         throw new Error(
           `${path} changed outside Yellow Editor after it was cached. Reopen the project before saving so the external change is preserved.`,
         );
       }
 
-      const nextBytes = new TextEncoder().encode(contents);
+      const nextBytes = contents.slice();
       const workspaceHandle = await opfsFileForPath(workspaceRoot, path, true);
       await writeOpfsFile(workspaceHandle, contents);
       memoryBytes.set(path, nextBytes);
@@ -382,6 +386,28 @@ export async function createLazyOpfsProjectSource(
       }
     },
 
+    async createFile(this: ProjectSource, relativePath, contents) {
+      const path = normalizePath(relativePath);
+      if (await this.exists(path)) throw new Error(`${path} already exists.`);
+      await pendingPersistence.get(path);
+      const handle = await opfsFileForPath(workspaceRoot, path, true);
+      try {
+        await writeOpfsFile(handle, contents);
+        await createBrowserProjectFile(options.externalRoot, path, contents);
+      } catch (error) {
+        await removeBrowserProjectFile(workspaceRoot, path).catch(() => undefined); throw error;
+      }
+      memoryBytes.set(path, contents.slice());
+    },
+    async removeFile(this: ProjectSource, relativePath) {
+      const path = normalizePath(relativePath), before = await this.readBytes(path);
+      await pendingPersistence.get(path);
+      await verifyBrowserProjectBytes(options.externalRoot, path, before);
+      await removeBrowserProjectFile(workspaceRoot, path);
+      try { await removeBrowserProjectFile(options.externalRoot, path); }
+      catch (error) { await writeOpfsFile(await opfsFileForPath(workspaceRoot, path, true), before); throw error; }
+      memoryBytes.delete(path);
+    },
     async exists(relativePath) {
       const path = normalizePath(relativePath);
       if (!path) {

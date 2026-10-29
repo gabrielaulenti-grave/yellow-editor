@@ -1606,6 +1606,7 @@ pre {
 }
 
 .wizard-dialog {
+  color: inherit;
   width: min(860px, 100%);
   max-height: min(90vh, 900px);
   overflow: auto;
@@ -2407,6 +2408,10 @@ pre {
   outline-offset: 1px;
 }
 
+.world-map-trainer-marker { background: #a33131; }
+.world-map-item-marker { background: #237044; border-radius: 4px; }
+.world-map-npc-marker.initially-hidden { border-style: dashed; }
+
 .world-map-npc-panel {
   display: grid;
   gap: 10px;
@@ -2765,3 +2770,10 @@ pre {
 .world-map-npc-heading > .world-map-npc-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
 
 .shared-scene-flags { min-width: 0; overflow-wrap: anywhere; }
+
+.field-tool-editor { min-width: 0; display: grid; gap: 12px; margin-block: 12px; }
+.field-tool-editor .editor-field { min-width: 0; }
+.field-tool-editor textarea { width: 100%; box-sizing: border-box; }
+@media (max-width: 480px) {
+  .field-tool-editor .two-column-fields { grid-template-columns: minmax(0, 1fr); }
+}

@@ -333,3 +333,8 @@
 .scene-review-map { max-width: 100%; max-height: 260px; overflow: auto; border: 1px solid #777; }
 .scene-review-map canvas { display: block; image-rendering: pixelated; cursor: crosshair; max-width: none; }
 .interaction-action-problem { outline: 3px solid #d16a50; outline-offset: 2px; }
+
+.player-condition { min-width: 0; margin: 0.6rem 0; padding: 0.6rem; border: 1px solid var(--border-color, #9995); border-radius: 6px; overflow-wrap: anywhere; display: grid; gap: 0.6rem; }
+.player-condition legend { max-width: 100%; padding-inline: 0.3rem; }
+.player-condition > div { min-width: 0; }
+@media (max-width: 500px) { .player-condition { padding: 0.3rem; } }

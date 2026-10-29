@@ -1,3 +1,4 @@
+import { createBrowserProjectFile, removeBrowserProjectFile } from "./projectFileLifecycle";
 import { createWebBuildService } from "../core/build";
 import { createProjectSession } from "../core/project";
 import { attachTextEditing } from "../core/textEditing";
@@ -20,7 +21,7 @@ import {
 } from "./webHistory";
 
 interface BrowserWritableFileStream {
-  write(data: string | Blob): Promise<void>;
+  write(data: string | Blob | Uint8Array): Promise<void>;
   close(): Promise<void>;
   abort?(): Promise<void>;
 }
@@ -38,7 +39,8 @@ interface BrowserDirectoryHandle extends WebDirectoryIdentityHandle {
   kind: "directory";
   name: string;
   getDirectoryHandle(name: string): Promise<BrowserDirectoryHandle>;
-  getFileHandle(name: string): Promise<BrowserFileHandle>;
+  getFileHandle(name: string, options?: { create?: boolean }): Promise<BrowserFileHandle>;
+  removeEntry(name: string): Promise<void>;
   entries?(): AsyncIterableIterator<[string, BrowserEntryHandle]>;
 }
 
@@ -310,7 +312,11 @@ function createWebSource(
       }
     },
 
-    async writeText(relativePath, contents) {
+    async writeText(this: ProjectSource, relativePath, contents) {
+      await this.writeBytes!(relativePath, new TextEncoder().encode(contents));
+    },
+
+    async writeBytes(relativePath, contents) {
       let writable: BrowserWritableFileStream | null = null;
 
       try {
@@ -328,6 +334,14 @@ function createWebSource(
       }
     },
 
+    async createFile(relativePath, contents) {
+      await createBrowserProjectFile(root, relativePath, contents);
+      fileHandles.delete(normalizePath(relativePath)); completedBuildIndex = null;
+    },
+    async removeFile(relativePath) {
+      await removeBrowserProjectFile(root, relativePath);
+      fileHandles.delete(normalizePath(relativePath)); completedBuildIndex = null;
+    },
     async exists(relativePath) {
       const parts = pathParts(relativePath);
       if (parts.length === 0) {

@@ -11,7 +11,7 @@ function additionBody(text: string) {
   return lines.slice(start, end < 0 ? undefined : end).map(clean).filter(Boolean).join("\n");
 }
 export function hasItemReward(actions: InteractionAction[]): boolean {
-  return actions.some(action => action.kind === "item" || interactionBranches(action).some(([branch]) => hasItemReward(branch)));
+  return actions.some(action => action.kind === "item" || action.kind === "shop" || action.kind === "transaction" && action.reward.kind === "item" || interactionBranches(action).some(([branch]) => hasItemReward(branch)));
 }
 
 // Red jumps directly into the item loop after filling an existing stack. If

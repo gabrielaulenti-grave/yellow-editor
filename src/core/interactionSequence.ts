@@ -2,12 +2,17 @@
 // they explicitly end the interaction. Movement remains in yielding map states.
 import { actionValidationError } from "./interactionValidation";
 import type { SceneEffectsDomain } from "./sceneEffects";
+import { validatePlayerCondition, renderPlayerCondition, type PlayerCondition, type PlayerConditionDomain } from "./playerConditions";
+import { renderNpcTransaction, renderNpcShop, type NpcTransaction, type NpcServicesDomain } from "./npcServices";
 export type PlayerPositionTest = { mode: "tile"; x: number; y: number } | { mode: "relative"; npc: string; side: "LEFT" | "RIGHT" | "UP" | "DOWN" };
 export type FacingDirection = "UP" | "DOWN" | "LEFT" | "RIGHT";
 export type InteractionAction =
   | { kind: "dialogue"; lines: string[]; textId?: string }
   | { kind: "choice"; yes: InteractionAction[]; no: InteractionAction[] }
   | { kind: "if-event"; event: string; set: boolean; then: InteractionAction[]; otherwise: InteractionAction[] }
+  | { kind: "if-condition"; condition: PlayerCondition; then: InteractionAction[]; otherwise: InteractionAction[] }
+  | ({ kind: "transaction"; success: InteractionAction[]; declined: InteractionAction[]; insufficient: InteractionAction[]; full: InteractionAction[] } & NpcTransaction)
+  | { kind: "shop"; items: string[] }
   | { kind: "if-partner"; following: InteractionAction[]; absent: InteractionAction[] }
   | { kind: "if-position"; test: PlayerPositionTest; then: InteractionAction[]; otherwise: InteractionAction[] }
   | { kind: "face-npc"; npc: string; facing: FacingDirection | "PLAYER" }
@@ -29,6 +34,8 @@ export type InteractionAction =
   | { kind: "end"; complete: boolean };
 
 export interface InteractionSequenceDomains {
+  conditions?: PlayerConditionDomain;
+  services?: NpcServicesDomain;
   sharedFlags?: Array<{ event: string; label: string }>;
   items: string[]; pokemon: string[]; events: string[]; sounds: string[];
   pokemonReason: string | null; choiceReason: string | null; soundReason: string | null;
@@ -39,7 +46,8 @@ export interface InteractionSequenceDomains {
 export function interactionBranches(action: InteractionAction): Array<readonly [InteractionAction[], string]> {
   if (action.kind === "choice") return [[action.yes, "Yes"], [action.no, "No"]];
   if (action.kind === "if-partner") return [[action.following, "Following"], [action.absent, "Absent"]];
-  if (action.kind === "if-event" || action.kind === "if-position") return [[action.then, "Then"], [action.otherwise, "Otherwise"]];
+  if (action.kind === "if-event" || action.kind === "if-condition" || action.kind === "if-position") return [[action.then, "Then"], [action.otherwise, "Otherwise"]];
+  if (action.kind === "transaction") return [[action.success, "Success"], [action.declined, "Declined"], [action.insufficient, "Insufficient"], [action.full, "Full"]];
   if (action.kind === "wild-battle") return [[action.won, "Won"], [action.caught, "Caught"], [action.escaped, "Escaped"]];
   if (action.kind === "trainer-battle") return [[action.won, "Won"]];
   return [];
@@ -178,6 +186,31 @@ export function validateInteractionSequence(actions: InteractionAction[], domain
           if (!domains.events.includes(entry.event) || typeof entry.set !== "boolean") throw new Error("Choose an existing event for the branch.");
           paths = new Set([...visit(entry.then, paths, depth + 1, `${key}Then`), ...visit(entry.otherwise, paths, depth + 1, `${key}Otherwise`)]);
           break;
+        case "if-condition":
+          validatePlayerCondition(entry.condition, domains);
+          paths = new Set([...visit(entry.then, paths, depth + 1, `${key}Then`), ...visit(entry.otherwise, paths, depth + 1, `${key}Otherwise`)]);
+          break;
+        case "transaction": {
+          if (!domains.services || domains.services.transactionReason) throw new Error(domains.services?.transactionReason ?? "NPC services are unavailable.");
+          if (entry.confirm && domains.choiceReason) throw new Error(domains.choiceReason);
+          if (typeof entry.confirm !== "boolean" || !entry.cost || !entry.reward) throw new Error("Choose a payment or item exchange and its reward.");
+          validatePlayerCondition(entry.cost, domains);
+          if (entry.cost.kind !== "item" && entry.cost.amount < 1) throw new Error("Choose a nonzero price.");
+          const reward = entry.reward;
+          if (reward.kind === "item" && (!domains.items.includes(reward.item) || !Number.isInteger(reward.quantity) || reward.quantity < 1 || reward.quantity > 99)) throw new Error("Choose a reward item and quantity from 1 to 99.");
+          if (reward.kind === "pokemon" && (domains.pokemonReason || !domains.pokemon.includes(reward.species) || !Number.isInteger(reward.level) || reward.level < 1 || reward.level > 100)) throw new Error(domains.pokemonReason ?? "Choose a reward Pokémon and level from 1 to 100.");
+          if (!["none", "heal", "item", "pokemon"].includes(reward.kind)) throw new Error("Choose a supported service reward.");
+          const paid = new Set([...paths].map(n => n + 1));
+          if ([...paid].some(n => n > 1)) throw new Error("Use one reward, payment, exchange or shop per execution path. Put the reward inside the exchange so failed delivery cannot consume payment.");
+          paths = new Set([...visit(entry.success, paid, depth + 1, `${key}Success`), ...visit(entry.declined, paths, depth + 1, `${key}Declined`), ...visit(entry.insufficient, paths, depth + 1, `${key}Insufficient`), ...visit(entry.full, paths, depth + 1, `${key}Full`)]);
+          break;
+        }
+        case "shop":
+          if (!domains.services || domains.services.shopReason) throw new Error(domains.services?.shopReason ?? "NPC shops are unavailable.");
+          if (!Array.isArray(entry.items) || !entry.items.length || entry.items.length > 14 || new Set(entry.items).size !== entry.items.length || entry.items.some(item => !domains.items.includes(item))) throw new Error("Choose 1–14 different native shop items.");
+          paths = new Set([...paths].map(n => n + 1));
+          if ([...paths].some(n => n > 1)) throw new Error("Use one reward, payment, exchange or shop per execution path.");
+          break;
         case "event":
           if (!domains.events.includes(entry.event) || typeof entry.set !== "boolean") throw new Error("Choose an existing event for the action.");
           break;
@@ -244,6 +277,9 @@ export function renderInteractionSequence(actions: InteractionAction[], prefix: 
       case "dialogue": return [...print(`${textPrefix}${action.textId ?? key}Text`), ...(acknowledge && prompts.get(action.textId ?? key) ? acknowledged : [])];
       case "choice": return branch(["\tcall YesNoChoice", "\tld a, [wCurrentMenuItem]", "\tand a"], action.yes, action.no, "Yes", "No", "nz", acknowledge ? acknowledged : []);
       case "if-event": return branch([`\tCheckEvent ${action.event}`], action.then, action.otherwise, "Then", "Otherwise", action.set ? "z" : "nz");
+      case "if-condition": return [...renderPlayerCondition(action.condition, `${p}Then`, `${p}Other`, p), `${p}Then:`, ...renderInteractionSequence(action.then, prefix, textPrefix, completion, `${key}Then`, acknowledge, prompts), `\tjp ${p}Join`, `${p}Other:`, ...renderInteractionSequence(action.otherwise, prefix, textPrefix, completion, `${key}Otherwise`, acknowledge, prompts), `${p}Join:`];
+      case "transaction": return [`\tcall ${p}Service`, ...(acknowledge ? ["\tpush af", ...acknowledged, "\tpop af"] : []), "\tand a", `\tjp z, ${p}Success`, "\tdec a", `\tjp z, ${p}Declined`, "\tdec a", `\tjp z, ${p}Insufficient`, `\tjp ${p}Full`, ...interactionBranches(action).flatMap(([entries, suffix]) => [`${p}${suffix}:`, ...renderInteractionSequence(entries, prefix, textPrefix, completion, `${key}${suffix}`, acknowledge, prompts), `\tjp ${p}Join`]), `${p}Join:`];
+      case "shop": return [`\tcall ${p}Service`, ...(acknowledge ? acknowledged : [])];
       case "event": return [`\t${action.set ? "SetEvent" : "ResetEvent"} ${action.event}`];
       case "wait": return [`\tld c, ${action.frames}`, "\tcall DelayFrames"];
       case "heal": return ["\tpredef HealParty"];
@@ -252,5 +288,12 @@ export function renderInteractionSequence(actions: InteractionAction[], prefix: 
       case "pokemon": return [`\tlb bc, ${action.species}, ${action.level}`, "\tcall GivePokemon", `\tjp nc, ${prefix}BagFull`, "\tld a, [wAddedToParty]", "\tand a", "\tcall z, WaitForTextScrollButtonPress", "\tcall EnableAutoTextBoxDrawing"];
       case "end": return [...(action.complete ? completion : []), `\tjp ${prefix}Finish`];
     }
+  });
+}
+
+export function renderSequenceServices(actions: InteractionAction[], prefix: string, path = "Action"): string[] {
+  return actions.flatMap((action, i) => {
+    const key = `${path}${i + 1}`;
+    return [...(action.kind === "transaction" ? renderNpcTransaction(action, `${prefix}${key}Service`) : action.kind === "shop" ? renderNpcShop(action.items, `${prefix}${key}Service`) : []), ...interactionBranches(action).flatMap(([branch, suffix]) => renderSequenceServices(branch, prefix, `${key}${suffix}`))];
   });
 }

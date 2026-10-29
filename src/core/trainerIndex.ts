@@ -449,7 +449,7 @@ function dialogueFor(
   return {
     wrapperLabel,
     textLabel,
-    text: sourceBlock ? textBlockPreview(sourceBlock.block) : null,
+    text: sourceBlock ? textBlockPreview(sourceBlock.block) : /^\s*text\s+"/m.test(wrapper) ? textBlockPreview(wrapper) : null,
     sourcePath: sourceBlock?.path ?? null,
   };
 }

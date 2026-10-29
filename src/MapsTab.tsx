@@ -1,3 +1,10 @@
+import { MapCreateWizard } from "./MapCreateWizard";
+import { MapEncounterEditor } from "./MapEncounterEditor";
+import { MapItemEditor } from "./MapItemEditor";
+import { MapTrainerEditor } from "./MapTrainerEditor";
+import { NativeMapObjectEditor } from "./NativeMapObjectEditor";
+import { MapSignEditor } from "./MapSignEditor";
+import { MapRemovalReview } from "./MapRemovalReview";
 import { renderTiles, renderBlocks, renderMap } from "./editor/mapCanvasDrawing";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -12,6 +19,11 @@ import type {
 } from "./core/types";
 import { invoke } from "./platform/compat";
 import { MapInteractionEditor } from "./MapInteractionEditor";
+import { MapTerrainEditor } from "./MapTerrainEditor";
+import { MapStrengthEditor } from "./MapStrengthEditor";
+import { MapPropertiesEditor } from "./MapPropertiesEditor";
+import type { MapCheckReport, MapCheck, ProjectMapCheckReport } from "./core/mapValidation";
+import { MapWarpEditor } from "./MapWarpEditor";
 import { MapNpcEditor } from "./MapNpcEditor";
 import { MapNpcWizard } from "./MapNpcWizard";
 import { MapScriptsPanel } from "./MapScriptsPanel";
@@ -112,7 +124,7 @@ function MapCanvas({
       {placement && Number.isInteger(placement.x) && Number.isInteger(placement.y) && <span className="npc-placement-marker" aria-label={`New NPC at ${placement.x}, ${placement.y}`}
         style={{ left: placement.x * 16 * scale, top: placement.y * 16 * scale, width: 16 * scale, height: 16 * scale }}>+</span>}
 
-      {view === "map" && showWarps && visualization.warps.map((warp) => (
+      {view === "map" && showWarps && visualization.warps.filter(w => Number.isFinite(w.x) && Number.isFinite(w.y)).map((warp) => (
         <button
           key={`warp:${warp.id}`}
           type="button"
@@ -132,7 +144,7 @@ function MapCanvas({
           {warp.id}
         </button>
       ))}
-      {view === "map" && showSigns && visualization.signs.map((sign) => (
+      {view === "map" && showSigns && visualization.signs.filter(s => Number.isFinite(s.x) && Number.isFinite(s.y)).map((sign) => (
         <button
           key={`sign:${sign.id}`}
           type="button"
@@ -151,12 +163,14 @@ function MapCanvas({
           S
         </button>
       ))}
-      {view === "map" && showNpcs && visualization.npcs.map((npc) => (
+      {view === "map" && showNpcs && visualization.npcs.filter(n => Number.isFinite(n.x) && Number.isFinite(n.y)).map((npc) => (
         <button
           key={`npc:${npc.id}`}
           type="button"
           className={[
             "world-map-npc-marker",
+            npc.objectKind === "item" ? "world-map-item-marker" : npc.trainerPartyId ? "world-map-trainer-marker" : "",
+            npc.initiallyHidden ? "initially-hidden" : "",
             npc.id === selectedNpcId ? "selected" : "",
           ].filter(Boolean).join(" ")}
           style={{
@@ -164,10 +178,10 @@ function MapCanvas({
             top: (npc.y * 16 + 8) * scale,
           }}
           onClick={() => onSelectNpc(npc.id)}
-          aria-label={`NPC ${npc.id} at ${npc.x}, ${npc.y}`}
-          title={`NPC #${npc.id} · (${npc.x}, ${npc.y}) · ${npc.spriteConstant}`}
+          aria-label={`${npc.trainerPartyId ? "Trainer" : npc.objectKind === "item" ? "Item" : "NPC"} ${npc.id} at ${npc.x}, ${npc.y}`}
+          title={`${npc.objectConstant ?? `Object #${npc.id}`} · (${npc.x}, ${npc.y}) · ${npc.itemConstant ?? npc.spriteConstant}${npc.initiallyHidden ? " · initially hidden" : ""}`}
         >
-          N
+          {npc.trainerPartyId ? "T" : npc.objectKind === "item" ? "I" : npc.objectKind === "special" ? "?" : "N"}
         </button>
       ))}
     </div>
@@ -185,6 +199,8 @@ interface MapsTabProps {
   pokemonIndex: PokemonIndexEntry[];
   focusMapConstant: string | null;
   onOpenWalkingEncounter(entry: EncounterTableIndexEntry): void;
+  onEncountersChanged?(entries: EncounterTableIndexEntry[]): void;
+  onOpenTrainerParty?(partyId: string): void;
   onOpenFishing(mapConstant: string): void;
   onOpenScript(path: string, routineLabel?: string | null): void;
   onDirtyChange?(dirty: boolean): void;
@@ -197,6 +213,8 @@ export function MapsTab({
   pokemonIndex,
   focusMapConstant,
   onOpenWalkingEncounter,
+  onEncountersChanged,
+  onOpenTrainerParty,
   onOpenFishing,
   onOpenScript,
   onDirtyChange,
@@ -225,23 +243,52 @@ export function MapsTab({
   const [encounterSummaryLoading, setEncounterSummaryLoading] = useState(false);
   const [encounterSummaryError, setEncounterSummaryError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [createMapOpen, setCreateMapOpen] = useState(false);
+  const [encounterEditorOpen, setEncounterEditorOpen] = useState(false), [itemEditorOpen, setItemEditorOpen] = useState(false);
+  const [trainerEditor, setTrainerEditor] = useState<{ id: number | null } | null>(null);
+  const [mapEncounters, setMapEncounters] = useState(encounters);
+  useEffect(() => { setMapEncounters(encounters); }, [encounters]);
+  const appliedMapFocus = useRef<string | null>(null);
+  const [terrainOpen, setTerrainOpen] = useState(false);
+  const [strengthOpen, setStrengthOpen] = useState(false);
+  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const [mapCheck, setMapCheck] = useState<MapCheckReport | null>(null), [checkingMap, setCheckingMap] = useState(false);
+  const checkSequence = useRef(0);
+  const [warpEditor, setWarpEditor] = useState<{ id: number | null } | null>(null);
   const [npcWizardOpen, setNpcWizardOpen] = useState(false);
   const [editingNpcId, setEditingNpcId] = useState<number | null>(null);
+  const [nativeObjectId, setNativeObjectId] = useState<number | null>(null);
+  const [signEditor, setSignEditor] = useState<{ id: number | null } | null>(null);
+  const [removal, setRemoval] = useState<{ kind: "sign" | "object"; id: number } | null>(null);
+  const [projectCheck, setProjectCheck] = useState<ProjectMapCheckReport | null>(null), [checkingProject, setCheckingProject] = useState(false);
+  const projectCheckSequence = useRef(0), reviewFocus = useRef<MapCheck | null>(null);
+  const mapDetails = useRef<HTMLDivElement>(null);
   const [mapRevision, setMapRevision] = useState(0);
+  useEffect(() => { checkSequence.current++; setMapCheck(null); setCheckingMap(false); }, [selectedConstant]);
   const newNpcSelection = useRef<{ map: string; id: number } | null>(null);
   const dirtyCallback = useRef(onDirtyChange);
   dirtyCallback.current = onDirtyChange;
   useEffect(() => () => dirtyCallback.current?.(false), []);
 
   useEffect(() => {
-    const refresh = () => setMapRevision(value => value + 1);
+    const refresh = () => { checkSequence.current++; projectCheckSequence.current++; setProjectCheck(null); setCheckingProject(false); setMapCheck(null); setCheckingMap(false); setMapRevision(value => value + 1); };
     window.addEventListener("yellow-editor:history-changed", refresh);
     return () => window.removeEventListener("yellow-editor:history-changed", refresh);
   }, []);
 
   useEffect(() => {
+    appliedMapFocus.current = null;
+    setCreateMapOpen(false);
+    setEncounterEditorOpen(false); setItemEditorOpen(false);
+    setTrainerEditor(null);
+    setTerrainOpen(false);
+    setStrengthOpen(false);
+    setPropertiesOpen(false);
+    setWarpEditor(null);
     setNpcWizardOpen(false);
     setEditingNpcId(null);
+    setNativeObjectId(null);
+    setSignEditor(null); setRemoval(null); projectCheckSequence.current++; setProjectCheck(null); setCheckingProject(false); reviewFocus.current = null;
     newNpcSelection.current = null;
     if (!project) {
       setMaps([]);
@@ -282,6 +329,17 @@ export function MapsTab({
     };
   }, [project?.storageKey]);
 
+  useEffect(() => {
+    if (!project || !mapRevision) return;
+    let cancelled = false;
+    void invoke<MapIndexEntry[]>("get_map_index").then(entries => {
+      if (cancelled) return;
+      setMaps(entries);
+      setSelectedConstant(current => entries.some(entry => entry.constant === current) ? current : entries.find(entry => !entry.isUnused)?.constant ?? null);
+    }).catch(reason => { if (!cancelled) setError(String(reason)); });
+    return () => { cancelled = true; };
+  }, [project?.storageKey, mapRevision]);
+
   const selectedMap = maps.find(
     (entry) => entry.constant === selectedConstant,
   ) ?? null;
@@ -291,10 +349,11 @@ export function MapsTab({
       !focusMapConstant
       || maps.length === 0
       || !maps.some((entry) => entry.constant === focusMapConstant)
-      || selectedConstant === focusMapConstant
+      || appliedMapFocus.current === focusMapConstant
     ) {
       return;
     }
+    appliedMapFocus.current = focusMapConstant;
     selectMapFromBrowser(focusMapConstant);
   }, [focusMapConstant, maps]);
 
@@ -382,6 +441,7 @@ export function MapsTab({
           return result.npcs.some(npc => npc.id === id) ? id : null;
         });
         newNpcSelection.current = null;
+        if (reviewFocus.current) { const issue = reviewFocus.current; setSelectedWarpId(issue.kind === "warp" ? issue.id ?? null : null); setSelectedSignId(issue.kind === "sign" ? issue.id ?? null : null); setSelectedNpcId(issue.kind === "object" ? issue.id ?? null : null); reviewFocus.current = null; }
       })
       .catch((reason) => {
         if (!cancelled) setError(String(reason));
@@ -396,7 +456,7 @@ export function MapsTab({
   }, [project?.storageKey, selectedMap?.constant, arrivalWarpId, mapRevision]);
 
   const selectedEncounterEntry = selectedConstant
-    ? encounters.find((entry) =>
+    ? mapEncounters.find((entry) =>
         entry.affectedMaps.some((map) => map.constant === selectedConstant),
       ) ?? null
     : null;
@@ -442,7 +502,7 @@ export function MapsTab({
     return () => {
       cancelled = true;
     };
-  }, [selectedEncounterEntry?.path, selectedEncounterEntry?.error]);
+  }, [selectedEncounterEntry?.path, selectedEncounterEntry?.error, mapRevision]);
 
   const filteredMaps = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -520,6 +580,16 @@ export function MapsTab({
     return `${constantLabel(movementConstant)} · ${constantLabel(directionOrRangeConstant)}`;
   }
 
+  function reviewIssue(map: string, issue: MapCheck) {
+    if (selectedConstant === map) { setSelectedWarpId(issue.kind === "warp" ? issue.id ?? null : null); setSelectedSignId(issue.kind === "sign" ? issue.id ?? null : null); setSelectedNpcId(issue.kind === "object" ? issue.id ?? null : null); }
+    else { reviewFocus.current = issue; selectMapFromBrowser(map); }
+    setView("map");
+    if (issue.kind === "warp") setShowWarps(true);
+    if (issue.kind === "sign") setShowSigns(true);
+    if (issue.kind === "object") setShowNpcs(true);
+    mapDetails.current?.scrollIntoView({ block: "start" });
+  }
+
   if (!project) {
     return (
       <section className="editor-card">
@@ -542,9 +612,23 @@ export function MapsTab({
             game world.
           </p>
         </div>
-        <span className="read-only-badge">World navigation foundation</span>
+        <div className="world-map-npc-actions"><button type="button" disabled={checkingProject} onClick={() => {
+          const sequence = ++projectCheckSequence.current; setCheckingProject(true); setProjectCheck(null);
+          void invoke<ProjectMapCheckReport>("check_project_maps").then(report => { if (sequence === projectCheckSequence.current) setProjectCheck(report); }).catch(reason => { if (sequence === projectCheckSequence.current) setError(String(reason)); }).finally(() => { if (sequence === projectCheckSequence.current) setCheckingProject(false); });
+        }}>{checkingProject ? "Checking project maps…" : "Check project maps"}</button><button type="button" className="primary-button" onClick={() => setCreateMapOpen(true)}>Create map</button></div>
       </div>
 
+      {projectCheck && <section className="strength-row" aria-label="Project map check results"><h3>Project map review</h3><p>{projectCheck.checkedMaps} maps checked; {projectCheck.skippedMaps} unused or shared-header entries skipped. {projectCheck.reports.reduce((sum, r) => sum + r.issues.length, 0)} review messages. Custom scripts and one-way routes may be intentional; these checks do not prove puzzle solvability.</p>
+        {projectCheck.reports.filter(r => r.issues.length > 0).map(report => <details key={report.mapConstant}><summary>{constantLabel(report.mapConstant)} · {report.issues.length} messages</summary><ul>{report.issues.map((issue, i) => <li key={i}>{issue.message} <button type="button" className="small-button" onClick={() => reviewIssue(report.mapConstant, issue)}>Review in map</button>{issue.sourcePath && <button type="button" className="small-button" onClick={() => onOpenScript(issue.sourcePath!)}>View source</button>}</li>)}</ul></details>)}
+      </section>}
+
+      {createMapOpen && <MapCreateWizard exterior={visualization} onDirtyChange={onDirtyChange} onClose={() => setCreateMapOpen(false)} onCreated={result => {
+        setCreateMapOpen(false);
+        void invoke<MapIndexEntry[]>("get_map_index").then(entries => {
+          setMaps(entries); selectMapFromBrowser(result.mapConstant);
+          window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: result.history }));
+        }).catch(reason => setError(String(reason)));
+      }} />}
       <div className="world-map-browser">
         <aside>
           <input
@@ -575,7 +659,7 @@ export function MapsTab({
           </div>
         </aside>
 
-        <div className="world-map-details">
+        <div className="world-map-details" ref={mapDetails}>
           {selectedMap && (
             <div className="world-map-title">
               <div>
@@ -669,6 +753,8 @@ export function MapsTab({
               {mapLogic && <MapScriptsPanel key={`${project?.storageKey}:${mapLogic.path}:${mapLogic.label ?? ""}`} project={project} path={mapLogic.path} label={mapLogic.label} onClose={() => setMapLogic(null)} onDirtyChange={onDirtyChange} />}
 
               <section className="world-map-encounters">
+                {encounterEditorOpen && <MapEncounterEditor key={visualization.map.constant} mapConstant={visualization.map.constant} onClose={() => setEncounterEditorOpen(false)} onDirtyChange={onDirtyChange}
+                  onSaved={history => { setEncounterEditorOpen(false); void invoke<EncounterTableIndexEntry[]>("get_encounter_index").then(entries => { setMapEncounters(entries); onEncountersChanged?.(entries); }).catch(reason => setError(String(reason))); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history })); }} />}
                 <div className="world-map-encounters-heading">
                   <div>
                     <strong>Wild encounters</strong>
@@ -691,6 +777,7 @@ export function MapsTab({
                           </small>
                         )}
                       </div>
+                      <button type="button" className="small-button" onClick={() => setEncounterEditorOpen(true)}>Assign encounters</button>
                       {selectedEncounterEntry && (
                         <button
                           type="button"
@@ -793,6 +880,41 @@ export function MapsTab({
                 </div>
               </section>
 
+              <div className="terrain-toolbar">
+                <button type="button" className="primary-button" onClick={() => setTerrainOpen(true)}>Edit terrain</button>
+                <button type="button" onClick={() => setStrengthOpen(true)}>Strength puzzles</button>
+                <button type="button" onClick={() => setPropertiesOpen(true)}>Map properties</button>
+                <button type="button" disabled={checkingMap} onClick={() => {
+                  const sequence = ++checkSequence.current; setCheckingMap(true); setMapCheck(null);
+                  void invoke<MapCheckReport>("check_map", { mapConstant: visualization.map.constant }).then(report => { if (sequence === checkSequence.current) setMapCheck(report); }).catch(reason => { if (sequence === checkSequence.current) setError(String(reason)); }).finally(() => { if (sequence === checkSequence.current) setCheckingMap(false); });
+                }}>{checkingMap ? "Checking map…" : "Check map"}</button>
+                <button type="button" onClick={() => setWarpEditor({ id: null })}>Add warp</button>
+                <button type="button" onClick={() => setSignEditor({ id: null })}>Place sign</button>
+                <button type="button" disabled={selectedWarpId === null} onClick={() => setWarpEditor({ id: selectedWarpId })}>Edit selected warp</button>
+              </div>
+              {mapCheck && <section className="strength-row" aria-label="Map check results"><h4>Map checks</h4><p>{mapCheck.checkedWarps} warps checked. {mapCheck.issues.length ? "Review these possible issues; one-way routes and custom scripts may be intentional." : "No issues found in warp destinations, ordinary warp terrain, return routes or object overlaps."}</p>{mapCheck.issues.length > 0 && <ul>{mapCheck.issues.map((issue, i) => <li key={i}>{issue.message}</li>)}</ul>}</section>}
+              {propertiesOpen && <MapPropertiesEditor key={`${project.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
+                onDirtyChange={onDirtyChange} onClose={() => setPropertiesOpen(false)} onSaved={history => {
+                  setPropertiesOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                }} />}
+              {strengthOpen && <MapStrengthEditor key={`${project.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
+                onDirtyChange={onDirtyChange} onClose={() => setStrengthOpen(false)} onSaved={history => {
+                  setStrengthOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                }} />}
+              {terrainOpen && <MapTerrainEditor key={`${project.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
+                onDirtyChange={onDirtyChange} onClose={() => setTerrainOpen(false)} onSaved={history => {
+                  setTerrainOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                }} />}
+              {warpEditor && <MapWarpEditor key={`${project.storageKey}:${visualization.map.constant}:${warpEditor.id}`} visualization={visualization} warpId={warpEditor.id}
+                onDirtyChange={onDirtyChange} onClose={() => setWarpEditor(null)} onSaved={history => {
+                  setWarpEditor(null); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+                }} />}
+              {signEditor && <MapSignEditor key={`${project.storageKey}:${visualization.map.constant}:${signEditor.id}`} visualization={visualization} signId={signEditor.id} onDirtyChange={onDirtyChange} onClose={() => setSignEditor(null)} onSaved={(id, history) => {
+                setSignEditor(null); setSelectedSignId(id); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+              }} />}
+              {removal && <MapRemovalReview key={`${project.storageKey}:${visualization.map.constant}:${removal.kind}:${removal.id}`} mapConstant={visualization.map.constant} kind={removal.kind} id={removal.id} onClose={() => setRemoval(null)} onOpenScript={onOpenScript} onSaved={history => {
+                setRemoval(null); setSelectedSignId(null); setSelectedNpcId(null); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+              }} />}
               <div className="world-map-controls">
                 <div className="segmented-control world-map-view-control">
                   <button
@@ -862,7 +984,7 @@ export function MapsTab({
                         checked={showNpcs}
                         onChange={(event) => setShowNpcs(event.target.checked)}
                       />
-                      <span>NPC markers</span>
+                      <span>Object markers (N / T / I)</span>
                     </label>
                   </>
                 )}
@@ -1048,6 +1170,7 @@ export function MapsTab({
                         <strong>Sign #{selectedSign.id}</strong>
                         <code>x {selectedSign.x}, y {selectedSign.y}</code>
                         <code>{selectedSign.textConstant}</code>
+                        <div className="world-map-npc-actions"><button type="button" onClick={() => setSignEditor({ id: selectedSign.id })}>Edit sign</button><button type="button" onClick={() => setRemoval({ kind: "sign", id: selectedSign.id })}>Review sign removal</button></div>
                       </div>
                       <MapInteractionEditor
                         key={`sign:${selectedSign.scriptPath}:${selectedSign.id}:${selectedSign.textLabel ?? selectedSign.textConstant}`}
@@ -1075,13 +1198,17 @@ export function MapsTab({
                 <div className="world-map-npc-panel">
                   <div className="world-map-npc-heading">
                     <div>
-                      <strong>NPCs</strong>
+                      <strong>NPCs, trainers &amp; items</strong>
                       <small>
                         Select a character to edit their placement, appearance, dialogue and interaction, or add a new NPC.
                       </small>
                     </div>
-                    <div className="world-map-npc-actions"><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button></div>
+                    <div className="world-map-npc-actions"><button type="button" onClick={() => setTrainerEditor({ id: null })}>Place trainer</button><button type="button" onClick={() => setItemEditorOpen(true)}>Place item</button><button type="button" className="primary-button" onClick={() => setNpcWizardOpen(true)}>Add NPC</button></div>
                   </div>
+                  {itemEditorOpen && <MapItemEditor key={visualization.map.constant} visualization={visualization} onClose={() => setItemEditorOpen(false)} onDirtyChange={onDirtyChange}
+                    onSaved={(id, history) => { newNpcSelection.current = { map: visualization.map.constant, id }; setItemEditorOpen(false); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history })); }} />}
+                  {trainerEditor && <MapTrainerEditor key={`${visualization.map.constant}:${trainerEditor.id}`} visualization={visualization} objectId={trainerEditor.id} onClose={() => setTrainerEditor(null)} onDirtyChange={onDirtyChange}
+                    onSaved={(id, history) => { newNpcSelection.current = { map: visualization.map.constant, id }; setTrainerEditor(null); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history })); }} />}
                   {npcWizardOpen && <MapNpcWizard key={`${project?.storageKey}:${visualization.map.constant}`} mapConstant={visualization.map.constant}
                     renderPlacement={(x, y, onPlace) => <div className="npc-placement-map"><MapCanvas visualization={visualization} view="map" zoom={1}
                       showGrid={true} showWarps={true} showSigns={true} showNpcs={true} selectedWarpId={null} selectedSignId={null} selectedNpcId={null} arrivalWarpId={null}
@@ -1102,6 +1229,8 @@ export function MapsTab({
                       setEditingNpcId(null);
                       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
                     }} />}
+                  {nativeObjectId !== null && <NativeMapObjectEditor key={`${project?.storageKey}:${visualization.map.constant}:${nativeObjectId}`} visualization={visualization} objectId={nativeObjectId} onClose={() => setNativeObjectId(null)} onDirtyChange={onDirtyChange}
+                    onSaved={(id, history) => { newNpcSelection.current = { map: visualization.map.constant, id }; setNativeObjectId(null); window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history })); }} />}
                   <div className="world-map-npc-list" aria-label="Map NPCs">
                     {visualization.npcs.map((npc) => (
                       <button
@@ -1119,7 +1248,7 @@ export function MapsTab({
                             ? constantLabel(npc.objectConstant)
                             : `NPC #${npc.id}`}
                         </strong>
-                        <span>({npc.x}, {npc.y}) · {constantLabel(npc.spriteConstant, "SPRITE_")}</span>
+                        <span>{npc.trainerPartyId ? "Trainer · " : npc.objectKind === "item" ? "Item · " : npc.objectKind === "special" ? "Special encounter · " : ""}({Number.isFinite(npc.x) ? npc.x : "?"}, {Number.isFinite(npc.y) ? npc.y : "?"}) · {npc.itemConstant ? constantLabel(npc.itemConstant) : constantLabel(npc.spriteConstant, "SPRITE_")}{npc.initiallyHidden ? " · initially hidden" : ""}</span>
                       </button>
                     ))}
                   </div>
@@ -1127,13 +1256,16 @@ export function MapsTab({
                   {selectedNpc ? (
                     <div className="world-map-npc-inspector">
                       <div className="world-map-npc-details">
-                        <span>Selected NPC</span>
+                        <span>{selectedNpc.trainerPartyId ? "Selected trainer" : selectedNpc.objectKind === "item" ? "Selected item" : selectedNpc.objectKind === "special" ? "Selected special encounter" : "Selected NPC"}</span>
                         <strong>
                           {selectedNpc.objectConstant
                             ? constantLabel(selectedNpc.objectConstant)
                             : `NPC #${selectedNpc.id}`}
                         </strong>
-                        <code>x {selectedNpc.x}, y {selectedNpc.y}</code>
+                        <code>x {Number.isFinite(selectedNpc.x) ? selectedNpc.x : "?"}, y {Number.isFinite(selectedNpc.y) ? selectedNpc.y : "?"}</code>
+                        {selectedNpc.sourceIssue && <p role="status">{selectedNpc.sourceIssue}</p>}
+                        {selectedNpc.itemConstant && <p>Item: <code>{selectedNpc.itemConstant}</code></p>}
+                        {selectedNpc.initiallyHidden !== undefined && <p>{selectedNpc.initiallyHidden ? "Initially hidden; shown here so you can inspect its story placement." : "Initially visible; the game controls its saved visibility state."}</p>}
                         <dl>
                           <div>
                             <dt>Sprite</dt>
@@ -1162,8 +1294,16 @@ export function MapsTab({
                         </dl>
                       </div>
 
-                      <div className="world-map-npc-actions"><button type="button" className="small-button" onClick={() => setEditingNpcId(selectedNpc.id)}>Edit NPC</button></div>
-                      <div className="world-map-npc-dialogue">
+                      <div className="world-map-npc-actions">{selectedNpc.nativeObject
+                        ? <button type="button" className="small-button" onClick={() => setNativeObjectId(selectedNpc.id)}>{selectedNpc.trainerPartyId ? "Edit trainer" : selectedNpc.objectKind === "item" ? "Edit item" : "Inspect object"}</button>
+                        : selectedNpc.trainerPartyId ? <button type="button" className="small-button" onClick={() => setTrainerEditor({ id: selectedNpc.id })}>Edit trainer</button>
+                        : <button type="button" className="small-button" onClick={() => setEditingNpcId(selectedNpc.id)}>Edit NPC</button>}
+                        {selectedNpc.trainerPartyId && onOpenTrainerParty && <button type="button" className="small-button" onClick={() => onOpenTrainerParty(selectedNpc.trainerPartyId!)}>Edit trainer party</button>}
+                        {selectedNpc.nativeObject && selectedNpc.textLabel && <button type="button" className="small-button" onClick={() => setMapLogic({ path: selectedNpc.scriptPath, label: selectedNpc.textLabel })}>Inspect map logic</button>}
+                        {selectedNpc.sourcePath && <button type="button" className="small-button" onClick={() => onOpenScript(selectedNpc.sourcePath!)}>View object source</button>}
+                        <button type="button" className="small-button" onClick={() => setRemoval({ kind: "object", id: selectedNpc.id })}>Review object removal</button>
+                      </div>
+                      {!selectedNpc.trainerPartyId && !(selectedNpc.objectKind === "item" && selectedNpc.nativeObject) && <div className="world-map-npc-dialogue">
                         <MapInteractionEditor
                           key={`npc:${selectedNpc.scriptPath}:${selectedNpc.id}:${selectedNpc.textLabel ?? selectedNpc.textConstant}`}
                           title="NPC dialogue"
@@ -1185,11 +1325,11 @@ export function MapsTab({
                           or Yes/No choices. Yellow Editor exposes safely resolved text leaves
                           as separate dialogue paths while preserving the surrounding script logic.
                         </small>
-                      </div>
+                      </div>}
                     </div>
                   ) : (
                     <p className="world-map-warp-empty">
-                      Select an N marker or NPC card to inspect its sprite, movement, and dialogue.
+                      Select an N, T or I marker or object card to inspect and edit it. Special encounters use ? markers.
                     </p>
                   )}
                 </div>
@@ -1200,7 +1340,7 @@ export function MapsTab({
                   ? "Tile IDs run left-to-right, top-to-bottom. Each tile is decoded directly from the selected .2bpp source."
                   : view === "blocks"
                     ? "Block IDs run left-to-right, top-to-bottom. Every block is assembled from 16 tile IDs in the .bst blockset."
-                    : "Map markers use the game's 16×16 movement coordinates. Numbered markers are warps, S markers are signs, and N markers are ordinary NPC objects."}
+                    : "Map markers use the game's 16×16 movement coordinates. Numbers mark warps, S signs, N NPCs, T trainers, I pickups and ? special encounters. Dashed markers are initially hidden objects."}
               </p>
 
               {visualization.warnings.length > 0 && (

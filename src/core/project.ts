@@ -1,3 +1,13 @@
+import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
+import { loadMapEncounterDocument, prepareMapEncounterWrites } from "./mapEncounters";
+import { loadMapItemDocument, prepareMapItemWrites } from "./mapItems";
+import { loadNativeMapObjectDocument, prepareNativeMapObjectWrites } from "./nativeMapObjects";
+import { loadMapTrainerDocument, prepareMapTrainerWrites } from "./mapTrainers";
+import { loadMapStrengthDocument, prepareMapStrengthWrites, prepareAddBoulderWrites } from "./mapStrength";
+import { loadMapPropertiesDocument, prepareMapPropertiesWrites } from "./mapProperties";
+import { checkMap, checkProjectMaps } from "./mapValidation";
+import { loadMapSignDocument, prepareMapSignWrites } from "./mapSigns";
+import { loadMapRemovalDocument, prepareMapRemovalWrites } from "./mapRemoval";
 import {
   parseBaseStats,
   parseMoves,
@@ -33,6 +43,7 @@ import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
+import { loadMapTerrainDocument, prepareMapTerrainWrites, loadMapWarpDocument, prepareMapWarpWrites } from "./mapEditing";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
 import { loadMapNpcEditDocument, prepareMapNpcEditWrites } from "./npcEditing";
 import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "./npcCreation";
@@ -716,7 +727,7 @@ export async function createProjectSession(
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
     invalidateScriptReadModels(paths);
-    if (paths.some(path => path.startsWith("data/maps/") || path.startsWith("scripts/") || path.startsWith("constants/") || path.startsWith("gfx/tilesets") || path === "maps.asm")) {
+    if (paths.some(path => path.endsWith(".blk") || path.endsWith(".bst") || path.startsWith("maps/") || path.startsWith("data/maps/") || path.startsWith("scripts/") || path.startsWith("constants/") || path.startsWith("gfx/blocksets/") || path.startsWith("gfx/tilesets") || path === "maps.asm")) {
       mapIndexPromise = null;
       mapVisualizationPromises.clear();
     }
@@ -865,6 +876,93 @@ export async function createProjectSession(
       if (changes.length === 0) return history.getSummary();
       const result = await history.save(`Add item ${values.constant.trim().toUpperCase()}`, changes);
       invalidateScriptReadModels(changes.map((change) => change.path));
+      return result;
+    },
+    checkMap: mapConstant => checkMap(source, mapConstant),
+    checkProjectMaps: () => checkProjectMaps(source),
+    getMapSignDocument: (map, id) => loadMapSignDocument(source, map, id),
+    saveMapSign: async (document, values) => {
+      const changes = await prepareMapSignWrites(source, document, values);
+      const result = changes.length ? await history.save(`${document.signId === null ? "Place" : "Edit"} sign in ${document.mapName}`, changes) : await history.getSummary();
+      invalidateNonTrainerReadModels(changes.map(c => c.path));
+      return result;
+    },
+    getMapRemovalDocument: (map, kind, id) => loadMapRemovalDocument(source, map, kind, id),
+    removeMapRecord: async document => {
+      const changes = await prepareMapRemovalWrites(source, document);
+      const result = await history.save(`Remove ${document.name} from ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(c => c.path));
+      return result;
+    },
+    getMapPropertiesDocument: mapConstant => loadMapPropertiesDocument(source, mapConstant),
+    saveMapProperties: async (document, values) => {
+      const changes = await prepareMapPropertiesWrites(source, document, values);
+      const result = await history.save(`Edit map properties in ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    getMapStrengthDocument: mapConstant => loadMapStrengthDocument(source, mapConstant),
+    saveMapStrength: async (document, values) => {
+      const changes = await prepareMapStrengthWrites(source, document, values);
+      const result = await history.save(`Edit Strength puzzles in ${document.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    addMapBoulder: async (mapConstant, x, y) => {
+      const changes = await prepareAddBoulderWrites(source, mapConstant, x, y);
+      const result = await history.save(`Add Strength boulder to ${mapConstant}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    getMapCreateDocument: templateConstant => loadMapCreateDocument(source, templateConstant),
+    getMapEncounterDocument: map => loadMapEncounterDocument(source, projectName, map),
+    assignMapEncounters: async (document, values) => {
+      const changes = await prepareMapEncounterWrites(source, projectName, document, values);
+      const result = changes.length ? await history.save(`Assign encounters to ${document.mapName}`, changes) : await history.getSummary();
+      invalidateNonTrainerReadModels(changes.map(c => c.path));
+      return result;
+    },
+    getMapItemDocument: map => loadMapItemDocument(source, map),
+    getNativeMapObjectDocument: (map, id) => loadNativeMapObjectDocument(source, map, id),
+    saveNativeMapObject: async (document, values) => {
+      const changes = await prepareNativeMapObjectWrites(source, document, values);
+      const result = changes.length ? await history.save(`Edit ${document.objectConstant}`, changes) : await history.getSummary();
+      const paths = changes.map(c => c.path);
+      invalidateNonTrainerReadModels(paths); invalidateTrainerBaseCatalog(paths); await trainerCatalogCache?.clear();
+      return result;
+    },
+    getMapTrainerDocument: (map, objectId) => loadMapTrainerDocument(source, map, objectId),
+    saveMapTrainer: async (document, values) => {
+      const changes = await prepareMapTrainerWrites(source, document, values);
+      const result = changes.length ? await history.save(`${document.objectId === null ? "Place" : "Edit"} trainer in ${document.mapName}`, changes) : await history.getSummary();
+      const paths = changes.map(c => c.path);
+      invalidateNonTrainerReadModels(paths); invalidateTrainerBaseCatalog(paths); await trainerCatalogCache?.clear();
+      return result;
+    },
+    placeMapItem: async (document, values) => {
+      const changes = await prepareMapItemWrites(source, document, values);
+      const result = await history.save(`Place ${values.item} in ${document.npc.mapName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(c => c.path));
+      return result;
+    },
+    createMap: async (document, values) => {
+      const changes = await prepareMapCreateWrites(source, document, values);
+      const result = await history.save(`Create map ${values.constant.trim()}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return { mapConstant: values.constant.trim(), history: result };
+    },
+    getMapTerrainDocument: mapConstant => loadMapTerrainDocument(source, mapConstant),
+    saveMapTerrain: async (document, values) => {
+      const changes = await prepareMapTerrainWrites(source, document, values);
+      const result = await history.save(`Edit terrain in ${document.visualization.map.displayName}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
+    getMapWarpDocument: mapConstant => loadMapWarpDocument(source, mapConstant),
+    saveMapWarp: async (document, values) => {
+      const changes = await prepareMapWarpWrites(source, document, values);
+      const result = await history.save(`${values.id === null ? "Add" : "Edit"} warp in ${document.mapName}${values.pair ? " with return warp" : ""}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
       return result;
     },
     getMapIndex,

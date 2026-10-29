@@ -1,3 +1,4 @@
+import { FieldToolEditor } from "./FieldToolEditor";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { AddItemWizard } from "./AddItemWizard";
 import { ItemEvolutionPanel } from "./ItemEvolutionPanel";
@@ -366,6 +367,7 @@ export function ItemsTab({
                       </div>
                     ) : null}
 
+                    {itemEditDraft?.fieldTool && <FieldToolEditor value={itemEditDraft.fieldTool} support={itemEditDocument?.fieldToolSupport} disabled={editBusy} onChange={fieldTool => changeItemDraft({ fieldTool })} />}
                     {itemEditDraft?.itemEvolution && (
                       <>
                         <h4>Evolution Trigger</h4>

@@ -20,6 +20,7 @@ export interface MapIndexEntry {
 }
 
 export interface MapNpcCreateDocument {
+  appearanceReason?: string | null;
   mapConstant: string;
   mapName: string;
   width: number;
@@ -35,6 +36,7 @@ export interface MapNpcCreateDocument {
 }
 
 export interface MapNpcCreateValues {
+  boulder?: boolean;
   x: number;
   y: number;
   sprite: string;
@@ -49,6 +51,7 @@ export interface MapNpcEditValues {
   moveSceneStart: boolean;
 }
 export interface MapNpcEditDocument {
+  appearanceReason?: string | null;
   mapConstant: string; mapName: string; objectId: number; objectConstant: string;
   width: number; height: number; sprites: string[]; stationarySprites: string[]; spriteNote: string;
   occupied: Array<{ x: number; y: number }>;
@@ -86,6 +89,15 @@ export interface MapSignEvent {
 }
 
 export interface MapNpcEvent {
+  sourcePath?: string;
+  sourceLine?: number;
+  sourceIssue?: string;
+  objectKind?: "npc" | "trainer" | "item" | "special";
+  nativeObject?: boolean;
+  managedTrainer?: boolean;
+  itemConstant?: string;
+  initiallyHidden?: boolean;
+  trainerPartyId?: string;
   id: number;
   objectConstant: string | null;
   x: number;
@@ -98,6 +110,40 @@ export interface MapNpcEvent {
   scriptPath: string;
   dialoguePath: string;
   dialogueLabel: string | null;
+}
+
+export interface MapCreateDocument {
+  templateConstant: string; visualization: MapVisualization; borderBlock: number;
+  nextId: number; remainingIds: number; templates: MapIndexEntry[]; locations: MapIndexEntry[];
+  sources: MapSourceSnapshot[];
+}
+export interface MapCreateValues {
+  constant: string; width: number; height: number; layout: "copy" | "blank";
+  fillBlock: number; borderBlock: number; locationMap: string; musicMap: string;
+  connection: null | { exteriorMap: string; exteriorX: number; exteriorY: number; interiorX: number; interiorY: number };
+}
+export interface MapCreateResult { mapConstant: string; history: HistorySummary }
+
+export interface MapSourceSnapshot { path: string; hash: string; encoding?: "hex" }
+export interface MapTerrainDocument {
+  visualization: MapVisualization;
+  sharedLayout: boolean;
+  sources: MapSourceSnapshot[];
+}
+export interface MapTerrainValues {
+  mapBlocks: number[]; blockset: number[];
+  confirmSharedBlocks: boolean; confirmSharedLayout: boolean;
+}
+export interface MapWarpDocument {
+  mapConstant: string; mapName: string; width: number; height: number; maxWarps: number;
+  warps: Array<{ id: number; x: number; y: number; destinationMap: string; destinationWarpId: number }>;
+  maps: MapIndexEntry[]; sources: MapSourceSnapshot[];
+}
+export interface MapWarpValues {
+  id: number | null; x: number; y: number;
+  destinationMap: string; destinationWarpId: number;
+  destinationDocument: MapWarpDocument | null;
+  pair: { x: number; y: number } | null;
 }
 
 export interface MapVisualization {
@@ -963,6 +1009,8 @@ export interface ItemEditDocument {
   maxNameLength: number;
   routineParameters: ItemRoutineParameters;
   itemEvolution: ItemEvolutionEditData | null;
+  fieldTool?: import("./fieldTools").FieldToolValues | null;
+  fieldToolSupport?: import("./fieldTools").FieldToolSupport;
   sources: ItemEditSourceDocument[];
 }
 
@@ -972,6 +1020,7 @@ export interface ItemEditValues {
   keyItem: boolean;
   routineParameters: ItemRoutineParameters;
   itemEvolution: ItemEvolutionEditData | null;
+  fieldTool?: import("./fieldTools").FieldToolValues | null;
 }
 
 export type ItemCreateTemplate =
@@ -985,9 +1034,11 @@ export type ItemCreateTemplate =
   | "dire-hit"
   | "escape-rope"
   | "bicycle"
-  | "poke-doll";
+  | "poke-doll"
+  | "field-tool";
 
 export interface ItemCreateSlot {
+  append?: boolean;
   id: number;
   constant: string;
   displayName: string;
@@ -1002,6 +1053,7 @@ export interface ItemCreateDocument {
   slots: ItemCreateSlot[];
   maxNameLength: number;
   sources: ItemCreateSourceDocument[];
+  fieldToolSupport?: import("./fieldTools").FieldToolSupport;
 }
 
 export interface ItemCreateValues {
@@ -1011,6 +1063,7 @@ export interface ItemCreateValues {
   price: number;
   keyItem: boolean;
   template: ItemCreateTemplate;
+  fieldTool?: import("./fieldTools").FieldToolValues;
 }
 
 export type TrainerPartyFormat = "shared-level" | "individual-levels";
@@ -1335,6 +1388,9 @@ export interface FishingEditDocument extends FishingData {
 }
 
 export interface HistoryFileChange {
+  beforeExists?: boolean;
+  afterExists?: boolean;
+  encoding?: "hex";
   path: string;
   before: string;
   after: string;
@@ -1412,6 +1468,9 @@ export interface HistoryStore {
 }
 
 export interface TextWriteRequest {
+  operation?: "create" | "delete";
+  /** Binary snapshots are stored as lossless hexadecimal strings. */
+  encoding?: "hex";
   path: string;
   contents: string;
   expectedHash?: string;
@@ -1524,6 +1583,9 @@ export interface ProjectSource {
   readText(relativePath: string): Promise<string>;
   readBytes(relativePath: string): Promise<Uint8Array>;
   writeText(relativePath: string, contents: string): Promise<void>;
+  writeBytes?(relativePath: string, contents: Uint8Array): Promise<void>;
+  createFile?(relativePath: string, contents: Uint8Array): Promise<void>;
+  removeFile?(relativePath: string): Promise<void>;
   exists(relativePath: string): Promise<boolean>;
   assetUrl(relativePath: string): Promise<string | null>;
   listFiles?(): Promise<string[]>;
@@ -1533,6 +1595,17 @@ export interface ProjectSource {
 }
 
 export interface ProjectSession {
+  checkMap(mapConstant: string): Promise<import("./mapValidation").MapCheckReport>;
+  checkProjectMaps(): Promise<import("./mapValidation").ProjectMapCheckReport>;
+  getMapSignDocument(mapConstant: string, signId: number | null): Promise<import("./mapSigns").MapSignDocument>;
+  saveMapSign(document: import("./mapSigns").MapSignDocument, values: import("./mapSigns").MapSignValues): Promise<HistorySummary>;
+  getMapRemovalDocument(mapConstant: string, kind: "sign" | "object", id: number): Promise<import("./mapRemoval").MapRemovalDocument>;
+  removeMapRecord(document: import("./mapRemoval").MapRemovalDocument): Promise<HistorySummary>;
+  getMapPropertiesDocument(mapConstant: string): Promise<import("./mapProperties").MapPropertiesDocument>;
+  saveMapProperties(document: import("./mapProperties").MapPropertiesDocument, values: import("./mapProperties").MapPropertiesValues): Promise<HistorySummary>;
+  getMapStrengthDocument(mapConstant: string): Promise<import("./mapStrength").MapStrengthDocument>;
+  saveMapStrength(document: import("./mapStrength").MapStrengthDocument, values: import("./mapStrength").MapStrengthValues): Promise<HistorySummary>;
+  addMapBoulder(mapConstant: string, x: number, y: number): Promise<HistorySummary>;
   info: ProjectInfo;
   getPokemonIndex(): Promise<PokemonIndexEntry[]>;
   getPokemonDetails(
@@ -1570,6 +1643,20 @@ export interface ProjectSession {
     document: ItemCreateDocument,
     values: ItemCreateValues,
   ): Promise<HistorySummary>;
+  getMapCreateDocument(templateConstant?: string): Promise<MapCreateDocument>;
+  getMapEncounterDocument(mapConstant: string): Promise<import("./mapEncounters").MapEncounterDocument>;
+  assignMapEncounters(document: import("./mapEncounters").MapEncounterDocument, values: import("./mapEncounters").MapEncounterValues): Promise<HistorySummary>;
+  getMapItemDocument(mapConstant: string): Promise<import("./mapItems").MapItemDocument>;
+  getNativeMapObjectDocument(mapConstant: string, objectId: number): Promise<import("./nativeMapObjects").NativeMapObjectDocument>;
+  saveNativeMapObject(document: import("./nativeMapObjects").NativeMapObjectDocument, values: import("./nativeMapObjects").NativeMapObjectValues): Promise<HistorySummary>;
+  getMapTrainerDocument(mapConstant: string, objectId?: number): Promise<import("./mapTrainers").MapTrainerDocument>;
+  saveMapTrainer(document: import("./mapTrainers").MapTrainerDocument, values: import("./mapTrainers").MapTrainerDocument["values"]): Promise<HistorySummary>;
+  placeMapItem(document: import("./mapItems").MapItemDocument, values: import("./mapItems").MapItemValues): Promise<HistorySummary>;
+  createMap(document: MapCreateDocument, values: MapCreateValues): Promise<MapCreateResult>;
+  getMapTerrainDocument(mapConstant: string): Promise<MapTerrainDocument>;
+  saveMapTerrain(document: MapTerrainDocument, values: MapTerrainValues): Promise<HistorySummary>;
+  getMapWarpDocument(mapConstant: string): Promise<MapWarpDocument>;
+  saveMapWarp(document: MapWarpDocument, values: MapWarpValues): Promise<HistorySummary>;
   getMapIndex(): Promise<MapIndexEntry[]>;
   getMapVisualization(mapConstant: string): Promise<MapVisualization>;
   getMapNpcCreateDocument(mapConstant: string): Promise<MapNpcCreateDocument>;

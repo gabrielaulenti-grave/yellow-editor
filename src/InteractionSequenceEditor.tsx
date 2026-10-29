@@ -3,9 +3,11 @@ import { newSequenceDialogueId, newSequenceBattleId, type InteractionAction } fr
 import type { InteractionDocument } from "./core/scriptInteractions";
 import { SearchableSelect } from "./editor/SearchableSelect";
 import { NPC_EMOTES } from "./core/sceneEmotes";
+import { PlayerConditionEditor } from "./PlayerConditionEditor";
 
 const titles: Record<InteractionAction["kind"], string> = {
   dialogue: "Show dialogue", choice: "Yes/No choice", "if-event": "Branch on event",
+  "if-condition": "Branch on player condition", transaction: "Payment or item exchange", shop: "Open shop",
   "if-position": "Branch on player position", "face-npc": "Face NPC", "face-player": "Face player",
   event: "Change event", wait: "Wait", heal: "Heal party", sound: "Play sound",
   "walk-npc": "Walk NPC", "follow-npc": "Walk NPC with player following", visibility: "Show/hide NPC",
@@ -45,6 +47,9 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
     || kind === "trainer-battle" && (Boolean(document.effects.battleReason) || !document.effects.trainers.length || depth >= 4)
     || kind === "choice" && (Boolean(document.choiceReason) || depth >= 4)
     || kind === "if-event" && (!document.events.length || depth >= 4)
+    || kind === "if-condition" && (Boolean(!document.conditions || document.conditions.reason) || depth >= 4)
+    || kind === "transaction" && (Boolean(!document.services || document.services.transactionReason || !document.conditions || document.conditions.reason) || depth >= 4)
+    || kind === "shop" && Boolean(!document.services || document.services.shopReason || !document.items.length)
     || kind === "event" && !document.events.length
     || kind === "sound" && (Boolean(document.soundReason) || !document.sounds.length)
     || kind === "item" && !document.items.length
@@ -67,6 +72,9 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
       case "dialogue": action = { kind, lines: ["Hello!"], textId: newSequenceDialogueId() }; break;
       case "choice": action = { kind, yes: [], no: [{ kind: "end", complete: false }] }; break;
       case "if-event": action = { kind, event: document.events[0], set: true, then: [], otherwise: [] }; break;
+      case "if-condition": action = { kind, condition: { kind: "hall-of-fame" }, then: [], otherwise: [] }; break;
+      case "transaction": action = { kind, cost: { kind: "money", amount: 500 }, reward: { kind: "none" }, confirm: true, success: [{ kind: "dialogue", lines: ["Thank you!"] }], declined: [{ kind: "end", complete: false }], insufficient: [{ kind: "dialogue", lines: ["You need more", "money or items."] }, { kind: "end", complete: false }], full: [{ kind: "dialogue", lines: ["Make room first!"] }, { kind: "end", complete: false }] }; break;
+      case "shop": action = { kind, items: [document.items.includes("POTION") ? "POTION" : document.items[0]] }; break;
       case "event": action = { kind, event: document.events[0], set: true }; break;
       case "wait": action = { kind, frames: 30 }; break;
       case "heal": action = { kind }; break;
@@ -80,7 +88,7 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
   return <div className="interaction-sequence" role="group" aria-label={path}>
     {actions.map((action, i) => {
       const branch = (title: string, entries: InteractionAction[], change: (entries: InteractionAction[]) => void) => <fieldset className="interaction-sequence-branch"><legend>{title}</legend>
-        <InteractionSequenceEditor actions={entries} document={document} busy={busy} onEnableScene={onEnableScene} onChange={change} depth={depth + 1} path={`${path} ${i + 1} ${title}`} actionPrefix={`${actionPrefix}${i + 1}${({ Yes: "Yes", "No or B": "No", Then: "Then", Otherwise: "Otherwise", Defeated: "Won", Victory: "Won", Caught: "Caught", Escaped: "Escaped", Following: "Following", Absent: "Absent" } as Record<string, string>)[title]}`} diagnosticPath={diagnosticPath} />
+        <InteractionSequenceEditor actions={entries} document={document} busy={busy} onEnableScene={onEnableScene} onChange={change} depth={depth + 1} path={`${path} ${i + 1} ${title}`} actionPrefix={`${actionPrefix}${i + 1}${({ Yes: "Yes", "No or B": "No", Then: "Then", Otherwise: "Otherwise", Defeated: "Won", Victory: "Won", Caught: "Caught", Escaped: "Escaped", Following: "Following", Absent: "Absent", Paid: "Success", Declined: "Declined", "Not enough money or items": "Insufficient", "No room for reward": "Full" } as Record<string, string>)[title]}`} diagnosticPath={diagnosticPath} />
       </fieldset>;
       return <div className={`interaction-sequence-action${diagnosticPath === `${actionPrefix}${i + 1}` ? " interaction-action-problem" : ""}`} key={i} data-scene-action={`${actionPrefix}${i + 1}`} tabIndex={-1}>
         <strong>{i + 1}. {titles[action.kind]}</strong>
@@ -134,6 +142,29 @@ export function InteractionSequenceEditor({ actions, document, busy, onChange, o
           {toggle("Event must be set", action.set, set => update(i, { ...action, set }))}
           {branch("Then", action.then, then => update(i, { ...action, then }))}
           {branch("Otherwise", action.otherwise, otherwise => update(i, { ...action, otherwise }))}
+        </>}
+        {action.kind === "if-condition" && <>
+          <PlayerConditionEditor label={`${path} action ${i + 1} condition`} domains={document} busy={busy} value={action.condition} onChange={condition => update(i, { ...action, condition })} />
+          {branch("Then", action.then, then => update(i, { ...action, then }))}
+          {branch("Otherwise", action.otherwise, otherwise => update(i, { ...action, otherwise }))}
+        </>}
+        {action.kind === "transaction" && <>
+          <label>Payment kind<select aria-label={`${path} action ${i + 1} payment kind`} disabled={busy} value={action.cost.kind} onChange={e => update(i, { ...action, cost: e.target.value === "item" ? { kind: "item", item: document.items.includes("POTION") ? "POTION" : document.items[0], quantity: 1 } : { kind: e.target.value as "money" | "coins", amount: 500 } })}><option value="money">Money</option><option value="coins">Coins</option><option value="item">Items from bag</option></select></label>
+          {action.cost.kind === "item" ? <>{options("Payment item", action.cost.item, document.items, item => action.cost.kind === "item" && update(i, { ...action, cost: { ...action.cost, item } }))}{number("Payment quantity", action.cost.quantity, 99, quantity => action.cost.kind === "item" && update(i, { ...action, cost: { ...action.cost, quantity } }))}</> : number("Payment amount", action.cost.amount, action.cost.kind === "money" ? 999999 : 9999, amount => action.cost.kind !== "item" && update(i, { ...action, cost: { ...action.cost, amount } }))}
+          {toggle("Ask for confirmation", action.confirm, confirm => update(i, { ...action, confirm }))}
+          <label>Service reward<select aria-label={`${path} action ${i + 1} service reward`} disabled={busy} value={action.reward.kind} onChange={e => update(i, { ...action, reward: e.target.value === "item" ? { kind: "item", item: document.items.includes("POTION") ? "POTION" : document.items[0], quantity: 1 } : e.target.value === "pokemon" ? { kind: "pokemon", species: document.pokemon.includes("MAGIKARP") ? "MAGIKARP" : document.pokemon[0], level: 5 } : { kind: e.target.value as "none" | "heal" } })}><option value="none">No reward (admission or take payment)</option><option value="item">Give an item</option><option value="pokemon" disabled={Boolean(document.pokemonReason)}>Give a Pokémon</option><option value="heal">Heal the party</option></select></label>
+          {action.reward.kind === "item" && <>{options("Service reward item", action.reward.item, document.items, item => action.reward.kind === "item" && update(i, { ...action, reward: { ...action.reward, item } }))}{number("Service reward quantity", action.reward.quantity, 99, quantity => action.reward.kind === "item" && update(i, { ...action, reward: { ...action.reward, quantity } }))}</>}
+          {action.reward.kind === "pokemon" && <>{options("Service reward Pokémon", action.reward.species, document.pokemon, species => action.reward.kind === "pokemon" && update(i, { ...action, reward: { ...action.reward, species } }))}{number("Service reward level", action.reward.level, 100, level => action.reward.kind === "pokemon" && update(i, { ...action, reward: { ...action.reward, level } }))}</>}
+          <p className="help-text">Confirmation shows the actual price or item quantity. Cancellation, insufficient resources or failed delivery consumes nothing. Put the reward here, rather than in a later gift action. An item trade can free a bag slot for its reward. Scene retries remember a completed payment until the scene finishes.</p>
+          {branch("Paid", action.success, success => update(i, { ...action, success }))}
+          {branch("Declined", action.declined, declined => update(i, { ...action, declined }))}
+          {branch("Not enough money or items", action.insufficient, insufficient => update(i, { ...action, insufficient }))}
+          {branch("No room for reward", action.full, full => update(i, { ...action, full }))}
+        </>}
+        {action.kind === "shop" && <>
+          <p className="help-text">Opens the native buy/sell/quit menu. Stock uses the game's shared item prices; use a payment action for a custom price. Shops usually work best as repeatable interactions.</p>
+          {action.items.map((item, n) => <div key={n}>{options(`Shop item ${n + 1}`, item, document.items, item => update(i, { ...action, items: action.items.map((old, index) => index === n ? item : old) }))}<button type="button" className="small-button" disabled={busy || action.items.length === 1} onClick={() => update(i, { ...action, items: action.items.filter((_, index) => index !== n) })}>Remove shop item {n + 1}</button></div>)}
+          <button type="button" className="small-button" disabled={busy || action.items.length >= 14} onClick={() => update(i, { ...action, items: [...action.items, document.items.find(item => !action.items.includes(item))!] })}>Add shop item</button>
         </>}
         {action.kind === "event" && <>{options("Changed event", action.event, document.events, event => update(i, { ...action, event }))}{toggle("Set event (uncheck to clear)", action.set, set => update(i, { ...action, set }))}</>}
         {action.kind === "wait" && number("Wait frames", action.frames, 255, frames => update(i, { ...action, frames }))}
