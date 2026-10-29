@@ -34,7 +34,7 @@ try {
     await collect();
     for (const width of [320, 375, 1280]) {
       const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width < 600 }), errors = [];
-      page.on("pageerror", error => errors.push(error.message));
+      page.on("pageerror", error => { errors.push(error.message); console.error("Graphics browser error:", error.message); });
       await page.goto(`http://127.0.0.1:${server.address().port}`);
       await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
       const asset = "gfx/pokemon/front/bulbasaur.png";
@@ -113,7 +113,7 @@ try {
     }
     // Exercise the actual application shell and contextual navigation as well.
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } }), errors = [];
-    page.on("pageerror", error => errors.push(error.message));
+    page.on("pageerror", error => { errors.push(error.message); console.error("Graphics browser error:", error.message); });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.setContent(`<!doctype html><style>${styles}</style><div id="root"></div>`);
     await page.evaluate(bytes => { window.graphicsBytes = structuredClone(bytes); window.graphicsKey = `app-${Date.now()}`; window.graphicsApp = true; }, bytes);
