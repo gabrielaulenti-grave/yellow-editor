@@ -1,0 +1,40 @@
+name: Check graphics workspace
+on:
+  pull_request:
+  push:
+    branches: [main, beta]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  graphics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/checkout@v6
+        with:
+          repository: pret/pokered
+          ref: d2704a63c26f9ba046ade877445216b3de0519a4
+          path: .graphics-fixtures/pokered
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: pret/pokeyellow
+          ref: e89ead154b9968aa50eed9328ff2b38b6c194382
+          path: .graphics-fixtures/pokeyellow
+          persist-credentials: false
+      - run: npm run test:graphics -- --native .graphics-fixtures/pokered .graphics-fixtures/pokeyellow
+      - run: npm exec playwright -- install --with-deps chromium
+      - run: npm run test:graphics:ui -- .graphics-fixtures/pokered .graphics-fixtures/pokeyellow
+        env:
+          GRAPHICS_SCREENSHOT: graphics-workspace.png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: graphics-workspace-preview
+          path: graphics-workspace.png

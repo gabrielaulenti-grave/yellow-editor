@@ -50,6 +50,8 @@ For source development, Yellow Editor synchronizes the already-published pinned 
 
 ## Current editor coverage
 
+The **Graphics** workspace provides source-backed pixel editing, local reference-image tracing, PNG import/export, shared-source review and recoverable drafts. Open it directly or from Pokémon, Trainers and Maps. See [the graphics workspace guide](docs/graphics-workspace.md) for tools, save behavior and first-pass limits.
+
 The [vanilla script atlas](docs/script-atlas.md) inventories every Red/Blue and
 Yellow script file, with complete per-map tables, scoped references, helper
 boundaries, classification gaps, and the roadmap for a scene composer. Run

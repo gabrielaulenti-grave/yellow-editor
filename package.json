@@ -4,6 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "test:graphics": "node scripts/check-graphics.mjs",
+    "test:graphics:ui": "node scripts/check-graphics-workflow.mjs",
     "test:maps:native": "node scripts/check-native-map-objects.mjs",
     "test:maps:native:ui": "node scripts/check-native-map-objects-workflow.mjs",
     "test:maps:imported": "node scripts/check-source-driven-map-objects.mjs",
@@ -71,11 +73,13 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",
+    "@types/pngjs": "^6.0.5",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",
     "esbuild": "^0.28.1",
     "playwright": "^1.63.0",
+    "pngjs": "^7.0.0",
     "typescript": "~5.8.3",
     "vite": "^7.0.4"
   }

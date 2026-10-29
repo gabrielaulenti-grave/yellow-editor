@@ -1,0 +1,144 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { createServer } from "node:http";
+import { build } from "esbuild";
+import { chromium } from "playwright";
+const roots = process.argv.slice(2);
+assert.ok(roots.length, "Supply Red/Yellow source directories.");
+const temporary = await mkdtemp(join("node_modules", ".graphics-ui-"));
+const server = createServer((_request, response) => response.end('<!doctype html><div id="root"></div>'));
+let browser;
+try {
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  const outfile = join(temporary, "fixture.js");
+  await build({ entryPoints: ["tests/graphicsWorkflowFixture.tsx"], outfile, bundle: true, format: "esm", platform: "browser", jsx: "automatic",
+    loader: { ".css": "empty" }, define: { "import.meta.env.BASE_URL": '"/"', "import.meta.env.VITE_RELEASE_CHANNEL": '"test"' }, plugins: [{ name: "graphics-session", setup(builder) {
+      builder.onResolve({ filter: /platform\/compat$/ }, () => ({ path: "fixture-session", namespace: "fixture" }));
+      builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: 'export const invoke = (command,args) => window.graphicsInvoke(command,args); export const convertFileSrc = path => path; export const open = async () => "graphics-fixture"; export const saveProjectCopy = async () => null;' }));
+    } }] });
+  const script = await readFile(outfile, "utf8");
+  const styles = (await Promise.all(["App.css", "GraphicsTab.css", "editor/SearchableSelect.css"].map(path => readFile(join("src", path), "utf8")))).join("\n");
+  browser = await chromium.launch({ executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    args: process.env.PLAYWRIGHT_CHROMIUM_ARGS ? JSON.parse(process.env.PLAYWRIGHT_CHROMIUM_ARGS) : undefined });
+  for (const root of roots) {
+    const bytes = {};
+    async function collect(folder = "") {
+      for (const entry of await readdir(join(root, folder), { withFileTypes: true })) {
+        if (entry.name.startsWith(".")) continue;
+        const path = folder ? `${folder}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) await collect(path);
+        else if (/\.(asm|inc|png|blk|bst|1bpp|2bpp|pic)$/.test(path) || path === "Makefile") bytes[path] = Array.from(await readFile(join(root, path)));
+      }
+    }
+    await collect();
+    for (const width of [320, 375, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 }, hasTouch: width < 600 }), errors = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.goto(`http://127.0.0.1:${server.address().port}`);
+      await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
+      const asset = "gfx/pokemon/front/bulbasaur.png";
+      await page.evaluate(({ bytes, asset, root, width }) => {
+        window.graphicsBytes = structuredClone(bytes); window.graphicsKey = `${root}:${width}:${Date.now()}`;
+        window.graphicsFocus = { path: asset, returnTab: "pokemon" };
+      }, { bytes, asset, root, width });
+      await page.addScriptTag({ type: "module", content: script });
+      const canvas = page.getByLabel("Pixel drawing canvas", { exact: true });
+      await canvas.waitFor();
+      await page.waitForFunction(() => !document.querySelector('.graphics-edit-panel select').disabled);
+      const initial = await page.evaluate(asset => window.inspectArtwork(asset), asset);
+      const referencePng = await page.evaluate(() => {
+        const c = document.createElement("canvas"); c.width = 64; c.height = 64;
+        const context = c.getContext("2d"); context.fillStyle = "#ff0080"; context.fillRect(0, 0, 32, 64); context.fillStyle = "#0080ff"; context.fillRect(32, 0, 32, 64);
+        return c.toDataURL("image/png").split(",")[1];
+      });
+      await page.getByText("Upload reference image", { exact: true }).locator("input").setInputFiles({ name: "colored-reference.png", mimeType: "image/png", buffer: Buffer.from(referencePng, "base64") });
+      await page.getByLabel("Reference opacity (35%)", { exact: true }).waitFor();
+      await page.getByLabel("Reference scale (%)", { exact: true }).fill("75");
+      await page.getByLabel("Reference X", { exact: true }).fill("2");
+      await page.getByLabel("Reference Y", { exact: true }).fill("3");
+      await page.getByLabel("Reference opacity (35%)", { exact: true }).press("End");
+      assert.equal(await page.evaluate(() => window.graphicsDirty), false, "tracing guides must not dirty game graphics");
+      assert.deepEqual(await page.evaluate(asset => window.graphicsBytes[asset], asset), bytes[asset]);
+      const downloadReady = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Export artwork PNG", exact: true }).click();
+      const exported = await downloadReady, stream = await exported.createReadStream(), parts = [];
+      for await (const part of stream) parts.push(part);
+      const exportBytes = Buffer.concat(parts);
+      assert.deepEqual(await page.evaluate(async encoded => {
+        const data = Uint8Array.from(atob(encoded), c => c.charCodeAt(0)), bitmap = await createImageBitmap(new Blob([data]));
+        const canvas = document.createElement("canvas"); canvas.width = bitmap.width; canvas.height = bitmap.height;
+        const context = canvas.getContext("2d"); context.drawImage(bitmap, 0, 0); const rgba = context.getImageData(0, 0, canvas.width, canvas.height).data;
+        return Array.from({ length: canvas.width * canvas.height }, (_, i) => Math.round((255 - rgba[i * 4]) / 85));
+      }, exportBytes.toString("base64")), initial, "reference overlay must not enter exported artwork");
+      await page.getByRole("button", { name: `Paint shade ${(initial[0] + 1) % 4}`, exact: true }).click();
+      await canvas.click({ position: { x: 4, y: 4 } });
+      await page.waitForFunction(() => window.graphicsDirty);
+      await page.getByRole("button", { name: "Undo stroke", exact: true }).click();
+      await page.waitForFunction(() => !window.graphicsDirty);
+      await page.getByRole("button", { name: "Redo stroke", exact: true }).click();
+      await page.waitForFunction(() => window.graphicsDirty);
+      assert.equal(await page.getByRole("button", { name: "Save graphic", exact: true }).isDisabled(), true);
+      await page.getByRole("button", { name: "Close graphics", exact: true }).click();
+      await page.getByRole("button", { name: "Reopen graphics", exact: true }).click();
+      await page.getByRole("button", { name: "Resume draft", exact: true }).click();
+      await page.waitForFunction(() => window.graphicsDirty);
+      await page.getByLabel("Apply this artwork to every use of this source.", { exact: true }).check();
+      const makefile = await page.evaluate(() => window.graphicsBytes.Makefile);
+      await page.evaluate(() => window.graphicsBytes.Makefile.push(...new TextEncoder().encode("\n# external graphics change")));
+      await page.getByRole("button", { name: "Save graphic", exact: true }).click();
+      await page.getByRole("alert").filter({ hasText: /sources or references changed/ }).waitFor();
+      assert.deepEqual(await page.evaluate(asset => window.graphicsBytes[asset], asset), bytes[asset]);
+      await page.evaluate(makefile => { window.graphicsBytes.Makefile = makefile; }, makefile);
+      await page.getByRole("button", { name: "Save graphic", exact: true }).click();
+      await page.waitForFunction(() => !window.graphicsDirty);
+      await page.getByRole("button", { name: "Undo saved graphic", exact: true }).click();
+      await page.waitForFunction(({ asset, original }) => JSON.stringify(window.graphicsBytes[asset]) === JSON.stringify(original), { asset, original: bytes[asset] });
+      await page.getByRole("button", { name: "Redo saved graphic", exact: true }).click();
+      await page.waitForFunction(async ({ asset, original }) => (await window.inspectArtwork(asset))[0] !== original, { asset, original: initial[0] });
+      await page.getByLabel("Category", { exact: true }).selectOption("tilesets");
+      await page.getByLabel("Find graphics", { exact: true }).fill("overworld");
+      await page.locator(".graphics-asset").filter({ hasText: "Tilesets / Overworld" }).click();
+      await page.getByLabel("Edit region", { exact: true }).waitFor();
+      await page.getByLabel("Drawing tool", { exact: true }).selectOption("fill");
+      const tileShade = await page.evaluate(async () => (await window.inspectArtwork("gfx/tilesets/overworld.png"))[0]);
+      await page.getByRole("button", { name: `Paint shade ${(tileShade + 1) % 4}`, exact: true }).click();
+      await canvas.click({ position: { x: 12, y: 12 } });
+      await page.waitForFunction(() => window.graphicsDirty);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${root}: overflow at ${width}px`);
+      if (process.env.GRAPHICS_SCREENSHOT && width === 1280) await page.screenshot({ path: process.env.GRAPHICS_SCREENSHOT, fullPage: true });
+      assert.deepEqual(errors, []);
+      console.log(`${root}: ${width}px reference upload/transform, clean exports, strokes, draft recovery, stale-source guards, saves, undo/redo and tile selection passed.`);
+      page.on("dialog", dialog => dialog.accept()); await page.close();
+    }
+    // Exercise the actual application shell and contextual navigation as well.
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } }), errors = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.goto(`http://127.0.0.1:${server.address().port}`);
+    await page.setContent(`<!doctype html><style>${styles}</style><div id="root"></div>`);
+    await page.evaluate(bytes => { window.graphicsBytes = structuredClone(bytes); window.graphicsKey = `app-${Date.now()}`; window.graphicsApp = true; }, bytes);
+    await page.addScriptTag({ type: "module", content: script });
+    await page.getByRole("button", { name: "Open Project", exact: true }).click();
+    await page.getByRole("button", { name: "Graphics", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Graphics", exact: true }).click();
+    await page.getByLabel("Pixel drawing canvas", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Open Project", exact: true }).waitFor();
+    await page.waitForFunction(() => !Array.from(document.querySelectorAll('button')).find(button => button.textContent === 'Open Project').disabled);
+    await page.getByRole("button", { name: "Maps", exact: true }).click();
+    await page.getByRole("button", { name: "Edit tileset artwork", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Edit tileset artwork", exact: true }).click();
+    await page.getByRole("button", { name: "Return to Maps", exact: true }).waitFor();
+    await page.getByLabel("Edit region", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "Return to Maps", exact: true }).click();
+    await page.getByRole("button", { name: "Edit tileset artwork", exact: true }).waitFor();
+    await page.getByRole("button", { name: "Pokémon", exact: true }).click();
+    const species = page.locator('.tab-heading-row select').first();
+    await species.selectOption({ label: await species.locator('option').filter({ hasText: /bulbasaur/i }).first().textContent() });
+    await page.getByRole("button", { name: "Edit front artwork", exact: true }).click();
+    await page.getByRole("button", { name: "Return to Pokémon", exact: true }).waitFor();
+    await page.getByLabel("Pixel drawing canvas", { exact: true }).waitFor();
+    assert.deepEqual(errors, []);
+    console.log(`${root}: application Graphics tab, Maps entry/return and Pokémon artwork navigation passed.`);
+    await page.close();
+  }
+} finally { await browser?.close(); await new Promise(resolve => server.close(resolve)); await rm(temporary, { recursive: true, force: true }); }

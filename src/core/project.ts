@@ -1,4 +1,5 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
+import { loadGraphicsCatalog, loadGraphicsDocument, prepareGraphicsWrites, type GraphicsCatalog } from "./graphics";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "./mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "./mapItems";
 import { loadNativeMapObjectDocument, prepareNativeMapObjectWrites } from "./nativeMapObjects";
@@ -196,6 +197,14 @@ export async function createProjectSession(
   source: ProjectSource,
   buildService: BuildService,
 ): Promise<ProjectSession> {
+  let graphicsCatalogPromise: Promise<GraphicsCatalog> | null = null;
+  function getGraphicsCatalog(refresh = false): Promise<GraphicsCatalog> {
+    if (refresh) graphicsCatalogPromise = null;
+    if (!graphicsCatalogPromise) {
+      graphicsCatalogPromise = loadGraphicsCatalog(source).catch(error => { graphicsCatalogPromise = null; throw error; });
+    }
+    return graphicsCatalogPromise;
+  }
   for (const file of REQUIRED_FILES) {
     if (!(await source.exists(file))) {
       throw new Error(
@@ -726,6 +735,8 @@ export async function createProjectSession(
   }
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
+    graphicsCatalogPromise = null;
+    if (paths.some(path => /\.(png|1bpp|2bpp|pic)$/i.test(path))) mapVisualizationPromises.clear();
     invalidateScriptReadModels(paths);
     if (paths.some(path => path.endsWith(".blk") || path.endsWith(".bst") || path.startsWith("maps/") || path.startsWith("data/maps/") || path.startsWith("scripts/") || path.startsWith("constants/") || path.startsWith("gfx/blocksets/") || path.startsWith("gfx/tilesets") || path === "maps.asm")) {
       mapIndexPromise = null;
@@ -836,6 +847,19 @@ export async function createProjectSession(
       invalidateScriptReadModels([change.path]);
       pokemonCatchProfilesPromise = null;
       tmhmCompatibilityIndexPromise = null;
+      return result;
+    },
+    getGraphicsCatalog,
+    getGraphicsDocument: async path => loadGraphicsDocument(source, path, await getGraphicsCatalog()),
+    getGraphicsAssetUrl: async path => {
+      const asset = (await getGraphicsCatalog()).assets.find(asset => asset.path === path);
+      return asset?.format === "png" ? source.assetUrl(path) : null;
+    },
+    saveGraphics: async (document, values) => {
+      const changes = await prepareGraphicsWrites(source, document, values);
+      if (!changes.length) return history.getSummary();
+      const result = await history.save(`Edit graphic ${document.asset.name}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
       return result;
     },
     getPokemonEditDocument: (internalId, sourceSlug) =>

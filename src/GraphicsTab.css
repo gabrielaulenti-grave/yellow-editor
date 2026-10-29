@@ -1,0 +1,43 @@
+.graphics-layout { display: grid; grid-template-columns: minmax(160px, 210px) minmax(0, 1fr) minmax(190px, 250px); gap: 18px; align-items: start; }
+.graphics-workspace .graphics-layout > * { min-width: 0; }
+.graphics-browser, .graphics-inspector { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.graphics-browser .editor-field, .graphics-inspector .editor-field { margin-bottom: 12px; }
+.graphics-asset-list { display: grid; gap: 6px; max-height: 620px; overflow: auto; margin-bottom: 12px; }
+.graphics-asset { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 8px; text-align: left; align-items: center; padding: 8px; overflow-wrap: anywhere; }
+.graphics-asset.active { background: var(--accent-soft); border-color: var(--accent); }
+.graphics-asset img { width: 36px; height: 36px; object-fit: contain; image-rendering: pixelated; }
+.graphics-asset small { display: block; color: var(--muted); }
+.graphics-thumbnail-empty { font-size: 11px; color: var(--muted); }
+.graphics-source, .graphics-source code { overflow-wrap: anywhere; }
+.graphics-edit-panel h3, .graphics-inspector h3 { margin-top: 0; }
+.graphics-inspector h3:not(:first-child) { margin-top: 24px; }
+.graphics-controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+.graphics-controls .editor-field { margin: 0; min-width: 100px; }
+.graphics-stroke-controls button { padding: 6px 9px; }
+.graphics-shades button { display: inline-flex; align-items: center; gap: 7px; }
+.graphics-shades button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: 1px; }
+.graphics-shades button span { display: inline-block; width: 22px; height: 22px; border: 1px solid var(--border-strong); }
+.graphics-canvas-viewport { overflow: auto; max-height: 600px; background: var(--panel-soft); border: 1px solid var(--border); border-radius: 8px; padding: 12px; overscroll-behavior: contain; }
+.graphics-canvas { display: block; max-width: none; image-rendering: pixelated; }
+.graphics-canvas:focus-visible { outline: 3px solid var(--accent); }
+.graphics-file-button { position: relative; display: inline-grid; max-width: 100%; gap: 6px; border: 1px solid var(--border-strong); border-radius: 7px; padding: 8px; background: var(--panel); overflow-wrap: anywhere; }
+.graphics-file-button input { max-width: 100%; min-width: 0; width: 100%; border: 0; padding: 0; font-size: 12px; }
+.graphics-reference-controls { display: grid; gap: 12px; }
+.graphics-reference-controls .editor-field { margin: 0; }
+.graphics-reference-position { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.graphics-reference-position input, .graphics-workspace input, .graphics-workspace select { min-width: 0; max-width: 100%; }
+.graphics-native-preview { overflow: auto; max-height: 300px; padding: 12px; background: var(--panel-soft); }
+.graphics-native-preview canvas { display: block; max-width: none; image-rendering: pixelated; }
+.graphics-map-preview { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+.graphics-references { padding-left: 16px; max-height: 280px; overflow: auto; overflow-wrap: anywhere; }
+.graphics-references li { margin-bottom: 10px; }
+.graphics-references code { display: block; font-size: 12px; }
+.graphics-shared { display: block; background: var(--accent-soft); border-radius: 6px; padding: 10px; }
+.graphics-error { color: light-dark(#9b1d13, #ffaca4); overflow-wrap: anywhere; }
+.graphics-recovery { padding: 12px; margin-bottom: 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); }
+.graphics-tile-picker { display: grid; gap: 10px; margin-bottom: 12px; }
+.graphics-atlas-scroll { overflow: auto; max-height: 180px; }
+.graphics-atlas-scroll canvas { display: block; image-rendering: pixelated; max-width: none; }
+@media (max-width: 1000px) { .graphics-layout { grid-template-columns: 170px minmax(0, 1fr); } .graphics-inspector { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 620px) { .graphics-layout { display: block; } .graphics-browser, .graphics-edit-panel { margin-bottom: 18px; } .graphics-asset-list { max-height: 220px; } .graphics-canvas-viewport { max-height: 400px; } .graphics-controls > label, .graphics-controls .editor-field { max-width: 100%; } }
+@media (pointer: coarse) { .graphics-workspace button, .graphics-workspace select { min-height: 44px; } .graphics-workspace input[type="number"], .graphics-workspace input[type="search"] { font-size: 16px; } }

@@ -1595,6 +1595,10 @@ export interface ProjectSource {
 }
 
 export interface ProjectSession {
+  getGraphicsCatalog(refresh?: boolean): Promise<import("./graphics").GraphicsCatalog>;
+  getGraphicsDocument(path: string): Promise<import("./graphics").GraphicsDocument>;
+  getGraphicsAssetUrl(path: string): Promise<string | null>;
+  saveGraphics(document: import("./graphics").GraphicsDocument, values: import("./graphics").GraphicsValues): Promise<HistorySummary>;
   checkMap(mapConstant: string): Promise<import("./mapValidation").MapCheckReport>;
   checkProjectMaps(): Promise<import("./mapValidation").ProjectMapCheckReport>;
   getMapSignDocument(mapConstant: string, signId: number | null): Promise<import("./mapSigns").MapSignDocument>;

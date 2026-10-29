@@ -59,6 +59,14 @@ jobs:
           path: .script-fixtures/pokered
           persist-credentials: false
 
+      - name: Check graphics sources, conversion, native compression and history
+        # Graphics checks must gate the beta deployment, which follows this workflow.
+        # The separate graphics workflow also provides focused PR feedback.
+        run: npm run test:graphics -- --native .script-fixtures/pokered .script-fixtures/pokeyellow
+
+      - name: Check graphics tracing, drafts, saves and responsive workspace
+        run: npm run test:graphics:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check native map objects, vanilla coverage and edit history
         run: npm run test:maps:native -- .script-fixtures/pokered .script-fixtures/pokeyellow
 

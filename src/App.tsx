@@ -1,4 +1,6 @@
 import { fieldToolError } from "./FieldToolEditor";
+import { GraphicsTab } from "./GraphicsTab";
+import type { GraphicsFocus } from "./core/graphics";
 import { useEffect, useRef, useState } from "react";
 import type {
   EncounterTableEditDocument,
@@ -92,11 +94,13 @@ import { invoke, open, saveProjectCopy } from "./platform/compat";
 import { isBetaRelease } from "./platform/releaseChannel";
 import "./App.css";
 
-type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "scripts" | "build";
+type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "scripts" | "graphics" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("pokemon");
+  const [graphicsFocus, setGraphicsFocus] = useState<GraphicsFocus | null>(null);
+  const [graphicsEditor, setGraphicsEditor] = useState<EditorController | null>(null);
   const [pokemonIndex, setPokemonIndex] = useState<PokemonIndexEntry[]>([]);
   const [status, setStatus] = useState("No project loaded.");
   const [selectedPokemonId, setSelectedPokemonId] = useState<number | null>(null);
@@ -626,7 +630,8 @@ function App() {
     || trainerDirty
     || trainerClassDirty
     || scriptDirty
-    || mapDirty;
+    || mapDirty
+    || Boolean(graphicsEditor?.dirty);
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -986,6 +991,8 @@ function App() {
       setEncounterSearch("");
       setEncounterSection("walking");
       setMapFocusConstant(null);
+      setGraphicsFocus(null);
+      setGraphicsEditor(null);
       setScriptFocus(null);
       setFishingFocusMapConstant(null);
       setHistorySummary(history);
@@ -2075,7 +2082,9 @@ function App() {
     save: async () => undefined,
     revert: async () => undefined,
   };
-  const editorController = activeTab === "pokemon"
+  const editorController = activeTab === "graphics" && graphicsEditor
+    ? graphicsEditor
+    : activeTab === "pokemon"
     ? pokemonEditorController
     : activeTab === "items" && selectedItem?.kind === "tm"
       ? tmEditorController
@@ -2093,9 +2102,10 @@ function App() {
     if (nextTab === activeTab) {
       return true;
     }
+    if (graphicsEditor?.busy) return false;
     if (
       hasUnsavedChanges &&
-      !window.confirm("Discard the unsaved changes and switch tabs?")
+      !window.confirm(graphicsEditor?.dirty ? "Leave unsaved graphics and switch tabs? A recoverable pixel draft will be kept." : "Discard the unsaved changes and switch tabs?")
     ) {
       return false;
     }
@@ -2120,9 +2130,24 @@ function App() {
     if (trainerClassDirty) {
       revertTrainerClassChanges();
     }
+    if (activeTab === "graphics" && nextTab === "pokemon" && selectedPokemonEntry?.sourceSlug) {
+      await loadPokemon(selectedPokemonEntry, "Pokémon artwork refreshed.");
+    }
     setActiveTab(nextTab);
     return true;
   }
+
+  // Re-subscribe with the current navigation guard so nested portrait/map panels
+  // share the same unsaved-change handling as the tab bar.
+  useEffect(() => {
+    const openGraphics = (event: Event) => {
+      const focus = (event as CustomEvent<GraphicsFocus>).detail;
+      if (!project || !focus) return;
+      void selectTab("graphics").then(opened => { if (opened) setGraphicsFocus(focus); });
+    };
+    window.addEventListener("yellow-editor:open-graphics", openGraphics);
+    return () => window.removeEventListener("yellow-editor:open-graphics", openGraphics);
+  });
 
   async function openMapFromEncounter(mapConstant: string) {
     if (!(await selectTab("maps"))) return;
@@ -2176,7 +2201,7 @@ function App() {
           <h1>Yellow Editor</h1>
           <p className="status-line">{status}</p>
         </div>
-        <button onClick={selectProject}>Open Project</button>
+        <button onClick={selectProject} disabled={Boolean(graphicsEditor?.busy)}>Open Project</button>
       </header>
 
       {isBetaRelease && (
@@ -2280,6 +2305,9 @@ function App() {
           onClick={() => void selectTab("scripts")}
         >
           Scripts
+        </button>
+        <button className={activeTab === "graphics" ? "active" : ""} onClick={() => void selectTab("graphics")}>
+          Graphics
         </button>
         <button
           className={activeTab === "build" ? "active" : ""}
@@ -2451,6 +2479,9 @@ function App() {
           onDirtyChange={setScriptDirty}
         />
       )}
+
+      {activeTab === "graphics" && project && <GraphicsTab key={project.storageKey} project={project} focus={graphicsFocus} onControllerChange={setGraphicsEditor}
+        onReturn={() => void selectTab(graphicsFocus?.returnTab ?? "maps")} />}
 
       <BuildTestTab
         project={project}

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { PokemonEditDocument } from "./core/types";
 import type { PokemonDraft } from "./editor/pokemonForm";
 import { convertFileSrc } from "./platform/compat";
+import { requestGraphicsEditor } from "./editor/graphicsNavigation";
 
 type Palette = [string, string, string, string];
 type PaletteSource = "cgb" | "sgb" | "grayscale" | "dmg";
@@ -170,10 +171,12 @@ export function PokemonSpritePanel({
           <figure>
             <SpritePreview src={front} alt={displayName + " front sprite"} palette={palette} />
             <figcaption>Front</figcaption>
+            <button type="button" disabled={disabled || !selectedSprite} onClick={() => selectedSprite && requestGraphicsEditor({ path: selectedSprite.frontAssetPath, label: selectedSprite.frontLabel, palette, returnTab: "pokemon" })}>Edit front artwork</button>
           </figure>
           <figure>
             <SpritePreview src={back} alt={displayName + " back sprite"} palette={palette} />
             <figcaption>Back</figcaption>
+            <button type="button" disabled={disabled || !selectedSprite} onClick={() => selectedSprite && requestGraphicsEditor({ path: selectedSprite.backAssetPath, label: selectedSprite.backLabel, palette, returnTab: "pokemon" })}>Edit back artwork</button>
           </figure>
         </div>
 

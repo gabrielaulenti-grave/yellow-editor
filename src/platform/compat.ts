@@ -520,6 +520,15 @@ export async function invoke<T>(
   const session = requireSession();
 
   switch (command) {
+    case "get_graphics_catalog":
+      return await session.getGraphicsCatalog(args?.refresh === true) as T;
+    case "get_graphics_document":
+      return await session.getGraphicsDocument(stringArg(args, "path")) as T;
+    case "get_graphics_asset_url":
+      return await session.getGraphicsAssetUrl(stringArg(args, "path")) as T;
+    case "save_graphics":
+      if (!args?.document || !args.values) throw new Error("Missing graphics document or pixel values.");
+      return await session.saveGraphics(args?.document as import("../core/graphics").GraphicsDocument, args?.values as import("../core/graphics").GraphicsValues) as T;
     case "open_project":
       return session.info as T;
 
