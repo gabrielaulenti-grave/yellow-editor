@@ -21,7 +21,8 @@ export async function prepareTrainerPortraitCopy(source: ProjectSource, constant
   if (text === undefined) throw new Error("The portrait include source is unavailable.");
   const lines = text.split(/\r?\n/), line = lines[reference.line - 1];
   if (!line?.includes(`"${reference.target}"`)) throw new Error("The portrait include changed. Reload trainer classes before creating this class.");
-  const section = lines.slice(0, reference.line).filter(line => /^\s*SECTION\b/.test(line.split(";", 1)[0])).at(-1)?.split(";", 1)[0].trim();
+  const sections = lines.slice(0, reference.line).filter(line => /^\s*SECTION\b/.test(line.split(";", 1)[0]));
+  const section = sections[sections.length - 1]?.split(";", 1)[0].trim();
   if (section !== 'SECTION "Trainer Pics", ROMX') throw new Error("Independent trainer portraits currently require the standard bank-relocatable Trainer Pics section.");
   const document = await loadGraphicsDocument(source, asset.path, catalog);
   const bytes = encodeGraphicsPng(document);
