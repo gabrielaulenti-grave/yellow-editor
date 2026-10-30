@@ -28,7 +28,7 @@ static int drive(Emulator*e,int reload,unsigned animation,unsigned map,unsigned 
    unsigned state=rd(e,"wContentJourneyState"),x=rd(e,"wTopMenuItemX"),y=rd(e,"wTopMenuItemY"),item=rd(e,"wCurrentMenuItem"),max=rd(e,"wMaxMenuItem");
    if(state==1){
     if(withdrawn)buttons.B=TRUE;
-    else if(max==5&&x==1&&y==2){unsigned target=deposited?0:1;if(item<target)buttons.down=TRUE;else if(item>target)buttons.up=TRUE;else buttons.A=TRUE;}
+    else if(max==4&&x==1&&y==2){unsigned target=deposited?0:1;if(item<target)buttons.down=TRUE;else if(item>target)buttons.up=TRUE;else buttons.A=TRUE;}
     else buttons.A=TRUE;
    }else if(!battle&&rd(e,"wCurMap")!=map){buttons.A=TRUE;buttons.start=TRUE;}
    else if(battles>=2&&rd(e,"wBoxCount"))buttons.B=TRUE;
