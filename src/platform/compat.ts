@@ -522,6 +522,11 @@ export async function invoke<T>(
   switch (command) {
     case "get_battle_animation_catalog":
       return await session.getBattleAnimationCatalog() as T;
+    case "get_animation_edit_document":
+      return await session.getAnimationEditDocument(args?.animationId === null ? null : numberArg(args, "animationId")) as T;
+    case "save_animation":
+      if (!args?.document || !args.values) throw new Error("Missing animation document or values.");
+      return await session.saveAnimation(args.document as import("../core/battleAnimationEditing").AnimationEditDocument, args.values as import("../core/battleAnimationEditing").AnimationEditValues) as T;
     case "get_graphics_catalog":
       return await session.getGraphicsCatalog(args?.refresh === true) as T;
     case "get_graphics_document":

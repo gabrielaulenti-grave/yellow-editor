@@ -1,3 +1,4 @@
+import { prepareTrainerPortraitCopy } from "./trainerPortraitCreation";
 import type {
   ProjectSource,
   TextWriteRequest,
@@ -573,10 +574,12 @@ export async function prepareTrainerClassWrites(
     partyDataLine(values),
   ]);
 
+  const portrait = values.independentPortrait ? await prepareTrainerPortraitCopy(source, values.constant, money[portraitIndex].picLabel) : null;
+  if (portrait?.changes.some(change => (CLASS_SOURCE_PATHS as readonly string[]).includes(change.path))) throw new Error("This project's portrait includes overlap trainer data tables and need source review.");
   const updatedMoney = insertBefore(
     moneyContents,
     (line) => /^\s*assert_table_length\s+NUM_TRAINERS\b/i.test(line),
-    `\tpic_money ${money[portraitIndex].picLabel}, ${values.baseRewardPerLevel * 100}`,
+    `\tpic_money ${portrait?.label ?? money[portraitIndex].picLabel}, ${values.baseRewardPerLevel * 100}`,
     "trainer picture/money assertion",
   );
 
@@ -607,9 +610,9 @@ export async function prepareTrainerClassWrites(
     [MOVE_CHOICES_PATH, updatedChoices],
   ]);
 
-  return CLASS_SOURCE_PATHS.map((path) => ({
+  return [...CLASS_SOURCE_PATHS.map((path) => ({
     path,
     contents: updates.get(path)!,
     expectedHash: sourceDocuments.get(path)!.sourceHash,
-  }));
+  })), ...portrait?.changes ?? []];
 }

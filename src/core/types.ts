@@ -1252,6 +1252,7 @@ export interface TrainerEditSourceDocument {
 }
 
 export interface TrainerClassCreateValues {
+  independentPortrait?: boolean;
   constant: string;
   name: string;
   portraitClassConstant: string;
@@ -1595,6 +1596,8 @@ export interface ProjectSource {
 }
 
 export interface ProjectSession {
+  getAnimationEditDocument(animationId: number | null): Promise<import("./battleAnimationEditing").AnimationEditDocument>;
+  saveAnimation(document: import("./battleAnimationEditing").AnimationEditDocument, values: import("./battleAnimationEditing").AnimationEditValues): Promise<{ history: HistorySummary; animationId: number; constant: string }>;
   getBattleAnimationCatalog(): Promise<import("./battleAnimations").BattleAnimationCatalog>;
   getGraphicsCatalog(refresh?: boolean): Promise<import("./graphics").GraphicsCatalog>;
   getGraphicsDocument(path: string): Promise<import("./graphics").GraphicsDocument>;

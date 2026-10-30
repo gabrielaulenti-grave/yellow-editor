@@ -1,5 +1,6 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
 import { loadBattleAnimationCatalog } from "./battleAnimations";
+import { loadAnimationEditDocument, prepareAnimationWrites } from "./battleAnimationEditing";
 import { loadGraphicsCatalog, loadGraphicsDocument, prepareGraphicsWrites, type GraphicsCatalog } from "./graphics";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "./mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "./mapItems";
@@ -850,6 +851,13 @@ export async function createProjectSession(
       tmhmCompatibilityIndexPromise = null;
       return result;
     },
+    getAnimationEditDocument: animationId => loadAnimationEditDocument(source, animationId),
+    saveAnimation: async (document, values) => {
+      const plan = await prepareAnimationWrites(source, document, values);
+      const result = await history.save(`${document.animationId === null ? "Create" : "Edit"} animation ${plan.constant}`, plan.changes);
+      invalidateNonTrainerReadModels(plan.changes.map(change => change.path));
+      return { history: result, animationId: plan.animationId, constant: plan.constant };
+    },
     getBattleAnimationCatalog: async () => loadBattleAnimationCatalog(source, await getGraphicsCatalog(true)),
     getGraphicsCatalog,
     getGraphicsDocument: async path => loadGraphicsDocument(source, path, await getGraphicsCatalog()),
@@ -1228,6 +1236,7 @@ export async function createProjectSession(
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
+      invalidateNonTrainerReadModels(changedPaths);
       invalidateScriptReadModels(changedPaths);
       invalidateTrainerBaseCatalog(changedPaths);
       if (trainerCacheAffected(changedPaths)) {

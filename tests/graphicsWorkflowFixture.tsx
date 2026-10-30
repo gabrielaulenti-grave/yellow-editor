@@ -24,6 +24,8 @@ const source: ProjectSource = {
   readText: async path => new TextDecoder().decode(await source.readBytes(path)),
   writeBytes: async (path, bytes) => { fixture.graphicsBytes[path] = Array.from(bytes); },
   writeText: async (path, text) => source.writeBytes!(path, new TextEncoder().encode(text)),
+  createFile: async (path, bytes) => { if (path in fixture.graphicsBytes) throw new Error("File already exists"); await source.writeBytes!(path, bytes); },
+  removeFile: async path => { delete fixture.graphicsBytes[path]; },
   assetUrl: async path => path.endsWith(".png") ? URL.createObjectURL(new Blob([Uint8Array.from(fixture.graphicsBytes[path]).buffer], { type: "image/png" })) : null,
   historyStore: { persistent: true, load: async () => structuredClone(state), save: async next => { state = structuredClone(next); } },
 };
@@ -36,6 +38,8 @@ fixture.graphicsInvoke = async (command, args = {}) => {
     case "get_graphics_document": return session.getGraphicsDocument(args.path as string);
     case "get_graphics_asset_url": return session.getGraphicsAssetUrl(args.path as string);
     case "save_graphics": return session.saveGraphics(args.document as never, args.values as never);
+    case "get_animation_edit_document": return session.getAnimationEditDocument(args.animationId as number | null);
+    case "save_animation": return session.saveAnimation(args.document as never, args.values as never);
     case "get_pokemon_details": return session.getPokemonDetails(args.internalId as number, args.sourceSlug as string);
     case "get_pokemon_edit_document": return session.getPokemonEditDocument(args.internalId as number, args.sourceSlug as string);
     case "get_pokemon_tmhm_moves": return session.getPokemonTmhmMoves(args.sourceSlug as string);

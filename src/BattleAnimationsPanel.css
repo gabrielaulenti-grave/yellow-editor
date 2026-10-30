@@ -23,5 +23,13 @@
 .animation-content { overflow-wrap: anywhere; }
 .animation-use-list { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
 .animation-use-list button { font-size: 12px; padding: 6px 9px; }
+.animation-composer { width: min(1050px, calc(100vw - 32px)); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); box-sizing: border-box; overflow: auto; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.animation-composer::backdrop { background: rgb(0 0 0 / 50%); }
+.animation-composer-fields { border: 0; padding: 0; margin: 0 0 16px; min-width: 0; }
+.animation-composer .editor-field { margin: 12px 0; }
+.animation-composer input, .animation-composer select { width: 100%; min-width: 0; max-width: 100%; }
+.animation-composer input[type="checkbox"] { width: auto; }
+.animation-composer .animation-step-list { max-height: 250px; overflow-y: auto; }
+.animation-step-fields { background: var(--panel-soft); padding: 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; }
 @media (max-width: 700px) { .animation-layout { display: block; } .animation-library { margin-bottom: 18px; } .animation-entry-list { max-height: 200px; } }
 @media (max-width: 420px) { .animation-frame-detail { grid-template-columns: minmax(0, 1fr); } .animation-composition { justify-self: start; max-width: 100%; } }

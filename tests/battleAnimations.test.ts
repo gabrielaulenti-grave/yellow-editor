@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./battleAnimationEditing.test";
 import { test } from "node:test";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";

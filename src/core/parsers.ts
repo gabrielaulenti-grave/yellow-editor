@@ -769,7 +769,15 @@ function parseMoveNames(contents: string): string[] {
 }
 
 function parseAnimationLabels(contents: string): string[] {
-  return parsePointerTable(contents, "AttackAnimationPointers:");
+  const labels: string[] = []; let inTable = false;
+  for (const raw of contents.split(/\r?\n/)) {
+    const line = codeOnly(raw);
+    if (line === "AttackAnimationPointers:") { inTable = true; continue; }
+    if (!inTable || !line || /^(?:table_width|assert_table_length)\b/.test(line)) continue;
+    if (!/^dw\s/.test(line)) break;
+    labels.push(...line.slice(2).split(",").map(value => value.trim()));
+  }
+  return labels;
 }
 
 function parseAnimationScript(contents: string, label: string): string[] {

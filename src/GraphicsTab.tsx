@@ -59,6 +59,7 @@ export function GraphicsTab({ project, focus, onControllerChange, onReturn }: {
 }) {
   const [workspace, setWorkspace] = useState<"artwork" | "animations">(focus?.moveId !== undefined ? "animations" : "artwork");
   const [animationsOpened, setAnimationsOpened] = useState(focus?.moveId !== undefined);
+  const [animationController, setAnimationController] = useState<EditorController | null>(null);
   useEffect(() => { setWorkspace(focus?.moveId !== undefined ? "animations" : "artwork"); }, [focus]);
   useEffect(() => { if (workspace === "animations") setAnimationsOpened(true); }, [workspace]);
   const [catalog, setCatalog] = useState<GraphicsCatalog | null>(null), [category, setCategory] = useState("all"), [search, setSearch] = useState("");
@@ -183,8 +184,9 @@ export function GraphicsTab({ project, focus, onControllerChange, onReturn }: {
     finally { saving.current = false; setBusy(false); }
   }, [doc, dirty, busy, pixels, confirmShared, clearHistory, project.storageKey, readAsset]);
   useEffect(() => {
-    onControllerChange({ dirty, valid: Boolean(doc && (!doc.asset.references.length || confirmShared)), busy: busy || loading, save, revert });
-  }, [dirty, doc, confirmShared, busy, loading, save, revert, onControllerChange]);
+    const animationActive = Boolean(animationController?.dirty && workspace === "animations");
+    onControllerChange({ dirty: dirty || Boolean(animationController?.dirty), valid: animationActive ? animationController!.valid : Boolean(doc && (!doc.asset.references.length || confirmShared)), busy: busy || loading || Boolean(animationController?.busy), save: animationActive ? animationController!.save : save, revert: animationActive ? animationController!.revert : revert });
+  }, [dirty, doc, confirmShared, busy, loading, save, revert, onControllerChange, animationController, workspace]);
   useEffect(() => () => onControllerChange(null), [onControllerChange]);
 
   useEffect(() => {
@@ -347,7 +349,7 @@ export function GraphicsTab({ project, focus, onControllerChange, onReturn }: {
         {doc && <><h3>Artwork preview</h3><label className="editor-field"><span>Preview palette</span><select aria-label="Preview palette" value={paletteChoice} onChange={e => setPaletteChoice(e.target.value)}><option value="gray">Grayscale</option><option value="green">DMG green</option>{focus?.palette?.length === 4 && <option value="game">Selected game palette</option>}</select></label><div className="graphics-native-preview"><PixelPreview doc={doc} pixels={pixels} palette={palette} /></div><p className="help-text">Palette previews do not change pixel indices or game palette assignments.</p>{mapContext && doc.asset.category === "tilesets" && mapContext.tilesetGfxPath.replace(/\.(?:png|2bpp)$/, "") === doc.asset.path.replace(/\.(?:png|2bpp)$/, "") && <><h4>{mapContext.map.displayName}</h4><MapPreview doc={doc} pixels={pixels} map={mapContext} /></>}<h3>Source references</h3><p className="help-text">Direct binary references, including aliases and dimension headers. Computed paths and engine callers may have additional uses.</p><ul className="graphics-references">{doc.asset.references.map(ref => <li key={`${ref.path}:${ref.line}`}><strong>{ref.labels.join(", ") || "Binary include"}</strong><code>{ref.path}:{ref.line}</code></li>)}</ul>{!doc.asset.references.length && <p className="help-text">No literal binary references found.</p>}{doc.asset.references.length > 0 && <label className="graphics-shared"><input type="checkbox" checked={confirmShared} onChange={e => setConfirmShared(e.target.checked)} /> Apply this artwork to every use of this source.</label>}<p className="help-text">Dimensions and tile order stay fixed. Tile collision and animation commands are edited separately.</p></>}
       </aside>
     </div></div>
-    {animationsOpened && <div hidden={workspace !== "animations"}><BattleAnimationsPanel moveId={focus?.moveId} onArtwork={assetPath => {
+    {animationsOpened && <div hidden={workspace !== "animations"}><BattleAnimationsPanel moveId={focus?.moveId} onControllerChange={setAnimationController} onArtwork={assetPath => {
       const asset = catalog?.assets.find(asset => asset.path === assetPath);
       if (!asset) { setError("The linked artwork is unavailable. Refresh the asset browser."); return; }
       void chooseAsset(asset).then(opened => { if (opened) { setCategory(asset.category); setSearch(""); setWorkspace("artwork"); } });

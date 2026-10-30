@@ -192,6 +192,9 @@ jobs:
           echo "3e19e50ea602e316be709160acaf0a708b1fa6d32d219ec541f244442895dbb7  .script-fixtures/rgbds.tar.xz" | sha256sum --check
           tar --no-same-owner -xf .script-fixtures/rgbds.tar.xz -C .script-fixtures/rgbds
 
+      - name: Play newly allocated animations and independent trainer portraits in native battles
+        run: npm run test:animations:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
+
       - name: Compile independent maps and verify registry and warp records
         run: npm run test:maps:create -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds
 

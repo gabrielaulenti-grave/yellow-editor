@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { animationTitle, composeAnimationFrame, type AnimationFrameBlock, type AnimationSource, type BattleAnimationCatalog, type BattleAnimationScript, type BattleAnimationStep } from "./core/battleAnimations";
 import type { GraphicsDocument } from "./core/graphics";
 import { invoke } from "./platform/compat";
 import "./BattleAnimationsPanel.css";
+import { AnimationComposer } from "./AnimationComposer";
+import type { EditorController } from "./editor/types";
 
 function Source({ source, title = "View source" }: { source: AnimationSource | null; title?: string }) {
   return source && <details className="animation-source"><summary>{title} · {source.path}:{source.line}</summary><pre>{source.text}</pre></details>;
@@ -31,9 +33,9 @@ const modes: Record<number, string> = {
   4: "Wait, retain sprites and reuse the destination.",
 };
 
-function StepInspector({ catalog, script, step, onArtwork, onMove }: {
+export function StepInspector({ catalog, script, step, onArtwork, onMove }: {
   catalog: BattleAnimationCatalog; script: BattleAnimationScript; step: BattleAnimationStep;
-  onArtwork(path: string): void; onMove(id: number): void;
+  onArtwork?(path: string): void; onMove?(id: number): void;
 }) {
   const subanimation = catalog.subanimations.find(sub => sub.id === step.targetId);
   const effect = catalog.effects.find(effect => effect.id === step.targetId);
@@ -59,7 +61,7 @@ function StepInspector({ catalog, script, step, onArtwork, onMove }: {
     </>}
     {step.kind === "subanimation" && <>
       <div className="animation-facts"><p><strong>Tile sheet {step.sheetId ?? "?"}</strong><br />{sheet?.path ?? "Unresolved tile source"}</p><p><strong>Frame delay setting</strong><br />{step.delay ?? "Unresolved"} game frames</p><p><strong>Sequence transform</strong><br />{subanimation ? animationTitle(subanimation.type) : "Unresolved"}</p></div>
-      {sheet?.path && <button type="button" onClick={() => onArtwork(sheet.path!)}>Edit tile sheet {sheet.id}</button>}
+      {sheet?.path && onArtwork && <button type="button" onClick={() => onArtwork(sheet.path!)}>Edit tile sheet {sheet.id}</button>}
       <p className="help-text">Isolated frame compositions use the selected tile sheet. Placement, opponent transforms, retained sprites and screen effects are described below; these thumbnails show the source pieces before those changes.</p>
       {subanimation && <>
         <Warnings warnings={subanimation.warnings} />
@@ -72,14 +74,18 @@ function StepInspector({ catalog, script, step, onArtwork, onMove }: {
       </>}
     </>}
     <Source source={step.source} title="Move script command" />
-    {step.kind !== "unknown" && <details className="animation-shared"><summary>Used by {users.length} moves</summary><p className="help-text">These moves reference this reusable {step.kind === "effect" ? "effect" : "sequence"}. A sequence can use different tile sheets.</p><div className="animation-use-list">{users.map(move => <button type="button" key={move.id} disabled={move.animationId === script.id} onClick={() => onMove(move.id)}>{move.name}</button>)}</div></details>}
+    {step.kind !== "unknown" && onMove && <details className="animation-shared"><summary>Used by {users.length} moves</summary><p className="help-text">These moves reference this reusable {step.kind === "effect" ? "effect" : "sequence"}. A sequence can use different tile sheets.</p><div className="animation-use-list">{users.map(move => <button type="button" key={move.id} disabled={move.animationId === script.id} onClick={() => onMove(move.id)}>{move.name}</button>)}</div></details>}
   </section>;
 }
 
-export function BattleAnimationsPanel({ moveId, onArtwork }: { moveId?: number; onArtwork(path: string): void }) {
+export function BattleAnimationsPanel({ moveId, onArtwork, onControllerChange }: { moveId?: number; onArtwork(path: string): void; onControllerChange(controller: EditorController | null): void }) {
+  const [composer, setComposer] = useState<{ templateId: number | null; editing: boolean; moveId: number | null } | null>(null), [notice, setNotice] = useState("");
   const [catalog, setCatalog] = useState<BattleAnimationCatalog | null>(null), [loading, setLoading] = useState(true), [error, setError] = useState<string | null>(null);
   const [library, setLibrary] = useState("moves"), [search, setSearch] = useState(""), [selected, setSelected] = useState(moveId ?? 1), [stepIndex, setStepIndex] = useState(0);
   const [refresh, setRefresh] = useState(0);
+  const handleSaved = useCallback((animationId: number, assignedMoveId: number | null) => {
+    setComposer(null); setLibrary(assignedMoveId !== null ? "moves" : "other"); setSelected(assignedMoveId ?? animationId); setSearch(""); setStepIndex(0); setRefresh(value => value + 1); setNotice("Animation saved. Script, hook and move assignment changes are grouped in saved history.");
+  }, []);
   useEffect(() => { if (moveId !== undefined) { setLibrary("moves"); setSelected(moveId); setStepIndex(0); setSearch(""); } }, [moveId]);
   useEffect(() => {
     let cancelled = false; setLoading(true); setError(null);
@@ -101,7 +107,9 @@ export function BattleAnimationsPanel({ moveId, onArtwork }: { moveId?: number; 
   const sharedScripts = script?.steps.length && catalog ? catalog.moves.filter(move => catalog.scripts.find(candidate => candidate.id === move.animationId)?.steps[0]?.source.line === script.steps[0]?.source.line) : [];
   return <section className="battle-animations" aria-label="Move animation explorer">
     <div className="tab-heading-row"><div><h3>Move animations</h3><p>Follow move scripts from sound cues and reusable frames to screen-effect routines.</p></div><button type="button" disabled={loading} onClick={() => setRefresh(value => value + 1)}>Refresh animation sources</button></div>
-    <p className="help-text">Source inspection is read-only. Open a linked tile sheet to edit its pixels. Full battle playback and script editing are future steps.</p>
+    <p className="help-text">Compose new scripts from existing sequences and effects, or edit an animation's command steps. Full battle playback and frame-sequence authoring are future steps.</p>
+    {notice && <p role="status">{notice}</p>}
+    <div className="graphics-controls"><button type="button" disabled={loading} onClick={() => setComposer({ templateId: null, editing: false, moveId: move?.id ?? null })}>New animation</button>{script && <><button type="button" disabled={loading || script.warnings.length > 0} onClick={() => setComposer({ templateId: script.id, editing: false, moveId: move?.id ?? null })}>Duplicate as new animation</button><button type="button" disabled={loading || script.warnings.length > 0} onClick={() => setComposer({ templateId: script.id, editing: true, moveId: null })}>Edit animation steps</button></>}</div>
     {loading && <p role="status">Reading animation sources…</p>}
     {error && <p className="graphics-error" role="alert">{error}</p>}
     {catalog && !loading && <><Warnings warnings={catalog.warnings} /><div className="animation-layout">
@@ -130,5 +138,6 @@ export function BattleAnimationsPanel({ moveId, onArtwork }: { moveId?: number; 
         {selectedEffect && <><h3>{animationTitle(selectedEffect.constant)}</h3><p className="muted-code">{selectedEffect.constant} → {selectedEffect.routine}</p><p>Called directly by {effectUsers.length} move scripts.</p><div className="animation-use-list">{effectUsers.map(move => <button type="button" key={move.id} onClick={() => chooseMove(move.id)}>{move.name}</button>)}</div><p className="help-text">This list shows direct script calls. Engine hooks and other routines may call the same effect.</p><Source source={selectedEffect.source} title="Effect binding" /><Source source={selectedEffect.routineSource} title="Effect routine" /></>}
       </div>
     </div></>}
+    {composer && <AnimationComposer {...composer} onControllerChange={onControllerChange} onClose={() => setComposer(null)} onSaved={handleSaved} />}
   </section>;
 }

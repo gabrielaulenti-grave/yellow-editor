@@ -1402,6 +1402,8 @@ pre {
   font: inherit;
 }
 
+.trainer-reward-field input[type="checkbox"] { width: auto; }
+
 .trainer-reward-selection-preview {
   display: grid;
   gap: 4px;

@@ -152,6 +152,57 @@ try {
       console.log(`${root}: ${width}px reference upload/transform, clean exports, strokes, draft recovery, stale-source guards, saves, undo/redo and tile selection passed.`);
       page.on("dialog", dialog => dialog.accept()); await page.close();
     }
+    // Create a genuinely new ID, assign it to a move, then edit and undo the transaction.
+    for (const width of [375, 1280]) {
+      const page = await browser.newPage({ viewport: { width, height: 900 } });
+      page.setDefaultTimeout(30000);
+      await page.goto(`http://127.0.0.1:${server.address().port}`);
+      await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
+      await page.evaluate(({ bytes, width }) => { window.graphicsBytes = structuredClone(bytes); window.graphicsKey = `composer-${width}-${Date.now()}`; window.graphicsFocus = { moveId: 1, returnTab: "moves" }; }, { bytes, width });
+      await page.addScriptTag({ type: "module", content: script });
+      await page.getByRole("button", { name: "Duplicate as new animation", exact: true }).click();
+      const composer = page.getByRole("dialog", { name: "Animation composer", exact: true });
+      await composer.getByLabel("Animation constant", { exact: true }).fill("TEST_COMPOSER_ANIM");
+      await composer.getByLabel("Step frame delay", { exact: true }).fill("12");
+      await composer.getByRole("button", { name: "Add screen effect", exact: true }).click();
+      await composer.getByRole("button", { name: "Move step earlier", exact: true }).click();
+      await composer.getByRole("button", { name: "Duplicate step", exact: true }).click();
+      await composer.getByRole("button", { name: "Remove step", exact: true }).click();
+      await composer.getByRole("button", { name: "Undo animation change", exact: true }).click();
+      assert.equal(await composer.getByLabel("Draft animation steps", { exact: true }).locator('button').count(), 3);
+      await composer.getByRole("button", { name: "Redo animation change", exact: true }).click();
+      await composer.getByLabel("Additional per-frame hook", { exact: true }).selectOption("AnimationFlashScreen");
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `composer overflow at ${width}px`);
+      if (process.env.COMPOSER_SCREENSHOT && width === 1280) await page.screenshot({ path: process.env.COMPOSER_SCREENSHOT, fullPage: true });
+      await composer.getByRole("button", { name: "Create animation", exact: true }).click();
+      await composer.waitFor({ state: "detached" });
+      assert.equal((await page.evaluate(() => window.graphicsInvoke("get_moves")))[0].animation, "TEST_COMPOSER_ANIM");
+      await page.waitForFunction(() => !window.graphicsDirty);
+      await page.getByRole("button", { name: "Undo saved graphic", exact: true }).click();
+      await page.waitForFunction(async () => (await window.graphicsInvoke("get_moves"))[0].animation === "POUND");
+      await page.getByRole("button", { name: "Redo saved graphic", exact: true }).click();
+      await page.waitForFunction(async () => (await window.graphicsInvoke("get_moves"))[0].animation === "TEST_COMPOSER_ANIM");
+      await page.getByRole("button", { name: "Edit animation steps", exact: true }).click();
+      await composer.getByLabel("Draft animation steps", { exact: true }).locator('button').nth(1).click();
+      await composer.getByLabel("Step frame delay", { exact: true }).fill("10");
+      await composer.getByLabel(/Apply this sequence to every use/).check();
+      await composer.getByRole("button", { name: "Save animation", exact: true }).click();
+      await composer.waitFor({ state: "detached" });
+      await page.getByRole("button", { name: "Duplicate as new animation", exact: true }).click();
+      await composer.getByLabel("Animation constant", { exact: true }).fill("STALE_COMPOSER_ANIM");
+      await page.evaluate(() => window.graphicsBytes["data/moves/moves.asm"].push(...new TextEncoder().encode("\n; external edit\n")));
+      await composer.getByRole("button", { name: "Create animation", exact: true }).click();
+      await composer.getByRole("alert").filter({ hasText: "sources changed" }).waitFor();
+      assert.equal((await page.evaluate(() => window.graphicsInvoke("get_moves")))[0].animation, "TEST_COMPOSER_ANIM");
+      page.once("dialog", dialog => dialog.dismiss());
+      await composer.getByRole("button", { name: "Close composer", exact: true }).click();
+      assert.equal(await composer.isVisible(), true);
+      page.once("dialog", dialog => dialog.accept());
+      await composer.getByRole("button", { name: "Close composer", exact: true }).click();
+      await composer.waitFor({ state: "detached" });
+      console.log(`${root}: ${width}px composer allocation, effects, sound/hook choices, assignment, saved history, private editing and stale-source guards passed.`);
+      await page.close();
+    }
     // Exercise the actual application shell and contextual navigation as well.
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } }), errors = [];
     page.on("pageerror", error => { errors.push(error.message); console.error("Graphics browser error:", error.message); });

@@ -52,7 +52,7 @@ For source development, Yellow Editor synchronizes the already-published pinned 
 
 The **Graphics** workspace provides source-backed pixel editing, local reference-image tracing, PNG import/export, shared-source review and recoverable drafts. Open it directly or from Pokémon, Trainers and Maps. See [the graphics workspace guide](docs/graphics-workspace.md) for tools, save behavior and first-pass limits.
 
-**Graphics → Move animations** follows each move's source assignment through its ordered script, sound cues, frame compositions, tile sheets, reusable effects and engine hooks. Open it from Moves, or browse status animations and special effects directly. See [move animation inspection](docs/battle-animations.md) for supported structures and preview limits.
+**Graphics → Move animations** follows each move's source assignment through its ordered script, sound cues, frame compositions, tile sheets, reusable effects and engine hooks. Compose new animations, duplicate existing ones, edit their steps and assign them to moves as one undoable operation. New trainer classes can also receive independent portrait copies for artwork editing. See [the animation composer guide](docs/battle-animations.md) for supported structures and preview limits.
 
 The [vanilla script atlas](docs/script-atlas.md) inventories every Red/Blue and
 Yellow script file, with complete per-map tables, scoped references, helper

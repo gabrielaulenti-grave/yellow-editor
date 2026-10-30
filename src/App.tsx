@@ -2105,7 +2105,7 @@ function App() {
     if (graphicsEditor?.busy) return false;
     if (
       hasUnsavedChanges &&
-      !window.confirm(graphicsEditor?.dirty ? "Leave unsaved graphics and switch tabs? A recoverable pixel draft will be kept." : "Discard the unsaved changes and switch tabs?")
+      !window.confirm(graphicsEditor?.dirty ? "Leave unsaved graphics changes and switch tabs? Pixel drafts are kept; animation drafts will be discarded." : "Discard the unsaved changes and switch tabs?")
     ) {
       return false;
     }
@@ -2133,6 +2133,10 @@ function App() {
     if (activeTab === "graphics" && nextTab === "pokemon" && selectedPokemonEntry?.sourceSlug) {
       await loadPokemon(selectedPokemonEntry, "Pokémon artwork refreshed.");
     }
+    if (nextTab === "moves" && project) {
+      try { setMoves(await invoke<MoveData[]>("get_moves")); }
+      catch (error) { setStatus(String(error)); return false; }
+    }
     setActiveTab(nextTab);
     return true;
   }
@@ -2143,6 +2147,7 @@ function App() {
     const openGraphics = (event: Event) => {
       const focus = (event as CustomEvent<GraphicsFocus>).detail;
       if (!project || !focus) return;
+      if (activeTab === "graphics" && (graphicsEditor?.busy || graphicsEditor?.dirty)) return;
       void selectTab("graphics").then(opened => { if (opened) setGraphicsFocus(focus); });
     };
     window.addEventListener("yellow-editor:open-graphics", openGraphics);
