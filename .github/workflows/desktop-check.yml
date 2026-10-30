@@ -62,6 +62,9 @@ jobs:
       - name: Check playable content creation and identity preservation
         run: npm run test:content -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
+      - name: Create moves, species and trainer parties through the application
+        run: npm run test:content:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check graphics sources, conversion, native compression and history
         # Graphics checks must gate the beta deployment, which follows this workflow.
         # The separate graphics workflow also provides focused PR feedback.
