@@ -42,7 +42,13 @@ export function extendNames(text: string) {
   if (text.includes("; yellow-editor typed name lookup")) return text;
   const pattern = /^[ \t]*; TM names are separate from item names\.[\s\S]*?^[ \t]*cp HM01\r?\n[ \t]*jp nc, GetMachineName/m;
   if (!pattern.test(text) || !text.includes("ld [wNamedObjectIndex], a")) throw new Error("This project's name lookup needs review before content IDs can be extended.");
-  return text.replace(pattern, ["; yellow-editor typed name lookup", "\tpush af", "\tld a, [wNameListType]", "\tcp ITEM_NAME", "\tjr nz, .editorNonItem", "\tpop af", "\tcp HM01", "\tjp nc, GetMachineName", "\tjr .editorNameReady", ".editorNonItem", "\tpop af", ".editorNameReady"].join(newline(text)));
+  const pointer = /\tld a, \[hli\]\r?\n\tldh \[hSwapTemp \+ 1\], a\r?\n\tld a, \[hl\]\r?\n\tldh \[hSwapTemp\], a\r?\n\tldh a, \[hSwapTemp\]\r?\n\tld h, a\r?\n\tldh a, \[hSwapTemp \+ 1\]\r?\n\tld l, a/;
+  if (!pointer.test(text)) throw new Error("The name pointer lookup needs source review before expansion.");
+  // A is not used by the ordinary path. Direct pointer loading and the Yellow
+  // tail call recover the ten bytes needed for typed names in its full ROM0.
+  return text.replace(pattern, ["; yellow-editor typed name lookup", "\tld a, [wNameListType]", "\tcp ITEM_NAME", "\tjr nz, .editorNameReady", "\tld a, [wNameListIndex]", "\tcp HM01", "\tjp nc, GetMachineName", ".editorNameReady"].join(newline(text)))
+    .replace(pointer, ["\tld a, [hli]", "\tld h, [hl]", "\tld l, a"].join(newline(text)))
+    .replace(/\tcall BankswitchCommon\r?\n\tret\s*$/, `\tjp BankswitchCommon${newline(text)}`);
 }
 /** Free growing ROMX sections from fixed packing; keep each bank-relative group together. */
 export function freeSections(layout: string, files: ProjectRgbdsSourceFile[], targets: string[]) {

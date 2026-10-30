@@ -91,6 +91,12 @@ export async function preparePokemonCreateWrites(source: ProjectSource, document
   const sections = beforeTrainers.split(/\r?\n/).filter(line => /^SECTION\b/.test(code(line))); if (code(sections[sections.length - 1] ?? "") !== 'SECTION "Pics 5", ROMX') throw new Error("New species currently require the standard Pics 5 image bank routing.");
   updates.set(P.pictures, before(pics, /^[ \t]*SECTION "Trainer Pics"[^\r\n]*/, `${frontLabel}:: INCBIN "gfx/pokemon/front/${slug}.pic"\n${backLabel}:: INCBIN "gfx/pokemon/back/${slug}b.pic"\n`));
   updates.set(P.naming, extendNames(text.get(P.naming)!));
+  const ram = text.get("ram/wram.asm")!;
+  if (!ram.includes("; yellow-editor Pokédex padding")) {
+    const padding = /(wGameProgressFlagsEnd::\r?\n\r?\n)[ \t]*ds 56(\r?\n\r?\nwObtainedHiddenItemsFlags:: flag_array MAX_HIDDEN_ITEMS)/;
+    if (!padding.test(ram) || !ram.includes("wPokedexOwned:: flag_array NUM_POKEMON") || !ram.includes("wPokedexSeen:: flag_array NUM_POKEMON")) throw new Error("The expanded Pokédex needs reviewed unused RAM padding before adding species.");
+    updates.set("ram/wram.asm", ram.replace(padding, "$1; yellow-editor Pokédex padding\n\tds 56 - 2 * ((NUM_POKEMON + 7) / 8 - 19)$2"));
+  }
   // Pics 5 is the existing route for appended species; preserve that complete group.
   let layout = freeSections(text.get(P.layout)!, files, [P.base, P.cries, P.evos, P.entries, P.text, P.palettes, P.icons, P.names, P.order]);
   layout = layout.split(/\r?\n/).filter(line => line.trim() !== '"Pics 5"').join(layout.includes("\r\n") ? "\r\n" : "\n");
