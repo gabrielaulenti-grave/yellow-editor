@@ -54,6 +54,8 @@ The **Graphics** workspace provides source-backed pixel editing, local reference
 
 **Graphics → Move animations** follows each move's source assignment through its ordered script, sound cues, frame compositions, tile sheets, reusable effects and engine hooks. Compose new animations, duplicate existing ones, edit their steps and assign them to moves as one undoable operation. New trainer classes can also receive independent portrait copies for artwork editing. See [the animation composer guide](docs/battle-animations.md) for supported structures and preview limits.
 
+**New move**, **New Pokémon** and **New trainer party** append playable content from their respective workspaces, preserving existing identifiers and updating related source tables together. See [the content creation guide](docs/content-creation.md) for template behavior, save compatibility and first-pass capacity limits.
+
 The [vanilla script atlas](docs/script-atlas.md) inventories every Red/Blue and
 Yellow script file, with complete per-map tables, scoped references, helper
 boundaries, classification gaps, and the roadmap for a scene composer. Run

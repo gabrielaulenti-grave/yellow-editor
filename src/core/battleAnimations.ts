@@ -89,7 +89,11 @@ export async function loadBattleAnimationCatalog(source: ProjectSource, graphics
   const constants = projectConstantCatalogFromSources(files.filter(file => ["constants", "moves", "battle"].includes(file.key)));
   const symbols = new Map(constants.constants.map(constant => [constant.symbol, constant.value]));
   const number = (expression: string | undefined) => expression ? evaluateRgbdsExpression(expression, symbols) : null;
-  const constantName = (id: number, file: string, prefix = "") => constants.constants.find(c => c.sourcePath === file && c.value === id && c.symbol.startsWith(prefix))?.symbol;
+  const animationBoundary = files.find(file => file.path === paths.moves)?.contents.split(/\r?\n/).findIndex(line => line.includes("Moves do double duty as animation identifiers")) ?? -1;
+  const constantName = (id: number, file: string, prefix = "") => {
+    const matching = constants.constants.filter(c => c.sourcePath === file && c.value === id && c.symbol.startsWith(prefix));
+    return (file === paths.moves ? matching.find(c => c.line > animationBoundary + 1) ?? matching[0] : matching[0])?.symbol;
+  };
   const pointerLabels = (key: string, label: string) => {
     const rows = assembly[key].table(label), unsupported = rows.find(row => !/^dw\s/.test(row.code));
     if (unsupported) { warnings.push(`${assembly[key].path}:${unsupported.line}: unsupported pointer-table structure; ${label} was not interpreted.`); return []; }

@@ -2,6 +2,8 @@ import type { MoveData, ProjectInfo } from "./core/types";
 import { ReadonlyField } from "./editor/EditorFields";
 import { formatHex } from "./editor/format";
 import { requestGraphicsEditor } from "./editor/graphicsNavigation";
+import { useState } from "react";
+import { ContentCreateDialog, type CreatedContent } from "./ContentCreateDialog";
 
 interface MovesTabProps {
   project: ProjectInfo | null;
@@ -10,6 +12,7 @@ interface MovesTabProps {
   moveSearch: string;
   onSelectMove(id: number): void;
   onSearchChange(value: string): void;
+  onCreated(result: CreatedContent): Promise<void>;
 }
 
 export function MovesTab({
@@ -19,7 +22,9 @@ export function MovesTab({
   moveSearch,
   onSelectMove,
   onSearchChange,
+  onCreated,
 }: MovesTabProps) {
+  const [creating, setCreating] = useState(false);
   const selectedMove = moves.find((move) => move.id === selectedMoveId) ?? null;
   const query = moveSearch.trim().toLowerCase();
   const filteredMoves = moves.filter((move) => {
@@ -36,7 +41,8 @@ export function MovesTab({
 
   return (
     <section className="tab-content">
-      <h2>Moves</h2>
+      <div className="tab-heading-row"><h2>Moves</h2>{project && <button type="button" onClick={() => setCreating(true)}>New move</button>}</div>
+      {creating && <ContentCreateDialog kind="move" templateId={selectedMoveId ?? undefined} onClose={() => setCreating(false)} onCreated={onCreated} />}
 
       {!project ? (
         <p>Open a project to browse moves.</p>

@@ -59,6 +59,9 @@ jobs:
           path: .script-fixtures/pokered
           persist-credentials: false
 
+      - name: Check playable content creation and identity preservation
+        run: npm run test:content -- .script-fixtures/pokered .script-fixtures/pokeyellow
+
       - name: Check graphics sources, conversion, native compression and history
         # Graphics checks must gate the beta deployment, which follows this workflow.
         # The separate graphics workflow also provides focused PR feedback.
@@ -191,6 +194,9 @@ jobs:
           curl --fail --location --output .script-fixtures/rgbds.tar.xz https://github.com/gbdev/rgbds/releases/download/v1.0.4/rgbds-linux-x86_64.tar.xz
           echo "3e19e50ea602e316be709160acaf0a708b1fa6d32d219ec541f244442895dbb7  .script-fixtures/rgbds.tar.xz" | sha256sum --check
           tar --no-same-owner -xf .script-fixtures/rgbds.tar.xz -C .script-fixtures/rgbds
+
+      - name: Play new content through battles, capture, PC storage and save/reload
+        run: npm run test:content:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb
 
       - name: Play newly allocated animations and independent trainer portraits in native battles
         run: npm run test:animations:gameplay -- .script-fixtures/pokered .script-fixtures/pokeyellow --rom .script-fixtures/rgbds .script-fixtures/binjgb

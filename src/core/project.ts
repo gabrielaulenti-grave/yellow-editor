@@ -1,6 +1,10 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
 import { loadBattleAnimationCatalog } from "./battleAnimations";
 import { loadAnimationEditDocument, prepareAnimationWrites } from "./battleAnimationEditing";
+import { loadMoveCreateDocument, prepareMoveCreateWrites } from "./moveCreation";
+import { loadTrainerPartyCreateDocument, prepareTrainerPartyCreateWrites } from "./trainerPartyCreation";
+import { loadPokemonCreateDocument, preparePokemonCreateWrites } from "./pokemonCreation";
+import { checkCreatedSymbolReferences } from "./creationSupport";
 import { loadGraphicsCatalog, loadGraphicsDocument, prepareGraphicsWrites, type GraphicsCatalog } from "./graphics";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "./mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "./mapItems";
@@ -100,6 +104,7 @@ import type {
   BuildService,
   ItemCreateDocument,
   ItemCreateValues,
+  HistoryEntry,
   ItemEditDocument,
   ItemEditValues,
   PokemonCatchProfile,
@@ -818,7 +823,40 @@ export async function createProjectSession(
     }
   }
 
+  async function guardCreationUndo(entry: HistoryEntry) {
+    await checkCreatedSymbolReferences(source, entry);
+    const party = entry.label.match(/^Add trainer party ([A-Z][A-Z0-9_]*:\d+)$/)?.[1];
+    if (party) {
+      const catalog = await parseTrainerCatalog(createTrainerScanSource(source), projectName);
+      const current = catalog.trainers.find(trainer => trainer.id === party);
+      if (current?.instances.length || current?.scriptReferences.length) throw new Error("Remove this trainer party's map placements and scripted battles before undoing its creation.");
+    }
+  }
   const session: ProjectSession & ProgressiveTrainerSession = {
+    getMoveCreateDocument: () => loadMoveCreateDocument(source),
+    createMove: async (document, values) => {
+      const plan = await prepareMoveCreateWrites(source, document, values);
+      const result = await history.save(`Add move ${values.constant}`, plan.changes);
+      invalidateNonTrainerReadModels(plan.changes.map(change => change.path));
+      return { history: result, id: plan.id };
+    },
+    getTrainerPartyCreateDocument: () => loadTrainerPartyCreateDocument(source),
+    createTrainerParty: async (document, values) => {
+      const plan = await prepareTrainerPartyCreateWrites(source, document, values);
+      const result = await history.save(`Add trainer party ${plan.partyId}`, plan.changes);
+      const paths = plan.changes.map(change => change.path);
+      invalidateNonTrainerReadModels(paths); invalidateTrainerBaseCatalog(paths); invalidateScriptReadModels(paths);
+      await trainerCatalogCache?.clear();
+      return { history: result, partyId: plan.partyId };
+    },
+    getPokemonCreateDocument: () => loadPokemonCreateDocument(source),
+    createPokemon: async (document, values) => {
+      const plan = await preparePokemonCreateWrites(source, document, values);
+      const result = await history.save(`Add Pokémon ${values.constant}`, plan.changes);
+      const paths = plan.changes.map(change => change.path);
+      invalidateNonTrainerReadModels(paths); invalidateTrainerBaseCatalog(paths); invalidateScriptReadModels(paths);
+      return { history: result, internalId: plan.internalId, dexNumber: plan.dexNumber, sourceSlug: plan.sourceSlug };
+    },
     info: {
       path: source.displayPath,
       valid: true,
@@ -1316,6 +1354,7 @@ export async function createProjectSession(
       if (!entry) {
         throw new Error("That history entry is no longer available.");
       }
+      await guardCreationUndo(entry);
       const paths = entry.files.map((file) => file.path);
       const result = await history.selectivelyUndo(entryId);
       if (trainerBaseAffected(paths)) {
@@ -1351,6 +1390,7 @@ export async function createProjectSession(
     undoLastSave: async () => {
       const state = await history.getState();
       const entry = state.cursor > 0 ? state.entries[state.cursor - 1] : null;
+      if (entry) await guardCreationUndo(entry);
       const paths = entry?.files.map((file) => file.path) ?? [];
       const result = await history.undo();
       if (trainerBaseAffected(paths)) {

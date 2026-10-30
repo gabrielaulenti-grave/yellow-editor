@@ -1596,6 +1596,12 @@ export interface ProjectSource {
 }
 
 export interface ProjectSession {
+  getMoveCreateDocument(): Promise<import("./moveCreation").MoveCreateDocument>;
+  createMove(document: import("./moveCreation").MoveCreateDocument, values: import("./moveCreation").MoveCreateValues): Promise<{ history: HistorySummary; id: number }>;
+  getTrainerPartyCreateDocument(): Promise<import("./trainerPartyCreation").TrainerPartyCreateDocument>;
+  createTrainerParty(document: import("./trainerPartyCreation").TrainerPartyCreateDocument, values: import("./trainerPartyCreation").TrainerPartyCreateValues): Promise<{ history: HistorySummary; partyId: string }>;
+  getPokemonCreateDocument(): Promise<import("./pokemonCreation").PokemonCreateDocument>;
+  createPokemon(document: import("./pokemonCreation").PokemonCreateDocument, values: import("./pokemonCreation").PokemonCreateValues): Promise<{ history: HistorySummary; internalId: number; dexNumber: number; sourceSlug: string }>;
   getAnimationEditDocument(animationId: number | null): Promise<import("./battleAnimationEditing").AnimationEditDocument>;
   saveAnimation(document: import("./battleAnimationEditing").AnimationEditDocument, values: import("./battleAnimationEditing").AnimationEditValues): Promise<{ history: HistorySummary; animationId: number; constant: string }>;
   getBattleAnimationCatalog(): Promise<import("./battleAnimations").BattleAnimationCatalog>;

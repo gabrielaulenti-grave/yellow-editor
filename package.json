@@ -64,7 +64,10 @@
     "test:items:field": "node scripts/check-field-tools.mjs",
     "test:items:field:ui": "node scripts/check-field-tools-workflow.mjs",
     "test:animations": "node scripts/check-battle-animations.mjs",
-    "test:animations:gameplay": "node scripts/check-animation-gameplay.mjs"
+    "test:animations:gameplay": "node scripts/check-animation-gameplay.mjs",
+    "test:content": "node scripts/check-content-creation.mjs",
+    "test:content:ui": "node scripts/check-content-workflow.mjs",
+    "test:content:gameplay": "node scripts/check-content-gameplay.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

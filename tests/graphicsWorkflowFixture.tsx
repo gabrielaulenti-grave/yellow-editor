@@ -40,6 +40,9 @@ fixture.graphicsInvoke = async (command, args = {}) => {
     case "save_graphics": return session.saveGraphics(args.document as never, args.values as never);
     case "get_animation_edit_document": return session.getAnimationEditDocument(args.animationId as number | null);
     case "save_animation": return session.saveAnimation(args.document as never, args.values as never);
+    case "create_move": return session.createMove(args.document as never, args.values as never);
+    case "create_pokemon": return session.createPokemon(args.document as never, args.values as never);
+    case "create_trainer_party": return session.createTrainerParty(args.document as never, args.values as never);
     case "get_pokemon_details": return session.getPokemonDetails(args.internalId as number, args.sourceSlug as string);
     case "get_pokemon_edit_document": return session.getPokemonEditDocument(args.internalId as number, args.sourceSlug as string);
     case "get_pokemon_tmhm_moves": return session.getPokemonTmhmMoves(args.sourceSlug as string);

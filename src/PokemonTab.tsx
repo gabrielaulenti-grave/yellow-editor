@@ -13,6 +13,8 @@ import type {
 import { formatHex } from "./editor/format";
 import { PokemonSpritePanel } from "./PokemonSpritePanel";
 import { TextEditor } from "./TextEditor";
+import { useState } from "react";
+import { ContentCreateDialog, type CreatedContent } from "./ContentCreateDialog";
 
 interface PokemonTabProps {
   project: ProjectInfo | null;
@@ -27,6 +29,7 @@ interface PokemonTabProps {
   onSelectPokemon(entry: PokemonIndexEntry): Promise<void>;
   onDraftChange(draft: PokemonDraft): void;
   onPaletteConstantChange(value: string): void;
+  onCreated(result: CreatedContent): Promise<void>;
 }
 
 function NumberField({
@@ -98,7 +101,9 @@ export function PokemonTab({
   onSelectPokemon,
   onDraftChange,
   onPaletteConstantChange,
+  onCreated,
 }: PokemonTabProps) {
+  const [creating, setCreating] = useState(false);
   function patch(values: Partial<PokemonDraft>) {
     if (draft) onDraftChange({ ...draft, ...values });
   }
@@ -165,7 +170,9 @@ export function PokemonTab({
               </option>
             ))}
         </SearchableSelect>
+        {project && <button type="button" disabled={editBusy || dirty} onClick={() => setCreating(true)}>New Pokémon</button>}
       </div>
+      {creating && <ContentCreateDialog kind="pokemon" templateId={selectedPokemonId ?? undefined} onClose={() => setCreating(false)} onCreated={onCreated} />}
 
       {!project && <p>Open a project to browse Pokémon.</p>}
 

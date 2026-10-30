@@ -1,4 +1,5 @@
 import { fieldToolError } from "./FieldToolEditor";
+import type { CreatedContent } from "./ContentCreateDialog";
 import { GraphicsTab } from "./GraphicsTab";
 import type { GraphicsFocus } from "./core/graphics";
 import { useEffect, useRef, useState } from "react";
@@ -1513,6 +1514,28 @@ function App() {
     }
   }
 
+  async function handleContentCreated(result: CreatedContent): Promise<void> {
+    setHistorySummary(result.history); setEditBusy(true);
+    try {
+      const moveData = await invoke<MoveData[]>("get_moves"); setMoves(moveData);
+      if (result.kind === "move") {
+        setSelectedMoveId(result.id!); setMoveSearch("");
+        if (selectedPokemonEntry?.sourceSlug) await loadPokemon(selectedPokemonEntry);
+      }
+      if (result.kind === "pokemon") {
+        const index = await invoke<PokemonIndexEntry[]>("get_pokemon_index"); setPokemonIndex(index);
+        const entry = index.find(entry => entry.internalId === result.internalId); if (entry) await loadPokemon(entry);
+      }
+      if (result.kind === "trainer") {
+        const catalog = await invoke<TrainerCatalog>("get_trainer_base_catalog");
+        refreshTrainerBaseCatalog(catalog, result.partyId, result.partyId?.split(":")[0]); setTrainerSection("parties"); setTrainerSearch("");
+      }
+      setStatus(`${result.kind === "pokemon" ? "Pokémon" : result.kind === "move" ? "Move" : "Trainer party"} created. Existing identifiers were preserved.`);
+    } catch (error) {
+      setStatus(`Creation was saved, but the browser could not refresh: ${String(error)}. Reopen the project to reload its content.`);
+    } finally { setEditBusy(false); }
+  }
+
   async function saveTrainerClass() {
     if (
       !project
@@ -2336,6 +2359,7 @@ function App() {
           onSelectPokemon={selectPokemon}
           onDraftChange={setPokemonDraft}
           onPaletteConstantChange={changePokemonPaletteConstant}
+          onCreated={handleContentCreated}
         />
       )}
 
@@ -2347,6 +2371,7 @@ function App() {
           moveSearch={moveSearch}
           onSelectMove={setSelectedMoveId}
           onSearchChange={setMoveSearch}
+          onCreated={handleContentCreated}
         />
       )}
 
@@ -2426,6 +2451,7 @@ function App() {
           onUpdateClassField={changeTrainerClassField}
           onToggleClassMoveChoice={toggleTrainerClassMoveChoice}
           onCreateClass={createTrainerClass}
+          onCreated={handleContentCreated}
           onOpenScript={(path, routineLabel, reference) => {
             void openScript(path, routineLabel, reference);
           }}

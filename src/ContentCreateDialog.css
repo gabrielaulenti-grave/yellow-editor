@@ -1,0 +1,8 @@
+.content-create-dialog { width: min(780px, calc(100vw - 28px)); max-width: calc(100vw - 28px); box-sizing: border-box; max-height: calc(100dvh - 28px); overflow: auto; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--panel); color: inherit; }
+.content-create-dialog::backdrop { background: rgb(0 0 0 / 50%); }
+.content-create-dialog fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.content-create-dialog .editor-field { margin: 12px 0; }
+.content-create-dialog input, .content-create-dialog select, .content-create-dialog textarea { min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; }
+.creation-party-row { display: grid; grid-template-columns: minmax(0, 1fr) 80px auto; gap: 10px; align-items: center; }
+.content-create-dialog .field-grid > * { min-width: 0; }
+@media (max-width: 520px) { .content-create-dialog .two-column-fields { grid-template-columns: minmax(0, 1fr); } .creation-party-row { grid-template-columns: minmax(0, 1fr) 70px; } .creation-party-row > button { grid-column: 1 / -1; margin-bottom: 10px; } }

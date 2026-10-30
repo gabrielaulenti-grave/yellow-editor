@@ -520,6 +520,21 @@ export async function invoke<T>(
   const session = requireSession();
 
   switch (command) {
+    case "get_move_create_document": return await session.getMoveCreateDocument() as T;
+    case "get_trainer_party_create_document": return await session.getTrainerPartyCreateDocument() as T;
+    case "get_pokemon_create_document": return await session.getPokemonCreateDocument() as T;
+    case "create_move": {
+      if (!args?.document || !args.values) throw new Error("Missing move creation form.");
+      return await session.createMove(args.document as import("../core/moveCreation").MoveCreateDocument, args.values as import("../core/moveCreation").MoveCreateValues) as T;
+    }
+    case "create_trainer_party": {
+      if (!args?.document || !args.values) throw new Error("Missing trainer party creation form.");
+      return await session.createTrainerParty(args.document as import("../core/trainerPartyCreation").TrainerPartyCreateDocument, args.values as import("../core/trainerPartyCreation").TrainerPartyCreateValues) as T;
+    }
+    case "create_pokemon": {
+      if (!args?.document || !args.values) throw new Error("Missing Pokémon creation form.");
+      return await session.createPokemon(args.document as import("../core/pokemonCreation").PokemonCreateDocument, args.values as import("../core/pokemonCreation").PokemonCreateValues) as T;
+    }
     case "get_battle_animation_catalog":
       return await session.getBattleAnimationCatalog() as T;
     case "get_animation_edit_document":
