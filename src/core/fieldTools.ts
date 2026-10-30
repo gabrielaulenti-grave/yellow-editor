@@ -1,6 +1,6 @@
 import { hashText } from "./history";
 import { readProjectRgbdsSources, projectConstantCatalogFromSources } from "./projectConstants";
-import { inspectPlayerConditions, validatePlayerCondition, renderConditionFailure, conditionBadges, type ConditionDomains, type PlayerCondition } from "./playerConditions";
+import { inspectPlayerConditions, validatePlayerCondition, renderConditionFailure, conditionBadges, legacyPokedexMask, expandedPokedexMask, type ConditionDomains, type PlayerCondition } from "./playerConditions";
 import { parseItemConstantDefinitions } from "./itemConstants";
 import { textLineLengthError } from "./textEditing";
 import { fieldToolContracts } from "./fieldToolContracts";
@@ -47,7 +47,7 @@ function readModel(text: string): Model | null {
 function ownedFieldTools(model: Model, files: Map<string, string>, effects: string) {
   const current = renderFieldTools(model, files);
   const legacy = current.split("\tfarcall ItemUseReloadOverworldData\n").join("");
-  for (const block of new Set([current, legacy])) {
+  for (const block of new Set([current, legacy, current.split(expandedPokedexMask).join(legacyPokedexMask), legacy.split(expandedPokedexMask).join(legacyPokedexMask)])) {
     const text = block.replace(/\n/g, effects.includes("\r\n") ? "\r\n" : "\n");
     if (effects.split(text).length === 2) return text;
   }

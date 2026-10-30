@@ -22,7 +22,7 @@ Adding species can change the Pokédex save layout. Use a new test save; the edi
 
 Choose **New trainer party** in Trainers. Select an existing class and up to six Pokémon, using shared or individual levels. New parties retain every existing party number, including when classes previously shared their source data. Use Maps and script interactions to place the new party in the world and supply its dialogue.
 
-To add a class with its own portrait, use the existing trainer-class creation tools in Graphics. A class, its portrait and its individual parties remain separate concepts.
+To add a class with its own portrait, use the existing creation form in Trainers → Class data and choose an independent portrait copy. Edit that portrait in Graphics. A class, its portrait and its individual parties remain separate concepts.
 
 ## Undo and validation
 

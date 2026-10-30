@@ -21,19 +21,22 @@ export interface PlayerConditionDomain { reason: string | null; moves: string[];
 export interface ConditionDomains { sharedFlags?: Array<{ event: string; label: string }>; items: string[]; pokemon: string[]; events: string[]; conditions?: PlayerConditionDomain }
 export const conditionBadges = ["BOULDER", "CASCADE", "THUNDER", "RAINBOW", "SOUL", "MARSH", "VOLCANO", "EARTH"];
 const integer = (n: number, min: number, max: number) => Number.isInteger(n) && n >= min && n <= max;
+export const legacyPokedexMask = "and (1 << (NUM_POKEMON % 8)) - 1";
+export const expandedPokedexMask = "and (1 << ((NUM_POKEMON - 1) % 8 + 1)) - 1";
+export function upgradePokedexMask(text: string) { return text.split(legacyPokedexMask).join(expandedPokedexMask); }
 export function isEventCondition(c: PlayerCondition): c is Extract<PlayerCondition, { event: string }> { return !c.kind || c.kind === "event"; }
 export function inspectPlayerConditions(files: Map<string, string>, symbols: Map<string, number>): PlayerConditionDomain {
   const ram = files.get("ram/wram.asm") ?? "", macros = files.get("macros/ram.asm") ?? "";
   const dexNames = [...(files.get("constants/pokedex_constants.asm") ?? "").matchAll(/^\s*const (DEX_\w+)\b/gm)].map(m => m[1]);
-  const moveNames = [...(files.get("constants/move_constants.asm") ?? "").matchAll(/^\s*const (\w+)\b/gm)].map(m => m[1]);
+  const moveNames = [...(files.get("constants/move_constants.asm") ?? "").split("; Moves do double duty as animation identifiers.")[0].matchAll(/^\s*const (\w+)\b/gm)].map(m => m[1]);
   const badgeLayout = conditionBadges.every((name, i) => symbols.get(`BIT_${name}BADGE`) === i) && /^DEF NUM_BADGES EQU const_value\s*(?:;.*)?$/m.test(files.get("constants/ram_constants.asm") ?? "");
-  const dexLayout = Math.max(...dexNames.map(name => symbols.get(name) ?? -1)) === 151 && /^DEF NUM_POKEMON EQU const_value - 1\s*(?:;.*)?$/m.test(files.get("constants/pokedex_constants.asm") ?? "");
+  const dexLayout = dexNames.length > 0 && dexNames.length < 255 && dexNames.every((name, i) => symbols.get(name) === i + 1) && /^DEF NUM_POKEMON EQU const_value - 1\s*(?:;.*)?$/m.test(files.get("constants/pokedex_constants.asm") ?? "");
   const required = [/wNumHoFTeams:: db/, /wPartyCount:: db/, /wPartySpecies:: ds PARTY_LENGTH \+ 1/, /wPokedexOwned:: flag_array NUM_POKEMON/, /wPokedexSeen:: flag_array NUM_POKEMON/, /wNumBagItems:: db/, /wBagItems:: ds BAG_ITEM_CAPACITY \* 2 \+ 1/, /wPlayerMoney:: ds 3/, /wPlayerCoins:: dw/, /wObtainedBadges:: flag_array NUM_BADGES/, /wWalkBikeSurfState:: db/];
   const compatible = required.every(pattern => pattern.test(ram)) && /\\1Moves::\s+ds NUM_MOVES/.test(macros)
     && symbols.get("PARTY_LENGTH") === 6 && symbols.get("NUM_MOVES") === 4 && symbols.get("BAG_ITEM_CAPACITY") === 20
     && badgeLayout && dexLayout;
   return { reason: compatible ? null : "Player conditions require the reviewed Red/Yellow party, bag, money and Pokédex layouts.",
-    moves: moveNames.filter(name => (symbols.get(name) ?? 0) > 0 && (symbols.get(name) ?? 0) <= 165),
+    moves: moveNames.filter(name => (symbols.get(name) ?? 0) > 0 && (symbols.get(name) ?? 0) <= (symbols.get("NUM_ATTACKS") ?? moveNames.length)),
     badges: conditionBadges,
     dexPokemon: dexNames.filter(name => symbols.has(name)).map(name => name.slice(4)),
   };
@@ -59,7 +62,7 @@ export function validatePlayerCondition(condition: PlayerCondition, domains: Con
       case "party-count": if (integer(c.minimum, 0, 6)) return; break;
       case "bag-space": if (integer(c.minimum, 0, 20)) return; break;
       case "dex-species": if (domains.conditions.dexPokemon.includes(c.species) && ["seen", "caught"].includes(c.status)) return; break;
-      case "dex-count": if (integer(c.minimum, 0, 151) && ["seen", "caught"].includes(c.status)) return; break;
+      case "dex-count": if (integer(c.minimum, 0, domains.conditions.dexPokemon.length) && ["seen", "caught"].includes(c.status)) return; break;
       case "travel": if (["walking", "cycling", "surfing"].includes(c.mode)) return; break;
     }
     throw new Error("Choose valid player condition values.");
@@ -95,7 +98,7 @@ export function renderPlayerCondition(c: PlayerCondition, yes: string, no: strin
       case "badge": return ["\tld a, [wObtainedBadges]", `\tbit ${conditionBadges.indexOf(c.badge)}, a`, `\tjp nz, ${yes}`, `\tjp ${no}`];
       case "badge-count": case "dex-count": {
         const address = c.kind === "badge-count" ? "wObtainedBadges" : c.status === "caught" ? "wPokedexOwned" : "wPokedexSeen";
-        return [`\tld hl, ${address}`, `\tld b, ${c.kind === "badge-count" ? 1 : "(NUM_POKEMON + 7) / 8"}`, "\tld c, 0", l, "\tld a, [hli]", ...(c.kind === "dex-count" ? ["\tld d, a", "\tld a, b", "\tcp 1", "\tld a, d", `\tjr nz, ${l}Byte`, "\tand (1 << (NUM_POKEMON % 8)) - 1", `${l}Byte`] : []), "\tld d, 8", `${l}Bits`, "\tsrl a", `\tjr nc, ${l}Clear`, "\tinc c", `${l}Clear`, "\tdec d", `\tjr nz, ${l}Bits`, "\tdec b", `\tjr nz, ${l}`, "\tld a, c", ...cmp(c.minimum)];
+        return [`\tld hl, ${address}`, `\tld b, ${c.kind === "badge-count" ? 1 : "(NUM_POKEMON + 7) / 8"}`, "\tld c, 0", l, "\tld a, [hli]", ...(c.kind === "dex-count" ? ["\tld d, a", "\tld a, b", "\tcp 1", "\tld a, d", `\tjr nz, ${l}Byte`, "\tand (1 << ((NUM_POKEMON - 1) % 8 + 1)) - 1", `${l}Byte`] : []), "\tld d, 8", `${l}Bits`, "\tsrl a", `\tjr nc, ${l}Clear`, "\tinc c", `${l}Clear`, "\tdec d", `\tjr nz, ${l}Bits`, "\tdec b", `\tjr nz, ${l}`, "\tld a, c", ...cmp(c.minimum)];
       }
       case "dex-species": return [`\tld a, [${c.status === "caught" ? "wPokedexOwned" : "wPokedexSeen"} + (DEX_${c.species} - 1) / 8]`, `\tbit (DEX_${c.species} - 1) % 8, a`, `\tjp nz, ${yes}`, `\tjp ${no}`];
       case "party-count": return ["\tld a, [wPartyCount]", ...cmp(c.minimum)];

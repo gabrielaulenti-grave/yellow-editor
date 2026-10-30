@@ -1,7 +1,8 @@
 import { parseMoves, parsePokemonDetails, parsePokemonIndex } from "./parsers";
 import { loadGraphicsCatalog, loadGraphicsDocument } from "./graphics";
 import { encodeGraphicsPng } from "./graphicsPixels";
-import { bytesToHex } from "./history";
+import { bytesToHex, hashText } from "./history";
+import { legacyPokedexMask, upgradePokedexMask } from "./playerConditions";
 import { append, before, checkStamps, code, creationSnapshot, creationWrites, extendNames, freeSections, gameText, identifier, rows, type CreationStamp } from "./creationSupport";
 import type { ProjectSource, TextWriteRequest } from "./types";
 
@@ -14,6 +15,9 @@ async function state(source: ProjectSource) {
   const index = await parsePokemonIndex(source);
   const paths = [...Object.values(P), "constants/trainer_constants.asm", "constants/move_constants.asm", "data/moves/moves.asm", "data/moves/names.asm", "data/moves/animations.asm", "main.asm", "ram/wram.asm", ...index.filter(entry => entry.kind === "pokemon" && entry.sourceSlug).map(entry => `data/pokemon/base_stats/${entry.sourceSlug}.asm`)];
   const snapshot = await creationSnapshot(source, paths);
+  for (const file of snapshot.files.filter(file => file.contents.includes("; yellow-editor") && file.contents.includes(legacyPokedexMask))) {
+    if (!snapshot.stamps.some(stamp => stamp.path === file.path)) snapshot.stamps.push({ path: file.path, hash: await hashText(file.contents) });
+  }
   return { ...snapshot, index };
 }
 export async function loadPokemonCreateDocument(source: ProjectSource): Promise<PokemonCreateDocument> {
@@ -91,5 +95,7 @@ export async function preparePokemonCreateWrites(source: ProjectSource, document
   let layout = freeSections(text.get(P.layout)!, files, [P.base, P.cries, P.evos, P.entries, P.text, P.palettes, P.icons, P.names, P.order]);
   layout = layout.split(/\r?\n/).filter(line => line.trim() !== '"Pics 5"').join(layout.includes("\r\n") ? "\r\n" : "\n");
   updates.set(P.layout, layout);
+  // Earlier managed count checks masked out the whole final byte at Pokédex #152.
+  for (const file of files.filter(file => file.contents.includes("; yellow-editor") && file.contents.includes(legacyPokedexMask))) updates.set(file.path, upgradePokedexMask(updates.get(file.path) ?? file.contents));
   return { internalId: current.nextInternalId, dexNumber: current.nextDexNumber, sourceSlug: slug, changes: [...creationWrites(text, current.sources, updates), ...creates] };
 }

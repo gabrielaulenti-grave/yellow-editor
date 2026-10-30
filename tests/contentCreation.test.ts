@@ -6,10 +6,22 @@ import { loadBattleAnimationCatalog } from "../src/core/battleAnimations";
 import { loadGraphicsCatalog } from "../src/core/graphics";
 import { getSaveCompatibilityDescriptor } from "../src/core/saveCompatibility";
 import { loadMoveCreateDocument, prepareMoveCreateWrites, type MoveCreateValues } from "../src/core/moveCreation";
+import { trainerPlacementError } from "../src/core/mapTrainers";
+import { creationSnapshot } from "../src/core/creationSupport";
+import { inspectPlayerConditions, validatePlayerCondition, legacyPokedexMask, expandedPokedexMask } from "../src/core/playerConditions";
+import { prepareScriptInteractionWrites } from "../src/core/scriptInteractions";
 
 assert.ok(process.argv.slice(2).length, "Supply Red/Yellow sources.");
 for (const root of process.argv.slice(2)) test(`${root}: additional moves, Pokémon and parties preserve old identities and survive undo/redo`, async () => {
   const { source, data, fail } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+  const npc = await session.getMapNpcCreateDocument("BLUES_HOUSE");
+  await session.createMapNpc(npc, { x: 1, y: 1, sprite: "SPRITE_GENTLEMAN", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Hello!"] } });
+  const scriptPath = "scripts/BluesHouse.asm", scriptLabel = `BluesHouseEditorNpc${npc.objectId}Text`;
+  const conditionDoc = await session.getScriptInteractionDocument(scriptPath, scriptLabel);
+  await session.saveScriptInteraction(conditionDoc, { ...conditionDoc.values, once: false, condition: { kind: "dex-count", minimum: 1, status: "caught" }, visibleWhen: { kind: "dex-count", minimum: 1, status: "seen" } });
+  for (const path of [scriptPath, "engine/overworld/toggleable_objects.asm"]) await source.writeText(path, (await source.readText(path)).replaceAll(expandedPokedexMask, legacyPokedexMask));
+  const legacy = await session.getScriptInteractionDocument(scriptPath, scriptLabel);
+  await prepareScriptInteractionWrites(source, legacy, legacy.values); // Exact earlier generated masks remain editable.
   const original = new Map([...data].map(([path, bytes]) => [path, bytes.slice()]));
   const moves = await session.getMoves(), index = await session.getPokemonIndex();
   const oldAnimations = await loadBattleAnimationCatalog(source, await loadGraphicsCatalog(source));
@@ -31,6 +43,7 @@ for (const root of process.argv.slice(2)) test(`${root}: additional moves, Poké
   const template = pokemonDoc.templates.find(entry => entry.constant === "BULBASAUR")!;
   const mon = await session.createPokemon(pokemonDoc, { constant: "EDITOR_MON", name: "EDITORMON", templateId: template.id, startingMove: values.constant, category: "TEST", description: ["A new Pokemon.", "It sparks often."] });
   assert.equal(mon.dexNumber, 152); assert.equal(mon.internalId, 191);
+  for (const path of [scriptPath, "engine/overworld/toggleable_objects.asm"]) { assert.ok((await source.readText(path)).includes(expandedPokedexMask)); assert.ok(!(await source.readText(path)).includes(legacyPokedexMask)); }
   assert.deepEqual((await session.getPokemonIndex()).slice(0, index.length), index);
   const details = await session.getPokemonDetails(mon.internalId, mon.sourceSlug);
   assert.equal(details.stats.dexConstant, "DEX_EDITOR_MON"); assert.equal(details.learnset[0].moveConstant, values.constant);
@@ -39,6 +52,9 @@ for (const root of process.argv.slice(2)) test(`${root}: additional moves, Poké
   assert.equal(edit.values.startingMoves[0], values.constant); assert.ok(edit.options.moves.includes(values.constant));
   assert.ok(await source.exists("gfx/pokemon/front/editor_mon.png"));
   assert.notEqual((await getSaveCompatibilityDescriptor(source, root.includes("yellow") ? "yellow" : "red")).structuralHash, saveBefore.structuralHash);
+  const snapshot = await creationSnapshot(source, []), conditions = inspectPlayerConditions(snapshot.text, snapshot.symbols);
+  assert.equal(conditions.reason, null); assert.ok(conditions.moves.includes("EDITOR_SPARK")); assert.ok(!conditions.moves.includes("SHOWPIC_ANIM"));
+  validatePlayerCondition({ kind: "dex-count", minimum: 152, status: "caught" }, { conditions, events: [], pokemon: ["EDITOR_MON"], items: [] });
   const classCatalog = await (session as unknown as { getTrainerBaseCatalog(): Promise<{ trainers: Array<{ id: string }> }> }).getTrainerBaseCatalog();
   const partyDoc = await session.getTrainerPartyCreateDocument(); assert.equal(partyDoc.reason, null);
   const party = await session.createTrainerParty(partyDoc, { classConstant: "YOUNGSTER", partyFormat: "individual-levels", pokemon: [{ level: 10, speciesConstant: "EDITOR_MON" }] });
@@ -48,6 +64,15 @@ for (const root of process.argv.slice(2)) test(`${root}: additional moves, Poké
   const timeline = await session.getHistoryTimeline();
   await assert.rejects(session.selectivelyUndoHistoryEntry(timeline.entries.find(entry => entry.label === "Add move EDITOR_SPARK")!.id), /later content references/);
   await assert.rejects(session.selectivelyUndoHistoryEntry(timeline.entries.find(entry => entry.label === "Add Pokémon EDITOR_MON")!.id), /later content references/);
+  const map = await session.getMapCreateDocument("ROCK_TUNNEL_B1F");
+  await session.createMap(map, { constant: "CREATION_TEST_CAVE", width: map.visualization.map.width, height: map.visualization.map.height, layout: "copy", fillBlock: 0, borderBlock: map.borderBlock, musicMap: "DIGLETTS_CAVE", locationMap: "VERMILION_CITY", connection: null });
+  const placement = await session.getMapTrainerDocument("CREATION_TEST_CAVE");
+  const spot = placement.walkable.find(point => !trainerPlacementError(placement, { ...placement.values, ...point, sight: 0, copyParty: false, partyId: party.partyId }));
+  assert.ok(spot);
+  await session.saveMapTrainer(placement, { ...placement.values, ...spot, sight: 0, copyParty: false, partyId: party.partyId });
+  await assert.rejects(session.selectivelyUndoHistoryEntry(timeline.entries.find(entry => entry.label === `Add trainer party ${party.partyId}`)!.id), /map placements/);
+  await session.undoLastSave();
+  await session.undoLastSave();
   await session.undoLastSave(); await session.redoLastUndo(); await session.undoLastSave();
   await session.undoLastSave(); assert.equal(await source.exists("gfx/pokemon/front/editor_mon.png"), false);
   await session.redoLastUndo(); assert.equal((await session.getPokemonIndex()).find(entry => entry.internalId === 191)?.constant, "EDITOR_MON");

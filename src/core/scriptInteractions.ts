@@ -9,7 +9,7 @@ import { inspectSceneEffects, type SceneEffectsDomain } from "./sceneEffects";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { hashText } from "./history";
 import { identifySequenceDialogue, renderInteractionSequence, renderSequenceServices, sequenceDialogue, sequenceDialoguePrompts, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
-import { inspectPlayerConditions, validatePlayerCondition, renderConditionFailure, type PlayerCondition, type PlayerConditionDomain } from "./playerConditions";
+import { inspectPlayerConditions, validatePlayerCondition, renderConditionFailure, upgradePokedexMask, type PlayerCondition, type PlayerConditionDomain } from "./playerConditions";
 import { inspectNpcServices, type NpcServicesDomain } from "./npcServices";
 import { prepareNpcVisibility, type NpcVisibilityRule } from "./npcVisibility";
 import { reviewScriptEngineContracts } from "./scriptEngineContracts";
@@ -741,7 +741,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     const end = script.indexOf(endMark, r.from);
     const after = script.indexOf("\n", end) + 1;
     const oldCode = renderManaged(state.old, oldMovement).trimEnd();
-    if (end < 0 || script.slice(r.from, after).replace(/\r\n/g, "\n").trimEnd() !== oldCode) throw new Error("The interaction's generated logic was changed in source. Review it before regenerating.");
+    if (end < 0 || upgradePokedexMask(script.slice(r.from, after).replace(/\r\n/g, "\n").trimEnd()) !== oldCode) throw new Error("The interaction's generated logic was changed in source. Review it before regenerating.");
     script = script.slice(0, r.from) + code.replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n") + script.slice(after).replace(/^\r?\n/, "");
   } else {
     const leaves = await attachTextEditing({} as ProjectSession, source).getTextLeafDocuments(document.path, document.label);
