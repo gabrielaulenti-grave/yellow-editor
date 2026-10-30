@@ -4,7 +4,7 @@ import { bytesToHex, hashText } from "./history";
 import { readProjectRgbdsSources } from "./projectConstants";
 import type { ProjectSource, TextWriteRequest } from "./types";
 
-/** Allocate a private portrait beside its template's binary include, in the same ROM section. */
+/** Keep the bank-relative portrait table valid by placing all trainer pictures as one section. */
 export async function prepareTrainerPortraitCopy(source: ProjectSource, constant: string, templateLabel: string): Promise<{ label: string; changes: TextWriteRequest[] }> {
   if (!/^[A-Z][A-Z0-9_]*$/.test(constant)) throw new Error("Invalid trainer class constant for portrait creation.");
   const catalog = await loadGraphicsCatalog(source);
@@ -21,11 +21,23 @@ export async function prepareTrainerPortraitCopy(source: ProjectSource, constant
   if (text === undefined) throw new Error("The portrait include source is unavailable.");
   const lines = text.split(/\r?\n/), line = lines[reference.line - 1];
   if (!line?.includes(`"${reference.target}"`)) throw new Error("The portrait include changed. Reload trainer classes before creating this class.");
+  const section = lines.slice(0, reference.line).filter(line => /^\s*SECTION\b/.test(line.split(";", 1)[0])).at(-1)?.split(";", 1)[0].trim();
+  if (section !== 'SECTION "Trainer Pics", ROMX') throw new Error("Independent trainer portraits currently require the standard bank-relocatable Trainer Pics section.");
   const document = await loadGraphicsDocument(source, asset.path, catalog);
   const bytes = encodeGraphicsPng(document);
   lines.splice(reference.line, 0, `${label}::`, `\tINCBIN "${path.replace(/\.png$/, ".pic")}"`);
-  return { label, changes: [
+  const changes: TextWriteRequest[] = [
     { path, operation: "create", encoding: "hex", contents: bytesToHex(bytes) },
     { path: reference.path, contents: lines.join(text.includes("\r\n") ? "\r\n" : "\n"), expectedHash: await hashText(text) },
-  ] };
+  ];
+  if (await source.exists("layout.link")) {
+    const layout = await source.readText("layout.link"), rows = layout.split(/\r?\n/);
+    const pins = rows.map((row, i) => /^\s*"Trainer Pics"\s*(?:;.*)?$/.test(row) ? i : -1).filter(i => i >= 0);
+    if (pins.length > 1) throw new Error("Trainer picture placement is ambiguous in the linker layout.");
+    if (pins.length) {
+      rows.splice(pins[0], 1);
+      changes.push({ path: "layout.link", contents: rows.join(layout.includes("\r\n") ? "\r\n" : "\n"), expectedHash: await hashText(layout) });
+    }
+  }
+  return { label, changes };
 }

@@ -16,7 +16,7 @@ async function fixture(root: string) {
   async function visit(folder = "") { for (const entry of await readdir(join(root, folder), { withFileTypes: true })) {
     if (entry.name.startsWith(".")) continue;
     const path = folder ? `${folder}/${entry.name}` : entry.name;
-    if (entry.isDirectory()) await visit(path); else if (/\.(asm|inc|png)$/.test(path) || path === "Makefile") data.set(path, new Uint8Array(await readFile(join(root, path))));
+    if (entry.isDirectory()) await visit(path); else if (/\.(asm|inc|png)$/.test(path) || path === "Makefile" || path === "layout.link") data.set(path, new Uint8Array(await readFile(join(root, path))));
   } }
   await visit();
   const source: ProjectSource = {
@@ -84,12 +84,14 @@ for (const root of process.argv.slice(2)) test(`${root}: independent trainer por
   const catalog = await loadGraphicsCatalog(source), template = catalog.assets.find(asset => asset.path === "gfx/trainers/youngster.png")!;
   const label = template.references.find(ref => ref.target.endsWith(".pic"))!.labels[0];
   const original = await source.readBytes(template.path);
+  const layout = await source.readText("layout.link");
   const plan = await prepareTrainerPortraitCopy(source, "TEST_CLASS", label);
   await manager.save("Create private trainer portrait", plan.changes);
   assert.ok(await source.exists("gfx/trainers/test_class.png"));
+  assert.ok(!(await source.readText("layout.link")).includes('"Trainer Pics"'), "the expanded picture section can be placed in a bank with room");
   assert.deepEqual(await source.readBytes(template.path), original);
   assert.ok((await loadGraphicsCatalog(source)).assets.some(asset => asset.path === "gfx/trainers/test_class.png" && asset.references.some(ref => ref.labels.includes(plan.label))));
   await assert.rejects(prepareTrainerPortraitCopy(source, "TEST_CLASS", label), /already exists/);
-  await manager.undo(); assert.equal(await source.exists("gfx/trainers/test_class.png"), false);
+  await manager.undo(); assert.equal(await source.exists("gfx/trainers/test_class.png"), false); assert.equal(await source.readText("layout.link"), layout);
   await manager.redo(); assert.equal(await source.exists("gfx/trainers/test_class.png"), true);
 });
