@@ -93,9 +93,9 @@ export async function preparePokemonCreateWrites(source: ProjectSource, document
   updates.set(P.naming, extendNames(text.get(P.naming)!));
   const ram = text.get("ram/wram.asm")!;
   if (!ram.includes("; yellow-editor Pokédex padding")) {
-    const padding = /(wGameProgressFlagsEnd::\r?\n\r?\n)[ \t]*ds 56(\r?\n\r?\nwObtainedHiddenItemsFlags:: flag_array MAX_HIDDEN_ITEMS)/;
+    const padding = /(wWalkBikeSurfState:: db\r?\n\r?\n)[ \t]*ds 10(\r?\n\r?\nwTownVisitedFlag:: flag_array NUM_CITY_MAPS)/;
     if (!padding.test(ram) || !ram.includes("wPokedexOwned:: flag_array NUM_POKEMON") || !ram.includes("wPokedexSeen:: flag_array NUM_POKEMON")) throw new Error("The expanded Pokédex needs reviewed unused RAM padding before adding species.");
-    updates.set("ram/wram.asm", ram.replace(padding, "$1; yellow-editor Pokédex padding\n\tds 56 - 2 * ((NUM_POKEMON + 7) / 8 - 19)$2"));
+    updates.set("ram/wram.asm", ram.replace(padding, "$1; yellow-editor Pokédex padding\n\tds 10 - 2 * ((NUM_POKEMON + 7) / 8 - 19)$2"));
   }
   // Pics 5 is the existing route for appended species; preserve that complete group.
   let layout = freeSections(text.get(P.layout)!, files, [P.base, P.cries, P.evos, P.entries, P.text, P.palettes, P.icons, P.names, P.order]);
