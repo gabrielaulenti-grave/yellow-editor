@@ -1,0 +1,46 @@
+name: Check animation authoring
+on:
+  pull_request:
+  push:
+    branches: [main, beta]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native-battle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/checkout@v6
+        with:
+          repository: pret/pokered
+          ref: d2704a63c26f9ba046ade877445216b3de0519a4
+          path: .animation-fixtures/pokered
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: pret/pokeyellow
+          ref: e89ead154b9968aa50eed9328ff2b38b6c194382
+          path: .animation-fixtures/pokeyellow
+          persist-credentials: false
+      - uses: actions/checkout@v6
+        with:
+          repository: binji/binjgb
+          ref: 8abd0d38d5bf109d7c280b27d815a8b53168adde
+          path: .animation-fixtures/binjgb
+          persist-credentials: false
+      - name: Install pinned RGBDS
+        run: |
+          mkdir -p .animation-fixtures/rgbds
+          curl --fail --location --output .animation-fixtures/rgbds.tar.xz https://github.com/gbdev/rgbds/releases/download/v1.0.4/rgbds-linux-x86_64.tar.xz
+          echo "3e19e50ea602e316be709160acaf0a708b1fa6d32d219ec541f244442895dbb7  .animation-fixtures/rgbds.tar.xz" | sha256sum --check
+          tar --no-same-owner -xf .animation-fixtures/rgbds.tar.xz -C .animation-fixtures/rgbds
+      - name: Check allocation and atomic history
+        run: npm run test:animations -- .animation-fixtures/pokered .animation-fixtures/pokeyellow
+      - name: Play newly authored animations and trainer portraits
+        run: npm run test:animations:gameplay -- .animation-fixtures/pokered .animation-fixtures/pokeyellow --rom .animation-fixtures/rgbds .animation-fixtures/binjgb
