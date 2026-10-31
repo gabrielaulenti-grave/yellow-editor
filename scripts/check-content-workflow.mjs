@@ -61,11 +61,13 @@ try {
       await form.getByLabel("Pokémon template", { exact: true }).selectOption("153");
       await form.getByLabel("New Pokémon starting move", { exact: true }).selectOption("EDITOR_SPARK");
       await form.getByLabel("New Pokémon category", { exact: true }).fill("TEST");
+      await form.getByRole("status").filter({ hasText: "45 species slots available" }).waitFor();
       if (process.env.CONTENT_SCREENSHOT && width === 1280) await page.screenshot({ path: process.env.CONTENT_SCREENSHOT, fullPage: true });
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
       await form.getByRole("button", { name: "Create Pokémon", exact: true }).click();
       await form.waitFor({ state: "detached" });
-      assert.equal((await page.evaluate(() => window.graphicsInvoke("get_pokemon_index"))).find(mon => mon.internalId === 191).constant, "EDITOR_MON");
+      assert.equal((await page.evaluate(() => window.graphicsInvoke("get_pokemon_index"))).find(mon => mon.internalId === 31).constant, "EDITOR_MON");
+      assert.equal((await page.evaluate(() => window.graphicsInvoke("get_pokemon_create_document"))).remainingSlots, 44);
       await page.getByRole("button", { name: "Trainers", exact: true }).click();
       await page.getByRole("button", { name: "New trainer party", exact: true }).click();
       form = page.getByRole("dialog", { name: "New trainer party", exact: true });

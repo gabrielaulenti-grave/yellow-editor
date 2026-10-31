@@ -3,10 +3,12 @@ import { loadGraphicsCatalog, loadGraphicsDocument } from "./graphics";
 import { encodeGraphicsPng } from "./graphicsPixels";
 import { bytesToHex, hashText } from "./history";
 import { legacyPokedexMask, upgradePokedexMask } from "./playerConditions";
+import { inspectPokemonSlots, claimSpeciesConstant, replaceSpeciesRow } from "./pokemonSlots";
+import { addPokemonPictures, expandPokemonRam } from "./pokemonStorage";
 import { append, before, checkStamps, code, creationSnapshot, creationWrites, extendNames, freeSections, gameText, identifier, rows, type CreationStamp } from "./creationSupport";
 import type { ProjectSource, TextWriteRequest } from "./types";
 
-export interface PokemonCreateDocument { sources: CreationStamp[]; nextInternalId: number; nextDexNumber: number; templates: Array<{ id: number; constant: string; name: string; slug: string }>; moves: string[]; reason: string | null }
+export interface PokemonCreateDocument { sources: CreationStamp[]; nextInternalId: number; nextDexNumber: number; allocation: "reclaimed" | "append"; remainingSlots: number; reclaimedSlots: number; appendSlots: number; blockedSlots: number[]; templates: Array<{ id: number; constant: string; name: string; slug: string }>; moves: string[]; reason: string | null }
 export interface PokemonCreateValues { constant: string; name: string; templateId: number; startingMove: string; category: string; description: string[] }
 const P = {
   constants: "constants/pokemon_constants.asm", dex: "constants/pokedex_constants.asm", names: "data/pokemon/names.asm", order: "data/pokemon/dex_order.asm", base: "data/pokemon/base_stats.asm", cries: "data/pokemon/cries.asm", icons: "data/pokemon/menu_icons.asm", palettes: "data/pokemon/palettes.asm", evos: "data/pokemon/evos_moves.asm", entries: "data/pokemon/dex_entries.asm", text: "data/pokemon/dex_text.asm", pictures: "gfx/pics.asm", loader: "home/pics.asm", naming: "home/names2.asm", layout: "layout.link",
@@ -24,13 +26,16 @@ export async function loadPokemonCreateDocument(source: ProjectSource): Promise<
   const current = await state(source), count = current.symbols.get("NUM_POKEMON_INDEXES"), dexCount = current.symbols.get("NUM_POKEMON"), opponentOffset = current.symbols.get("OPP_ID_OFFSET");
   let reason: string | null = null;
   if (count === undefined || dexCount === undefined || opponentOffset === undefined) throw new Error("Cannot resolve the species, Pokédex and opponent ID bounds.");
-  if (count + 1 >= opponentOffset || dexCount + 1 >= 255) reason = "No safe species ID remains within the current one-byte opponent and Pokédex ranges. Further expansion needs engine support.";
   for (const [path, label, directive] of [[P.names, "MonsterNames", "dname"], [P.order, "PokedexOrder", "db"], [P.cries, "CryData", "mon_cry"], [P.evos, "EvosMovesPointerTable", "dw"], [P.entries, "PokedexEntryPointers", "dw"]]) if (rows(current.text.get(path)!, label, directive).length !== count) reason = "Species-indexed tables must be synchronized before adding a Pokémon.";
+  const slots = inspectPokemonSlots(current.index, current.text, current.files, current.symbols);
+  const nextInternalId = slots.available[0] ?? count + 1;
+  if (!slots.available.length) reason = "No verified unused species slot remains within the reviewed species and Pokédex storage limits.";
   const templates = current.index.filter(entry => entry.kind === "pokemon" && entry.constant && entry.sourceSlug).map(entry => ({ id: entry.internalId, constant: entry.constant!, name: entry.displayName, slug: entry.sourceSlug! }));
-  return { sources: current.stamps, nextInternalId: count + 1, nextDexNumber: dexCount + 1, templates, moves: (await parseMoves(source)).map(move => move.constant), reason };
+  return { sources: current.stamps, nextInternalId, nextDexNumber: dexCount + 1, allocation: nextInternalId <= count ? "reclaimed" : "append", remainingSlots: slots.available.length, reclaimedSlots: slots.reclaimed.length, appendSlots: slots.appended.length, blockedSlots: slots.blocked, templates, moves: (await parseMoves(source)).map(move => move.constant), reason };
 }
 export async function preparePokemonCreateWrites(source: ProjectSource, document: PokemonCreateDocument, values: PokemonCreateValues) {
   const current = await loadPokemonCreateDocument(source); checkStamps(document.sources, current.sources); if (current.reason) throw new Error(current.reason);
+  if (current.nextInternalId !== document.nextInternalId) throw new Error("Creation sources changed outside this form. Reload the form before allocating a Pokémon slot.");
   const { files, text, symbols } = await state(source); identifier(values.constant, files); identifier(`DEX_${values.constant}`, files); gameText(values.name, 10, "Pokémon name"); gameText(values.category, 10, "Pokédex category");
   if (!values.description.length || values.description.length > 6) throw new Error("Use 1–6 Pokédex lines, with at most 18 characters per line.");
   values.description.forEach(line => gameText(line, 18, "Pokédex line"));
@@ -61,14 +66,15 @@ export async function preparePokemonCreateWrites(source: ProjectSource, document
   starterLines[starterAt] = `\tdb ${values.startingMove}, NO_MOVE, NO_MOVE, NO_MOVE ; level 1 learnset`;
   creates.push({ path: statsPath, operation: "create", contents: starterLines.join(stats.includes("\r\n") ? "\r\n" : "\n") });
   const updates = new Map<string, string>();
-  updates.set(P.constants, before(text.get(P.constants)!, /^[ \t]*DEF[ \t]+NUM_POKEMON_INDEXES\b[^\r\n]*/, `\tconst ${values.constant}`));
+  updates.set(P.constants, current.allocation === "reclaimed" ? claimSpeciesConstant(text.get(P.constants)!, current.nextInternalId, values.constant) : before(text.get(P.constants)!, /^[ \t]*DEF[ \t]+NUM_POKEMON_INDEXES\b[^\r\n]*/, `\tconst ${values.constant}`));
   let dexConstants = before(text.get(P.dex)!, /^[ \t]*DEF[ \t]+NUM_POKEMON\b[^\r\n]*/, `\tconst DEX_${values.constant}`);
   if (!dexConstants.includes("; yellow-editor species schema")) dexConstants += "\n; yellow-editor species schema\n";
   updates.set(P.dex, dexConstants);
   const speciesBoundary = /^[ \t]*assert_table_length[ \t]+NUM_POKEMON_INDEXES\b[^\r\n]*/;
-  updates.set(P.names, before(text.get(P.names)!, speciesBoundary, `\tdname "${values.name}"`));
-  updates.set(P.order, before(text.get(P.order)!, speciesBoundary, `\tdb DEX_${values.constant}`));
-  updates.set(P.cries, before(text.get(P.cries)!, speciesBoundary, rows(text.get(P.cries)!, "CryData", "mon_cry")[template.id - 1].split(";", 1)[0] + ` ; ${values.constant}`));
+  const speciesRow = (path: string, label: string, directive: string, record: string) => current.allocation === "reclaimed" ? replaceSpeciesRow(text.get(path)!, label, directive, current.nextInternalId, record) : before(text.get(path)!, speciesBoundary, record);
+  updates.set(P.names, speciesRow(P.names, "MonsterNames", "dname", `\tdname "${values.name}"`));
+  updates.set(P.order, speciesRow(P.order, "PokedexOrder", "db", `\tdb DEX_${values.constant}`));
+  updates.set(P.cries, speciesRow(P.cries, "CryData", "mon_cry", rows(text.get(P.cries)!, "CryData", "mon_cry")[template.id - 1].split(";", 1)[0] + ` ; ${values.constant}`));
   let base = text.get(P.base)!;
   if (/assert_table_length\s+NUM_POKEMON\s*-\s*1/.test(base)) {
     if (current.nextDexNumber !== 152 || symbols.get("DEX_MEW") !== 151 || !await source.exists("data/pokemon/base_stats/mew.asm")) throw new Error("The separate Mew header layout needs source review.");
@@ -83,23 +89,17 @@ export async function preparePokemonCreateWrites(source: ProjectSource, document
   if (icons.length !== current.nextDexNumber - 1) throw new Error("Pokémon menu icons do not match Pokédex order.");
   updates.set(P.icons, before(text.get(P.icons)!, /^[ \t]*end_nybble_array[ \t]+NUM_POKEMON\b[^\r\n]*/, icons[dexId - 1].split(";", 1)[0] + ` ; ${values.constant}`));
   const learned = details.learnset.filter(move => move.level > 1).map(move => `\tdb ${move.level}, ${move.moveConstant}`).join("\n");
-  updates.set(P.evos, append(before(text.get(P.evos)!, speciesBoundary, `\tdw ${evosLabel}`), `${evosLabel}:\n\tdb 0 ; no evolutions\n${learned}${learned ? "\n" : ""}\tdb 0 ; end learnset`));
+  updates.set(P.evos, append(speciesRow(P.evos, "EvosMovesPointerTable", "dw", `\tdw ${evosLabel}`), `${evosLabel}:\n\tdb 0 ; no evolutions\n${learned}${learned ? "\n" : ""}\tdb 0 ; end learnset`));
   const dex = details.pokedex;
-  updates.set(P.entries, append(before(text.get(P.entries)!, speciesBoundary, `\tdw ${dexLabel}`), `${dexLabel}:\n\tdb "${values.category}@"\n\tdb ${dex.heightFeet}, ${dex.heightInches}\n\tdw ${dex.weightTenthsLb}\n\ttext_far ${textLabel}\n\ttext_end`));
-  updates.set(P.text, append(text.get(P.text)!, `${textLabel}::\n${values.description.map((line, i) => `\t${i === 0 ? "text" : i === 3 ? "page" : "next"} "${line}"`).join("\n")}\n\tdex`));
-  const pics = text.get(P.pictures)!, beforeTrainers = pics.split(/^[ \t]*SECTION "Trainer Pics"/m)[0];
-  const sections = beforeTrainers.split(/\r?\n/).filter(line => /^SECTION\b/.test(code(line))); if (code(sections[sections.length - 1] ?? "") !== 'SECTION "Pics 5", ROMX') throw new Error("New species currently require the standard Pics 5 image bank routing.");
-  updates.set(P.pictures, before(pics, /^[ \t]*SECTION "Trainer Pics"[^\r\n]*/, `${frontLabel}:: INCBIN "gfx/pokemon/front/${slug}.pic"\n${backLabel}:: INCBIN "gfx/pokemon/back/${slug}b.pic"\n`));
+  updates.set(P.entries, append(speciesRow(P.entries, "PokedexEntryPointers", "dw", `\tdw ${dexLabel}`), `${dexLabel}:\n\tdb "${values.category}@"\n\tdb ${dex.heightFeet}, ${dex.heightInches}\n\tdw ${dex.weightTenthsLb}\n\ttext_far ${textLabel}\n\ttext_end`));
+  updates.set(P.text, append(text.get(P.text)!, `PUSHS\nSECTION "Editor Pokemon ${values.constant} description", ROMX\n${textLabel}::\n${values.description.map((line, i) => `\t${i === 0 ? "text" : i === 3 ? "page" : "next"} "${line}"`).join("\n")}\n\tdex\nPOPS`));
+  if (!text.get(P.pictures)!.includes("; yellow-editor species pic banks begin") && files.some(file => /\bYellowEditor_MonPicBank\b/.test(file.contents))) throw new Error("The species picture routing symbol is already used in this project.");
+  const pictures = addPokemonPictures(text.get(P.pictures)!, text.get(P.loader)!, values.constant, slug, frontLabel, backLabel);
+  updates.set(P.pictures, pictures.pictures); updates.set(P.loader, pictures.loader);
   updates.set(P.naming, extendNames(text.get(P.naming)!));
-  const ram = text.get("ram/wram.asm")!;
-  if (!ram.includes("; yellow-editor Pokédex padding")) {
-    const padding = /(wWalkBikeSurfState:: db\r?\n\r?\n)[ \t]*ds 10(\r?\n\r?\nwTownVisitedFlag:: flag_array NUM_CITY_MAPS)/;
-    if (!padding.test(ram) || !ram.includes("wPokedexOwned:: flag_array NUM_POKEMON") || !ram.includes("wPokedexSeen:: flag_array NUM_POKEMON")) throw new Error("The expanded Pokédex needs reviewed unused RAM padding before adding species.");
-    updates.set("ram/wram.asm", ram.replace(padding, "$1; yellow-editor Pokédex padding\n\tds 10 - 2 * ((NUM_POKEMON + 7) / 8 - 19)$2"));
-  }
-  // Pics 5 is the existing route for appended species; preserve that complete group.
-  let layout = freeSections(text.get(P.layout)!, files, [P.base, P.cries, P.evos, P.entries, P.text, P.palettes, P.icons, P.names, P.order]);
-  layout = layout.split(/\r?\n/).filter(line => line.trim() !== '"Pics 5"').join(layout.includes("\r\n") ? "\r\n" : "\n");
+  updates.set("ram/wram.asm", expandPokemonRam(text.get("ram/wram.asm")!));
+  // Original bank-relative data stays grouped; new pictures and descriptions pack independently.
+  const layout = freeSections(text.get(P.layout)!, files, [P.base, P.cries, P.evos, P.entries, P.text, P.palettes, P.icons, P.names, P.order]);
   updates.set(P.layout, layout);
   // Earlier managed count checks masked out the whole final byte at Pokédex #152.
   for (const file of files.filter(file => file.contents.includes("; yellow-editor") && file.contents.includes(legacyPokedexMask))) updates.set(file.path, upgradePokedexMask(updates.get(file.path) ?? file.contents));

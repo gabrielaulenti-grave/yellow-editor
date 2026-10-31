@@ -56,9 +56,12 @@ export function freeSections(layout: string, files: ProjectRgbdsSourceFile[], ta
   function visit(path: string, section: string | null, stack: string[]): string | null {
     if (stack.includes(path)) return section;
     const text = byPath.get(path); if (text === undefined) return section;
+    const savedSections: Array<string | null> = [];
     if (section) { if (!owners.has(path)) owners.set(path, new Set()); owners.get(path)!.add(section); }
     for (const raw of text.split(/\r?\n/)) {
       const line = code(raw), declaration = line.match(/^SECTION\s+"([^"]+)"\s*,\s*ROMX\s*$/);
+      if (line === "PUSHS") savedSections.push(section);
+      if (line === "POPS" && savedSections.length) section = savedSections.pop()!;
       if (declaration) section = declaration[1];
       else if (/^SECTION\b/.test(line)) section = null;
       const include = line.match(/^INCLUDE\s+"([^"]+)"$/);
@@ -78,7 +81,12 @@ export function creationWrites(text: Map<string, string>, stamps: CreationStamp[
 export async function checkCreatedSymbolReferences(source: ProjectSource, entry: HistoryEntry) {
   const created = entry.label.match(/^Add (move|Pokémon) ([A-Z][A-Z0-9_]*)$/);
   if (!created) return;
-  const names = created[1] === "Pokémon" ? [created[2], `DEX_${created[2]}`] : [created[2]];
+  const names = new Set(created[1] === "Pokémon" ? [created[2], `DEX_${created[2]}`] : [created[2]]);
+  const labels = (text: string) => [...text.matchAll(/^([A-Za-z_]\w*)::{0,1}(?:\s|$)/gm)].map(match => match[1]);
+  for (const file of entry.files) {
+    const previous = new Set(labels(file.before ?? ""));
+    for (const label of labels(file.after ?? "")) if (!previous.has(label)) names.add(label);
+  }
   const files = await readProjectRgbdsSources(source);
   if (files.some(file => file.readError)) throw new Error("Cannot check new-content references while some assembly sources are unreadable.");
   for (const file of files) {

@@ -41,12 +41,20 @@ try {
   await session.createTrainerClass(trainers.editSources, { constant: "ANIMATION_TESTER", name: "ANIM TESTER", portraitClassConstant: "YOUNGSTER", independentPortrait: true, aiRoutine: template.aiRoutine!, aiUsesPerPokemon: template.aiUsesPerPokemon ?? 3, moveChoiceModifiers: template.moveChoiceModifiers, baseRewardPerLevel: 1, initialParty: { partyFormat: "shared-level", pokemon: [{ level: 1, speciesConstant: "PIDGEY" }] } }, ["PIDGEY"]);
   const moveDoc = await session.getMoveCreateDocument();
   const createdMove = await session.createMove(moveDoc, { constant: "EDITOR_SPARK", name: "EDITOR SPARK", power: 65, accuracy: 100, pp: 20, moveType: "ELECTRIC", effect: "NO_ADDITIONAL_EFFECT", animation: "EDITOR_TEST_ANIM", soundMoveId: 84 });
-  for (const constant of ["EDITOR_A", "EDITOR_B"]) {
+  // Fill the complete stock capacity: every ordinary hole, then all nine tail
+  // IDs. Exercise the first reclaimed ID in battle and the last tail ID in PC/SRAM.
+  const capacity = (await session.getPokemonCreateDocument()).remainingSlots;
+  assert.equal(capacity, 45);
+  let firstSpecies = 0;
+  for (let i = 0; i < capacity; i++) {
+    const constant = i === 0 ? "EDITOR_A" : i === capacity - 1 ? "EDITOR_B" : `EDITOR_EXP_${i}`;
     const doc = await session.getPokemonCreateDocument(), template = doc.templates.find(entry => entry.constant === "BULBASAUR")!;
-    await session.createPokemon(doc, { constant, name: constant.replace("_", ""), templateId: template.id, startingMove: "EDITOR_SPARK", category: "TEST", description: ["A new Pokemon.", "It sparks often."] });
+    const result = await session.createPokemon(doc, { constant, name: `NEW${i + 1}`, templateId: template.id, startingMove: "EDITOR_SPARK", category: "TEST", description: Array.from({ length: 6 }, () => "A new Pokemon.") });
+    if (i === 0) firstSpecies = result.internalId;
   }
+  assert.equal((await session.getPokemonCreateDocument()).remainingSlots, 0);
   const newIndex = await session.getPokemonIndex(), newSpecies = newIndex.find(entry => entry.constant === "EDITOR_B")!;
-  const party = await session.createTrainerParty(await session.getTrainerPartyCreateDocument(), { classConstant: "ANIMATION_TESTER", partyFormat: "individual-levels", pokemon: [{ level: 1, speciesConstant: "EDITOR_B" }] });
+  const party = await session.createTrainerParty(await session.getTrainerPartyCreateDocument(), { classConstant: "ANIMATION_TESTER", partyFormat: "individual-levels", pokemon: [{ level: 1, speciesConstant: "EDITOR_A" }] });
   const npc = await session.getMapNpcCreateDocument("VIRIDIAN_POKECENTER");
   await session.createMapNpc(npc, { x: 6, y: 5, sprite: "SPRITE_YOUNGSTER", movement: "STAY", direction: "DOWN", dialogue: { kind: "new", lines: ["Animation test."] } });
   const path = "scripts/ViridianPokecenter.asm", label = `ViridianPokecenterEditorNpc${npc.objectId}Text`;
@@ -66,6 +74,6 @@ try {
   const cpu = join(temp, "animation-gameplay");
   run("cc", ["-std=gnu11", "-O2", `-I${join(binjgb, "src")}`, resolve("tests/contentGameplayProbe.c"), ...["memory.c", "common.c", "emulator-debug.c"].map(file => join(binjgb, "src", file)), "-lm", "-o", cpu]);
   const map = (await parseMapIndex(source)).find(map => map.constant === "VIRIDIAN_POKECENTER")!;
-  console.log(run(cpu, [join(temp, `${target}.gbc`), join(temp, `${target}.sym`), String(animation.animationId), String(map.id), String(newSpecies.internalId), String(createdMove.id), "153"]));
+  console.log(run(cpu, [join(temp, `${target}.gbc`), join(temp, `${target}.sym`), String(animation.animationId), String(map.id), String(newSpecies.internalId), String(createdMove.id), String(151 + capacity), String(firstSpecies)]));
   }
 } finally { if (process.env.KEEP_CONTENT_GAMEPLAY) console.error("Animation fixture:", temp); else await rm(temp, { recursive: true, force: true }); }

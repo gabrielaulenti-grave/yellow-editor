@@ -10,6 +10,9 @@ import { trainerPlacementError } from "../src/core/mapTrainers";
 import { creationSnapshot } from "../src/core/creationSupport";
 import { inspectPlayerConditions, validatePlayerCondition, legacyPokedexMask, expandedPokedexMask } from "../src/core/playerConditions";
 import { prepareScriptInteractionWrites } from "../src/core/scriptInteractions";
+import { rows, code } from "../src/core/creationSupport";
+import { replaceSpeciesRow } from "../src/core/pokemonSlots";
+import { expandPokemonRam } from "../src/core/pokemonStorage";
 
 assert.ok(process.argv.slice(2).length, "Supply Red/Yellow sources.");
 for (const root of process.argv.slice(2)) test(`${root}: additional moves, Pokémon and parties preserve old identities and survive undo/redo`, async () => {
@@ -40,11 +43,12 @@ for (const root of process.argv.slice(2)) test(`${root}: additional moves, Poké
   await session.undoLastSave();
   const saveBefore = await getSaveCompatibilityDescriptor(source, root.includes("yellow") ? "yellow" : "red");
   const pokemonDoc = await session.getPokemonCreateDocument(); assert.equal(pokemonDoc.reason, null);
+  assert.equal(pokemonDoc.remainingSlots, 45); assert.equal(pokemonDoc.reclaimedSlots, 36); assert.equal(pokemonDoc.appendSlots, 9);
   const template = pokemonDoc.templates.find(entry => entry.constant === "BULBASAUR")!;
   const mon = await session.createPokemon(pokemonDoc, { constant: "EDITOR_MON", name: "EDITORMON", templateId: template.id, startingMove: values.constant, category: "TEST", description: ["A new Pokemon.", "It sparks often."] });
-  assert.equal(mon.dexNumber, 152); assert.equal(mon.internalId, 191);
+  assert.equal(mon.dexNumber, 152); assert.equal(mon.internalId, 31);
   for (const path of [scriptPath, "engine/overworld/toggleable_objects.asm"]) { assert.ok((await source.readText(path)).includes(expandedPokedexMask)); assert.ok(!(await source.readText(path)).includes(legacyPokedexMask)); }
-  assert.deepEqual((await session.getPokemonIndex()).slice(0, index.length), index);
+  assert.deepEqual((await session.getPokemonIndex()).filter(entry => entry.internalId !== mon.internalId), index.filter(entry => entry.internalId !== mon.internalId));
   const details = await session.getPokemonDetails(mon.internalId, mon.sourceSlug);
   assert.equal(details.stats.dexConstant, "DEX_EDITOR_MON"); assert.equal(details.learnset[0].moveConstant, values.constant);
   assert.equal(details.pokedex?.category, "TEST"); assert.deepEqual(details.evolutions, []);
@@ -75,9 +79,55 @@ for (const root of process.argv.slice(2)) test(`${root}: additional moves, Poké
   await session.undoLastSave();
   await session.undoLastSave(); await session.redoLastUndo(); await session.undoLastSave();
   await session.undoLastSave(); assert.equal(await source.exists("gfx/pokemon/front/editor_mon.png"), false);
-  await session.redoLastUndo(); assert.equal((await session.getPokemonIndex()).find(entry => entry.internalId === 191)?.constant, "EDITOR_MON");
+  await session.redoLastUndo(); assert.equal((await session.getPokemonIndex()).find(entry => entry.internalId === 31)?.constant, "EDITOR_MON");
   await session.undoLastSave(); await session.undoLastSave();
   assert.equal(data.size, original.size); for (const [path, bytes] of original) assert.deepEqual(data.get(path), bytes, path);
   fail("data/moves/names.asm"); await assert.rejects(session.createMove(await session.getMoveCreateDocument(), values), /Injected write failure/);
   for (const [path, bytes] of original) assert.deepEqual(data.get(path), bytes, `rollback ${path}`);
+});
+
+for (const root of process.argv.slice(2)) test(`${root}: slot review protects customized and referenced placeholders`, async () => {
+  const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+  const doc = await session.getPokemonCreateDocument();
+  const set = async (path: string, edit: (text: string) => string) => source.writeText(path, edit(await source.readText(path)));
+  const scriptBefore = await source.readText("scripts/BluesHouse.asm");
+  await set("scripts/BluesHouse.asm", text => text + "\n\tld a, $1f\n\tld [wCurPartySpecies], a\n");
+  await assert.rejects(session.createPokemon(doc, { constant: "STALE_MON", name: "STALEMON", templateId: 153, startingMove: "POUND", category: "TEST", description: ["A new Pokemon."] }), /sources changed/);
+  await source.writeText("scripts/BluesHouse.asm", scriptBefore);
+  await set("data/pokemon/names.asm", text => replaceSpeciesRow(text, "MonsterNames", "dname", 31, '\tdname "CUSTOM"'));
+  await set("data/wild/maps/Route1.asm", text => text.replace(/db\s+\d+,\s*PIDGEY/, "db 3, $20"));
+  await set("scripts/BluesHouse.asm", text => text + "\n; Custom encounter\n\tld a, $32\n\tld [wCurPartySpecies], a\n");
+  await set("constants/pokemon_constants.asm", text => text + "\nDEF MY_SPECIES EQU $34\n");
+  await set("data/pokemon/evos_moves.asm", text => text.replace(/(MissingNo38EvosMoves:[\s\S]*?db )0/, (_, prefix) => `${prefix}EVOLVE_LEVEL, 10, RHYDON\n\tdb 0`));
+  const next = await session.getPokemonCreateDocument();
+  assert.ok([31, 32, 50, 52, 56].every(id => next.blockedSlots.includes(id)));
+  assert.equal(next.nextInternalId, 61); assert.equal(next.remainingSlots, 40);
+  await assert.rejects(session.createPokemon(doc, { constant: "STALE_MON", name: "STALEMON", templateId: 153, startingMove: "POUND", category: "TEST", description: ["A new Pokemon."] }), /sources changed/);
+  const ram = await source.readText("ram/wram.asm");
+  const legacy = ram.replace("\tds 10\n\nwTownVisitedFlag", "; yellow-editor Pokédex padding\n\tds 10 - 2 * ((NUM_POKEMON + 7) / 8 - 19)\n\nwTownVisitedFlag");
+  const expanded = expandPokemonRam(legacy); assert.equal(expandPokemonRam(expanded), expanded);
+  assert.ok(expanded.includes("wGameProgressFlagsEnd::\n\n\tds 56\n"));
+  assert.ok(expanded.includes("expanded Pokédex padding tail"));
+});
+
+for (const root of process.argv.slice(2)) test(`${root}: all 36 reclaimed and nine tail slots allocate without renumbering existing species`, async () => {
+  const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+  const original = (await session.getPokemonIndex()).filter(entry => entry.kind !== "missingno");
+  const originalConstants = await source.readText("constants/pokemon_constants.asm");
+  const holes = [...originalConstants.matchAll(/^\s*const_skip\s*; \$([0-9A-F]+)/gm)].map(m => parseInt(m[1], 16));
+  const ids: number[] = [];
+  for (let i = 0; i < 45; i++) {
+    const doc = await session.getPokemonCreateDocument(); assert.equal(doc.remainingSlots, 45 - i); assert.equal(doc.reason, null);
+    const result = await session.createPokemon(doc, { constant: `CAPACITY_${i + 1}`, name: `NEW${i + 1}`, templateId: 153, startingMove: "POUND", category: "TEST", description: ["A new Pokemon."] });
+    ids.push(result.internalId); assert.equal(result.dexNumber, 152 + i);
+  }
+  assert.deepEqual(ids, [...holes, ...Array.from({ length: 9 }, (_, i) => 191 + i)]);
+  const final = await session.getPokemonCreateDocument(); assert.equal(final.remainingSlots, 0); assert.ok(final.reason);
+  const index = await session.getPokemonIndex();
+  assert.deepEqual(index.filter(entry => !entry.constant?.startsWith("CAPACITY_")), original);
+  const row = rows(await source.readText("data/pokemon/dex_order.asm"), "PokedexOrder", "db");
+  assert.ok([182, 183, 184].every(id => code(row[id - 1]) === "db 0"));
+  await session.undoLastSave(); await session.redoLastUndo();
+  assert.equal((await session.getPokemonCreateDocument()).remainingSlots, 0);
+  const graphics = await loadGraphicsCatalog(source); assert.equal(graphics.assets.filter(asset => /\/capacity_/.test(asset.path)).length, 90);
 });

@@ -10,11 +10,15 @@ This first pass reuses existing battle behaviors and animation scripts, includin
 
 ## Pokémon
 
-Choose **New Pokémon** and select a template, name, source constant, starting move, Pokédex category and description. Creation allocates a new internal species ID and Pokédex number, makes independent front/back image copies and base stats, and updates the species tables together.
+Choose **New Pokémon** and select a template, name, source constant, starting move, Pokédex category and description. The form shows remaining capacity. Creation reclaims a verified unused internal slot first, then appends IDs when needed, while assigning a new Pokédex number. It makes independent front/back image copies and base stats and updates the species tables together.
 
 The template supplies stats, types, growth, later level-up moves, TM compatibility, cry, palette and menu icon. New species start without evolutions. Edit the supported stats and progression in Pokémon and open their artwork in Graphics. Cry and menu-icon authoring are outside this first pass.
 
-Stock projects have nine appendable internal species slots before the trainer-opponent ID boundary. The editor refuses further allocation rather than shifting existing species or trainer identities. Projects with unsupported table structures also refuse creation.
+Stock Red and Yellow projects offer **45 additional species**: 36 ordinary unused MissingNo slots plus nine tail IDs, for a total of 196 real Pokémon. Existing species, trainer, fossil-display and ghost IDs stay unchanged. Previously appended Pokémon retain their IDs.
+
+Only reviewed placeholder rows can be reclaimed. Customized names, cries, Pokédex mappings, learnsets, aliases, shared data and known numeric or symbolic species references reserve a slot. Capacity can therefore be lower in a modified project. Allocation stops at the reviewed ID and RAM limits, and unsupported structures refuse creation.
+
+New artwork and Pokédex descriptions use independent ROM banks. Their bank routing preserves the original Pokémon and special-image paths. Expanded seen/owned flags consume twelve reviewed unused RAM bytes while keeping scene storage and the stack boundary intact. Other project content can still exhaust ROM space; a successful build remains the final capacity check.
 
 Adding species can change the Pokédex save layout. Use a new test save; the editor changes the save-compatibility identity for expanded projects. Save migration is not included.
 
@@ -28,4 +32,4 @@ To add a class with its own portrait, use the existing creation form in Trainers
 
 Creation writes all affected source files together and rolls back a failed write. History supports undo and redo. Creation cannot be undone while later content still references its new symbol or a placed trainer uses its new party; remove or undo those references first.
 
-Source tests check allocation, existing identities, stale forms, rollback and history for pinned Red and Yellow sources. Browser checks exercise the forms on desktop and mobile widths. The native acceptance fixture builds both games and exercises a new move, a new trainer party and species through battle, capture, Pokédex registration, PC deposit/withdraw and SRAM Continue.
+Source tests fill all 45 slots and check customized-slot refusal, existing identities, stale forms, rollback and history for pinned Red and Yellow sources. Browser checks exercise the forms on desktop and mobile widths. The native acceptance fixture fills all 45 slots, builds both games, checks reclaimed and tail picture banks and exercises battle, capture at Pokédex #196, PC deposit/withdraw and SRAM Continue.
