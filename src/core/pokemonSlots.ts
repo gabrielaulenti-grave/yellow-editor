@@ -27,26 +27,37 @@ function referencedSpecies(files: ProjectRgbdsSourceFile[], symbols: Map<string,
   for (const file of files) {
     const lines = file.contents.split(/\r?\n/).map(code);
     if (/^data\/wild\//.test(file.path)) for (const line of lines) {
-      const row = line.match(new RegExp(`^db\\s+${token}\\s*,\\s*(${token})$`)); if (row) add(row[1]);
+      const row = line.match(new RegExp(`^db\\s+${token}\\s*,\\s*(${token})$`, "i")); if (row) add(row[1]);
     }
     if (file.path === "data/trainers/parties.asm") for (const line of lines) {
-      if (!/^db\s/.test(line)) continue;
+      if (!/^db\s/i.test(line)) continue;
       const args = line.slice(2).split(",").map(s => s.trim());
       const individual = number(args[0], symbols) === 255;
       for (let i = individual ? 2 : 1; i < args.length - 1; i += individual ? 2 : 1) add(args[i]);
     }
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      const evolution = line.match(/^db\s+EVOLVE_(?:LEVEL|ITEM|TRADE)\s*,.*?,\s*([^,]+)$/); if (evolution) add(evolution[1]);
+      const evolution = line.match(/^db\s+EVOLVE_(?:LEVEL|ITEM|TRADE)\s*,.*?,\s*([^,]+)$/i); if (evolution) add(evolution[1]);
       const macro = line.match(new RegExp(`^(?:give_mon|givemon|wild_mon|wildmon|party_mon)\\s+(${token})(?:\\s*,|$)`, "i")); if (macro) add(macro[1]);
-      const load = line.match(new RegExp(`^ld\\s+a,\\s*(${token})$`));
+      if (/^(?:call|farcall|callfar)\s+GivePokemon$/i.test(line)) {
+        for (const previous of lines.slice(Math.max(0, i - 8), i).reverse()) {
+          const gift = previous.match(new RegExp(`^(?:lb\\s+bc,|ld\\s+b,)\\s*(${token})(?:\\s*,|$)`, "i"));
+          if (gift) { add(gift[1]); break; }
+          if (/^(?:call|farcall|callfar|jr|jp|ret)\b/i.test(previous)) break;
+        }
+      }
+      const load = line.match(new RegExp(`^ld\\s+a,\\s*(${token})$`, "i"));
       if (load) {
         // Follow immediate A through stores and non-clobbering setup. Stop at an
         // unknown instruction rather than guessing about arbitrary engine code.
+        let giftInB = false;
         for (const next of lines.slice(i + 1, i + 9)) {
-          if (!next || /^(?:push|pop)\s+(?:bc|de|hl)$/.test(next)) continue;
-          if (/^ld\s+\[(?:wCurPartySpecies|wCurSpecies|wCurEnemySpecies|wEnemyMonSpecies|wBattleMonSpecies|wPokedexNum|wcf91)\],\s*a$/.test(next)) { add(load[1]); break; }
-          if (!/^ld\s+\[[^\]]+\],\s*a$/.test(next)) break;
+          if (!next || /^(?:push|pop)\s+(?:bc|de|hl)$/i.test(next)) continue;
+          if (/^ld\s+\[(?:wCurPartySpecies|wCurSpecies|wCurEnemySpecies|wEnemyMonSpecies|wBattleMonSpecies|wPokedexNum|wcf91)\],\s*a$/i.test(next)) { add(load[1]); break; }
+          if (/^ld\s+b,\s*a$/i.test(next)) { giftInB = true; continue; }
+          if (giftInB && /^(?:call|farcall|callfar)\s+GivePokemon$/i.test(next)) { add(load[1]); break; }
+          if (/^ld\s+(?:b|bc),/i.test(next)) giftInB = false;
+          if (!/^ld\s+(?:\[[^\]]+\],\s*a|(?:b|c|d|e|h|l|bc|de|hl),.+)$/i.test(next)) break;
         }
       }
     }
@@ -63,7 +74,7 @@ export function inspectPokemonSlots(index: PokemonIndexEntry[], text: Map<string
   const used = referencedSpecies(files, symbols), blocked: number[] = [], reclaimed: number[] = [];
   const references = new Map<string, number>();
   for (const file of files) for (const label of file.contents.split(/\r?\n/).map(code).join("\n").match(/\bMissingNo[0-9A-F]+EvosMoves\b/g) ?? []) references.set(label, (references.get(label) ?? 0) + 1);
-  const aliases = new Set([...text.get("constants/pokemon_constants.asm")!.matchAll(/^\s*DEF\s+(\w+)\s+EQU\s+([^;\r\n]+)/gm)].map(m => symbols.get(m[1]) ?? number(m[2], symbols)));
+  const aliases = new Set([...text.get("constants/pokemon_constants.asm")!.matchAll(/^\s*(?:(?:DEF|REDEF)\s+)?(\w+)\s+(?:EQU|=)\s+([^;\r\n]+)/gm)].map(m => symbols.get(m[1]) ?? number(m[2], symbols)));
   const placeholder = text.get(tablePaths.dex)!.split(/^MissingNoDexEntry::{0,1}[ \t]*$/m)[1]?.split(/^[A-Za-z_]\w*::{0,1}/m)[0];
   const vanillaDexEntry = placeholder?.split(/\r?\n/).map(code).filter(Boolean).join("\n") === 'db "???@"\ndb 10\ndw 100\ndb "コメント　さくせいちゅう@"';
   for (const entry of index.filter(entry => entry.kind === "missingno" && entry.internalId > 0)) {

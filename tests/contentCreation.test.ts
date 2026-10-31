@@ -96,12 +96,12 @@ for (const root of process.argv.slice(2)) test(`${root}: slot review protects cu
   await source.writeText("scripts/BluesHouse.asm", scriptBefore);
   await set("data/pokemon/names.asm", text => replaceSpeciesRow(text, "MonsterNames", "dname", 31, '\tdname "CUSTOM"'));
   await set("data/wild/maps/Route1.asm", text => text.replace(/db\s+\d+,\s*PIDGEY/, "db 3, $20"));
-  await set("scripts/BluesHouse.asm", text => text + "\n; Custom encounter\n\tld a, $32\n\tld [wCurPartySpecies], a\n");
+  await set("scripts/BluesHouse.asm", text => text + "\n; Custom encounter and gift\n\tLD A, $32\n\tLD [wCurPartySpecies], A\n\tlb bc, $43, 5\n\tcall GivePokemon\n");
   await set("constants/pokemon_constants.asm", text => text + "\nDEF MY_SPECIES EQU $34\n");
   await set("data/pokemon/evos_moves.asm", text => text.replace(/(MissingNo38EvosMoves:[\s\S]*?db )0/, (_, prefix) => `${prefix}EVOLVE_LEVEL, 10, RHYDON\n\tdb 0`));
   const next = await session.getPokemonCreateDocument();
-  assert.ok([31, 32, 50, 52, 56].every(id => next.blockedSlots.includes(id)));
-  assert.equal(next.nextInternalId, 61); assert.equal(next.remainingSlots, 40);
+  assert.ok([31, 32, 50, 52, 56, 67].every(id => next.blockedSlots.includes(id)));
+  assert.equal(next.nextInternalId, 61); assert.equal(next.remainingSlots, 39);
   await assert.rejects(session.createPokemon(doc, { constant: "STALE_MON", name: "STALEMON", templateId: 153, startingMove: "POUND", category: "TEST", description: ["A new Pokemon."] }), /sources changed/);
   const ram = await source.readText("ram/wram.asm");
   const legacy = ram.replace("\tds 10\n\nwTownVisitedFlag", "; yellow-editor Pokédex padding\n\tds 10 - 2 * ((NUM_POKEMON + 7) / 8 - 19)\n\nwTownVisitedFlag");

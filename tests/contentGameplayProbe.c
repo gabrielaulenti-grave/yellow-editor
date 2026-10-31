@@ -20,8 +20,8 @@ static int drive(Emulator*e,int reload,unsigned animation,unsigned map,unsigned 
   int done=rd(e,"wContentJourneyState")==0x5a&&!battle&&!rd(e,"wJoyIgnore")&&!rd(e,"wEditorSceneActive");
   if(done)settled++;else settled=0;
   if(settled>90){
-   if((reload&&battles)||(!reload&&(battles!=2||!played||!deposited||!withdrawn||pictures!=3))||!dex(e,"wPokedexSeen",dexno)||!dex(e,"wPokedexOwned",dexno)||!withdrawn||rd(e,"wPartyMon6Moves")!=move||rd(e,"wBoxCount")!=1){fprintf(stderr,"Journey invariants failed reload%d battles%d animation%d deposit%d withdraw%d owned%d seen%d move%u box%u pictures%d\n",reload,battles,played,deposited,withdrawn,dex(e,"wPokedexOwned",dexno),dex(e,"wPokedexSeen",dexno),rd(e,"wPartyMon6Moves"),rd(e,"wBoxCount"),pictures);return 1;}
-   printf("Native content%s: new trainer/move/species, capture, Pokédex #%u, PC deposit/withdraw and save state passed.\n",reload?" Continue":"",dexno);return 0;
+   if((reload&&battles)||(!reload&&(battles!=2||!played||!deposited||!withdrawn||pictures!=3))||!dex(e,"wPokedexSeen",dexno)||!dex(e,"wPokedexOwned",dexno)||!withdrawn||rd(e,"wPartyMon6Moves")!=move||rd(e,"wBoxCount")!=1||rd(e,"wBoxSpecies")!=9){fprintf(stderr,"Journey invariants failed reload%d battles%d animation%d deposit%d withdraw%d owned%d seen%d move%u box%u pictures%d\n",reload,battles,played,deposited,withdrawn,dex(e,"wPokedexOwned",dexno),dex(e,"wPokedexSeen",dexno),rd(e,"wPartyMon6Moves"),rd(e,"wBoxCount"),pictures);return 1;}
+   printf("Native content%s: new trainer/move/species, capture, Pokédex #%u, evolution, PC deposit/withdraw and save state passed.\n",reload?" Continue":"",dexno);return 0;
   }
   JoypadButtons buttons={0};
   if(frame%12<6){

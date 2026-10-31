@@ -18,7 +18,7 @@ Stock Red and Yellow projects offer **45 additional species**: 36 ordinary unuse
 
 Only reviewed placeholder rows can be reclaimed. Customized names, cries, Pokédex mappings, learnsets, aliases, shared data and known numeric or symbolic species references reserve a slot. Capacity can therefore be lower in a modified project. Allocation stops at the reviewed ID and RAM limits, and unsupported structures refuse creation.
 
-New artwork and Pokédex descriptions use independent ROM banks. Their bank routing preserves the original Pokémon and special-image paths. Expanded seen/owned flags consume twelve reviewed unused RAM bytes while keeping scene storage and the stack boundary intact. Other project content can still exhaust ROM space; a successful build remains the final capacity check.
+New artwork, base stats and Pokédex descriptions use independent ROM banks. Their bank routing preserves the original Pokémon and special-image paths; evolution uses the bank-aware header loader. Expanded seen/owned flags consume twelve reviewed unused RAM bytes while keeping scene storage and the stack boundary intact. Other project content can still exhaust ROM space; a successful build remains the final capacity check.
 
 Adding species can change the Pokédex save layout. Use a new test save; the editor changes the save-compatibility identity for expanded projects. Save migration is not included.
 
@@ -32,4 +32,4 @@ To add a class with its own portrait, use the existing creation form in Trainers
 
 Creation writes all affected source files together and rolls back a failed write. History supports undo and redo. Creation cannot be undone while later content still references its new symbol or a placed trainer uses its new party; remove or undo those references first.
 
-Source tests fill all 45 slots and check customized-slot refusal, existing identities, stale forms, rollback and history for pinned Red and Yellow sources. Browser checks exercise the forms on desktop and mobile widths. The native acceptance fixture fills all 45 slots, builds both games, checks reclaimed and tail picture banks and exercises battle, capture at Pokédex #196, PC deposit/withdraw and SRAM Continue.
+Source tests fill all 45 slots and check customized-slot refusal, existing identities, stale forms, rollback and history for pinned Red and Yellow sources. Browser checks exercise the forms on desktop and mobile widths. The native acceptance fixture fills all 45 slots, builds both games, checks reclaimed and tail picture banks and exercises battle, level-up evolution, capture at Pokédex #196, PC deposit/withdraw and SRAM Continue.

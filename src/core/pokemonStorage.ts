@@ -52,3 +52,16 @@ export function expandPokemonRam(ram: string) {
   if (!ram.includes("wPokedexOwned:: flag_array NUM_POKEMON") || !ram.includes("wPokedexSeen:: flag_array NUM_POKEMON") || !first.test(ram) || !second.test(ram)) throw new Error("Expanded Pokédex storage needs the reviewed unused RAM padding. No species was created.");
   return ram.replace(first, `$1${firstOwned}$2`).replace(second, `$1${secondOwned}$2`);
 }
+
+/** The original battle bank cannot hold all 196 headers alongside learnsets.
+ * GetMonHeader already switches banks and preserves the evolution caller state. */
+export function isolatePokemonStats(main: string, evolution: string) {
+  const include = 'INCLUDE "data/pokemon/base_stats.asm"';
+  const owned = ['; yellow-editor independent base stats', "PUSHS", 'SECTION "Editor Pokemon base stats", ROMX', include, "POPS"].join("\n");
+  const body = ["\tld a, [wPokedexNum]", "\tpush af", "\tld a, [wCurSpecies]", "\tld [wPokedexNum], a", "\tpredef IndexToPokedex", "\tld a, [wPokedexNum]", "\tdec a", "\tld hl, BaseStats", "\tld bc, BASE_DATA_SIZE", "\tcall AddNTimes", "\tld de, wMonHeader", "\tcall CopyData", "\tld a, [wCurSpecies]", "\tld [wMonHIndex], a", "\tpop af", "\tld [wPokedexNum], a"].join("\n");
+  const replacement = ["; yellow-editor banked evolution stats", "\tcall GetMonHeader", "\tld a, [wCurSpecies]", "\tld [wMonHIndex], a"].join("\n");
+  const normalizedMain = main.replace(/\r\n/g, "\n"), normalizedEvo = evolution.replace(/\r\n/g, "\n");
+  if (normalizedMain.includes(owned) && normalizedEvo.includes(replacement)) return { main, evolution };
+  if (normalizedMain.split(include).length !== 2 || normalizedMain.includes("; yellow-editor independent base stats") || normalizedEvo.split(body).length !== 2 || normalizedEvo.includes("; yellow-editor banked evolution stats")) throw new Error("Base-stat placement and the evolution header reader need source review before expansion.");
+  return { main: normalizedMain.replace(include, owned).replace(/\n/g, newline(main)), evolution: normalizedEvo.replace(body, replacement).replace(/\n/g, newline(evolution)) };
+}

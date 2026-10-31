@@ -4,14 +4,14 @@ import { encodeGraphicsPng } from "./graphicsPixels";
 import { bytesToHex, hashText } from "./history";
 import { legacyPokedexMask, upgradePokedexMask } from "./playerConditions";
 import { inspectPokemonSlots, claimSpeciesConstant, replaceSpeciesRow } from "./pokemonSlots";
-import { addPokemonPictures, expandPokemonRam } from "./pokemonStorage";
+import { addPokemonPictures, expandPokemonRam, isolatePokemonStats } from "./pokemonStorage";
 import { append, before, checkStamps, code, creationSnapshot, creationWrites, extendNames, freeSections, gameText, identifier, rows, type CreationStamp } from "./creationSupport";
 import type { ProjectSource, TextWriteRequest } from "./types";
 
 export interface PokemonCreateDocument { sources: CreationStamp[]; nextInternalId: number; nextDexNumber: number; allocation: "reclaimed" | "append"; remainingSlots: number; reclaimedSlots: number; appendSlots: number; blockedSlots: number[]; templates: Array<{ id: number; constant: string; name: string; slug: string }>; moves: string[]; reason: string | null }
 export interface PokemonCreateValues { constant: string; name: string; templateId: number; startingMove: string; category: string; description: string[] }
 const P = {
-  constants: "constants/pokemon_constants.asm", dex: "constants/pokedex_constants.asm", names: "data/pokemon/names.asm", order: "data/pokemon/dex_order.asm", base: "data/pokemon/base_stats.asm", cries: "data/pokemon/cries.asm", icons: "data/pokemon/menu_icons.asm", palettes: "data/pokemon/palettes.asm", evos: "data/pokemon/evos_moves.asm", entries: "data/pokemon/dex_entries.asm", text: "data/pokemon/dex_text.asm", pictures: "gfx/pics.asm", loader: "home/pics.asm", naming: "home/names2.asm", layout: "layout.link",
+  constants: "constants/pokemon_constants.asm", dex: "constants/pokedex_constants.asm", names: "data/pokemon/names.asm", order: "data/pokemon/dex_order.asm", base: "data/pokemon/base_stats.asm", cries: "data/pokemon/cries.asm", icons: "data/pokemon/menu_icons.asm", palettes: "data/pokemon/palettes.asm", evos: "data/pokemon/evos_moves.asm", entries: "data/pokemon/dex_entries.asm", text: "data/pokemon/dex_text.asm", pictures: "gfx/pics.asm", loader: "home/pics.asm", naming: "home/names2.asm", evolution: "engine/pokemon/evos_moves.asm", header: "home/pokemon.asm", layout: "layout.link",
 };
 async function state(source: ProjectSource) {
   const index = await parsePokemonIndex(source);
@@ -98,6 +98,12 @@ export async function preparePokemonCreateWrites(source: ProjectSource, document
   updates.set(P.pictures, pictures.pictures); updates.set(P.loader, pictures.loader);
   updates.set(P.naming, extendNames(text.get(P.naming)!));
   updates.set("ram/wram.asm", expandPokemonRam(text.get("ram/wram.asm")!));
+  for (const file of files) {
+    const contents = file.contents.split(/\r?\n/).map(code).join("\n");
+    if (/\bBaseStats\b/.test(contents) && ![P.base, P.header, P.evolution].includes(file.path) && !/BANK\(BaseStats\)/.test(contents)) throw new Error(`The custom BaseStats reader in ${file.path} needs bank-safety review before allocating Pokémon.`);
+  }
+  const statsStorage = isolatePokemonStats(text.get("main.asm")!, text.get(P.evolution)!);
+  updates.set("main.asm", statsStorage.main); updates.set(P.evolution, statsStorage.evolution);
   // Original bank-relative data stays grouped; new pictures and descriptions pack independently.
   const layout = freeSections(text.get(P.layout)!, files, [P.base, P.cries, P.evos, P.entries, P.text, P.palettes, P.icons, P.names, P.order]);
   updates.set(P.layout, layout);
