@@ -45,9 +45,9 @@ export function addPokemonPictures(pictures: string, loader: string, constant: s
 export function expandPokemonRam(ram: string) {
   const nl = newline(ram), growth = "2 * ((NUM_POKEMON + 7) / 8 - 19)";
   const first = /(wWalkBikeSurfState:: db\r?\n\r?\n)(?:; yellow-editor Pokédex padding\r?\n)?[ \t]*ds (?:10|10 - 2 \* \(\(NUM_POKEMON \+ 7\) \/ 8 - 19\))(\r?\n\r?\nwTownVisitedFlag:: flag_array NUM_CITY_MAPS)/;
-  const firstOwned = `; yellow-editor expanded Pokédex padding${nl}\tds MAX(0, 10 - ${growth})`;
+  const firstOwned = [`; yellow-editor expanded Pokédex padding`, "IF NUM_POKEMON <= 192", `\tds 10 - ${growth}`, "ENDC"].join(nl);
   const second = /(wFossilMon:: db\r?\n\r?\n)[ \t]*ds 2(\r?\n\r?\n; trainer classes start at OPP_ID_OFFSET)/;
-  const secondOwned = `; yellow-editor expanded Pokédex padding tail${nl}\tds 2 - MAX(0, ${growth} - 10)${nl}\tASSERT ${growth} <= 12`;
+  const secondOwned = ["; yellow-editor expanded Pokédex padding tail", "IF NUM_POKEMON > 192", `\tds 12 - ${growth}`, "ELSE", "\tds 2", "ENDC", `\tASSERT ${growth} <= 12`].join(nl);
   if (ram.includes(firstOwned) && ram.includes(secondOwned)) return ram;
   if (!ram.includes("wPokedexOwned:: flag_array NUM_POKEMON") || !ram.includes("wPokedexSeen:: flag_array NUM_POKEMON") || !first.test(ram) || !second.test(ram)) throw new Error("Expanded Pokédex storage needs the reviewed unused RAM padding. No species was created.");
   return ram.replace(first, `$1${firstOwned}$2`).replace(second, `$1${secondOwned}$2`);
