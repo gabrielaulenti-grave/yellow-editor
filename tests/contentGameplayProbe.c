@@ -11,7 +11,7 @@ static unsigned rd(Emulator*e,const char*name){return emulator_read_u8_raw(e,get
 static int at(Emulator*e,const char*name){Symbol s=get(name);return emulator_get_registers(e).PC==s.address&&(s.bank==0||rd(e,"hLoadedROMBank")==s.bank);}
 static int dex(Emulator*e,const char*name,unsigned number){return !!(emulator_read_u8_raw(e,get(name).address+(number-1)/8)&(1u<<((number-1)%8)));}
 static int drive(Emulator*e,int reload,unsigned animation,unsigned map,unsigned species,unsigned move,unsigned dexno,unsigned firstSpecies){
- int battles=0,previous=0,played=0,settled=0,deposited=0,withdrawn=0,pictures=0;
+ int battles=0,previous=0,played=0,settled=0,deposited=0,withdrawn=0,pictures=0;unsigned monPicture=0;
  for(int n=0;n<400000;n++){
   unsigned frame=emulator_get_ticks(e)/PPU_FRAME_TICKS;int battle=rd(e,"wIsInBattle")==1||rd(e,"wIsInBattle")==2;
   if(battle&&!previous)battles++;previous=battle;
@@ -38,7 +38,8 @@ static int drive(Emulator*e,int reload,unsigned animation,unsigned map,unsigned 
   emulator_set_joypad_buttons(e,&buttons);
   if(battle){for(int i=0;i<1000;i++){
    if(rd(e,"wAnimationID")==animation&&at(e,"DrawFrameBlock"))played=1;
-   if(at(e,"UncompressSpriteData")){unsigned id=rd(e,"wCurPartySpecies");if(id==firstSpecies||id==species){Symbol front=get(id==firstSpecies?"YellowEditor_EDITOR_A_Front":"YellowEditor_EDITOR_B_Front");if(emulator_get_registers(e).A!=front.bank){fprintf(stderr,"Wrong picture bank for species%u: got%u wanted%u\n",id,emulator_get_registers(e).A,front.bank);return 1;}pictures|=id==firstSpecies?1:2;}}
+   if(at(e,"UncompressMonSprite"))monPicture=rd(e,"wCurPartySpecies");
+   if(at(e,"UncompressSpriteData")){unsigned id=monPicture;monPicture=0;if(id==firstSpecies||id==species){Symbol front=get(id==firstSpecies?"YellowEditor_EDITOR_A_Front":"YellowEditor_EDITOR_B_Front");if(emulator_get_registers(e).A!=front.bank){fprintf(stderr,"Wrong picture bank for species%u: got%u wanted%u\n",id,emulator_get_registers(e).A,front.bank);return 1;}pictures|=id==firstSpecies?1:2;}}
    emulator_step(e);
   }}
   else if(emulator_run_until(e,emulator_get_ticks(e)+PPU_FRAME_TICKS)&EMULATOR_EVENT_INVALID_OPCODE)break;
