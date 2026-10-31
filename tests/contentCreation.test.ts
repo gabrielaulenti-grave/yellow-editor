@@ -131,3 +131,29 @@ for (const root of process.argv.slice(2)) test(`${root}: all 36 reclaimed and ni
   assert.equal((await session.getPokemonCreateDocument()).remainingSlots, 0);
   const graphics = await loadGraphicsCatalog(source); assert.equal(graphics.assets.filter(asset => /\/capacity_/.test(asset.path)).length, 90);
 });
+
+for (const root of process.argv.slice(2)) test(`${root}: earlier appended species and source artwork references survive reclaimed allocation`, async () => {
+  const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+  const originalPics = await source.readText("gfx/pics.asm"), originalLoader = await source.readText("home/pics.asm"), originalRam = await source.readText("ram/wram.asm");
+  const slots = (await session.getPokemonIndex()).filter(entry => entry.kind === "missingno").map(entry => entry.internalId);
+  const reserve = "scripts/EditorReservedSpecies.asm";
+  await source.createFile!(reserve, new TextEncoder().encode(slots.map(id => `\tld a, ${id}\n\tld [wCurPartySpecies], a`).join("\n")));
+  const values = { constant: "OLDER_MON", name: "OLDERMON", templateId: 153, startingMove: "POUND", category: "TEST", description: ["An older Pokemon."] };
+  const older = await session.createPokemon(await session.getPokemonCreateDocument(), values); assert.equal(older.internalId, 191);
+  // Reproduce the first beta's fixed Pics 5 placement and ten-byte RAM padding.
+  await source.writeText("gfx/pics.asm", originalPics.replace(/^SECTION "Trainer Pics"/m, 'YellowEditor_OLDER_MON_Front:: INCBIN "gfx/pokemon/front/older_mon.pic"\nYellowEditor_OLDER_MON_Back:: INCBIN "gfx/pokemon/back/older_monb.pic"\n\nSECTION "Trainer Pics"'));
+  await source.writeText("home/pics.asm", originalLoader);
+  await source.writeText("ram/wram.asm", originalRam.replace("\tds 10\n\nwTownVisitedFlag", "; yellow-editor Pokédex padding\n\tds 10 - 2 * ((NUM_POKEMON + 7) / 8 - 19)\n\nwTownVisitedFlag"));
+  await source.removeFile!(reserve);
+  const before = (await session.getPokemonIndex()).find(entry => entry.internalId === 191);
+  const doc = await session.getPokemonCreateDocument(); assert.equal(doc.nextInternalId, 31); assert.equal(doc.remainingSlots, 44);
+  await session.createPokemon(doc, { ...values, constant: "NEWER_MON", name: "NEWERMON" });
+  assert.deepEqual((await session.getPokemonIndex()).find(entry => entry.internalId === 191), before);
+  assert.ok((await source.readText("gfx/pics.asm")).includes('SECTION "Editor Pokemon NEWER_MON pictures", ROMX'));
+  const id = (await session.getHistoryTimeline()).entries.find(entry => entry.label === "Add Pokémon NEWER_MON")!.id;
+  const path = "scripts/Route1.asm", previous = await source.readText(path);
+  await source.writeText(path, previous + "\n\tdw YellowEditor_NEWER_MON_Front\n");
+  await assert.rejects(session.selectivelyUndoHistoryEntry(id), /later content references/);
+  await source.writeText(path, previous);
+  await session.undoLastSave(); assert.equal((await session.getPokemonCreateDocument()).nextInternalId, 31);
+});
