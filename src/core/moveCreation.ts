@@ -3,10 +3,11 @@ import { loadGraphicsCatalog } from "./graphics";
 import { parseMoves } from "./parsers";
 import { before, checkStamps, code, creationSnapshot, creationWrites, extendNames, freeSections, gameText, identifier, newline, rows, type CreationStamp } from "./creationSupport";
 import type { MoveData, ProjectSource } from "./types";
+import { moveOptions, moveOptionPaths } from "./moveOptions";
 
 export interface MoveCreateDocument { sources: CreationStamp[]; nextId: number; moves: MoveData[]; effects: string[]; types: string[]; animations: Array<{ constant: string; label: string }>; reason: string | null }
 export interface MoveCreateValues { constant: string; name: string; power: number; accuracy: number; pp: number; effect: string; moveType: string; animation: string; soundMoveId: number }
-const paths = ["constants/move_constants.asm", "data/moves/moves.asm", "data/moves/names.asm", "data/moves/sfx.asm", "data/moves/animations.asm", "engine/battle/core.asm", "home/names2.asm", "layout.link"];
+const paths = ["constants/move_constants.asm", "data/moves/moves.asm", "data/moves/names.asm", "data/moves/sfx.asm", "data/moves/animations.asm", "engine/battle/core.asm", "home/names2.asm", "layout.link", ...moveOptionPaths];
 export async function loadMoveCreateDocument(source: ProjectSource): Promise<MoveCreateDocument> {
   const snapshot = await creationSnapshot(source, paths), moves = await parseMoves(source);
   const catalog = await loadBattleAnimationCatalog(source, await loadGraphicsCatalog(source));
@@ -14,7 +15,8 @@ export async function loadMoveCreateDocument(source: ProjectSource): Promise<Mov
   let reason: string | null = null;
   if (snapshot.symbols.get("NUM_ATTACKS") !== moves.length || rows(snapshot.text.get(paths[1])!, "Moves", "move").length !== moves.length || rows(snapshot.text.get(paths[2])!, "MoveNames", "li").length !== moves.length || rows(snapshot.text.get(paths[3])!, "MoveSoundTable", "db").length !== moves.length) reason = "Move constants, names, sounds and stats must have synchronized table lengths.";
   if (nextId >= 255 || nextId > catalog.scripts.length) reason = "No safe move ID is available within the current byte and animation-table limits.";
-  return { sources: snapshot.stamps, moves, nextId, effects: [...new Set(moves.map(move => move.effect))], types: [...new Set(moves.map(move => move.moveType))], animations: catalog.scripts.filter(script => !script.warnings.length && (moves.some(move => move.animationLabel === script.label) || script.label.startsWith("YellowEditor_"))).map(script => ({ constant: script.constant, label: script.label })), reason };
+  const options = moveOptions(snapshot.text, snapshot.symbols);
+  return { sources: snapshot.stamps, moves, nextId, ...options, animations: catalog.scripts.filter(script => !script.warnings.length && (moves.some(move => move.animationLabel === script.label) || script.label.startsWith("YellowEditor_"))).map(script => ({ constant: script.constant, label: script.label })), reason };
 }
 export async function prepareMoveCreateWrites(source: ProjectSource, document: MoveCreateDocument, values: MoveCreateValues) {
   const current = await loadMoveCreateDocument(source); checkStamps(document.sources, current.sources); if (current.reason) throw new Error(current.reason);

@@ -757,12 +757,14 @@ function parseMoveConstants(contents: string): string[] {
 
 function parseMoveNames(contents: string): string[] {
   const names: string[] = [];
-
+  let active = false;
   for (const rawLine of contents.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (line.startsWith('li "') && line.endsWith('"')) {
-      names.push(line.slice(4, -1));
-    }
+    const line = codeOnly(rawLine);
+    if (/^MoveNames::{0,1}$/.test(line)) { active = true; continue; }
+    if (!active) continue;
+    if (/^assert_list_length\b/.test(line)) break;
+    const name = line.match(/^li\s+"([^"]*)"$/);
+    if (name) names.push(name[1]);
   }
 
   return names;

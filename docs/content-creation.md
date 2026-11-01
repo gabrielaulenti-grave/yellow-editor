@@ -4,6 +4,10 @@ The Pokémon, Moves and Trainers workspaces can append content without replacing
 
 ## Moves
 
+Select a move in **Moves** to edit its name, power, accuracy, PP, type and existing battle behavior. Use the global **Save**, **Revert**, **Undo** and **Redo** controls; Ctrl/Cmd+S saves while the Moves workspace is open. Changing a move or leaving the workspace asks before discarding an unfinished draft. Reload sources after external edits. Edited moves retain their IDs, source constants, animation assignments and sound tables.
+
+Names support up to twelve game-text characters, power 0–255, accuracy 0–100 and PP 1–40. A zero power or accuracy setting is allowed; the selected behavior and original move-specific engine rules still determine battle mechanics. Editing chooses from named behaviors declared by the project's engine. Types and behaviors remain selectable after their last move is changed. Custom macros, expressions and ambiguous tables remain unmodified when unsupported.
+
 Choose **New move** in Moves. Copy defaults from an existing move, then choose its name, source constant, type, power, accuracy, PP, existing battle behavior, animation and sound. The new move becomes available to Pokémon starting moves and learnsets. Existing moves and status-animation identifiers keep their values.
 
 This first pass reuses existing battle behaviors and animation scripts, including animations created in Graphics. Creating a new battle mechanic still requires engine code. Allocation stops at the reviewed animation-table and byte-ID limits.

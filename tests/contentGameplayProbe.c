@@ -50,7 +50,9 @@ static int drive(Emulator*e,int reload,unsigned animation,unsigned map,unsigned 
 int main(int argc,char**argv){
  if(argc!=9)return 2;FILE*f=fopen(argv[2],"r");if(!f)return 2;char line[512];while(fgets(line,sizeof(line),f)&&count<65536)if(sscanf(line,"%x:%x %255s",&symbols[count].bank,&symbols[count].address,symbols[count].name)==3)count++;fclose(f);
  f=fopen(argv[1],"rb");if(!f)return 2;fseek(f,0,SEEK_END);long size=ftell(f);rewind(f);EmulatorInit init={0};init.rom.data=malloc(size);init.rom.size=size;if(fread(init.rom.data,1,size,f)!=(size_t)size)return 2;fclose(f);init.audio_frequency=44100;init.audio_frames=4096;init.random_seed=123;init.force_dmg=TRUE;Emulator*e=emulator_new(&init);if(!e)return 2;
- unsigned animation=atoi(argv[3]),map=atoi(argv[4]),species=atoi(argv[5]),move=atoi(argv[6]),dexno=atoi(argv[7]),firstSpecies=atoi(argv[8]);int result=drive(e,0,animation,map,species,move,dexno,firstSpecies);
+ unsigned animation=atoi(argv[3]),map=atoi(argv[4]),species=atoi(argv[5]),move=atoi(argv[6]),dexno=atoi(argv[7]),firstSpecies=atoi(argv[8]);Symbol moves=get("Moves");size_t offset=(size_t)moves.bank*0x4000+(moves.address&0x3fff)+(move-1)*6;
+ if(offset+6>init.rom.size||init.rom.data[offset]!=animation||init.rom.data[offset+1]!=0||init.rom.data[offset+2]!=65||init.rom.data[offset+3]!=23||init.rom.data[offset+4]!=255||init.rom.data[offset+5]!=20){fprintf(stderr,"Compiled edited move fields differ from saved values\n");return 1;}
+ int result=drive(e,0,animation,map,species,move,dexno,firstSpecies);
  if(!result){FileData save={0};emulator_init_ext_ram_file_data(e,&save);if(emulator_write_ext_ram(e,&save)!=OK)return 2;emulator_delete(e);e=emulator_new(&init);if(!e||emulator_read_ext_ram(e,&save)!=OK)return 2;free(save.data);result=drive(e,1,animation,map,species,move,dexno,firstSpecies);}
  emulator_delete(e);free(init.rom.data);return result;
 }

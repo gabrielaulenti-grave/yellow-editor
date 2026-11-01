@@ -61,6 +61,10 @@ jobs:
 
       - name: Check playable content creation and identity preservation
         run: npm run test:content -- .script-fixtures/pokered .script-fixtures/pokeyellow
+      - name: Check move edits and source preservation
+        run: npm run test:moves -- .script-fixtures/pokered .script-fixtures/pokeyellow
+      - name: Edit moves and verify save, history and navigation guards
+        run: npm run test:moves:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow
 
       - name: Create moves, species and trainer parties through the application
         run: npm run test:content:ui -- .script-fixtures/pokered .script-fixtures/pokeyellow

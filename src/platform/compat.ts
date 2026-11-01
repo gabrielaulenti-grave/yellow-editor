@@ -520,6 +520,11 @@ export async function invoke<T>(
   const session = requireSession();
 
   switch (command) {
+    case "get_move_edit_document": return await session.getMoveEditDocument(numberArg(args, "id")) as T;
+    case "save_move_edit": {
+      if (!args?.document || !args.values) throw new Error("Missing move edit document or values.");
+      return await session.saveMoveEdit(args.document as import("../core/moveEditing").MoveEditDocument, args.values as import("../core/moveEditing").MoveEditValues) as T;
+    }
     case "get_move_create_document": return await session.getMoveCreateDocument() as T;
     case "get_trainer_party_create_document": return await session.getTrainerPartyCreateDocument() as T;
     case "get_pokemon_create_document": return await session.getPokemonCreateDocument() as T;

@@ -451,6 +451,10 @@ input[readonly] {
   align-items: start;
 }
 
+.move-edit-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.move-edit-fields .editor-field { min-width: 0; }
+.move-edit-fields select { width: 100%; min-width: 0; max-width: 100%; }
+
 .full-width-input {
   width: 100%;
   margin-bottom: 10px;

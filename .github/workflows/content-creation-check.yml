@@ -42,9 +42,15 @@ jobs:
           tar --no-same-owner -xf .content-fixtures/rgbds.tar.xz -C .content-fixtures/rgbds
       - name: Check creation transactions and stable identities
         run: npm run test:content -- .content-fixtures/pokered .content-fixtures/pokeyellow
+      - name: Check move edits, source preservation and history
+        run: npm run test:moves -- .content-fixtures/pokered .content-fixtures/pokeyellow
       - name: Play new moves, trainer parties and species through capture, PC storage and save/reload
         run: npm run test:content:gameplay -- .content-fixtures/pokered .content-fixtures/pokeyellow --rom .content-fixtures/rgbds .content-fixtures/binjgb
       - run: npm exec playwright -- install --with-deps chromium
+      - name: Edit moves through the application
+        run: npm run test:moves:ui -- .content-fixtures/pokered .content-fixtures/pokeyellow
+        env:
+          MOVE_SCREENSHOT: move-editor.png
       - name: Create playable content through the application UI
         run: npm run test:content:ui -- .content-fixtures/pokered .content-fixtures/pokeyellow
         env:
@@ -53,4 +59,6 @@ jobs:
         if: always()
         with:
           name: content-creation-preview
-          path: content-creation.png
+          path: |
+            content-creation.png
+            move-editor.png

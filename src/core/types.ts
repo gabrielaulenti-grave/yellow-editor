@@ -1645,6 +1645,8 @@ export interface ProjectSession {
     values: PokemonEditValues,
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
+  getMoveEditDocument(id: number): Promise<import("./moveEditing").MoveEditDocument>;
+  saveMoveEdit(document: import("./moveEditing").MoveEditDocument, values: import("./moveEditing").MoveEditValues): Promise<HistorySummary>;
   getItems(): Promise<ItemData[]>;
   getPokemonCatchProfiles(): Promise<PokemonCatchProfile[]>;
   getTmhmCompatibility(moveConstant: string): Promise<PokemonTmhmCompatibilityReference[]>;

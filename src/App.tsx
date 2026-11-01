@@ -1,5 +1,7 @@
 import { fieldToolError } from "./FieldToolEditor";
 import type { CreatedContent } from "./ContentCreateDialog";
+import type { MoveEditDocument } from "./core/moveEditing";
+import { moveDraftFromDocument, moveDraftIsDirty, moveDraftError, parseMoveDraft, type MoveDraft } from "./editor/moveForm";
 import { GraphicsTab } from "./GraphicsTab";
 import type { GraphicsFocus } from "./core/graphics";
 import { useEffect, useRef, useState } from "react";
@@ -109,6 +111,11 @@ function App() {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
+  const [moveEditDocument, setMoveEditDocument] = useState<MoveEditDocument | null>(null);
+  const [moveDraft, setMoveDraft] = useState<MoveDraft | null>(null);
+  const [moveEditLoading, setMoveEditLoading] = useState(false);
+  const [moveEditError, setMoveEditError] = useState<string | null>(null);
+  const [moveRevision, setMoveRevision] = useState(0);
   const [items, setItems] = useState<ItemData[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [itemSearch, setItemSearch] = useState("");
@@ -414,6 +421,21 @@ function App() {
   const selectedTrainerClassEntry =
     trainerClasses.find((entry) => entry.constant === selectedTrainerClass) ?? null;
 
+  useEffect(() => {
+    if (activeTab !== "moves" || !project || selectedMoveId === null) return;
+    let cancelled = false;
+    setMoveEditLoading(true); setMoveEditError(null); setMoveEditDocument(null); setMoveDraft(null);
+    void invoke<MoveEditDocument>("get_move_edit_document", { id: selectedMoveId }).then(document => {
+      if (!cancelled) { setMoveEditDocument(document); setMoveDraft(moveDraftFromDocument(document)); }
+    }).catch(error => { if (!cancelled) setMoveEditError(String(error)); }).finally(() => { if (!cancelled) setMoveEditLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, project?.path, selectedMoveId, moveRevision]);
+  const moveDirty = moveDraftIsDirty(moveDraft, moveEditDocument);
+  const moveError = moveDraftError(moveDraft, moveEditDocument);
+  useEffect(() => {
+    const guard = (event: BeforeUnloadEvent) => { if (moveDirty) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", guard); return () => window.removeEventListener("beforeunload", guard);
+  }, [moveDirty]);
   const pokemonDirty = pokemonDraftIsDirty(pokemonDraft, pokemonEditDocument);
   const pokemonValid = pokemonDraftIsValid(pokemonDraft, pokemonEditDocument);
   const tmDirty = Boolean(
@@ -623,7 +645,8 @@ function App() {
     knownTrainerAiRoutines,
   );
   const hasUnsavedChanges =
-    pokemonDirty
+    moveDirty
+    || pokemonDirty
     || tmDirty
     || itemDirty
     || encounterDirty
@@ -960,6 +983,7 @@ function App() {
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
+      setMoveEditDocument(null); setMoveDraft(null); setMoveEditError(null); setMoveRevision(value => value + 1);
       setItems(itemData);
       clearTrainerEditor();
       if (trainerBaseResult.catalog) {
@@ -1091,6 +1115,44 @@ function App() {
       setTmMoveDraft(tmEditDocument.moveConstant);
     }
     setSelectedItemId(itemId);
+  }
+
+  function selectMove(id: number) {
+    if (id === selectedMoveId || editBusy || moveEditLoading) return;
+    if (moveDirty && !window.confirm("Discard the unsaved move changes and switch moves?")) return;
+    setMoveEditDocument(null); setMoveDraft(null); setMoveEditLoading(true);
+    setSelectedMoveId(id);
+  }
+  async function refreshMovesAfterHistory() {
+    const data = await invoke<MoveData[]>("get_moves"); setMoves(data);
+    setSelectedMoveId(current => data.some(move => move.id === current) ? current : data[0]?.id ?? null);
+    setMoveRevision(value => value + 1);
+  }
+  async function saveMoveChanges() {
+    if (!moveDirty || moveError || !moveEditDocument || moveEditDocument.id !== selectedMoveId || editBusy || moveEditLoading) return;
+    const values = parseMoveDraft(moveDraft, moveEditDocument); if (!values) return;
+    setEditBusy(true); setMoveEditError(null); let committed = false;
+    try {
+      const history = await invoke<HistorySummary>("save_move_edit", { document: moveEditDocument, values });
+      committed = true; setHistorySummary(history);
+      const [document, data] = await Promise.all([invoke<MoveEditDocument>("get_move_edit_document", { id: moveEditDocument.id }), invoke<MoveData[]>("get_moves")]);
+      setMoves(data); setMoveEditDocument(document); setMoveDraft(moveDraftFromDocument(document));
+      setStatus(`${document.values.name} saved successfully.`);
+    } catch (error) {
+      const message = committed ? `The move was saved, but refresh failed: ${String(error)}. Reload move sources before editing again.` : String(error);
+      if (committed) { setMoveEditDocument(null); setMoveDraft(null); }
+      setMoveEditError(message); setStatus(message);
+    } finally { setEditBusy(false); }
+  }
+  async function revertMoveChanges() {
+    if (selectedMoveId === null || editBusy) return;
+    setMoveEditLoading(true); setMoveEditError(null);
+    try {
+      const document = await invoke<MoveEditDocument>("get_move_edit_document", { id: selectedMoveId });
+      setMoveEditDocument(document); setMoveDraft(moveDraftFromDocument(document));
+      setMoves(await invoke<MoveData[]>("get_moves")); setStatus("Move sources reloaded; unsaved changes reverted.");
+    } catch (error) { setMoveEditError(String(error)); }
+    finally { setMoveEditLoading(false); }
   }
 
   async function openItemWizard() {
@@ -1755,6 +1817,7 @@ function App() {
       });
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+      await refreshMovesAfterHistory();
 
       const [
         refreshedEncounters,
@@ -1823,6 +1886,7 @@ function App() {
       const history = await invoke<HistorySummary>("undo_last_save");
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+      await refreshMovesAfterHistory();
       const refreshTrainerBase = Boolean(
         historySummary.latestLabel?.startsWith("Edit trainer party ")
         || historySummary.latestLabel?.startsWith("Add trainer class ")
@@ -1877,6 +1941,7 @@ function App() {
       const history = await invoke<HistorySummary>("redo_last_undo");
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+      await refreshMovesAfterHistory();
       const refreshTrainerBase = Boolean(
         history.latestLabel?.startsWith("Edit trainer party ")
         || history.latestLabel?.startsWith("Add trainer class ")
@@ -2107,6 +2172,8 @@ function App() {
   };
   const editorController = activeTab === "graphics" && graphicsEditor
     ? graphicsEditor
+    : activeTab === "moves"
+    ? { dirty: moveDirty, valid: !moveError, busy: editBusy || moveEditLoading, save: saveMoveChanges, revert: revertMoveChanges }
     : activeTab === "pokemon"
     ? pokemonEditorController
     : activeTab === "items" && selectedItem?.kind === "tm"
@@ -2125,7 +2192,7 @@ function App() {
     if (nextTab === activeTab) {
       return true;
     }
-    if (graphicsEditor?.busy) return false;
+    if (graphicsEditor?.busy || editBusy || activeTab === "moves" && moveEditLoading) return false;
     if (
       hasUnsavedChanges &&
       !window.confirm(graphicsEditor?.dirty ? "Leave unsaved graphics changes and switch tabs? Pixel drafts are kept; animation drafts will be discarded." : "Discard the unsaved changes and switch tabs?")
@@ -2135,6 +2202,11 @@ function App() {
     if (pokemonDirty) {
       await revertUnsavedChanges();
     }
+    if (moveDirty) {
+      // Tab navigation already obtained discard confirmation; the next visit reloads sources.
+      setMoveDraft(moveEditDocument ? moveDraftFromDocument(moveEditDocument) : null);
+    }
+    if (activeTab === "moves") { setMoveEditDocument(null); setMoveDraft(null); setMoveEditError(null); setMoveEditLoading(false); }
     if (tmDirty) {
       await revertTmChanges();
     }
@@ -2159,6 +2231,7 @@ function App() {
     if (nextTab === "moves" && project) {
       try { setMoves(await invoke<MoveData[]>("get_moves")); }
       catch (error) { setStatus(String(error)); return false; }
+      setMoveEditDocument(null); setMoveDraft(null); setMoveEditLoading(true);
     }
     setActiveTab(nextTab);
     return true;
@@ -2175,6 +2248,10 @@ function App() {
     };
     window.addEventListener("yellow-editor:open-graphics", openGraphics);
     return () => window.removeEventListener("yellow-editor:open-graphics", openGraphics);
+  });
+  useEffect(() => {
+    const saveKey = (event: KeyboardEvent) => { if (activeTab === "moves" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { if (event.defaultPrevented) return; event.preventDefault(); void saveMoveChanges(); } };
+    window.addEventListener("keydown", saveKey); return () => window.removeEventListener("keydown", saveKey);
   });
 
   async function openMapFromEncounter(mapConstant: string) {
@@ -2369,9 +2446,17 @@ function App() {
           moves={moves}
           selectedMoveId={selectedMoveId}
           moveSearch={moveSearch}
-          onSelectMove={setSelectedMoveId}
+          onSelectMove={selectMove}
           onSearchChange={setMoveSearch}
           onCreated={handleContentCreated}
+          document={moveEditDocument}
+          draft={moveDraft}
+          dirty={moveDirty}
+          busy={editBusy || moveEditLoading}
+          error={moveEditError}
+          validationError={moveDirty ? moveError : null}
+          onDraftChange={setMoveDraft}
+          onReload={() => void revertMoveChanges()}
         />
       )}
 

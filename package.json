@@ -67,7 +67,9 @@
     "test:animations:gameplay": "node scripts/check-animation-gameplay.mjs",
     "test:content": "node scripts/check-content-creation.mjs",
     "test:content:ui": "node scripts/check-content-workflow.mjs",
-    "test:content:gameplay": "node scripts/check-content-gameplay.mjs"
+    "test:content:gameplay": "node scripts/check-content-gameplay.mjs",
+    "test:moves": "node scripts/check-move-editing.mjs",
+    "test:moves:ui": "node scripts/check-move-editing-workflow.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

@@ -49,6 +49,7 @@ import {
 import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
+import { loadMoveEditDocument, prepareMoveEditWrites } from "./moveEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapTerrainDocument, prepareMapTerrainWrites, loadMapWarpDocument, prepareMapWarpWrites } from "./mapEditing";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
@@ -929,6 +930,14 @@ export async function createProjectSession(
       return result;
     },
     getMoves: () => parseMoves(source),
+    getMoveEditDocument: id => loadMoveEditDocument(source, id),
+    saveMoveEdit: async (document, values) => {
+      const changes = await prepareMoveEditWrites(source, document, values);
+      if (!changes.length) return history.getSummary();
+      const result = await history.save(`Edit move ${document.constant}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
     getItems: () => parseItems(source),
     getPokemonCatchProfiles,
     getItemEditDocument: (itemId) => loadItemEditDocument(source, itemId),
