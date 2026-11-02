@@ -15,7 +15,7 @@ const P = {
 };
 async function state(source: ProjectSource) {
   const index = await parsePokemonIndex(source);
-  const paths = [...Object.values(P), "constants/trainer_constants.asm", "constants/move_constants.asm", "data/moves/moves.asm", "data/moves/names.asm", "data/moves/animations.asm", "main.asm", "ram/wram.asm", ...index.filter(entry => entry.kind === "pokemon" && entry.sourceSlug).map(entry => `data/pokemon/base_stats/${entry.sourceSlug}.asm`)];
+  const paths = [...Object.values(P), "constants/trainer_constants.asm", "constants/move_constants.asm", "data/moves/moves.asm", "data/moves/names.asm", "data/moves/animations.asm", "main.asm", "ram/wram.asm", "home/text.asm", "macros/scripts/text.asm", ...index.filter(entry => entry.kind === "pokemon" && entry.sourceSlug).map(entry => `data/pokemon/base_stats/${entry.sourceSlug}.asm`)];
   const snapshot = await creationSnapshot(source, paths);
   for (const file of snapshot.files.filter(file => file.contents.includes("; yellow-editor") && file.contents.includes(legacyPokedexMask))) {
     if (!snapshot.stamps.some(stamp => stamp.path === file.path)) snapshot.stamps.push({ path: file.path, hash: await hashText(file.contents) });
@@ -25,6 +25,10 @@ async function state(source: ProjectSource) {
 export async function loadPokemonCreateDocument(source: ProjectSource): Promise<PokemonCreateDocument> {
   const current = await state(source), count = current.symbols.get("NUM_POKEMON_INDEXES"), dexCount = current.symbols.get("NUM_POKEMON"), opponentOffset = current.symbols.get("OPP_ID_OFFSET");
   let reason: string | null = null;
+  const textEngine = current.text.get("home/text.asm")!.split(/\r?\n/).map(code).filter(Boolean).join("\n");
+  const textMacros = current.text.get("macros/scripts/text.asm")!.split(/\r?\n/).map(code).filter(Boolean).join("\n");
+  if (!textMacros.includes('MACRO dex\ndb "<DEXEND>@"\nENDM') || !/^dict '<DEXEND>',\s*PlaceDexEnd$/m.test(textEngine)
+    || !/PlaceDexEnd::{0,1}\nld \[hl\], '\.'\npop hl\nret/.test(textEngine)) reason = "The Pokédex ending needs source review before creating species with automatic punctuation.";
   if (count === undefined || dexCount === undefined || opponentOffset === undefined) throw new Error("Cannot resolve the species, Pokédex and opponent ID bounds.");
   for (const [path, label, directive] of [[P.names, "MonsterNames", "dname"], [P.order, "PokedexOrder", "db"], [P.cries, "CryData", "mon_cry"], [P.evos, "EvosMovesPointerTable", "dw"], [P.entries, "PokedexEntryPointers", "dw"]]) if (rows(current.text.get(path)!, label, directive).length !== count) reason = "Species-indexed tables must be synchronized before adding a Pokémon.";
   const slots = inspectPokemonSlots(current.index, current.text, current.files, current.symbols);
@@ -39,7 +43,9 @@ export async function preparePokemonCreateWrites(source: ProjectSource, document
   const { files, text, symbols } = await state(source); identifier(values.constant, files); identifier(`DEX_${values.constant}`, files); gameText(values.name, 10, "Pokémon name"); gameText(values.category, 10, "Pokédex category");
   if (!values.description.length || values.description.length > 6) throw new Error("Use 1–6 Pokédex lines, with at most 18 characters per line.");
   values.description.forEach(line => gameText(line, 18, "Pokédex line"));
+  const description = values.description.map((line, i) => i === values.description.length - 1 ? line.trimEnd().replace(/\.$/, "") : line);
   if (!current.moves.includes(values.startingMove)) throw new Error("Choose a starting move from this project.");
+  if (description[description.length - 1].length > 17) throw new Error("The final Pokédex row has room for 17 characters plus the automatic closing period.");
   const template = current.templates.find(entry => entry.id === values.templateId); if (!template) throw new Error("Choose an existing Pokémon template.");
   const details = await parsePokemonDetails(source, template.id, template.slug), dexId = symbols.get(details.stats.dexConstant);
   if (dexId === undefined || !details.pokedex) throw new Error("The template's Pokédex identity could not be resolved.");
@@ -92,7 +98,7 @@ export async function preparePokemonCreateWrites(source: ProjectSource, document
   updates.set(P.evos, append(speciesRow(P.evos, "EvosMovesPointerTable", "dw", `\tdw ${evosLabel}`), `${evosLabel}:\n\tdb 0 ; no evolutions\n${learned}${learned ? "\n" : ""}\tdb 0 ; end learnset`));
   const dex = details.pokedex;
   updates.set(P.entries, append(speciesRow(P.entries, "PokedexEntryPointers", "dw", `\tdw ${dexLabel}`), `${dexLabel}:\n\tdb "${values.category}@"\n\tdb ${dex.heightFeet}, ${dex.heightInches}\n\tdw ${dex.weightTenthsLb}\n\ttext_far ${textLabel}\n\ttext_end`));
-  updates.set(P.text, append(text.get(P.text)!, `PUSHS\nSECTION "Editor Pokemon ${values.constant} description", ROMX\n${textLabel}::\n${values.description.map((line, i) => `\t${i === 0 ? "text" : i === 3 ? "page" : "next"} "${line}"`).join("\n")}\n\tdex\nPOPS`));
+  updates.set(P.text, append(text.get(P.text)!, `PUSHS\nSECTION "Editor Pokemon ${values.constant} description", ROMX\n${textLabel}::\n${description.map((line, i) => `\t${i === 0 ? "text" : i === 3 ? "page" : "next"} "${line}"`).join("\n")}\n\tdex\nPOPS`));
   if (!text.get(P.pictures)!.includes("; yellow-editor species pic banks begin") && files.some(file => /\bYellowEditor_MonPicBank\b/.test(file.contents))) throw new Error("The species picture routing symbol is already used in this project.");
   const pictures = addPokemonPictures(text.get(P.pictures)!, text.get(P.loader)!, values.constant, slug, frontLabel, backLabel);
   updates.set(P.pictures, pictures.pictures); updates.set(P.loader, pictures.loader);

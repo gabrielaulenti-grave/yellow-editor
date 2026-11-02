@@ -12,6 +12,7 @@ import { inspectPlayerConditions, validatePlayerCondition, legacyPokedexMask, ex
 import { prepareScriptInteractionWrites } from "../src/core/scriptInteractions";
 import { rows, code } from "../src/core/creationSupport";
 import { replaceSpeciesRow } from "../src/core/pokemonSlots";
+import { preparePokemonCreateWrites } from "../src/core/pokemonCreation";
 import { expandPokemonRam } from "../src/core/pokemonStorage";
 
 assert.ok(process.argv.slice(2).length, "Supply Red/Yellow sources.");
@@ -156,4 +157,18 @@ for (const root of process.argv.slice(2)) test(`${root}: earlier appended specie
   await assert.rejects(session.selectivelyUndoHistoryEntry(id), /later content references/);
   await source.writeText(path, previous);
   await session.undoLastSave(); assert.equal((await session.getPokemonCreateDocument()).nextInternalId, 31);
+});
+
+for (const root of process.argv.slice(2)) test(`${root}: new Pokédex entries include the game's automatic final period only once`, async () => {
+  const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never), doc = await session.getPokemonCreateDocument();
+  const base = { constant: "POSSUM", name: "POSSUM", templateId: 97, startingMove: "SLASH", category: "GHOST", description: ["It hides."] };
+  for (const [input, expected] of [["It hides.", "It hides"], ["It hides", "It hides"], ["It hides...", "It hides.."], ["It hides.  ", "It hides"], ["12345678901234567.", "12345678901234567"]]) {
+    const prepared = await preparePokemonCreateWrites(source, doc, { ...base, description: ["First. Second.", input] });
+    const text = prepared.changes.find(change => change.path === "data/pokemon/dex_text.asm")!.contents;
+    assert.ok(text.includes(`\ttext "First. Second."\n\tnext "${expected}"\n\tdex`));
+  }
+  await assert.rejects(preparePokemonCreateWrites(source, doc, { ...base, description: ["123456789012345678"] }), /17 characters/);
+  await source.writeText("home/text.asm", (await source.readText("home/text.asm")).replace("ld [hl], '.'", "ld [hl], '!'") );
+  await assert.rejects(preparePokemonCreateWrites(source, doc, base), /sources changed/);
+  assert.match((await session.getPokemonCreateDocument()).reason!, /ending needs source review/);
 });

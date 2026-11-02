@@ -1,3 +1,4 @@
+import { criticalMovesPath, loadHighCritical, setHighCritical, type HighCriticalSupport } from "./moveProperties";
 import { hashText } from "./history";
 import { parseMoves } from "./parsers";
 import { projectConstantCatalogFromSources, readProjectRgbdsSources } from "./projectConstants";
@@ -5,10 +6,10 @@ import { checkStamps, code, freeSections, gameText, type CreationStamp } from ".
 import type { ProjectSource, TextWriteRequest } from "./types";
 import { moveOptions, moveOptionPaths } from "./moveOptions";
 
-export interface MoveEditValues { name: string; power: number; accuracy: number; pp: number; moveType: string; effect: string }
+export interface MoveEditValues { name: string; power: number; accuracy: number; pp: number; moveType: string; effect: string; highCritical?: boolean }
 export interface MoveEditDocument {
   id: number; constant: string; sources: CreationStamp[]; values: MoveEditValues;
-  options: { types: string[]; effects: string[] }; maxNameLength: number;
+  options: { types: string[]; effects: string[] }; maxNameLength: number; highCritical: HighCriticalSupport;
 }
 const dataPath = "data/moves/moves.asm", namesPath = "data/moves/names.asm";
 const paths = [dataPath, namesPath, "constants/move_constants.asm", ...moveOptionPaths, "constants/pokemon_data_constants.asm", "constants/text_constants.asm", "main.asm", "text.asm", "layout.link"];
@@ -53,15 +54,18 @@ async function state(source: ProjectSource, id: number) {
   const name = names[id - 1].raw.match(/^[ \t]*li[ \t]+"([^"\r\n]*)"[ \t]*(?:;.*)?$/)?.[1];
   if (name === undefined || !/^[A-Za-z_]\w*$/.test(args[1]) || !/^[A-Za-z_]\w*$/.test(args[3])) throw new Error("The selected move's name, type or behavior uses unsupported source syntax.");
   const maxNameLength = Math.min(12, (symbols.get("MOVE_NAME_LENGTH") ?? 14) - 2);
+  const critical = await loadHighCritical(source, moves);
+  for (const [path, contents] of critical.text) text.set(path, contents);
   const document: MoveEditDocument = {
-    id, constant: move.constant, sources: await Promise.all(contents.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))),
-    values: { name, effect: args[1], power: numeric(args[2], "Power"), moveType: args[3], accuracy: numeric(args[4], "Accuracy"), pp: numeric(args[5], "PP") },
+    id, constant: move.constant, sources: [...await Promise.all(contents.map(async file => ({ path: file.path, hash: await hashText(file.contents) }))), ...critical.sources], highCritical: critical.support,
+    values: { name, highCritical: critical.support.moves.includes(move.constant), effect: args[1], power: numeric(args[2], "Power"), moveType: args[3], accuracy: numeric(args[4], "Accuracy"), pp: numeric(args[5], "PP") },
     options: moveOptions(text, symbols), maxNameLength,
   };
   validateMoveEditValues(document.values, document);
-  return { document, text, moveRows, names };
+  return { document, text, moveRows, names, moves };
 }
 export function validateMoveEditValues(values: MoveEditValues, document: Pick<MoveEditDocument, "options" | "maxNameLength">) {
+  if (values.highCritical !== undefined && typeof values.highCritical !== "boolean") throw new Error("High critical-hit rate must be on or off.");
   gameText(values.name, document.maxNameLength, "Move name");
   for (const [field, value, minimum, maximum] of [["Power", values.power, 0, 255], ["Accuracy", values.accuracy, 0, 100], ["PP", values.pp, 1, 40]] as const) {
     if (!Number.isInteger(value) || value < minimum || value > maximum) throw new Error(`${field} must be an integer from ${minimum} to ${maximum}.`);
@@ -87,6 +91,13 @@ export async function prepareMoveEditWrites(source: ProjectSource, previous: Mov
     const files = await readProjectRgbdsSources(source);
     if (files.some(file => file.readError)) throw new Error("All assembly sources must be readable before relocating the growing move-name table.");
     changes.set("layout.link", freeSections(current.text.get("layout.link")!, files, [namesPath]));
+  }
+  if (values.highCritical !== undefined && values.highCritical !== doc.values.highCritical) {
+    if (doc.highCritical.reason) throw new Error(doc.highCritical.reason);
+    changes.set(criticalMovesPath, setHighCritical(current.text, current.moves, doc.constant, values.highCritical));
+    const files = await readProjectRgbdsSources(source);
+    if (files.some(file => file.readError)) throw new Error("All assembly sources must be readable before relocating the critical-hit list.");
+    changes.set("layout.link", freeSections(changes.get("layout.link") ?? current.text.get("layout.link")!, files, [criticalMovesPath]));
   }
   return [...changes].filter(([path, contents]) => contents !== current.text.get(path)).map(([path, contents]) => ({ path, contents, expectedHash: doc.sources.find(stamp => stamp.path === path)!.hash }));
 }

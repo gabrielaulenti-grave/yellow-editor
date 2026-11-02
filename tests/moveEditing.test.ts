@@ -11,6 +11,8 @@ for (const root of roots) {
     const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never);
     for (const move of await session.getMoves()) {
       const doc = await session.getMoveEditDocument(move.id);
+      assert.equal(doc.highCritical.reason, null);
+      assert.equal(doc.values.highCritical, ["KARATE_CHOP", "RAZOR_LEAF", "CRABHAMMER", "SLASH"].includes(move.constant));
       assert.equal(doc.constant, move.constant); assert.equal(doc.values.name, move.name); assert.equal(doc.values.power, move.power);
       assert.deepEqual(await prepareMoveEditWrites(source, doc, doc.values), []);
       const draft = moveDraftFromDocument(doc); assert.equal(moveDraftIsDirty(draft, doc), false); assert.equal(moveDraftError(draft, doc), null);
@@ -77,5 +79,66 @@ for (const root of roots) {
       const creation = await session.getMoveCreateDocument(); assert.ok(creation.types.includes(doc.values.moveType)); assert.ok(creation.effects.includes(doc.values.effect));
       await session.saveMoveEdit(next, doc.values);
     }
+  });
+}
+
+for (const root of roots) {
+  test(`${root}: high-critical membership saves atomically, preserves comments and supports undo/redo`, async () => {
+    const { source, data, fail } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+    const path = "data/battle/critical_hit_moves.asm", unused = await source.readText("data/battle/unused_critical_hit_moves.asm");
+    await source.writeText(path, (await source.readText(path)).replace("db SLASH", "db SLASH ; keep explanation").replace(/\r?\n/g, "\r\n"));
+    const before = new Map([...data].map(([path, bytes]) => [path, bytes.slice()]));
+    const doc = await session.getMoveEditDocument(1);
+    fail(path); await assert.rejects(session.saveMoveEdit(doc, { ...doc.values, power: 80, highCritical: true }), /Injected write failure/);
+    for (const [path, bytes] of before) assert.deepEqual(data.get(path), bytes, `rollback ${path}`);
+    await session.saveMoveEdit(doc, { ...doc.values, power: 80, highCritical: true });
+    assert.equal((await session.getMoveEditDocument(1)).values.highCritical, true);
+    assert.ok((await source.readText(path)).includes("\tdb POUND\r\n\tdb -1"));
+    assert.equal(await source.readText("data/battle/unused_critical_hit_moves.asm"), unused);
+    await session.undoLastSave(); for (const [path, bytes] of before) assert.deepEqual(data.get(path), bytes, `undo ${path}`);
+    await session.redoLastUndo(); assert.equal((await session.getMoveEditDocument(1)).values.highCritical, true);
+    const slash = (await session.getMoves()).find(move => move.constant === "SLASH")!, slashDoc = await session.getMoveEditDocument(slash.id);
+    await session.saveMoveEdit(slashDoc, { ...slashDoc.values, highCritical: false });
+    assert.equal((await session.getMoveEditDocument(slash.id)).values.highCritical, false);
+    assert.ok((await source.readText(path)).includes("\t; keep explanation\r\n"));
+    await session.undoLastSave(); assert.equal((await session.getMoveEditDocument(slash.id)).values.highCritical, true);
+    await assert.rejects(session.saveMoveEdit(slashDoc, { ...slashDoc.values, highCritical: "yes" as never }), /on or off/);
+  });
+  test(`${root}: changed, malformed and unreviewed critical sources are preserved`, async () => {
+    const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+    const path = "data/battle/critical_hit_moves.asm", original = await source.readText(path), engine = await source.readText("engine/battle/core.asm");
+    const doc = await session.getMoveEditDocument(1);
+    await source.writeText(path, original + "\n; external change\n");
+    await assert.rejects(session.saveMoveEdit(doc, { ...doc.values, highCritical: true }), /sources changed/);
+    await source.writeText(path, original);
+    await source.writeText("engine/battle/core.asm", engine + "\n; external change\n");
+    await assert.rejects(session.saveMoveEdit(doc, { ...doc.values, highCritical: true }), /sources changed/);
+    await source.writeText("engine/battle/core.asm", engine);
+    for (const malformed of [original.replace("db SLASH", "db UNKNOWN_MOVE"), original.replace("db -1", "db SLASH"), original.replace("db SLASH", "db SLASH, POUND"), original.replace("db -1", "db -1\n\tdb POUND")]) {
+      await source.writeText(path, malformed);
+      const unsupported = await session.getMoveEditDocument(1); assert.ok(unsupported.highCritical.reason);
+      await assert.rejects(session.saveMoveEdit(unsupported, { ...unsupported.values, highCritical: true }));
+      await session.saveMoveEdit(unsupported, { ...unsupported.values, power: 80 });
+      assert.equal(await source.readText(path), malformed);
+    }
+    await source.writeText(path, original);
+    await source.writeText("engine/battle/core.asm", engine.replace("ld hl, HighCriticalMoves", "ld hl, OtherMoves"));
+    assert.match((await session.getMoveEditDocument(1)).highCritical.reason!, /lookup needs source review/);
+  });
+  test(`${root}: new moves can have independent high-critical membership`, async () => {
+    const { source, data, fail } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+    const doc = await session.getMoveCreateDocument(); assert.equal(doc.highCritical.reason, null); assert.ok(doc.highCritical.moves.includes("SLASH"));
+    const values = { constant: "NIGHT_SLASH", name: "NIGHT SLASH", power: 70, accuracy: 100, pp: 20, moveType: "GHOST", effect: "NO_ADDITIONAL_EFFECT", animation: "SLASH", soundMoveId: 163, highCritical: true };
+    const before = new Map([...data].map(([path, bytes]) => [path, bytes.slice()]));
+    fail("data/battle/critical_hit_moves.asm"); await assert.rejects(session.createMove(doc, values), /Injected write failure/);
+    for (const [path, bytes] of before) assert.deepEqual(data.get(path), bytes, `creation rollback ${path}`);
+    const created = await session.createMove(doc, values);
+    const edit = await session.getMoveEditDocument(created.id); assert.equal(edit.values.highCritical, true); assert.equal(edit.values.moveType, "GHOST");
+    await session.saveMoveEdit(edit, { ...edit.values, highCritical: false });
+    assert.equal((await session.getMoveEditDocument(created.id)).values.highCritical, false);
+    assert.equal((await session.getMoveCreateDocument()).highCritical.moves.includes("SLASH"), true);
+    await session.undoLastSave(); await session.undoLastSave();
+    for (const [path, bytes] of before) assert.deepEqual(data.get(path), bytes, `creation undo ${path}`);
+    await session.redoLastUndo(); assert.equal((await session.getMoveEditDocument(created.id)).values.highCritical, true);
   });
 }

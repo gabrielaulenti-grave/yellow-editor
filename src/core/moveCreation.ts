@@ -1,3 +1,4 @@
+import { criticalMovesPath, loadHighCritical, setHighCritical, type HighCriticalSupport } from "./moveProperties";
 import { loadBattleAnimationCatalog } from "./battleAnimations";
 import { loadGraphicsCatalog } from "./graphics";
 import { parseMoves } from "./parsers";
@@ -5,8 +6,8 @@ import { before, checkStamps, code, creationSnapshot, creationWrites, extendName
 import type { MoveData, ProjectSource } from "./types";
 import { moveOptions, moveOptionPaths } from "./moveOptions";
 
-export interface MoveCreateDocument { sources: CreationStamp[]; nextId: number; moves: MoveData[]; effects: string[]; types: string[]; animations: Array<{ constant: string; label: string }>; reason: string | null }
-export interface MoveCreateValues { constant: string; name: string; power: number; accuracy: number; pp: number; effect: string; moveType: string; animation: string; soundMoveId: number }
+export interface MoveCreateDocument { sources: CreationStamp[]; nextId: number; moves: MoveData[]; effects: string[]; types: string[]; animations: Array<{ constant: string; label: string }>; reason: string | null; highCritical: HighCriticalSupport }
+export interface MoveCreateValues { constant: string; name: string; power: number; accuracy: number; pp: number; effect: string; moveType: string; animation: string; soundMoveId: number; highCritical?: boolean }
 const paths = ["constants/move_constants.asm", "data/moves/moves.asm", "data/moves/names.asm", "data/moves/sfx.asm", "data/moves/animations.asm", "engine/battle/core.asm", "home/names2.asm", "layout.link", ...moveOptionPaths];
 export async function loadMoveCreateDocument(source: ProjectSource): Promise<MoveCreateDocument> {
   const snapshot = await creationSnapshot(source, paths), moves = await parseMoves(source);
@@ -16,11 +17,17 @@ export async function loadMoveCreateDocument(source: ProjectSource): Promise<Mov
   if (snapshot.symbols.get("NUM_ATTACKS") !== moves.length || rows(snapshot.text.get(paths[1])!, "Moves", "move").length !== moves.length || rows(snapshot.text.get(paths[2])!, "MoveNames", "li").length !== moves.length || rows(snapshot.text.get(paths[3])!, "MoveSoundTable", "db").length !== moves.length) reason = "Move constants, names, sounds and stats must have synchronized table lengths.";
   if (nextId >= 255 || nextId > catalog.scripts.length) reason = "No safe move ID is available within the current byte and animation-table limits.";
   const options = moveOptions(snapshot.text, snapshot.symbols);
-  return { sources: snapshot.stamps, moves, nextId, ...options, animations: catalog.scripts.filter(script => !script.warnings.length && (moves.some(move => move.animationLabel === script.label) || script.label.startsWith("YellowEditor_"))).map(script => ({ constant: script.constant, label: script.label })), reason };
+  const critical = await loadHighCritical(source, moves);
+  return { sources: [...new Map([...snapshot.stamps, ...critical.sources].map(stamp => [stamp.path, stamp])).values()], highCritical: critical.support, moves, nextId, ...options, animations: catalog.scripts.filter(script => !script.warnings.length && (moves.some(move => move.animationLabel === script.label) || script.label.startsWith("YellowEditor_"))).map(script => ({ constant: script.constant, label: script.label })), reason };
 }
 export async function prepareMoveCreateWrites(source: ProjectSource, document: MoveCreateDocument, values: MoveCreateValues) {
   const current = await loadMoveCreateDocument(source); checkStamps(document.sources, current.sources); if (current.reason) throw new Error(current.reason);
-  const { text, files } = await creationSnapshot(source, paths); identifier(values.constant, files); gameText(values.name, 12, "Move name");
+  const { text, files } = await creationSnapshot(source, paths);
+  const critical = await loadHighCritical(source, current.moves);
+  for (const [path, contents] of critical.text) text.set(path, contents);
+  if (values.highCritical !== undefined && typeof values.highCritical !== "boolean") throw new Error("High critical-hit rate must be on or off.");
+  if (values.highCritical && critical.support.reason) throw new Error(critical.support.reason);
+  identifier(values.constant, files); gameText(values.name, 12, "Move name");
   for (const [field, value, max, min] of [["Power", values.power, 255, 0], ["Accuracy", values.accuracy, 100, 0], ["PP", values.pp, 40, 1]] as const) if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${field} must be an integer from ${min} to ${max}.`);
   if (!current.effects.includes(values.effect) || !current.types.includes(values.moveType) || !current.animations.some(animation => animation.constant === values.animation)) throw new Error("Choose a battle behavior, type and animation available in this project.");
   const sound = current.moves.find(move => move.id === values.soundMoveId); if (!sound) throw new Error("Choose an existing move sound template.");
@@ -51,6 +58,7 @@ export async function prepareMoveCreateWrites(source: ProjectSource, document: M
     core = core.replace(pattern, "; yellow-editor expanded Metronome range\n\tcp NUM_ATTACKS + 1\n\tjr nc, .pickMoveLoop\n\tcp STRUGGLE\n\tjr z, .pickMoveLoop");
   }
   updates.set(paths[5], core);
-  updates.set(paths[7], freeSections(text.get(paths[7])!, files, [paths[1], paths[2], paths[3], paths[4]]));
+  if (values.highCritical) updates.set(criticalMovesPath, setHighCritical(text, [...current.moves, { id: current.nextId, constant: values.constant } as MoveData], values.constant, true));
+  updates.set(paths[7], freeSections(text.get(paths[7])!, files, [paths[1], paths[2], paths[3], paths[4], ...(values.highCritical ? [criticalMovesPath] : [])]));
   return { id: current.nextId, changes: creationWrites(text, current.sources, updates) };
 }
