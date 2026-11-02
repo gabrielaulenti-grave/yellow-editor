@@ -17,6 +17,8 @@ Select a placed trainer to **Edit trainer** or **Edit trainer party**. The latte
 opens its full party in **Trainers** for species, levels and move editing. The
 Maps dialog keeps the same persistent defeat flag when changing the trainer.
 
+Defeat text starts on the row below the trainer’s name and colon. Long first rows continue onto a scrolling row, respecting the 17-cell bottom-row limit. Saving a trainer also upgrades the earlier generated dialogue layout on that map without changing object IDs, parties or defeat flags. Rebuild the ROM after saving to apply this fix to an existing project.
+
 Battles use the game's native trainer engine: approach, challenge, battle,
 blackout and post-battle interaction. Each placement receives a separate unused
 event flag. Winning prevents a rematch after leaving the map or loading a save;

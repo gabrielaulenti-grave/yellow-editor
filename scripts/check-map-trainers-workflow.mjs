@@ -75,6 +75,8 @@ try {
       const first = await page.evaluate(() => JSON.parse(window.dialogueFiles["scripts/TrainerUiRoom.asm"].match(/; yellow-editor-map-trainers: (.+)/)[1]).trainers[0]);
       assert.notEqual(first.values.partyId, "LASS:1");
       assert.equal(first.values.sight, 1);
+      const rendered = await page.evaluate(() => window.dialogueFiles["scripts/TrainerUiRoom.asm"]);
+      assert.match(rendered, /TrainerUiRoomEditorTrainerDefeat\d+:\n\ttext_start\n\tline "You win!"/);
       assert.notEqual(await page.evaluate(() => window.dialogueFiles["data/trainers/parties.asm"]), partiesBefore);
       await inspector.getByRole("button", { name: "Edit trainer", exact: true }).click();
       const edit = page.getByRole("dialog", { name: /^Edit trainer in/ });

@@ -11,18 +11,25 @@ static unsigned addr(const char* name){return get(name).address;}
 static unsigned rd(Emulator*e,const char*name){return emulator_read_u8_raw(e,addr(name));}
 static int flag(Emulator*e,unsigned bit){return !!(emulator_read_u8_raw(e,event_base+bit/8)&(1u<<(bit%8)));}
 static void screenshot(Emulator*e,const char*path){FILE*f=fopen(path,"wb");if(f){fwrite(emulator_get_frame_buffer(e),4,160*144,f);fclose(f);}}
+static int text_row(Emulator*e,unsigned row,const char*text){
+ unsigned base=addr("wTileMap")+row*20+1;
+ for(size_t i=0;text[i];i++){unsigned c=text[i],tile=c>='A'&&c<='Z'?0x80+c-'A':c>='a'&&c<='z'?0xa0+c-'a':c==' '?0x7f:c==':'?0x9c:c=='!'?0xe7:0;if(emulator_read_u8_raw(e,base+i)!=tile)return 0;}return 1;
+}
 static int drive(Emulator*e,int mode,int reload,unsigned map,unsigned automatic,unsigned talk,const char*shot){
- int entered=0,battles=0,prev_battle=0,approach=0,settled=0;unsigned target=(mode==0||mode==2)?automatic:talk,other=(mode==0||mode==2)?talk:automatic;
+ int entered=0,battles=0,prev_battle=0,approach=0,settled=0,defeat_seen=0;unsigned target=(mode==0||mode==2)?automatic:talk,other=(mode==0||mode==2)?talk:automatic;
  for(int n=0;n<24000;n++){
   unsigned frame=emulator_get_ticks(e)/PPU_FRAME_TICKS;
   int battle=rd(e,"wIsInBattle")==1||rd(e,"wIsInBattle")==2;
   if(battle&&!prev_battle){battles++;fprintf(stderr,"trainer mode %d%s: battle entered at %u\n",mode,reload?" reload":"",frame);}prev_battle=battle;
+  if(defeat_seen==1){char path[1024];snprintf(path,sizeof(path),"%s.defeat.rgba",shot);screenshot(e,path);defeat_seen=2;}
+  if(!defeat_seen&&!reload&&battle&&text_row(e,14,"ROCKET GIRL:")&&text_row(e,16,"You win!"))defeat_seen=1;
   if(rd(e,"wCurMap")==map&&rd(e,"wPartyCount")==1)entered=1;
   if(entered&&rd(e,"wEditorMapTrainerState")==1)approach=1;
   if(entered&&!reload&&!battles&&flag(e,target)){fprintf(stderr,"Defeat flag set before battle\n");break;}
   int complete=mode==2?entered&&battles==1&&rd(e,"wCurMap")!=map&&!battle&&rd(e,"wPartyMon1HP")+emulator_read_u8_raw(e,addr("wPartyMon1HP")+1)>0:entered&&!battle&&flag(e,target)&&rd(e,"wTrainerSmokeSaved")==0x5a;
   if(complete&&!rd(e,"wJoyIgnore")&&!rd(e,"wEditorMapTrainerState"))settled++;else settled=0;
   if(settled>60){
+   if(!reload&&mode!=2&&!defeat_seen){fprintf(stderr,"Long trainer name and complete defeat dialogue were not displayed on separate rows\n");break;}
    if((reload&&battles)||(!reload&&battles!=1)||flag(e,other))break;
    if(mode==2&&flag(e,target))break;
    if(!reload&&(mode==0||mode==2)&&!approach)break;
@@ -37,6 +44,7 @@ static int drive(Emulator*e,int mode,int reload,unsigned map,unsigned automatic,
     else if(mode==1)buttons.up=TRUE;else if(mode==3)buttons.down=TRUE;else if(mode==4)buttons.right=TRUE;else buttons.left=TRUE;
    }else buttons.A=TRUE;
   }
+  if(defeat_seen==1)memset(&buttons,0,sizeof(buttons));
   emulator_set_joypad_buttons(e,&buttons);EmulatorEvent result=emulator_run_until(e,emulator_get_ticks(e)+PPU_FRAME_TICKS);if(result&EMULATOR_EVENT_INVALID_OPCODE)break;
   if(n%3000==2999)fprintf(stderr,"mode %d%s frame%u map%02x state%u ret%02x PC%04x battle%u opp%u bit%d hp%u,%u joy%02x pos%u,%u\n",mode,reload?" reload":"",frame,rd(e,"wCurMap"),rd(e,"wEditorMapTrainerState"),rd(e,"wEditorMapTrainerReturn"),emulator_get_registers(e).PC,rd(e,"wIsInBattle"),rd(e,"wCurOpponent"),flag(e,target),rd(e,"wPartyMon1HP"),emulator_read_u8_raw(e,addr("wPartyMon1HP")+1),rd(e,"wJoyIgnore"),rd(e,"wXCoord"),rd(e,"wYCoord"));
  }

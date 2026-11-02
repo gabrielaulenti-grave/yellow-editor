@@ -8,7 +8,7 @@ import { loadMapNpcCreateDocument, prepareMapNpcWrites } from "../src/core/npcCr
 import { loadScriptInteractionDocument, prepareScriptInteractionWrites } from "../src/core/scriptInteractions";
 import { mapTrainerCpuProbes } from "./mapTrainerCpuProbes";
 import { trainerPlacementError, prepareMapTrainerWrites, trainerDelta } from "../src/core/mapTrainers";
-import { trainerResumeHook, trainerFrameHook, type MapTrainerModel } from "../src/core/mapTrainerRuntime";
+import { trainerResumeHook, trainerFrameHook, renderMapTrainers, trainerDefeatRows, type MapTrainerModel } from "../src/core/mapTrainerRuntime";
 import { projectConstantCatalogFromSources } from "../src/core/projectConstants";
 import type { ProjectSource, HistoryState } from "../src/core/types";
 const args = process.argv.slice(2), at = args.indexOf("--rom"), rgbds = at < 0 ? null : resolve(args[at + 1]), binjgb = at < 0 ? null : resolve(args[at + 2]);
@@ -71,6 +71,16 @@ for (const directory of args) test(`${directory}: place independent native train
   assert.equal(flagSources().find(e => e.symbol === event)!.value % 8, firstId % 8);
   doc = await session.getMapTrainerDocument("TRAINER_TEST_CAVE", firstId);
   assert.equal((await prepareMapTrainerWrites(source, doc, doc.values)).length, 0, "unchanged trainer save is a no-op");
+  assert.equal(model().defeatLayout, "name-row");
+  assert.ok((await source.readText(scriptPath)).includes(`TrainerTestCaveEditorTrainerDefeat${firstId}:\n\ttext_start\n\tline "You win!"`));
+  // Earlier generated trainers remain editable and migrate without changing IDs or defeat flags.
+  const currentModel = model(), legacy = structuredClone(currentModel); delete legacy.defeatLayout;
+  await source.writeText(scriptPath, (await source.readText(scriptPath)).replace(renderMapTrainers(currentModel), renderMapTrainers(legacy)));
+  const legacyDoc = await session.getMapTrainerDocument("TRAINER_TEST_CAVE", firstId);
+  await session.saveMapTrainer(legacyDoc, legacyDoc.values);
+  assert.equal(model().defeatLayout, "name-row"); assert.equal(model().trainers[0].event, event);
+  await session.undoLastSave(); assert.equal(model().defeatLayout, undefined);
+  await session.redoLastUndo(); assert.equal(model().defeatLayout, "name-row");
   await session.saveMapTrainer(doc, { ...doc.values, after: ["Great match!"] }); assert.equal(model().trainers[0].event, event);
   await session.undoLastSave(); assert.deepEqual(model().trainers[0].values.after, values.after); await session.redoLastUndo();
   // Fill IDs 3–9, then place ID 10: same bit index as ID 2, in a different event byte.
@@ -137,4 +147,12 @@ for (const directory of args) test(`${directory}: place independent native train
       console.log(`${root}: complete new-cave ROM with two native trainers, item, encounters and a scene compiled`);
     } finally { await rm(temp, { recursive: true, force: true }); }
   }
+});
+
+test("trainer defeat rows reserve the name row and scroll long text without losing words", () => {
+  assert.deepEqual(trainerDefeatRows(["You win!"]), ["You win!"]);
+  assert.deepEqual(trainerDefeatRows(["A".repeat(18), "Next row"]), ["A".repeat(17), "A", "Next row"]);
+  assert.deepEqual(trainerDefeatRows(["You beat my team!"]), ["You beat my team!"]);
+  assert.deepEqual(trainerDefeatRows(["These words fit OK"]), ["These words fit", "OK"]);
+  assert.deepEqual(trainerDefeatRows(["One # and another"]), ["One # and", "another"]);
 });

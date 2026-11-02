@@ -32,7 +32,7 @@ function readModel(script: string): MapTrainerModel | null {
   if (!matches.length) return null;
   if (matches.length !== 1) throw new Error("Duplicate managed trainer records on this map.");
   const m = JSON.parse(matches[0][1]) as MapTrainerModel;
-  if (m.version !== 1 || !Array.isArray(m.trainers) || !m.trainers.length || !script.includes(renderMapTrainers(m).replace(/\n/g, nl(script)))) throw new Error("Managed trainer code changed in source. Restore it before editing trainers.");
+  if (m.version !== 1 || (m.defeatLayout !== undefined && m.defeatLayout !== "name-row") || !Array.isArray(m.trainers) || !m.trainers.length || !script.includes(renderMapTrainers(m).replace(/\n/g, nl(script)))) throw new Error("Managed trainer code changed in source. Restore it before editing trainers.");
   return m;
 }
 function reviewRoot(script: string, name: string, old: MapTrainerModel | null) {
@@ -170,7 +170,7 @@ export async function prepareMapTrainerWrites(source: ProjectSource, document: M
     if (state.constants.has(event)) throw new Error("The trainer's defeat flag name is already defined.");
     const path = "constants/event_constants.asm", before = state.files.get(path)!; changed.set(path, before + `${nl(before)}DEF ${event} EQU $${bit.toString(16)}${nl(before)}`);
   }
-  const trainer: PlacedTrainer = { id, object, text, label: `${prefix}Text${id}`, event, values }, model: MapTrainerModel = { version: 1, name: s.name, map: document.mapConstant, trainers: [...(state.old?.trainers.filter(t => t.id !== id) ?? []), trainer].sort((a, b) => a.id - b.id) };
+  const trainer: PlacedTrainer = { id, object, text, label: `${prefix}Text${id}`, event, values }, model: MapTrainerModel = { version: 1, defeatLayout: "name-row", name: s.name, map: document.mapConstant, trainers: [...(state.old?.trainers.filter(t => t.id !== id) ?? []), trainer].sort((a, b) => a.id - b.id) };
   const parts = partyId.split(":"), all = objects.split(/\r?\n/), line = all.flatMap((l, i) => /^\s*object_event\s+/.test(l) ? [i] : [])[id - 1];
   all[line] = `\tobject_event ${values.x}, ${values.y}, ${values.sprite}, STAY, ${values.facing}, ${text}, OPP_${parts[0]}, ${parts[1]}`; changed.set(s.objectPath, all.join(nl(objects)));
   if (state.old) script = script.replace(renderMapTrainers(state.old).replace(/\n/g, nl(script)), renderMapTrainers(model).replace(/\n/g, nl(script)));
