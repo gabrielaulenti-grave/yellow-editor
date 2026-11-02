@@ -32,6 +32,7 @@
 .graphics-references { padding-left: 16px; max-height: 280px; overflow: auto; overflow-wrap: anywhere; }
 .graphics-references li { margin-bottom: 10px; }
 .graphics-references code { display: block; font-size: 12px; }
+.graphics-save-actions .graphics-shared { margin-bottom: 12px; }
 .graphics-shared { display: block; background: var(--accent-soft); border-radius: 6px; padding: 10px; }
 .graphics-error { color: light-dark(#9b1d13, #ffaca4); overflow-wrap: anywhere; }
 .graphics-recovery { padding: 12px; margin-bottom: 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent-soft); }

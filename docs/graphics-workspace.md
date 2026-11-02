@@ -16,7 +16,7 @@ The pixel editor provides a pencil with interpolated strokes, bounded flood fill
 
 The artwork preview displays the complete sheet, independently of the tracing overlay. Grayscale, DMG green and a palette supplied by the originating editor are preview choices; drawing always stores shade indices. Editing source pixels does not change game palette assignments.
 
-Opening tileset artwork from Maps also shows the draft in that map. Collision tables, block composition, sprite assignments, frame layouts and animation commands remain separate. **Source references** lists literal `INCBIN` sites and adjacent labels, including aliases and Pokémon dimension headers. This is a direct reference inventory, not a complete engine dependency graph; computed paths are reported as scan notes. Acknowledge that an edit applies to every use of the source before saving a referenced asset.
+Opening tileset artwork from Maps also shows the draft in that map. Collision tables, block composition, sprite assignments, frame layouts and animation commands remain separate. **Source references** lists literal `INCBIN` sites and adjacent labels, including aliases and Pokémon dimension headers. This is a direct reference inventory, not a complete engine dependency graph; computed paths are reported as scan notes. The acknowledgment that an edit applies to every use of the source sits beside **Save graphic**. Check it before saving a referenced asset, including a private Pokémon sprite with a single reference. An unsaved draft explains this requirement beside the button.
 
 ## Saves, drafts and limits
 

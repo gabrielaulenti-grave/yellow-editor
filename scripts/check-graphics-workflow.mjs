@@ -37,7 +37,7 @@ try {
       page.on("pageerror", error => { errors.push(error.message); console.error("Graphics browser error:", error.message); });
       await page.goto(`http://127.0.0.1:${server.address().port}`);
       await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>${styles}</style><div id="root"></div>`);
-      const asset = "gfx/pokemon/front/bulbasaur.png";
+      const asset = width === 375 ? "gfx/pokemon/back/bulbasaurb.png" : "gfx/pokemon/front/bulbasaur.png";
       await page.evaluate(({ bytes, asset, root, width }) => {
         window.graphicsBytes = structuredClone(bytes); window.graphicsKey = `${root}:${width}:${Date.now()}`;
         window.graphicsFocus = { path: asset, returnTab: "pokemon" };
@@ -112,7 +112,12 @@ try {
       await page.getByRole("button", { name: "Reopen graphics", exact: true }).click();
       await page.getByRole("button", { name: "Resume draft", exact: true }).click();
       await page.waitForFunction(() => window.graphicsDirty);
-      await page.getByLabel("Apply this artwork to every use of this source.", { exact: true }).check();
+      const saveActions = page.locator(".graphics-save-actions");
+      await saveActions.getByText(/Before saving, check/).waitFor();
+      assert.equal(await saveActions.getByRole("button", { name: "Save graphic", exact: true }).isDisabled(), true);
+      await saveActions.getByLabel("Apply this artwork to every use of this source.", { exact: true }).check();
+      assert.equal(await saveActions.getByRole("button", { name: "Save graphic", exact: true }).isEnabled(), true);
+      assert.equal(await page.locator("#graphics-save-reason").count(), 0);
       const makefile = await page.evaluate(() => window.graphicsBytes.Makefile);
       await page.evaluate(() => window.graphicsBytes.Makefile.push(...new TextEncoder().encode("\n# external graphics change")));
       await page.getByRole("button", { name: "Save graphic", exact: true }).click();
