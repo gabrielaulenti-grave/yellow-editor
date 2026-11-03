@@ -8,9 +8,22 @@ Select a move in **Moves** to edit its name, power, accuracy, PP, type and exist
 
 Names support up to twelve game-text characters, power 0–255, accuracy 0–100 and PP 1–40. A zero power or accuracy setting is allowed; the selected behavior and original move-specific engine rules still determine battle mechanics. Editing chooses from named behaviors declared by the project's engine. Types and behaviors remain selectable after their last move is changed. Custom macros, expressions and ambiguous tables remain unmodified when unsupported.
 
-Choose **New move** in Moves. Copy defaults from an existing move, then choose its name, source constant, type, power, accuracy, PP, existing battle behavior, animation and sound. The template also copies its **High critical-hit rate** setting, which can be changed before creation or afterward in Moves. Other special rules tied to move IDs are not automatically inherited. The new move becomes available to Pokémon starting moves and learnsets. Existing moves and status-animation identifiers keep their values.
+Choose **New move** in Moves. Copy defaults from an existing move, then choose its name, source constant, type, power, accuracy, PP, existing battle behavior, animation and sound. The template also copies its **High critical-hit rate** setting, which can be changed before creation or afterward in Moves. The template also copies the supported special properties described below. The new move becomes available to Pokémon starting moves and learnsets. Existing moves and status-animation identifiers keep their values.
 
 This first pass reuses existing battle behaviors and animation scripts, including animations created in Graphics. Creating a new battle mechanic still requires engine code. Allocation stops at the reviewed animation-table and byte-ID limits.
+
+## Special move properties
+
+**Moves → Special move properties** configures turn priority, Counter retaliation, badly poisoned status, Rest healing, fixed/level/random damage, quarter/half recoil, charge presentation and Fly/Dig invulnerability. Relevant controls appear for the selected Battle behavior. **New move** copies these settings from its template as well as ordinary stats, sounds, animation and high-critical-hit rate.
+
+- **Turn priority:** normal, first (Quick Attack) or last (Counter). Counter retaliation uses No additional effect and retains Gen I's Normal/Fighting damage rules.
+- **Poison and healing:** poison effects can badly poison; Heal can use Rest's full healing, status clearing and sleep instead of ordinary half healing.
+- **Special damage:** choose the user's level, a fixed amount from 1–255, or the original Psywave random calculation.
+- **Recoil and charging:** choose 25% or 50% recoil; choose a generic charge message, a vanilla charge presentation, airborne or underground invulnerability.
+- **Secondary chances:** retain the original engine chance, or choose 0–100% for poison, burn, freeze, paralysis, flinch, confusion and stat-lowering side effects. Accuracy, type immunities and Substitute still apply.
+- **Additional secondary effect:** add one supported status/stat side effect to a damaging effect family, such as draining plus paralysis or recoil plus flinching. It runs once after the main effect and completed hit/multi-hit sequence, only when the move hit and both Pokémon remain. A custom chance applies to each secondary-effect roll. The original Gen I limit of one major status remains.
+
+The first change allocates a banked per-move table and installs reviewed engine hooks in one undoable transaction. Vanilla settings are preserved, including existing engine quirks. No new WRAM or ROM0 space is consumed. Subsequent move creation extends the table. Modified or unreviewed hooks disable these controls with an explanation; ordinary move-data editing remains available. Source changes during a draft require reloading before saving.
 
 ## Pokémon
 

@@ -44,6 +44,10 @@ jobs:
         run: npm run test:content -- .content-fixtures/pokered .content-fixtures/pokeyellow
       - name: Check move edits, source preservation and history
         run: npm run test:moves -- .content-fixtures/pokered .content-fixtures/pokeyellow
+      - name: Check special move properties and atomic engine installation
+        run: npm run test:moves:behaviors -- .content-fixtures/pokered .content-fixtures/pokeyellow
+      - name: Execute native special move behavior probes
+        run: npm run test:moves:behaviors -- .content-fixtures/pokered .content-fixtures/pokeyellow --rom .content-fixtures/rgbds .content-fixtures/binjgb
       - name: Play new moves, trainer parties and species through capture, PC storage and save/reload
         run: npm run test:content:gameplay -- .content-fixtures/pokered .content-fixtures/pokeyellow --rom .content-fixtures/rgbds .content-fixtures/binjgb
       - run: npm exec playwright -- install --with-deps chromium

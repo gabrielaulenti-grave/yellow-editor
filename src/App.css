@@ -2783,3 +2783,7 @@ pre {
 @media (max-width: 480px) {
   .field-tool-editor .two-column-fields { grid-template-columns: minmax(0, 1fr); }
 }
+
+.move-edit-fields .move-behavior-fields, .content-create-dialog .move-behavior-fields { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 12px 0; min-width: 0; }
+.move-behavior-fields legend { padding: 0 6px; font-weight: 600; }
+.move-behavior-fields input[type="checkbox"] { width: auto; }

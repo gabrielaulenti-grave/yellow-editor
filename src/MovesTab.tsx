@@ -1,3 +1,4 @@
+import { MoveBehaviorFields } from "./MoveBehaviorFields";
 import type { MoveData, ProjectInfo } from "./core/types";
 import { ReadonlyField } from "./editor/EditorFields";
 import { formatHex } from "./editor/format";
@@ -105,7 +106,8 @@ export function MovesTab({
                   </div>
                   <label><input type="checkbox" aria-label="Move high critical-hit rate" disabled={Boolean(document.highCritical.reason)} checked={draft.highCritical} onChange={event => onDraftChange({ ...draft, highCritical: event.target.checked })} /> High critical-hit rate</label>
                   <p className="help-text">{document.highCritical.reason ?? "Uses the game's increased critical-hit rate, as Slash does. This property is separate from Battle behavior."}</p>
-                  <p className="help-text">Power 0 is valid for status moves. Accuracy is the game's percentage setting. Battle behavior reuses an existing mechanic; special moves may also have rules tied to their move ID.</p>
+                  <MoveBehaviorFields value={draft.behavior} effect={draft.effect} reason={document.behaviors.reason} onChange={behavior => onDraftChange({ ...draft, behavior })} />
+                  <p className="help-text">Power 0 is valid for status moves. Accuracy is the game's percentage setting. Battle behavior selects the effect family; Special move properties configures its variants.</p>
                 </fieldset> : <div className="field-grid two-column-fields">
                   <ReadonlyField label="Name" value={selectedMove.name} />
                   <ReadonlyField label="Power" value={selectedMove.power} />

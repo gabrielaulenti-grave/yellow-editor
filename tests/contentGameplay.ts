@@ -1,3 +1,4 @@
+import { defaultMoveBehavior } from "../src/core/moveBehaviors";
 import assert from "node:assert/strict";
 import { cp, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -41,7 +42,7 @@ try {
   await session.createTrainerClass(trainers.editSources, { constant: "ANIMATION_TESTER", name: "ANIM TESTER", portraitClassConstant: "YOUNGSTER", independentPortrait: true, aiRoutine: template.aiRoutine!, aiUsesPerPokemon: template.aiUsesPerPokemon ?? 3, moveChoiceModifiers: template.moveChoiceModifiers, baseRewardPerLevel: 1, initialParty: { partyFormat: "shared-level", pokemon: [{ level: 1, speciesConstant: "PIDGEY" }] } }, ["PIDGEY"]);
   const moveDoc = await session.getMoveCreateDocument();
   const createdMove = await session.createMove(moveDoc, { constant: "EDITOR_SPARK", name: "BEFORE EDIT", power: 1, accuracy: 10, pp: 1, moveType: "NORMAL", effect: "POISON_SIDE_EFFECT1", animation: "EDITOR_TEST_ANIM", soundMoveId: 84 });
-  await session.saveMoveEdit(await session.getMoveEditDocument(createdMove.id), { name: "EDITOR SPARK", power: 65, accuracy: 100, pp: 20, moveType: "ELECTRIC", effect: "NO_ADDITIONAL_EFFECT", highCritical: true });
+  await session.saveMoveEdit(await session.getMoveEditDocument(createdMove.id), { name: "EDITOR SPARK", power: 65, accuracy: 100, pp: 20, moveType: "ELECTRIC", effect: "NO_ADDITIONAL_EFFECT", highCritical: true, behavior: { ...defaultMoveBehavior(), priority: "first" } });
   // Fill the complete stock capacity: every ordinary hole, then all nine tail
   // IDs. Exercise the first reclaimed ID in battle and the last tail ID in PC/SRAM.
   const capacity = (await session.getPokemonCreateDocument()).remainingSlots;
