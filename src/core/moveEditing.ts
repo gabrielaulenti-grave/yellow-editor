@@ -69,7 +69,7 @@ async function state(source: ProjectSource, id: number) {
 }
 export function validateMoveEditValues(values: MoveEditValues, document: Pick<MoveEditDocument, "options" | "maxNameLength">) {
   if (values.highCritical !== undefined && typeof values.highCritical !== "boolean") throw new Error("High critical-hit rate must be on or off.");
-  if (values.behavior) validateBehaviorFamily(values.behavior, values.effect);
+  if (values.behavior) validateBehaviorFamily(values.behavior, values.effect, values.power);
   gameText(values.name, document.maxNameLength, "Move name");
   for (const [field, value, minimum, maximum] of [["Power", values.power, 0, 255], ["Accuracy", values.accuracy, 0, 100], ["PP", values.pp, 1, 40]] as const) {
     if (!Number.isInteger(value) || value < minimum || value > maximum) throw new Error(`${field} must be an integer from ${minimum} to ${maximum}.`);

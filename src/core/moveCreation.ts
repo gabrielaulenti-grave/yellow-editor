@@ -29,7 +29,7 @@ export async function prepareMoveCreateWrites(source: ProjectSource, document: M
   for (const [path, contents] of critical.text) text.set(path, contents);
   if (values.highCritical !== undefined && typeof values.highCritical !== "boolean") throw new Error("High critical-hit rate must be on or off.");
   if (values.highCritical && critical.support.reason) throw new Error(critical.support.reason);
-  if (values.behavior) validateBehaviorFamily(values.behavior, values.effect);
+  if (values.behavior) validateBehaviorFamily(values.behavior, values.effect, values.power);
   identifier(values.constant, files); gameText(values.name, 12, "Move name");
   for (const [field, value, max, min] of [["Power", values.power, 255, 0], ["Accuracy", values.accuracy, 100, 0], ["PP", values.pp, 40, 1]] as const) if (!Number.isInteger(value) || value < min || value > max) throw new Error(`${field} must be an integer from ${min} to ${max}.`);
   if (!current.effects.includes(values.effect) || !current.types.includes(values.moveType) || !current.animations.some(animation => animation.constant === values.animation)) throw new Error("Choose a battle behavior, type and animation available in this project.");

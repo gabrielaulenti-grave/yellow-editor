@@ -10,7 +10,7 @@ Names support up to twelve game-text characters, power 0–255, accuracy 0–100
 
 Choose **New move** in Moves. Copy defaults from an existing move, then choose its name, source constant, type, power, accuracy, PP, existing battle behavior, animation and sound. The template also copies its **High critical-hit rate** setting, which can be changed before creation or afterward in Moves. The template also copies the supported special properties described below. The new move becomes available to Pokémon starting moves and learnsets. Existing moves and status-animation identifiers keep their values.
 
-This first pass reuses existing battle behaviors and animation scripts, including animations created in Graphics. Creating a new battle mechanic still requires engine code. Allocation stops at the reviewed animation-table and byte-ID limits.
+Moves can reuse existing battle behaviors or combine stat changes, and use existing animation scripts or animations created in Graphics. Mechanics beyond the supported properties still require engine code. Allocation stops at the reviewed animation-table and byte-ID limits.
 
 ## Special move properties
 
@@ -24,6 +24,29 @@ This first pass reuses existing battle behaviors and animation scripts, includin
 - **Additional secondary effect:** add one supported status/stat side effect to a damaging effect family, such as draining plus paralysis or recoil plus flinching. It runs once after the main effect and completed hit/multi-hit sequence, only when the move hit and both Pokémon remain. A custom chance applies to each secondary-effect roll. The original Gen I limit of one major status remains.
 
 The first change allocates a banked per-move table and installs reviewed engine hooks in one undoable transaction. Vanilla settings are preserved, including existing engine quirks. No new WRAM or ROM0 space is consumed. Subsequent move creation extends the table. Modified or unreviewed hooks disable these controls with an explanation; ordinary move-data editing remains available. Source changes during a draft require reloading before saving.
+
+### Combined stat changes
+
+In **Moves → Special move properties**, enable **Combined stat changes**. This sets Power to 0 and selects a stat-changing battle behavior. Choose **User** or **Opponent**, then add one to six different stats with changes of +1, +2, −1 or −2 stages. The list replaces the selected move's single-stat effect. Each stat appears at most once; raises and drops can be mixed for the chosen recipient.
+
+Presets fill the list without changing the move's name, type, animation or sound:
+
+| Preset | Recipient | Changes |
+| --- | --- | --- |
+| Bulk Up | User | Attack +1, Defense +1 |
+| Dragon Dance | User | Attack +1, Speed +1 |
+| Tickle | Opponent | Attack −1, Defense −1 |
+| Coil | User | Attack +1, Defense +1, Accuracy +1 |
+
+All six Gen I stats are available: Attack, Defense, Speed, Special, Accuracy and Evasion. Special remains one stat; this does not introduce separate Special Attack and Special Defense.
+
+The move plays one animation and checks opponent accuracy once for the whole group, using the project's native evasion, X Accuracy and Fly/Dig rules. Substitute blocks opponent-directed groups; Mist blocks groups that lower an opponent's stats. Self-directed groups do not roll accuracy. Stages clamp at −6 and +6 independently: a capped stat does not prevent another change, and the move fails only if none can change. Messages name each changed stat. Derived battle stats retain the native ratios, 1–999 limits, applicable badge boosts, burn and paralysis. Compound moves recalculate only the affected stats, rather than repeatedly boosting unrelated stats for every row.
+
+Save and undo work for the entire group. **New move → Copy defaults from move** copies combined stat settings as well. Disabling the group returns the move to its selected ordinary battle behavior; select a damaging behavior and power if converting it back to an attack. Damaging moves with stat-change groups after a hit are outside this pass.
+
+Projects containing the earlier version 1 move-property table open without a rewrite. The next property edit or move creation upgrades validated hooks and the table together; undo restores the exact previous source. Both versions retain the same 16-byte per-move row, move IDs and RAM layout. The previous installer is retained in `moveBehaviorRuntimeV1.ts` solely for exact validation and migration. Custom or externally modified helper code refuses automatic migration.
+
+The existing move-behavior source and native suites cover migration rollback/history, copied recipes, both battle sides, partial and complete caps, mixed signs and two-stage changes, shared accuracy, Substitute, Mist, invulnerability and badge/status recalculation. The existing move UI workflow covers presets, nested edits, validation, template creation and mobile/desktop layout. No additional automatic workflow duplicates this coverage.
 
 ## Pokémon
 

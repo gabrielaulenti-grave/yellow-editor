@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { createProjectSession } from "../src/core/project";
 import { defaultMoveBehavior } from "../src/core/moveBehaviors";
+import { type MoveStatChanges } from "../src/core/moveStatChanges";
 import type { ProjectSource, HistoryState } from "../src/core/types";
 
 const [rootArg, rgbdsArg, cpuArg] = process.argv.slice(2);
@@ -25,6 +26,15 @@ try {
     ["FLY", { charge: "fly" }], ["NEVER", { secondaryChance: 0 }], ["ALWAYS", { secondaryChance: 100 }], ["FIRST", { priority: "first" }], ["EXTRA", { additionalEffect: "PARALYZE_SIDE_EFFECT1", secondaryChance: 100 }],
   ] as const;
   for (const [name, patch] of variants) await session.createMove(await session.getMoveCreateDocument(), { constant: `EDITOR_${name}`, name: `ED ${name}`, power: 40, accuracy: 100, pp: 20, moveType: "NORMAL", effect: name === "EXTRA" ? "DRAIN_HP_EFFECT" : "NO_ADDITIONAL_EFFECT", animation: "POUND", soundMoveId: 1, behavior: { ...defaultMoveBehavior(), ...patch } });
+  const statMoves: Array<[string, MoveStatChanges]> = [
+    ["BULK", { target: "user", changes: [{ stat: "attack", stages: 1 }, { stat: "defense", stages: 1 }] }],
+    ["DANCE", { target: "user", changes: [{ stat: "attack", stages: 1 }, { stat: "speed", stages: 1 }] }],
+    ["COIL", { target: "user", changes: [{ stat: "attack", stages: 1 }, { stat: "defense", stages: 1 }, { stat: "accuracy", stages: 1 }] }],
+    ["TICKLE", { target: "opponent", changes: [{ stat: "attack", stages: -1 }, { stat: "defense", stages: -1 }] }],
+    ["MIXED", { target: "user", changes: [{ stat: "attack", stages: 2 }, { stat: "defense", stages: -2 }, { stat: "special", stages: 1 }, { stat: "evasion", stages: -1 }] }],
+    ["GIFT", { target: "opponent", changes: [{ stat: "attack", stages: 1 }, { stat: "speed", stages: 1 }] }],
+  ];
+  for (const [name, statChanges] of statMoves) await session.createMove(await session.getMoveCreateDocument(), { constant: `EDITOR_STAT_${name}`, name: `STAT ${name}`, power: 0, accuracy: 100, pp: 20, moveType: "NORMAL", effect: name === "TICKLE" ? "ATTACK_DOWN1_EFFECT" : "ATTACK_UP1_EFFECT", animation: "GROWTH", soundMoveId: 74, behavior: { ...defaultMoveBehavior(), statChanges } });
   // A Red fixture can live under a parent directory named yellow-editor.
   const target = await source.exists("scripts/OaksLab_2.asm") ? "pokeyellow" : "pokered";
   // A full uninstrumented ROM must link before running focused native probes.
@@ -37,11 +47,13 @@ try {
     throw new Error(`Missing probe stub ${name}`);
   };
   // Keep mechanics native; instrument display/audio and randomness for deterministic assertions.
-  for (const name of ["PrintText", "DelayFrames", "PlayBattleAnimation", "PlayCurrentMoveAnimation", "PlayCurrentMoveAnimation2", "UpdateHPBar2", "EffectCallBattleCore", "ApplyDamageToEnemyPokemon", "ApplyDamageToPlayerPokemon"]) await stub(name);
-  await stub("BattleRandom", "\tld a, 7\n\tret");
+  for (const name of ["DelayFrames", "PlayBattleAnimation", "PlayCurrentMoveAnimation2", "UpdateHPBar2", "EffectCallBattleCore", "ApplyDamageToEnemyPokemon", "ApplyDamageToPlayerPokemon"]) await stub(name);
+  await stub("PrintText", "\tpush hl\n\tld hl, $c104\n\tinc [hl]\n\tpop hl\n\tret");
+  await stub("PlayCurrentMoveAnimation", "\tpush hl\n\tld hl, $c103\n\tinc [hl]\n\tpop hl\n\tret");
+  await stub("BattleRandom", "\tpush hl\n\tld hl, $c102\n\tinc [hl]\n\tpop hl\n\tld a, 7\n\tret");
   const set = (name: string, value: string | number) => [`\tld a, ${value}`, `\tld [${name}], a`];
   let checkNumber = 0;
-  const check = (name: string, value: string | number) => [`\tld a, ${++checkNumber}`, "\tld [$c101], a", `\tld a, [${name}]`, `\tcp ${value}`, "\tjp nz, EditorBehaviorFail"];
+  const check = (name: string, value: string | number) => [`\tld a, ${++checkNumber & 255}`, "\tld [$c101], a", `\tld a, [${name}]`, `\tcp ${value}`, "\tjp nz, EditorBehaviorFail"];
   const probeBodies: string[] = [];
   const body = (bank: string, lines: string[]) => { probeBodies.push([`Editor${bank}Probe::`, ...lines.map(line => line.replace(/^\tcall ([A-Za-z_]\w*)$/, "\tfarcall $1")), "\tret", ""].join("\n")); return ""; };
   const core = ["\tld bc, $1234", "\tld de, $5678", "\tld hl, $9abc", "\tld a, EDITOR_FIRST", "\tcall EditorMBCoreFirst", "\tjp nz, EditorBehaviorFail", "\tld a, b", "\tcp $12", "\tjp nz, EditorBehaviorFail", "\tld a, c", "\tcp $34", "\tjp nz, EditorBehaviorFail", "\tld a, d", "\tcp $56", "\tjp nz, EditorBehaviorFail", "\tld a, e", "\tcp $78", "\tjp nz, EditorBehaviorFail", "\tld a, h", "\tcp $9a", "\tjp nz, EditorBehaviorFail", "\tld a, l", "\tcp $bc", "\tjp nz, EditorBehaviorFail", ...set("hWhoseTurn", 0), ...set("wPlayerSelectedMove", "EDITOR_COUNTER"), ...set("wEnemySelectedMove", "POUND"), ...set("wEnemyMovePower", 40), ...set("wEnemyMoveType", "NORMAL"), ...set("wPlayerMoveAccuracy", 255), ...set("wPlayerMoveEffect", "NO_ADDITIONAL_EFFECT"), ...set("wDamage", 0), ...set("wDamage + 1", 12), "\tcall HandleCounterMove", ...check("wDamage + 1", 24)];
@@ -80,8 +92,46 @@ try {
   }
   await patchFile("engine/battle/move_effects/heal.asm", text => text + body("Heal", heal));
   await patchFile("engine/battle/move_effects/recoil.asm", text => text + body("Recoil", recoil));
-  await patchFile("main.asm", text => text + '\nPUSHS\nSECTION "Move behavior probe drivers", ROMX\n' + probeBodies.join("\n") + '\nPOPS\n');
-  const boot = ["\tdi", "\tld sp, wStack", "\txor a", "\tldh [rIE], a", "\tldh [rIF], a", "\tldh [rLCDC], a", "\tld hl, STARTOF(WRAM0)", "\tld bc, SIZEOF(WRAM0)", ".clear", "\tld [hli], a", "\tdec bc", "\tld d, a", "\tld a, b", "\tor c", "\tld a, d", "\tjr nz, .clear", ...["Core", "Effects", "Heal", "Recoil"].flatMap((name, i) => [...set("wUnusedPlayerDataByte", i + 1), `\tfarcall Editor${name}Probe`]), ...set("wUnusedPlayerDataByte", "$5a"), ".done", "\tjr .done", "EditorBehaviorFail::", "\tld a, [wUnusedPlayerDataByte]", "\tld [$c100], a", ...set("wUnusedPlayerDataByte", "$ff"), ".failed", "\tjr .failed", ""];
+  const stats: string[] = [];
+  for (const side of ["Player", "Enemy"]) {
+    const turn = side === "Player" ? 0 : 1;
+    const reset = (name: string) => [
+      ...set("hWhoseTurn", turn), ...set(`w${side}MoveNum`, `EDITOR_STAT_${name}`), ...set(`w${side}MoveEffect`, name === "TICKLE" ? "ATTACK_DOWN1_EFFECT" : "ATTACK_UP1_EFFECT"), ...set(`w${side}MoveAccuracy`, 255),
+      ...set("wCalculateWhoseStats", "$a5"), ...set("wMoveMissed", 0), ...set("wLinkState", 0), ...set("wObtainedBadges", 0),
+      ...["$c102", "$c103", "$c104"].flatMap(p => set(p, 0)),
+      ...["Player", "Enemy"].flatMap(s => [
+        ...["BattleStatus1", "BattleStatus2"].flatMap(p => set(`w${s}${p}`, 0)),
+        ...Array.from({ length: 6 }, (_, n) => set(`w${s}MonStatMods + ${n}`, 7)).flat(),
+        ...["Attack", "Defense", "Speed", "Special"].flatMap(stat => [...set(`w${s}MonUnmodified${stat}`, 0), ...set(`w${s}MonUnmodified${stat} + 1`, 100), ...set(`w${s === "Player" ? "Battle" : "Enemy"}Mon${stat}`, 0), ...set(`w${s === "Player" ? "Battle" : "Enemy"}Mon${stat} + 1`, 100)]),
+        ...set(`w${s === "Player" ? "Battle" : "Enemy"}MonStatus`, 0),
+      ]),
+    ];
+    const execute = () => ["\tcall JumpMoveEffect", ...check("hWhoseTurn", turn), ...check("wCalculateWhoseStats", "$a5"), ...check(`w${side}MoveEffect`, "ATTACK_UP1_EFFECT")];
+    for (const [name, group] of statMoves) {
+      const recipient = group.target === "user" ? side : side === "Player" ? "Enemy" : "Player";
+      const mon = recipient === "Player" ? "Battle" : "Enemy";
+      stats.push(...reset(name), "\tcall JumpMoveEffect", ...check("hWhoseTurn", turn), ...check("wCalculateWhoseStats", "$a5"), ...check(`w${side}MoveEffect`, name === "TICKLE" ? "ATTACK_DOWN1_EFFECT" : "ATTACK_UP1_EFFECT"), ...check("wMoveMissed", 0), ...check("$c102", group.target === "opponent" ? 1 : 0), ...check("$c103", 1), ...check("$c104", group.changes.length));
+      for (const [i, stat] of ["attack", "defense", "speed", "special", "accuracy", "evasion"].entries()) {
+        const delta = group.changes.find(row => row.stat === stat)?.stages ?? 0;
+        stats.push(...check(`w${recipient}MonStatMods + ${i}`, 7 + delta));
+        if (i < 4) { const value = ({ "-2": 50, "-1": 66, "0": 100, "1": 150, "2": 200 } as Record<string, number>)[delta]; stats.push(...check(`w${mon}Mon${["Attack", "Defense", "Speed", "Special"][i]} + 1`, value)); }
+      }
+    }
+    stats.push(...reset("BULK"), ...set(`w${side}MonStatMods`, 13), ...execute(), ...check(`w${side}MonStatMods`, 13), ...check(`w${side}MonStatMods + 1`, 8), ...check("wMoveMissed", 0), ...check("$c103", 1), ...check("$c104", 1));
+    stats.push(...reset("BULK"), ...set(`w${side}MonStatMods`, 13), ...set(`w${side}MonStatMods + 1`, 13), ...execute(), ...check("wMoveMissed", 1), ...check("$c103", 0), ...check("$c104", 1));
+    stats.push(...reset("MIXED"), ...set(`w${side}MonStatMods`, 12), ...set(`w${side}MonStatMods + 1`, 2), ...execute(), ...check(`w${side}MonStatMods`, 13), ...check(`w${side}MonStatMods + 1`, 1), ...check(`w${side === "Player" ? "Battle" : "Enemy"}MonAttack`, 1), ...check(`w${side === "Player" ? "Battle" : "Enemy"}MonAttack + 1`, 144));
+    const opponent = side === "Player" ? "Enemy" : "Player";
+    stats.push(...reset("TICKLE"), ...set(`w${opponent}MonStatMods`, 1), "\tcall JumpMoveEffect", ...check(`w${opponent}MonStatMods`, 1), ...check(`w${opponent}MonStatMods + 1`, 6), ...check("wMoveMissed", 0), ...check("$c104", 1));
+    for (const [field, value, rolls] of [[`w${side}MoveAccuracy`, 0, 1], [`w${opponent}BattleStatus2`, "1 << HAS_SUBSTITUTE_UP", 0], [`w${opponent}BattleStatus2`, "1 << PROTECTED_BY_MIST", 0], [`w${opponent}BattleStatus1`, "1 << INVULNERABLE", 0]] as const) {
+      stats.push(...reset("TICKLE"), ...set(field, value), "\tcall JumpMoveEffect", ...check(`w${opponent}MonStatMods`, 7), ...check(`w${opponent}MonStatMods + 1`, 7), ...check("wMoveMissed", 1), ...check("$c102", rolls), ...check("$c103", 0), ...check("hWhoseTurn", turn), ...check("wCalculateWhoseStats", "$a5"), ...check(`w${side}MoveEffect`, "ATTACK_DOWN1_EFFECT"));
+    }
+    const mon = side === "Player" ? "Battle" : "Enemy";
+    stats.push(...reset("BULK"), ...set("wObtainedBadges", "$55"), ...set(`w${mon}MonStatus`, "1 << BRN"), ...execute(), ...check(`w${mon}MonAttack + 1`, side === "Player" ? 84 : 75), ...check(`w${mon}MonDefense + 1`, side === "Player" ? 168 : 150), ...check(`w${mon}MonSpeed + 1`, 100));
+    stats.push(...reset("DANCE"), ...set(`w${mon}MonStatus`, "1 << PAR"), ...execute(), ...check(`w${mon}MonSpeed + 1`, 37));
+  }
+  body("Stats", stats);
+  await patchFile("main.asm", text => text + probeBodies.map((lines, i) => `\nPUSHS\nSECTION "Move behavior probe driver ${i}", ROMX\n${lines}\nPOPS\n`).join(""));
+  const boot = ["\tdi", "\tld sp, wStack", "\txor a", "\tldh [rIE], a", "\tldh [rIF], a", "\tldh [rLCDC], a", "\tld hl, STARTOF(WRAM0)", "\tld bc, SIZEOF(WRAM0)", ".clear", "\tld [hli], a", "\tdec bc", "\tld d, a", "\tld a, b", "\tor c", "\tld a, d", "\tjr nz, .clear", ...["Core", "Effects", "Heal", "Recoil", "Stats"].flatMap((name, i) => [...set("wUnusedPlayerDataByte", i + 1), `\tfarcall Editor${name}Probe`]), ...set("wUnusedPlayerDataByte", "$5a"), ".done", "\tjr .done", "EditorBehaviorFail::", "\tld a, [wUnusedPlayerDataByte]", "\tld [$c100], a", ...set("wUnusedPlayerDataByte", "$ff"), ".failed", "\tjr .failed", ""];
   await patchFile("home/init.asm", text => text.replace(/Init::[\s\S]*?(?=^[A-Za-z_]\w*::{0,1})/m, "Init::\n" + boot.join("\n")));
   // Extra probe drivers share the same original code banks.
   run("make", ["-j2", `RGBDS=${rgbds}/`, `${target}.gbc`]);

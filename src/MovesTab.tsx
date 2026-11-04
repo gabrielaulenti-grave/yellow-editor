@@ -53,7 +53,7 @@ export function MovesTab({
 
   return (
     <section className="tab-content">
-      <div className="tab-heading-row"><div><h2>Moves</h2><p>Edit move names, stats, types and existing battle behaviors.</p></div>{project && <button type="button" disabled={busy || dirty} onClick={() => setCreating(true)}>New move</button>}</div>
+      <div className="tab-heading-row"><div><h2>Moves</h2><p>Edit move names, stats, types and battle effects.</p></div>{project && <button type="button" disabled={busy || dirty} onClick={() => setCreating(true)}>New move</button>}</div>
       {creating && <ContentCreateDialog kind="move" templateId={selectedMoveId ?? undefined} onClose={() => setCreating(false)} onCreated={onCreated} />}
 
       {!project ? (
@@ -106,7 +106,7 @@ export function MovesTab({
                   </div>
                   <label><input type="checkbox" aria-label="Move high critical-hit rate" disabled={Boolean(document.highCritical.reason)} checked={draft.highCritical} onChange={event => onDraftChange({ ...draft, highCritical: event.target.checked })} /> High critical-hit rate</label>
                   <p className="help-text">{document.highCritical.reason ?? "Uses the game's increased critical-hit rate, as Slash does. This property is separate from Battle behavior."}</p>
-                  <MoveBehaviorFields value={draft.behavior} effect={draft.effect} reason={document.behaviors.reason} onChange={behavior => onDraftChange({ ...draft, behavior })} />
+                  <MoveBehaviorFields value={draft.behavior} effect={draft.effect} reason={document.behaviors.reason} onChange={(behavior, move) => onDraftChange({ ...draft, ...(move ? { effect: move.effect } : {}), power: move ? String(move.power) : draft.power, behavior })} />
                   <p className="help-text">Power 0 is valid for status moves. Accuracy is the game's percentage setting. Battle behavior selects the effect family; Special move properties configures its variants.</p>
                 </fieldset> : <div className="field-grid two-column-fields">
                   <ReadonlyField label="Name" value={selectedMove.name} />
