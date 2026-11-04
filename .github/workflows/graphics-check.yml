@@ -1,8 +1,7 @@
 name: Check graphics workspace
 on:
-  pull_request:
-  push:
-    branches: [main, beta]
+  # The desktop release gate runs this coverage automatically.
+  # Keep this workflow for focused, on-demand diagnosis and preview artifacts.
   workflow_dispatch:
 permissions:
   contents: read
