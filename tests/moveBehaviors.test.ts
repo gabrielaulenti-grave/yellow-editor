@@ -10,6 +10,28 @@ import { prepareMoveEditWrites } from "../src/core/moveEditing";
 import { moveDraftFromDocument, moveDraftIsDirty, moveDraftError } from "../src/editor/moveForm";
 
 for (const root of process.argv.slice(2)) {
+  test(`${root}: accuracy/evasion secondaries round-trip, copy and undo without changing effect identities`, async () => {
+    const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+    const constants = await source.readText("constants/move_effect_constants.asm"), pointers = await source.readText("data/moves/effects_pointers.asm");
+    const doc = await session.getMoveEditDocument(1);
+    await session.saveMoveEdit(doc, { ...doc.values, behavior: { ...doc.values.behavior!, secondaryChance: 100, additionalEffect: "ACCURACY_DOWN_SIDE_EFFECT" } });
+    let saved = await session.getMoveEditDocument(1); assert.equal(saved.behaviors.reason, null); assert.equal(saved.values.behavior!.additionalEffect, "ACCURACY_DOWN_SIDE_EFFECT");
+    assert.match(await source.readText(behaviorDataPath), /\(ATTACK_DOWN_SIDE_EFFECT \+ 4\)/);
+    const copy = await session.createMove(await session.getMoveCreateDocument(), { constant: "EDITOR_MUD", name: "MUD TEST", power: 20, accuracy: 100, pp: 10, moveType: "GROUND", effect: "NO_ADDITIONAL_EFFECT", animation: "SAND_ATTACK", soundMoveId: 28, behavior: { ...saved.values.behavior!, additionalEffect: "EVASION_DOWN_SIDE_EFFECT" } });
+    saved = await session.getMoveEditDocument(copy.id); assert.equal(saved.behaviors.reason, null); assert.equal(saved.values.behavior!.additionalEffect, "EVASION_DOWN_SIDE_EFFECT");
+    assert.equal(saved.values.behavior!.secondaryChance, 100); assert.match(await source.readText(behaviorDataPath), /\(ATTACK_DOWN_SIDE_EFFECT \+ 5\)/);
+    assert.equal(await source.readText("constants/move_effect_constants.asm"), constants); assert.equal(await source.readText("data/moves/effects_pointers.asm"), pointers);
+    await session.undoLastSave(); await session.undoLastSave(); assert.equal(await source.exists(behaviorDataPath), false);
+    await session.redoLastUndo(); assert.equal((await session.getMoveEditDocument(1)).values.behavior!.additionalEffect, "ACCURACY_DOWN_SIDE_EFFECT");
+  });
+  test(`${root}: repurposed stat-effect slots refuse accuracy/evasion secondaries`, async () => {
+    const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never), path = "data/moves/effects_pointers.asm";
+    await source.writeText(path, (await source.readText(path)).replace(/dw StatModifierDownEffect(\s*; unused effect)/, "dw SleepEffect$1"));
+    const doc = await session.getMoveEditDocument(1);
+    await assert.rejects(session.saveMoveEdit(doc, { ...doc.values, behavior: { ...doc.values.behavior!, additionalEffect: "ACCURACY_DOWN_SIDE_EFFECT" } }), /secondary-effect slots need source review/);
+    assert.equal(await source.exists(behaviorDataPath), false);
+    await session.saveMoveEdit(doc, { ...doc.values, power: 65 }); assert.equal((await session.getMoves())[0].power, 65);
+  });
   test(`${root}: CRLF engines and environments without Web Crypto retain stat editor support`, async () => {
     const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never);
     for (const path of behaviorEnginePaths) await source.writeText(path, (await source.readText(path)).replace(/\r?\n/g, "\r\n"));

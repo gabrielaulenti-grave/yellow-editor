@@ -1,6 +1,6 @@
-import { code, freeSections, type CreationStamp } from "./creationSupport";
+import { code, freeSections, rows, type CreationStamp } from "./creationSupport";
 import { hashText } from "./history";
-import { readProjectRgbdsSources } from "./projectConstants";
+import { projectConstantCatalogFromSources, readProjectRgbdsSources } from "./projectConstants";
 import { behaviorDataPath, behaviorEnginePaths, installBehaviorHooks, recoverBehaviorSources, type BehaviorPatch } from "./moveBehaviorRuntime";
 import type { MoveData, ProjectSource, TextWriteRequest } from "./types";
 import { isStatMoveEffect, moveStatChangeBytes, validateMoveStatChanges, type MoveStatChanges } from "./moveStatChanges";
@@ -20,7 +20,22 @@ async function checkStatEngine(text: Map<string, string>) {
   }
 }
 
-export const extraEffects = ["POISON_SIDE_EFFECT1", "BURN_SIDE_EFFECT1", "FREEZE_SIDE_EFFECT1", "PARALYZE_SIDE_EFFECT1", "FLINCH_SIDE_EFFECT1", "CONFUSION_SIDE_EFFECT", "ATTACK_DOWN_SIDE_EFFECT", "DEFENSE_DOWN_SIDE_EFFECT", "SPEED_DOWN_SIDE_EFFECT", "SPECIAL_DOWN_SIDE_EFFECT"] as const;
+export const extraEffects = ["POISON_SIDE_EFFECT1", "BURN_SIDE_EFFECT1", "FREEZE_SIDE_EFFECT1", "PARALYZE_SIDE_EFFECT1", "FLINCH_SIDE_EFFECT1", "CONFUSION_SIDE_EFFECT", "ATTACK_DOWN_SIDE_EFFECT", "DEFENSE_DOWN_SIDE_EFFECT", "SPEED_DOWN_SIDE_EFFECT", "SPECIAL_DOWN_SIDE_EFFECT", "ACCURACY_DOWN_SIDE_EFFECT", "EVASION_DOWN_SIDE_EFFECT"] as const;
+const secondaryStatPaths = ["constants/move_effect_constants.asm", "data/moves/effects_pointers.asm"];
+const extendedSecondary = (effect: MoveBehaviorValues["additionalEffect"]) => effect === "ACCURACY_DOWN_SIDE_EFFECT" || effect === "EVASION_DOWN_SIDE_EFFECT";
+async function checkSecondaryStatSlots(text: Map<string, string>) {
+  // Both vanilla engines already dispatch the next two stat-down slots to the
+  // general stat handler. Refer to them by expression, without declaring or
+  // claiming new effect IDs in the user's project.
+  const symbols = projectConstantCatalogFromSources(secondaryStatPaths.map(path => ({ path, contents: text.get(path) ?? "" })), { resolveConstCounters: true });
+  const base = symbols.constants.find(entry => entry.symbol === "ATTACK_DOWN_SIDE_EFFECT")?.value;
+  const pointers = rows(text.get(secondaryStatPaths[1]) ?? "", "MoveEffectPointerTable", "dw");
+  const effects = text.get(behaviorEnginePaths[1]) ?? "", start = effects.indexOf("StatModifierDownEffect:"), end = effects.indexOf("MonsStatsFellText:", start);
+  if (base !== 0x44 || [4, 5].some(offset => code(pointers[base + offset - 1] ?? "") !== "dw StatModifierDownEffect") || start < 0 || end < 0 ||
+    !["9ef475ae960f8e4b2670093072192418bfba70dcf614c21afcd61084c6004109", "fnv1a-112b6a22"].includes(await hashText(effects.slice(start, end).split(/\r?\n/).map(code).filter(Boolean).join("\n")))) {
+    throw new Error("Accuracy/evasion secondary-effect slots need source review; the project's engine was preserved.");
+  }
+}
 export const damagingEffects = ["NO_ADDITIONAL_EFFECT", "SWIFT_EFFECT", "PAY_DAY_EFFECT", "RAGE_EFFECT", "THRASH_PETAL_DANCE_EFFECT", "JUMP_KICK_EFFECT", "POISON_SIDE_EFFECT2", "BURN_SIDE_EFFECT2", "FREEZE_SIDE_EFFECT2", "PARALYZE_SIDE_EFFECT2", "FLINCH_SIDE_EFFECT2", "DRAIN_HP_EFFECT", "DREAM_EATER_EFFECT", "RECOIL_EFFECT", "TWO_TO_FIVE_ATTACKS_EFFECT", "ATTACK_TWICE_EFFECT", "TWINEEDLE_EFFECT", "CHARGE_EFFECT", "FLY_EFFECT", "TRAPPING_EFFECT", "HYPER_BEAM_EFFECT", "SUPER_FANG_EFFECT", "SPECIAL_DAMAGE_EFFECT", ...extraEffects];
 export interface MoveBehaviorValues {
   priority: "normal" | "first" | "last";
@@ -47,13 +62,13 @@ export function validateBehaviorFamily(v: MoveBehaviorValues, effect: string, po
   if (v.additionalEffect && !damagingEffects.includes(effect)) throw new Error("An additional effect requires a supported damaging battle behavior. Choose None to use a status-only behavior.");
   if (v.statChanges && (!isStatMoveEffect(effect) || power !== undefined && power !== 0 || v.counter || v.additionalEffect)) throw new Error("Combined stat changes require Power 0 and a stat-raising or stat-lowering battle behavior, without Counter or an additional damaging effect.");
 }
-function bytes(v: MoveBehaviorValues, version: number) { return [priorities.indexOf(v.priority), +v.counter, +v.badlyPoisoned, +v.rest, damageModes.indexOf(v.damageMode) + 1, v.fixedDamage, +(v.recoil === "half"), charges.indexOf(v.charge), +(v.secondaryChance !== null), v.secondaryChance === null ? 0 : Math.min(255, Math.floor(v.secondaryChance * 255 / 100) + (v.secondaryChance ? 1 : 0)), +(v.secondaryChance === 100), v.additionalEffect ?? 0, ...(version === 1 ? [0, 0, 0, 0] : moveStatChangeBytes(v.statChanges))]; }
+function bytes(v: MoveBehaviorValues, version: number) { const secondary = v.additionalEffect === "ACCURACY_DOWN_SIDE_EFFECT" ? "(ATTACK_DOWN_SIDE_EFFECT + 4)" : v.additionalEffect === "EVASION_DOWN_SIDE_EFFECT" ? "(ATTACK_DOWN_SIDE_EFFECT + 5)" : v.additionalEffect ?? 0; return [priorities.indexOf(v.priority), +v.counter, +v.badlyPoisoned, +v.rest, damageModes.indexOf(v.damageMode) + 1, v.fixedDamage, +(v.recoil === "half"), charges.indexOf(v.charge), +(v.secondaryChance !== null), v.secondaryChance === null ? 0 : Math.min(255, Math.floor(v.secondaryChance * 255 / 100) + (v.secondaryChance ? 1 : 0)), +(v.secondaryChance === 100), secondary, ...(version === 1 ? [0, 0, 0, 0] : moveStatChangeBytes(v.statChanges))]; }
 const manifestPrefix = "; yellow-editor-move-behaviors: ";
 function render(moves: MoveData[], values: Record<string, MoveBehaviorValues>, patches: BehaviorPatch[], version = 2) {
   return [manifestPrefix + JSON.stringify({ version, patches, values }), "PUSHS", 'SECTION "Editor move behavior data", ROMX', "EditorMoveBehaviorData::", ...moves.map(move => `\tdb ${bytes(values[move.constant], version).join(", ")} ; ${move.constant}`), "\tassert @ - EditorMoveBehaviorData == NUM_ATTACKS * 16", "POPS", ""].join("\n");
 }
 export async function loadMoveBehaviors(source: ProjectSource, moves: MoveData[]) {
-  const paths = [...behaviorEnginePaths, "home/copy.asm", "layout.link", "main.asm", "text.asm", ...(await source.exists(behaviorDataPath) ? [behaviorDataPath] : [])];
+  const paths = [...behaviorEnginePaths, ...secondaryStatPaths, "home/copy.asm", "layout.link", "main.asm", "text.asm", ...(await source.exists(behaviorDataPath) ? [behaviorDataPath] : [])];
   const contents = (await Promise.all(paths.map(async path => await source.exists(path) ? { path, contents: await source.readText(path) } : null))).filter(file => file !== null);
   const text = new Map(contents.map(file => [file.path, file.contents]));
   const sources: CreationStamp[] = await Promise.all(contents.map(async file => ({ path: file.path, hash: await hashText(file.contents) })));
@@ -75,6 +90,7 @@ export async function loadMoveBehaviors(source: ProjectSource, moves: MoveData[]
       patches = manifest.patches; version = manifest.version;
     } else patches = installBehaviorHooks(text).patches;
     await checkStatEngine(restored);
+    if (Object.values(values).some(value => extendedSecondary(value.additionalEffect))) await checkSecondaryStatSlots(restored);
   } catch (error) { reason = error instanceof Error ? error.message : String(error); }
   return { text, restored, version, sources, support: { reason, moves: values } as MoveBehaviorSupport, patches };
 }
@@ -85,6 +101,7 @@ export async function prepareMoveBehaviorWrites(source: ProjectSource, oldMoves:
   if (!existing && JSON.stringify(value) === JSON.stringify(previous)) return [];
   if (existing && oldMoves.length === moves.length && JSON.stringify(value) === JSON.stringify(previous)) return [];
   if (state.support.reason) throw new Error(state.support.reason);
+  if (extendedSecondary(value.additionalEffect)) await checkSecondaryStatSlots(state.restored);
   const values = { ...state.support.moves, [constant]: value }, updates = new Map<string, string>();
   let patches = state.patches;
   if (!existing || state.version === 1) {

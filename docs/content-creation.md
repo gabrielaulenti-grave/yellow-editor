@@ -23,6 +23,8 @@ Moves can reuse existing battle behaviors or combine stat changes, and use exist
 - **Secondary chances:** retain the original engine chance, or choose 0–100% for poison, burn, freeze, paralysis, flinch, confusion and stat-lowering side effects. Accuracy, type immunities and Substitute still apply.
 - **Additional secondary effect:** add one supported status/stat side effect to a damaging effect family, such as draining plus paralysis or recoil plus flinching. It runs once after the main effect and completed hit/multi-hit sequence, only when the move hit and both Pokémon remain. A custom chance applies to each secondary-effect roll. The original Gen I limit of one major status remains.
 
+The additional-effect menu includes lowering **Accuracy** and **Evasion**, as well as Attack, Defense, Speed and Special. For a Mud-Slap-style attack, select **Lower Accuracy** and set the secondary-effect chance to 100%; a Mud Shot-style attack uses **Lower Speed** instead. These use the native stat-down handler and retain Gen I's existing engine checks and quirks. The editor verifies the native accuracy/evasion dispatch slots before using them and leaves effect constants, pointer tables and existing effect IDs unchanged.
+
 The first change allocates a banked per-move table and installs reviewed engine hooks in one undoable transaction. Vanilla settings are preserved, including existing engine quirks. No new WRAM or ROM0 space is consumed. Subsequent move creation extends the table. Modified or unreviewed hooks disable these controls with an explanation; ordinary move-data editing remains available. Source changes during a draft require reloading before saving.
 
 ### Combined stat changes
@@ -39,6 +41,8 @@ Presets fill the list without changing the move's name, type, animation or sound
 | Coil | User | Attack +1, Defense +1, Accuracy +1 |
 
 All six Gen I stats are available: Attack, Defense, Speed, Special, Accuracy and Evasion. Special remains one stat; this does not introduce separate Special Attack and Special Defense.
+
+For a Gen I adaptation of Quiver Dance, choose **User**, **Special +1** and **Speed +1**. Quiver Dance normally raises Special Attack, Special Defense and Speed, rather than Accuracy or Evasion; the shared Gen I Special stat supplies both special roles here.
 
 The move plays one animation and checks opponent accuracy once for the whole group, using the project's native evasion, X Accuracy and Fly/Dig rules. Substitute blocks opponent-directed groups; Mist blocks groups that lower an opponent's stats. Self-directed groups do not roll accuracy. Stages clamp at −6 and +6 independently: a capped stat does not prevent another change, and the move fails only if none can change. Messages name each changed stat. Derived battle stats retain the native ratios, 1–999 limits, applicable badge boosts, burn and paralysis. Compound moves recalculate only the affected stats, rather than repeatedly boosting unrelated stats for every row.
 

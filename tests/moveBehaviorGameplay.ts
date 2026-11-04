@@ -26,6 +26,12 @@ try {
     ["FLY", { charge: "fly" }], ["NEVER", { secondaryChance: 0 }], ["ALWAYS", { secondaryChance: 100 }], ["FIRST", { priority: "first" }], ["EXTRA", { additionalEffect: "PARALYZE_SIDE_EFFECT1", secondaryChance: 100 }],
   ] as const;
   for (const [name, patch] of variants) await session.createMove(await session.getMoveCreateDocument(), { constant: `EDITOR_${name}`, name: `ED ${name}`, power: 40, accuracy: 100, pp: 20, moveType: "NORMAL", effect: name === "EXTRA" ? "DRAIN_HP_EFFECT" : "NO_ADDITIONAL_EFFECT", animation: "POUND", soundMoveId: 1, behavior: { ...defaultMoveBehavior(), ...patch } });
+  // Reuse stock move IDs for these probes, avoiding extra animation/sound bank
+  // growth merely to test another property of the same native effect handler.
+  for (const [id, additionalEffect, secondaryChance] of [[10, "ACCURACY_DOWN_SIDE_EFFECT", 100], [33, "EVASION_DOWN_SIDE_EFFECT", 100], [1, "ACCURACY_DOWN_SIDE_EFFECT", 0]] as const) {
+    const doc = await session.getMoveEditDocument(id);
+    await session.saveMoveEdit(doc, { ...doc.values, behavior: { ...doc.values.behavior!, additionalEffect, secondaryChance } });
+  }
   const statMoves: Array<[string, MoveStatChanges]> = [
     ["BULK", { target: "user", changes: [{ stat: "attack", stages: 1 }, { stat: "defense", stages: 1 }] }],
     ["DANCE", { target: "user", changes: [{ stat: "attack", stages: 1 }, { stat: "speed", stages: 1 }] }],
@@ -50,7 +56,7 @@ try {
   for (const name of ["DelayFrames", "PlayBattleAnimation", "PlayCurrentMoveAnimation2", "UpdateHPBar2", "EffectCallBattleCore", "ApplyDamageToEnemyPokemon", "ApplyDamageToPlayerPokemon"]) await stub(name);
   await stub("PrintText", "\tpush hl\n\tld hl, $c104\n\tinc [hl]\n\tpop hl\n\tret");
   await stub("PlayCurrentMoveAnimation", "\tpush hl\n\tld hl, $c103\n\tinc [hl]\n\tpop hl\n\tret");
-  await stub("BattleRandom", "\tpush hl\n\tld hl, $c102\n\tinc [hl]\n\tpop hl\n\tld a, 7\n\tret");
+  await stub("BattleRandom", "\tpush hl\n\tld hl, $c102\n\tinc [hl]\n\tpop hl\n\tld a, [$c105]\n\tand a\n\tret nz\n\tld a, 7\n\tret");
   const set = (name: string, value: string | number) => [`\tld a, ${value}`, `\tld [${name}], a`];
   let checkNumber = 0;
   const check = (name: string, value: string | number) => [`\tld a, ${++checkNumber & 255}`, "\tld [$c101], a", `\tld a, [${name}]`, `\tcp ${value}`, "\tjp nz, EditorBehaviorFail"];
@@ -83,6 +89,19 @@ try {
     effects.push(...set("hWhoseTurn", side === "Player" ? 0 : 1), ...set("wMoveMissed", 0), ...set("wDamage", 0), ...set("wDamage + 1", 30), ...set(`w${side}MoveNum`, "EDITOR_EXTRA"), ...set(`w${side}MoveType`, "ELECTRIC"), ...set(`w${side}MoveEffect`, primary), ...set(`w${user}MonHP`, 0), ...set(`w${user}MonHP + 1`, 100), ...set(`w${target}MonHP`, 0), ...set(`w${target}MonHP + 1`, 100), ...set(`w${target}MonStatus`, 0), ...set(`w${targetState}BattleStatus1`, 0), `\tfarcall ${entry}`, ...check(`w${target}MonStatus`, "1 << PAR"), ...check(`w${side}MoveEffect`, primary));
     if (primary === "FLINCH_SIDE_EFFECT1") effects.push(...check(`w${targetState}BattleStatus1`, "1 << FLINCHED"));
   }
+  // The two unnamed native slots map to accuracy/evasion in the general stat
+  // handler. Exercise the actual post-damage hook, chance endpoints, stage floor,
+  // misses and Substitute without changing the engine's existing effect IDs.
+  for (const side of ["Player", "Enemy"]) for (const [move, index, chance] of [["SCRATCH", 4, 100], ["TACKLE", 5, 100], ["POUND", 4, 0]] as const) {
+    const target = side === "Player" ? "Enemy" : "Player", userMon = side === "Player" ? "Battle" : "Enemy", targetMon = side === "Player" ? "Enemy" : "Battle";
+    const entry = side === "Player" ? "MirrorMoveCheck.executeOtherEffects" : "EnemyCheckIfMirrorMoveEffect.notMultiHitMove";
+    for (const mode of ["hit", "miss", "substitute", "floor"] as const) {
+      effects.push(...set("$c105", 128), ...set("hWhoseTurn", side === "Player" ? 0 : 1), ...set("wLinkState", 0), ...set("wPlayerBattleStatus1", 0), ...set("wEnemyBattleStatus1", 0), ...set("wPlayerBattleStatus2", 0), ...set("wEnemyBattleStatus2", 0), ...set("wMoveMissed", mode === "miss" ? 1 : 0), ...set("wDamage", 0), ...set("wDamage + 1", 20), ...set(`w${side}MoveNum`, move), ...set(`w${side}MoveEffect`, "NO_ADDITIONAL_EFFECT"), ...set(`w${userMon}MonHP`, 0), ...set(`w${userMon}MonHP + 1`, 100), ...set(`w${targetMon}MonHP`, 0), ...set(`w${targetMon}MonHP + 1`, 100), ...Array.from({ length: 6 }, (_, i) => set(`w${target}MonStatMods + ${i}`, mode === "floor" && i === index ? 1 : 7)).flat());
+      if (mode === "substitute") effects.push(...set(`w${target}BattleStatus2`, "1 << HAS_SUBSTITUTE_UP"));
+      effects.push(`\tfarcall ${entry}`, ...check(`w${target}MonStatMods + ${index}`, mode === "floor" ? 1 : mode === "hit" && chance === 100 ? 6 : 7), ...check(`w${target}MonStatMods + ${index === 4 ? 5 : 4}`, 7), ...check(`w${side}MoveEffect`, "NO_ADDITIONAL_EFFECT"), ...check("wMoveMissed", mode === "miss" ? 1 : 0));
+    }
+  }
+  effects.push(...set("$c105", 0));
   await patchFile("engine/battle/effects.asm", text => text + body("Effects", effects));
   const heal: string[] = [], recoil: string[] = [];
   for (const side of ["Battle", "Enemy"]) {

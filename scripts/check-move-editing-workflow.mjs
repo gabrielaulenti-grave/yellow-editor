@@ -118,6 +118,12 @@ try {
       await button("Save").click(); await page.waitForFunction(() => !document.querySelector(".unsaved-indicator"));
       behavior = await page.evaluate(async () => (await window.graphicsInvoke("get_move_edit_document", { id: 166 })).values.behavior);
       assert.equal(behavior.additionalEffect, "PARALYZE_SIDE_EFFECT1");
+      for (const effect of ["ACCURACY_DOWN_SIDE_EFFECT", "EVASION_DOWN_SIDE_EFFECT"]) {
+        await input("Move additional effect").selectOption(effect);
+        await button("Save").click(); await page.waitForFunction(() => !document.querySelector(".unsaved-indicator"));
+        behavior = await page.evaluate(async () => (await window.graphicsInvoke("get_move_edit_document", { id: 166 })).values.behavior);
+        assert.equal(behavior.additionalEffect, effect); assert.equal(behavior.secondaryChance, 100);
+      }
       await input("Move combined stat changes").check();
       assert.equal(await input("Move power").inputValue(), "0");
       await page.getByRole("button", { name: "Use Coil stat changes", exact: true }).click();
@@ -125,6 +131,13 @@ try {
       await button("Save").click(); await page.waitForFunction(() => !document.querySelector(".unsaved-indicator"));
       behavior = await page.evaluate(async () => (await window.graphicsInvoke("get_move_edit_document", { id: 166 })).values.behavior);
       assert.deepEqual(behavior.statChanges, { target: "user", changes: [{ stat: "attack", stages: 1 }, { stat: "defense", stages: 1 }, { stat: "accuracy", stages: 1 }] });
+      await page.getByRole("button", { name: "Add stat change", exact: true }).click();
+      await input("Move stat 4").selectOption("evasion");
+      await button("Save").click(); await page.waitForFunction(() => !document.querySelector(".unsaved-indicator"));
+      behavior = await page.evaluate(async () => (await window.graphicsInvoke("get_move_edit_document", { id: 166 })).values.behavior);
+      assert.deepEqual(behavior.statChanges.changes[3], { stat: "evasion", stages: 1 });
+      await page.getByRole("button", { name: "Remove stat change 4", exact: true }).click();
+      await button("Save").click(); await page.waitForFunction(() => !document.querySelector(".unsaved-indicator"));
       await input("Move stat change 2").selectOption("2");
       await button("Save").click(); await page.waitForFunction(() => !document.querySelector(".unsaved-indicator"));
       await button("Undo").click(); await page.waitForFunction(() => document.querySelector('[aria-label="Move stat change 2"]')?.value === "1");
