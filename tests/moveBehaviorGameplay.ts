@@ -25,7 +25,8 @@ try {
     ["FLY", { charge: "fly" }], ["NEVER", { secondaryChance: 0 }], ["ALWAYS", { secondaryChance: 100 }], ["FIRST", { priority: "first" }], ["EXTRA", { additionalEffect: "PARALYZE_SIDE_EFFECT1", secondaryChance: 100 }],
   ] as const;
   for (const [name, patch] of variants) await session.createMove(await session.getMoveCreateDocument(), { constant: `EDITOR_${name}`, name: `ED ${name}`, power: 40, accuracy: 100, pp: 20, moveType: "NORMAL", effect: name === "EXTRA" ? "DRAIN_HP_EFFECT" : "NO_ADDITIONAL_EFFECT", animation: "POUND", soundMoveId: 1, behavior: { ...defaultMoveBehavior(), ...patch } });
-  const target = root.includes("yellow") ? "pokeyellow" : "pokered";
+  // A Red fixture can live under a parent directory named yellow-editor.
+  const target = await source.exists("scripts/OaksLab_2.asm") ? "pokeyellow" : "pokered";
   // A full uninstrumented ROM must link before running focused native probes.
   console.log("Linking complete ROM:", target);
   run("make", ["-j2", `RGBDS=${rgbds}/`, `${target}.gbc`]);
