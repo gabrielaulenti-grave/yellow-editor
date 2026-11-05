@@ -46,7 +46,7 @@ export interface MoveBehaviorValues {
   secondaryChance: number | null; additionalEffect: typeof extraEffects[number] | null;
   statChanges: MoveStatChanges | null;
 }
-export interface MoveBehaviorSupport { reason: string | null; moves: Record<string, MoveBehaviorValues> }
+export interface MoveBehaviorSupport { reason: string | null; moves: Record<string, MoveBehaviorValues>; upgradeAvailable: boolean }
 const priorities = ["normal", "first", "last"] as const, damageModes = ["level", "fixed", "random"] as const;
 const charges = ["generic", "whirlwind", "sunlight", "head", "glowing", "fly", "dig"] as const;
 export function defaultMoveBehavior(constant = ""): MoveBehaviorValues {
@@ -64,7 +64,7 @@ export function validateBehaviorFamily(v: MoveBehaviorValues, effect: string, po
 }
 function bytes(v: MoveBehaviorValues, version: number) { const secondary = v.additionalEffect === "ACCURACY_DOWN_SIDE_EFFECT" ? "(ATTACK_DOWN_SIDE_EFFECT + 4)" : v.additionalEffect === "EVASION_DOWN_SIDE_EFFECT" ? "(ATTACK_DOWN_SIDE_EFFECT + 5)" : v.additionalEffect ?? 0; return [priorities.indexOf(v.priority), +v.counter, +v.badlyPoisoned, +v.rest, damageModes.indexOf(v.damageMode) + 1, v.fixedDamage, +(v.recoil === "half"), charges.indexOf(v.charge), +(v.secondaryChance !== null), v.secondaryChance === null ? 0 : Math.min(255, Math.floor(v.secondaryChance * 255 / 100) + (v.secondaryChance ? 1 : 0)), +(v.secondaryChance === 100), secondary, ...(version === 1 ? [0, 0, 0, 0] : moveStatChangeBytes(v.statChanges))]; }
 const manifestPrefix = "; yellow-editor-move-behaviors: ";
-function render(moves: MoveData[], values: Record<string, MoveBehaviorValues>, patches: BehaviorPatch[], version = 2) {
+function render(moves: MoveData[], values: Record<string, MoveBehaviorValues>, patches: BehaviorPatch[], version = 3) {
   return [manifestPrefix + JSON.stringify({ version, patches, values }), "PUSHS", 'SECTION "Editor move behavior data", ROMX', "EditorMoveBehaviorData::", ...moves.map(move => `\tdb ${bytes(values[move.constant], version).join(", ")} ; ${move.constant}`), "\tassert @ - EditorMoveBehaviorData == NUM_ATTACKS * 16", "POPS", ""].join("\n");
 }
 export async function loadMoveBehaviors(source: ProjectSource, moves: MoveData[]) {
@@ -72,7 +72,7 @@ export async function loadMoveBehaviors(source: ProjectSource, moves: MoveData[]
   const contents = (await Promise.all(paths.map(async path => await source.exists(path) ? { path, contents: await source.readText(path) } : null))).filter(file => file !== null);
   const text = new Map(contents.map(file => [file.path, file.contents]));
   const sources: CreationStamp[] = await Promise.all(contents.map(async file => ({ path: file.path, hash: await hashText(file.contents) })));
-  let values = Object.fromEntries(moves.map(move => [move.constant, defaultMoveBehavior(move.constant)])), patches: BehaviorPatch[] = [], reason: string | null = null, version = 2, restored = text;
+  let values = Object.fromEntries(moves.map(move => [move.constant, defaultMoveBehavior(move.constant)])), patches: BehaviorPatch[] = [], reason: string | null = null, version = 3, restored = text;
   try {
     for (const path of paths) if (!text.has(path)) throw new Error(`Move behavior source ${path} is unavailable; ordinary move data remains editable.`);
     const copy = text.get("home/copy.asm")!.split(/\r?\n/).map(code).filter(Boolean).join("\n");
@@ -82,7 +82,7 @@ export async function loadMoveBehaviors(source: ProjectSource, moves: MoveData[]
       const matches = [...existing.matchAll(/^; yellow-editor-move-behaviors: (.+)$/gm)];
       if (matches.length !== 1) throw new Error("Move behavior metadata is missing or ambiguous.");
       const manifest = JSON.parse(matches[0][1]);
-      if (![1, 2].includes(manifest.version) || !Array.isArray(manifest.patches) || !manifest.values || Object.keys(manifest.values).length !== moves.length) throw new Error("The move behavior table is not synchronized with move identities.");
+      if (![1, 2, 3].includes(manifest.version) || !Array.isArray(manifest.patches) || !manifest.values || Object.keys(manifest.values).length !== moves.length) throw new Error("The move behavior table is not synchronized with move identities.");
       for (const move of moves) validateMoveBehavior(manifest.values[move.constant]);
       if (existing !== render(moves, manifest.values, manifest.patches, manifest.version)) throw new Error("The managed move behavior table changed in source.");
       restored = recoverBehaviorSources(text, manifest.patches, manifest.version);
@@ -92,19 +92,19 @@ export async function loadMoveBehaviors(source: ProjectSource, moves: MoveData[]
     await checkStatEngine(restored);
     if (Object.values(values).some(value => extendedSecondary(value.additionalEffect))) await checkSecondaryStatSlots(restored);
   } catch (error) { reason = error instanceof Error ? error.message : String(error); }
-  return { text, restored, version, sources, support: { reason, moves: values } as MoveBehaviorSupport, patches };
+  return { text, restored, version, sources, support: { reason, moves: values, upgradeAvailable: !reason && text.has(behaviorDataPath) && version < 3 } as MoveBehaviorSupport, patches };
 }
 export async function prepareMoveBehaviorWrites(source: ProjectSource, oldMoves: MoveData[], moves: MoveData[], constant: string, requested?: MoveBehaviorValues): Promise<TextWriteRequest[]> {
   const state = await loadMoveBehaviors(source, oldMoves), existing = state.text.has(behaviorDataPath);
   const previous = state.support.moves[constant] ?? defaultMoveBehavior();
   const value = requested ?? previous; validateMoveBehavior(value);
   if (!existing && JSON.stringify(value) === JSON.stringify(previous)) return [];
-  if (existing && oldMoves.length === moves.length && JSON.stringify(value) === JSON.stringify(previous)) return [];
+  if (existing && (state.version >= 3 || state.support.reason) && oldMoves.length === moves.length && JSON.stringify(value) === JSON.stringify(previous)) return [];
   if (state.support.reason) throw new Error(state.support.reason);
   if (extendedSecondary(value.additionalEffect)) await checkSecondaryStatSlots(state.restored);
   const values = { ...state.support.moves, [constant]: value }, updates = new Map<string, string>();
   let patches = state.patches;
-  if (!existing || state.version === 1) {
+  if (!existing || state.version < 3) {
     const install = installBehaviorHooks(state.restored); patches = install.patches;
     for (const [path, contents] of install.changes) updates.set(path, contents);
   }

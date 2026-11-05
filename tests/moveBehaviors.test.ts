@@ -8,8 +8,29 @@ import { isStatMoveEffect, moveStats, type MoveStatChanges } from "../src/core/m
 import { behaviorDataPath, behaviorEnginePaths } from "../src/core/moveBehaviorRuntime";
 import { prepareMoveEditWrites } from "../src/core/moveEditing";
 import { moveDraftFromDocument, moveDraftIsDirty, moveDraftError } from "../src/editor/moveForm";
+import { moveBehaviorV2Fixture, moveBehaviorFixturePaths } from "./moveBehaviorV2Fixture";
 
 for (const root of process.argv.slice(2)) {
+  test(`${root}: existing version 2 trapping moves upgrade without changing values or animations`, async () => {
+    const { source, data, fail } = await contentFixture(root), session = await createProjectSession(source, {} as never);
+    const move = await session.createMove(await session.getMoveCreateDocument(), { constant: "EDITOR_TRAP", name: "POISON WRAP", power: 20, accuracy: 100, pp: 20, moveType: "NORMAL", effect: "TRAPPING_EFFECT", animation: "WRAP", soundMoveId: 35, behavior: { ...defaultMoveBehavior(), additionalEffect: "POISON_SIDE_EFFECT1", secondaryChance: 100 } });
+    const original = await session.getMoveEditDocument(move.id), moves = await session.getMoves();
+    const text = new Map(await Promise.all(moveBehaviorFixturePaths.map(async path => [path, await source.readText(path)] as const)));
+    for (const [path, contents] of moveBehaviorV2Fixture(text)) await source.writeText(path, contents);
+    const doc = await session.getMoveEditDocument(move.id); assert.equal(doc.behaviors.reason, null); assert.equal(doc.behaviors.upgradeAvailable, true);
+    assert.deepEqual(doc.values, original.values); assert.equal(moveDraftIsDirty(moveDraftFromDocument(doc), doc), false);
+    const before = new Map([...data].map(([path, bytes]) => [path, bytes.slice()]));
+    fail(behaviorDataPath); await assert.rejects(session.saveMoveEdit(doc, doc.values), /Injected/);
+    for (const [path, bytes] of before) assert.deepEqual(data.get(path), bytes, `upgrade rollback ${path}`);
+    await session.saveMoveEdit(doc, doc.values);
+    const saved = await session.getMoveEditDocument(move.id); assert.equal(saved.behaviors.reason, null); assert.equal(saved.behaviors.upgradeAvailable, false);
+    assert.deepEqual(saved.values, original.values); assert.deepEqual(await session.getMoves(), moves);
+    assert.match(await source.readText(behaviorDataPath), /"version":3/);
+    await session.undoLastSave(); for (const [path, bytes] of before) assert.deepEqual(data.get(path), bytes, `upgrade undo ${path}`);
+    assert.equal((await session.getMoveEditDocument(move.id)).behaviors.upgradeAvailable, true);
+    await session.redoLastUndo(); assert.equal((await session.getMoveEditDocument(move.id)).behaviors.upgradeAvailable, false);
+    await assert.rejects(session.saveMoveEdit(doc, doc.values), /sources changed/);
+  });
   test(`${root}: accuracy/evasion secondaries round-trip, copy and undo without changing effect identities`, async () => {
     const { source } = await contentFixture(root), session = await createProjectSession(source, {} as never);
     const constants = await source.readText("constants/move_effect_constants.asm"), pointers = await source.readText("data/moves/effects_pointers.asm");
@@ -80,14 +101,15 @@ for (const root of process.argv.slice(2)) {
     const rows = moves.map(move => { const v = values[move.constant]; return `\tdb ${[priorities.indexOf(v.priority), +v.counter, +v.badlyPoisoned, +v.rest, damage.indexOf(v.damageMode) + 1, v.fixedDamage, +(v.recoil === "half"), charges.indexOf(v.charge), 0, 0, 0, 0, 0, 0, 0, 0].join(", ")} ; ${move.constant}`; });
     await source.writeText(behaviorDataPath, ['; yellow-editor-move-behaviors: ' + JSON.stringify({ version: 1, patches: legacy.patches, values }), "PUSHS", 'SECTION "Editor move behavior data", ROMX', "EditorMoveBehaviorData::", ...rows, "\tassert @ - EditorMoveBehaviorData == NUM_ATTACKS * 16", "POPS", ""].join("\n"));
     const doc = await session.getMoveEditDocument(1); assert.equal(doc.behaviors.reason, null); assert.equal(doc.values.behavior!.priority, "first"); assert.equal(doc.values.behavior!.statChanges, null);
-    assert.deepEqual(await prepareMoveEditWrites(source, doc, doc.values), []);
+    assert.equal(doc.behaviors.upgradeAvailable, true);
+    assert.ok((await prepareMoveEditWrites(source, doc, doc.values)).some(write => write.path === behaviorDataPath));
     const before = new Map([...data].map(([path, bytes]) => [path, bytes.slice()]));
     const next = { ...doc.values, power: 0, effect: "ATTACK_UP1_EFFECT", behavior: { ...doc.values.behavior!, statChanges: { target: "user" as const, changes: [{ stat: "attack" as const, stages: 1 }, { stat: "speed" as const, stages: 1 }] } } };
     fail(behaviorDataPath); await assert.rejects(session.saveMoveEdit(doc, next), /Injected/);
     for (const [path, bytes] of before) assert.deepEqual(data.get(path), bytes, `migration rollback ${path}`);
     await session.saveMoveEdit(doc, next);
     const upgraded = await session.getMoveEditDocument(1); assert.equal(upgraded.behaviors.reason, null); assert.equal(upgraded.values.behavior!.priority, "first");
-    assert.match(await source.readText(behaviorDataPath), /"version":2/);
+    assert.match(await source.readText(behaviorDataPath), /"version":3/);
     assert.equal((await session.getMoveEditDocument(92)).values.behavior!.badlyPoisoned, true);
     await session.undoLastSave(); for (const [path, bytes] of before) assert.deepEqual(data.get(path), bytes, `migration undo ${path}`);
     assert.equal((await session.getMoveEditDocument(1)).behaviors.reason, null);

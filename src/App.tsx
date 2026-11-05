@@ -1128,8 +1128,8 @@ function App() {
     setSelectedMoveId(current => data.some(move => move.id === current) ? current : data[0]?.id ?? null);
     setMoveRevision(value => value + 1);
   }
-  async function saveMoveChanges() {
-    if (!moveDirty || moveError || !moveEditDocument || moveEditDocument.id !== selectedMoveId || editBusy || moveEditLoading) return;
+  async function saveMoveChanges(upgrade = false) {
+    if ((!moveDirty && !(upgrade && moveEditDocument?.behaviors.upgradeAvailable)) || moveError || !moveEditDocument || moveEditDocument.id !== selectedMoveId || editBusy || moveEditLoading) return;
     const values = parseMoveDraft(moveDraft, moveEditDocument); if (!values) return;
     setEditBusy(true); setMoveEditError(null); let committed = false;
     try {
@@ -2457,6 +2457,7 @@ function App() {
           validationError={moveDirty ? moveError : null}
           onDraftChange={setMoveDraft}
           onReload={() => void revertMoveChanges()}
+          onUpgrade={() => void saveMoveChanges(true)}
         />
       )}
 

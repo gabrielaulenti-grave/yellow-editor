@@ -4,12 +4,16 @@ import { join } from "node:path";
 import { createServer } from "node:http";
 import { build } from "esbuild";
 import { chromium } from "playwright";
+import { pathToFileURL } from "node:url";
 const roots = process.argv.slice(2);
 assert.ok(roots.length, "Supply Red/Yellow source directories.");
 const temporary = await mkdtemp(join("node_modules", ".move-edit-ui-"));
 const server = createServer((_request, response) => response.end('<!doctype html><div id="root"></div>'));
 let browser;
 try {
+  const legacyModule = join(temporary, "legacy.mjs");
+  await build({ entryPoints: ["tests/moveBehaviorV2Fixture.ts"], outfile: legacyModule, bundle: true, platform: "node", format: "esm" });
+  const { moveBehaviorV2Fixture, moveBehaviorFixturePaths } = await import(pathToFileURL(join(process.cwd(), legacyModule)).href);
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const outfile = join(temporary, "fixture.js");
   await build({ entryPoints: ["tests/graphicsWorkflowFixture.tsx"], outfile, bundle: true, format: "esm", platform: "browser", jsx: "automatic",
@@ -104,6 +108,17 @@ try {
       await button("Save").click(); await page.waitForFunction(() => !document.querySelector(".unsaved-indicator"));
       let behavior = await page.evaluate(async () => (await window.graphicsInvoke("get_move_edit_document", { id: 166 })).values.behavior);
       assert.equal(behavior.priority, "first"); assert.equal(behavior.fixedDamage, 37);
+      const installed = await page.evaluate(paths => Object.fromEntries(paths.map(path => [path, new TextDecoder().decode(Uint8Array.from(window.graphicsBytes[path]))])), moveBehaviorFixturePaths);
+      const legacyWrites = Object.fromEntries(moveBehaviorV2Fixture(new Map(Object.entries(installed))));
+      await page.evaluate(writes => { for (const [path, text] of Object.entries(writes)) window.graphicsBytes[path] = Array.from(new TextEncoder().encode(text)); }, legacyWrites);
+      await page.getByRole("button", { name: "Reload move sources", exact: true }).click();
+      const upgrade = page.getByRole("button", { name: "Update move effects", exact: true });
+      await upgrade.waitFor(); assert.equal(await button("Save").isDisabled(), true);
+      await upgrade.click(); await upgrade.waitFor({ state: "detached" });
+      assert.equal(await input("Move name").inputValue(), "NEW STRIKE"); assert.equal(await input("Move fixed damage").inputValue(), "37");
+      assert.equal(await page.evaluate(async () => (await window.graphicsInvoke("get_move_edit_document", { id: 166 })).behaviors.upgradeAvailable), false);
+      await button("Undo").click(); await upgrade.waitFor();
+      await button("Redo").click(); await upgrade.waitFor({ state: "detached" });
       await input("Move battle behavior").selectOption("HEAL_EFFECT"); await input("Move Rest healing").check();
       await button("Save").click(); await page.waitForFunction(() => !document.querySelector(".unsaved-indicator"));
       await button("Undo").click(); await input("Move damage mode").waitFor();

@@ -25,7 +25,7 @@ try {
     ["LEVEL", { damageMode: "level" }], ["RANDOM", { damageMode: "random" }], ["FIXED", { damageMode: "fixed", fixedDamage: 37 }], ["HALF", { recoil: "half" }], ["DIG", { charge: "dig" }],
     ["FLY", { charge: "fly" }], ["NEVER", { secondaryChance: 0 }], ["ALWAYS", { secondaryChance: 100 }], ["FIRST", { priority: "first" }], ["EXTRA", { additionalEffect: "PARALYZE_SIDE_EFFECT1", secondaryChance: 100 }],
   ] as const;
-  for (const [name, patch] of variants) await session.createMove(await session.getMoveCreateDocument(), { constant: `EDITOR_${name}`, name: `ED ${name}`, power: 40, accuracy: 100, pp: 20, moveType: "NORMAL", effect: name === "EXTRA" ? "DRAIN_HP_EFFECT" : "NO_ADDITIONAL_EFFECT", animation: "POUND", soundMoveId: 1, behavior: { ...defaultMoveBehavior(), ...patch } });
+  for (const [name, patch] of variants) await session.createMove(await session.getMoveCreateDocument(), { constant: `EDITOR_${name}`, name: `ED ${name}`, power: 40, accuracy: 100, pp: 20, moveType: "NORMAL", effect: ["ALWAYS", "NEVER"].includes(name) ? "TRAPPING_EFFECT" : name === "EXTRA" ? "DRAIN_HP_EFFECT" : "NO_ADDITIONAL_EFFECT", animation: ["ALWAYS", "NEVER"].includes(name) ? "WRAP" : "POUND", soundMoveId: 1, behavior: { ...defaultMoveBehavior(), ...patch, ...(["ALWAYS", "NEVER"].includes(name) ? { additionalEffect: "POISON_SIDE_EFFECT1" as const } : {}) } });
   // Reuse stock move IDs for these probes, avoiding extra animation/sound bank
   // growth merely to test another property of the same native effect handler.
   for (const [id, additionalEffect, secondaryChance] of [[10, "ACCURACY_DOWN_SIDE_EFFECT", 100], [33, "EVASION_DOWN_SIDE_EFFECT", 100], [1, "ACCURACY_DOWN_SIDE_EFFECT", 0]] as const) {
@@ -53,11 +53,16 @@ try {
     throw new Error(`Missing probe stub ${name}`);
   };
   // Keep mechanics native; instrument display/audio and randomness for deterministic assertions.
-  for (const name of ["DelayFrames", "PlayBattleAnimation", "PlayCurrentMoveAnimation2", "UpdateHPBar2", "EffectCallBattleCore", "ApplyDamageToEnemyPokemon", "ApplyDamageToPlayerPokemon"]) await stub(name);
+  for (const name of ["DelayFrames", "PlayBattleAnimation", "PlayBattleAnimation2", "PlayCurrentMoveAnimation2", "UpdateHPBar2", "EffectCallBattleCore", "ApplyDamageToEnemyPokemon", "ApplyDamageToPlayerPokemon"]) await stub(name);
   await stub("PrintText", "\tpush hl\n\tld hl, $c104\n\tinc [hl]\n\tpop hl\n\tret");
   await stub("PlayCurrentMoveAnimation", "\tpush hl\n\tld hl, $c103\n\tinc [hl]\n\tpop hl\n\tret");
   await stub("BattleRandom", "\tpush hl\n\tld hl, $c102\n\tinc [hl]\n\tpop hl\n\tld a, [$c105]\n\tand a\n\tret nz\n\tld a, 7\n\tret");
-  const set = (name: string, value: string | number) => [`\tld a, ${value}`, `\tld [${name}], a`];
+  const set = (name: string, value: string | number) => [
+    // Legacy isolated probes set an explicit move cache. Also set its identity;
+    // realistic loading probes below leave MoveNum at the shared animation ID.
+    ...(/^w(Player|Enemy)MoveNum$/.test(name) ? [`\tld a, ${value}`, `\tld [${name.replace("MoveNum", "SelectedMove")}], a`] : []),
+    `\tld a, ${value}`, `\tld [${name}], a`,
+  ];
   let checkNumber = 0;
   const check = (name: string, value: string | number) => [`\tld a, ${++checkNumber & 255}`, "\tld [$c101], a", `\tld a, [${name}]`, `\tcp ${value}`, "\tjp nz, EditorBehaviorFail"];
   const probeBodies: string[] = [];
@@ -111,11 +116,27 @@ try {
   }
   await patchFile("engine/battle/move_effects/heal.asm", text => text + body("Heal", heal));
   await patchFile("engine/battle/move_effects/recoil.asm", text => text + body("Recoil", recoil));
+  const trap: string[] = [];
+  for (const side of ["Player", "Enemy"]) for (const move of ["EDITOR_ALWAYS", "EDITOR_NEVER"]) for (const mode of ["hit", "miss", "substitute", "immune", "status", "fainted"] as const) {
+    const user = side === "Player" ? "Battle" : "Enemy", target = side === "Player" ? "Enemy" : "Battle", targetSide = side === "Player" ? "Enemy" : "Player";
+    const entry = side === "Player" ? "MirrorMoveCheck.executeOtherEffects" : "EnemyCheckIfMirrorMoveEffect.notMultiHitMove";
+    trap.push(...set("hWhoseTurn", side === "Player" ? 0 : 1), ...set(`w${side}SelectedMove`, move), ...set("wStatusFlags7", 0), "\tcall GetCurrentMove", ...check(`w${side}MoveNum`, "WRAP"), ...check(`w${side}MoveEffect`, "TRAPPING_EFFECT"),
+      ...set("wPlayerBattleStatus1", 0), ...set("wEnemyBattleStatus1", 0), ...set("wPlayerBattleStatus2", 0), ...set("wEnemyBattleStatus2", mode === "substitute" && targetSide === "Enemy" ? "1 << HAS_SUBSTITUTE_UP" : 0),
+      ...set(`w${user}MonHP`, 0), ...set(`w${user}MonHP + 1`, 100), ...set(`w${target}MonHP`, 0), ...set(`w${target}MonHP + 1`, mode === "fainted" ? 0 : 100), ...set(`w${target}MonStatus`, mode === "status" ? "1 << PAR" : 0),
+      ...set(`w${target}MonType1`, mode === "immune" ? "POISON" : "NORMAL"), ...set(`w${target}MonType2`, "NORMAL"),
+      ...set("wMoveMissed", 0), ...set("wDamage", 0), ...set("wDamage + 1", 30), ...set("$c105", 0),
+      ...["Player", "Enemy"].flatMap(s => Array.from({ length: 6 }, (_, i) => set(`w${s}MonStatMods + ${i}`, 7)).flat()), "\tcall JumpMoveEffect");
+    if (mode === "substitute") trap.push(...set(`w${targetSide}BattleStatus2`, "1 << HAS_SUBSTITUTE_UP"));
+    if (mode === "miss") trap.push(...set(`w${side}MoveAccuracy`, 0));
+    trap.push("\tcall MoveHitTest", `\tfarcall ${entry}`, ...check(`w${target}MonStatus`, mode === "status" ? "1 << PAR" : move === "EDITOR_ALWAYS" && mode === "hit" ? "1 << PSN" : 0), ...check(`w${side}SelectedMove`, move), ...check(`w${side}MoveNum`, "WRAP"), ...check(`w${side}MoveEffect`, "TRAPPING_EFFECT"), ...check("wMoveMissed", mode === "miss" ? 1 : 0));
+    if (mode === "hit") trap.push(...check(`w${side}BattleStatus1`, "1 << USING_TRAPPING_MOVE"), ...check(`w${side}NumAttacksLeft`, 4));
+  }
+  body("Trap", trap);
   const stats: string[] = [];
   for (const side of ["Player", "Enemy"]) {
     const turn = side === "Player" ? 0 : 1;
     const reset = (name: string) => [
-      ...set("hWhoseTurn", turn), ...set(`w${side}MoveNum`, `EDITOR_STAT_${name}`), ...set(`w${side}MoveEffect`, name === "TICKLE" ? "ATTACK_DOWN1_EFFECT" : "ATTACK_UP1_EFFECT"), ...set(`w${side}MoveAccuracy`, 255),
+      ...set("hWhoseTurn", turn), ...set(`w${side}SelectedMove`, `EDITOR_STAT_${name}`), "\tcall GetCurrentMove", ...check(`w${side}MoveNum`, "GROWTH"), ...set(`w${side}MoveAccuracy`, 255),
       ...set("wCalculateWhoseStats", "$a5"), ...set("wMoveMissed", 0), ...set("wLinkState", 0), ...set("wObtainedBadges", 0),
       ...["$c102", "$c103", "$c104"].flatMap(p => set(p, 0)),
       ...["Player", "Enemy"].flatMap(s => [
@@ -150,7 +171,7 @@ try {
   }
   body("Stats", stats);
   await patchFile("main.asm", text => text + probeBodies.map((lines, i) => `\nPUSHS\nSECTION "Move behavior probe driver ${i}", ROMX\n${lines}\nPOPS\n`).join(""));
-  const boot = ["\tdi", "\tld sp, wStack", "\txor a", "\tldh [rIE], a", "\tldh [rIF], a", "\tldh [rLCDC], a", "\tld hl, STARTOF(WRAM0)", "\tld bc, SIZEOF(WRAM0)", ".clear", "\tld [hli], a", "\tdec bc", "\tld d, a", "\tld a, b", "\tor c", "\tld a, d", "\tjr nz, .clear", ...["Core", "Effects", "Heal", "Recoil", "Stats"].flatMap((name, i) => [...set("wUnusedPlayerDataByte", i + 1), `\tfarcall Editor${name}Probe`]), ...set("wUnusedPlayerDataByte", "$5a"), ".done", "\tjr .done", "EditorBehaviorFail::", "\tld a, [wUnusedPlayerDataByte]", "\tld [$c100], a", ...set("wUnusedPlayerDataByte", "$ff"), ".failed", "\tjr .failed", ""];
+  const boot = ["\tdi", "\tld sp, wStack", "\txor a", "\tldh [rIE], a", "\tldh [rIF], a", "\tldh [rLCDC], a", "\tld hl, STARTOF(WRAM0)", "\tld bc, SIZEOF(WRAM0)", ".clear", "\tld [hli], a", "\tdec bc", "\tld d, a", "\tld a, b", "\tor c", "\tld a, d", "\tjr nz, .clear", ...["Core", "Effects", "Heal", "Recoil", "Trap", "Stats"].flatMap((name, i) => [...set("wUnusedPlayerDataByte", i + 1), `\tfarcall Editor${name}Probe`]), ...set("wUnusedPlayerDataByte", "$5a"), ".done", "\tjr .done", "EditorBehaviorFail::", "\tld a, [wUnusedPlayerDataByte]", "\tld [$c100], a", ...set("wUnusedPlayerDataByte", "$ff"), ".failed", "\tjr .failed", ""];
   await patchFile("home/init.asm", text => text.replace(/Init::[\s\S]*?(?=^[A-Za-z_]\w*::{0,1})/m, "Init::\n" + boot.join("\n")));
   // Extra probe drivers share the same original code banks.
   run("make", ["-j2", `RGBDS=${rgbds}/`, `${target}.gbc`]);

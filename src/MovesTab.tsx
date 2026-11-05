@@ -24,6 +24,7 @@ interface MovesTabProps {
   validationError: string | null;
   onDraftChange(draft: MoveDraft): void;
   onReload(): void;
+  onUpgrade(): void;
 }
 
 export function MovesTab({
@@ -34,7 +35,7 @@ export function MovesTab({
   onSelectMove,
   onSearchChange,
   onCreated,
-  document, draft, dirty, busy, error, validationError, onDraftChange, onReload,
+  document, draft, dirty, busy, error, validationError, onDraftChange, onReload, onUpgrade,
 }: MovesTabProps) {
   const [creating, setCreating] = useState(false);
   const selectedMove = moves.find((move) => move.id === selectedMoveId) ?? null;
@@ -106,6 +107,7 @@ export function MovesTab({
                   </div>
                   <label><input type="checkbox" aria-label="Move high critical-hit rate" disabled={Boolean(document.highCritical.reason)} checked={draft.highCritical} onChange={event => onDraftChange({ ...draft, highCritical: event.target.checked })} /> High critical-hit rate</label>
                   <p className="help-text">{document.highCritical.reason ?? "Uses the game's increased critical-hit rate, as Slash does. This property is separate from Battle behavior."}</p>
+                  {document.behaviors.upgradeAvailable && <div className="help-text"><p>An update is available for this project's move effects. Apply it before rebuilding to fix properties on moves that reuse an animation. Saving move changes also applies the update.</p><button type="button" disabled={busy || dirty} onClick={onUpgrade}>Update move effects</button></div>}
                   <MoveBehaviorFields value={draft.behavior} effect={draft.effect} reason={document.behaviors.reason} onChange={(behavior, move) => onDraftChange({ ...draft, ...(move ? { effect: move.effect } : {}), power: move ? String(move.power) : draft.power, behavior })} />
                   <p className="help-text">Power 0 is valid for status moves. Accuracy is the game's percentage setting. Battle behavior selects the effect family; Special move properties configures its variants.</p>
                 </fieldset> : <div className="field-grid two-column-fields">

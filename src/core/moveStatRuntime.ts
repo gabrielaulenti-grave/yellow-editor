@@ -1,6 +1,8 @@
 // Context lives on the stack. Native stat calculation supplies Gen I ratios and
 // the 1..999 clamp; only the affected stat's badge/status modifiers are reapplied.
 // The caller puts these helpers in their own ROMX section to protect Battle Core.
+// These base strings also validate version 2 projects. Version 3 identity fixes
+// are applied by moveBehaviorRuntime; preserve the old output for migration.
 export const moveStatHelpers = `
 EditorMBStatsCurrentMove:
 	ldh a, [hWhoseTurn]
