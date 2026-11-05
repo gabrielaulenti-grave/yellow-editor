@@ -4,6 +4,7 @@ import { test } from "node:test";
 import { cp, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { loadMapTerrainDocument, prepareMapTerrainWrites, loadMapWarpDocument, prepareMapWarpWrites } from "../src/core/mapEditing";
+import { parseMapIndex } from "../src/core/mapVisualization";
 import { createProjectSnapshot } from "../src/core/projectSnapshot";
 import { createPackedProjectSource } from "../src/platform/packedProject";
 import { bytesToHex, createProjectHistoryManager, hashText } from "../src/core/history";
@@ -28,6 +29,36 @@ const roots = process.argv.slice(2), romAt = roots.indexOf("--rom"), rgbds = rom
 if (romAt >= 0) roots.splice(romAt, 2);
 assert.ok(roots.length, "Supply Red/Yellow source directories.");
 for (const directory of roots) {
+  test(`${directory}: unused header pointers do not block Saffron terrain edits`, async () => {
+    const { source, overlay } = fixture(resolve(directory));
+    const index = await parseMapIndex(source);
+    const saffron = index.find(map => map.constant === "SAFFRON_CITY")!;
+    const unused = index.find(map => map.constant === "UNUSED_MAP_0B")!;
+    assert.equal(unused.headerPath, saffron.headerPath);
+    assert.equal(unused.isUnused, true);
+    assert.equal(saffron.isAlias, false);
+    const doc = await loadMapTerrainDocument(source, saffron.constant);
+    const values = { mapBlocks: doc.visualization.mapBlocks.slice(), blockset: doc.visualization.blockset.slice(), confirmSharedBlocks: false, confirmSharedLayout: false };
+    values.mapBlocks[0] = (values.mapBlocks[0] + 1) % doc.visualization.blockCount;
+    const writes = await prepareMapTerrainWrites(source, doc, values);
+    assert.deepEqual(writes.map(write => write.path), ["maps/SaffronCity.blk"]);
+    await createProjectHistoryManager(source).save("Paint Saffron terrain", writes);
+    assert.deepEqual((await loadMapTerrainDocument(source, saffron.constant)).visualization.mapBlocks, values.mapBlocks);
+    values.blockset[0] = (values.blockset[0] + 1) % doc.visualization.tileCount;
+    const fresh = await loadMapTerrainDocument(source, saffron.constant);
+    await assert.rejects(prepareMapTerrainWrites(source, fresh, values), /Confirm that block edits affect every map/);
+    await assert.rejects(loadMapTerrainDocument(source, unused.constant), /unused map ID/);
+
+    // A second playable map using the header must still block both editors.
+    const pointersPath = "data/maps/map_header_pointers.asm";
+    const pointers = await source.readText(pointersPath);
+    overlay.set(pointersPath, new TextEncoder().encode(pointers.replace("dw ViridianCity_h", "dw SaffronCity_h")));
+    const shared = await parseMapIndex(source);
+    for (const constant of ["SAFFRON_CITY", "VIRIDIAN_CITY"]) {
+      assert.equal(shared.find(map => map.constant === constant)!.isAlias, true);
+      await assert.rejects(loadMapTerrainDocument(source, constant), /own header/);
+    }
+  });
   test(`${directory}: terrain, paired warps, stable IDs, source guards and history`, async () => {
     const { source, overlay, fail } = fixture(resolve(directory));
     const session = await createProjectSession(source, { inspect: async () => ({}), build: async () => ({}) } as never);
