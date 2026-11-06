@@ -56,6 +56,15 @@ list(PREPEND CMAKE_MODULE_PATH "\${CMAKE_SOURCE_DIR}/cmake-modules")
 set(FETCHCONTENT_TRY_FIND_PACKAGE_MODE NEVER CACHE STRING "" FORCE)
 set(PNG_HARDWARE_OPTIMIZATIONS OFF CACHE BOOL "" FORCE)
 
+# Declare zlib before RGBDS so CMake uses the official release asset instead
+# of zlib.net's rotating download URL. Keep RGBDS's pinned archive hash.
+include(FetchContent)
+FetchContent_Declare(ZLIB
+  URL https://github.com/madler/zlib/releases/download/v1.3.2/zlib-1.3.2.tar.xz
+  URL_HASH SHA256=d7a0654783a4da529d1bb793b7ad9c3318020af77667bcae35f95d0e42a792f3
+  EXCLUDE_FROM_ALL
+)
+
 # Every invocation gets a fresh module and Yellow Editor reads generated files
 # after callMain returns, so keep the Emscripten runtime alive rather than
 # running process-wide C/C++ shutdown handlers.
