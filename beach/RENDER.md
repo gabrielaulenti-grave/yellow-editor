@@ -1,36 +1,31 @@
-# Render free-tier deployment (experimental)
+# Render Free deployment
 
-This is a standalone server for the Pikachu's Beach training agent and public spectator page; it is unrelated to Yellow Editor's editor state or user projects.
+The spectator and trainer run as a separate free Docker web service.
 
-## Files and security
+## Automated private ROM build
 
-Use the existing instructions in [README.md](README.md) to build the specially modified Game Boy ROM and its matching `.sym` file in Yellow Editor. **Never commit either file** to a public or private Git repository, embed them in a client bundle, or make them downloadable from a web route.
+The Render Docker build uses the pinned pret/pokeyellow source revision and RGBDS 1.0.4. It applies the same patch in `beach/prepare-rom.mjs` that was tested with Yellow Editor's WebAssembly build graph.
 
-In Render, provide these as **Secret Files** (file names exactly):
-- `pokeyellow.gbc`
-- `pokeyellow.sym`
+The compiled `pokeyellow.gbc` and `pokeyellow.sym` are gzip-compressed in a dedicated Docker stage, then copied **only** into the private final container image as compressed files. The runtime decompresses them to `/tmp/` before starting the headless emulator.
 
-Render exposes secret files at runtime under `/etc/secrets/`, matching `BEACH_ROM` and `BEACH_SYMBOLS` in the Blueprint. These inputs are required: the app deliberately refuses to start without them. Do not use environment variable values containing ROM bytes or place ROM files in Docker build context.
+No ROM, symbols, or private generated files are committed to GitHub or served from the public web directory. **A private container image is still a copy of the copyrighted game, however; this is not a determination of legal permission to host or broadcast it.** Keep Render image and registry access restricted.
 
-The player receives only rendered frames and statistics. The public service has no exposed controls to play the game. This reduces distribution exposure but does not constitute legal clearance for broadcasting copyrighted gameplay.
+There is **no need to upload Render Secret Files**. The existing service uses `BEACH_ROM=/tmp/pokeyellow.gbc` and `BEACH_SYMBOLS=/tmp/pokeyellow.sym`.
 
-## Deploy
+## Existing deployment
 
-1. Connect this GitHub repository to your Render workspace.
-2. Create a **Blueprint** and set the Blueprint Path to `beach/render.yaml`, branch `pikachus-beach-trainer`.
-3. Confirm plan **Free**. Add the two Secret Files to the web service before starting/redeploying it.
-4. Check `/api/health` (should return `{"ok":true}`) and load the service root URL to watch the agent.
-5. Verify training completes an attempt and the live feed changes; `ok: true` alone only indicates the server did not report a fatal error.
+- Git branch: `pikachus-beach-trainer`
+- Dockerfile: `beach/Dockerfile`
+- Host: Render free, Virginia
+- Spectator site: https://pikachus-beach.onrender.com/
+- Health check: https://pikachus-beach.onrender.com/api/health
 
-The service is intended to expose a Render URL of the form `https://<assigned-service-name>.onrender.com/`; the exact URL must be obtained from the deployed service and checked. Do not assume the name is available.
+For a new workspace, the Blueprint at `beach/render.yaml` describes the service. The original service was created directly using the Render API.
 
-## Free tier limitations — important
+## Operational limitations
 
-The current agent checkpoints to `/data/training.json`, but **Render Free does not provide persistent disks**. Local checkpoints and clips will be lost when the container is replaced, restarted, or redeployed. Render Free also sleeps after about 15 minutes without inbound traffic; the training loop is suspended while sleeping. Thus this setup is a proof of concept / live preview, **not a durable, continuous ML training environment**. The current code has no external checkpoint store; do not represent this as lossless training.
+Render Free can sleep after inactivity and offers no persistent disk. The trainer's checkpoints and captured clips are saved only on ephemeral instance storage: they may disappear on restart, redeploy, or suspension. This deployment is a functional preview, **not** guaranteed uninterrupted or durable training. The next reliability improvement should be an external checkpoint store.
 
-Do not add a fake keepalive loop or promise 24/7 free service. Before relying on the service for lengthy training, implement external checkpoint persistence with credentials kept server-side, and test backup/restore plus interruption recovery. If uninterrupted training is a hard requirement, move to a provider/plan that permits persistent background execution.
+The service is intentionally watch-only. Visitors receive rendered frames and statistics, not the ROM or playable controls. A spectator can still record the video stream.
 
-For Render documentation see:
-- https://render.com/docs/free
-- https://render.com/docs/blueprint-spec
-- https://render.com/docs/configure-environment-variables
+When testing, verify `/api/health` and confirm that a real viewer receives frames and that training rounds complete; health alone does not prove live gameplay is advancing.
