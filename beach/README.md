@@ -24,7 +24,7 @@ Open [http://127.0.0.1:8787](http://127.0.0.1:8787). The trainer starts when the
 
 ## Run on a dedicated site
 
-Build the container from this repository’s root and mount the exported ROM and symbols read-only. Keep the training volume across deploys. Run one replica for each training volume.
+Build the container from this repository’s root and mount the exported ROM and symbols read-only at runtime. Keep both exports outside the Git checkout, any web root, and the reverse proxy’s static directories. The container build accepts only the application code and viewer assets. Keep the training volume across deploys. Run one replica for each training volume.
 
 ```sh
 docker build -f beach/Dockerfile -t pikachus-beach .
@@ -35,7 +35,7 @@ docker run -d --name pikachus-beach --restart unless-stopped \
   pikachus-beach
 ```
 
-Put the service behind HTTPS on your domain. The proxy needs to stream `/api/live` without buffering. Use your host’s access controls if you want to keep the live session private. The server serves the viewer and live data. Keep the ROM and symbols on the server under the paths configured at startup.
+Put the service behind HTTPS on your domain. The proxy needs to stream `/api/live` without buffering. The viewer receives HTML, CSS, JavaScript, rendered frames, and gameplay telemetry. The ROM, symbols, emulator process, and training checkpoints stay on the server. Use your host’s access controls to keep the viewer, live stream, and clips private if needed. Browser users can capture the gameplay they can see.
 
 To connect from the separate page hosted with Yellow Editor, set `BEACH_VIEWER_ORIGINS` on the server to the exact allowed editor origins, comma-separated, for example `https://gabrielaulenti-grave.github.io`. Then open the **Pikachu’s Beach** link in Yellow Editor and enter the HTTPS trainer address. The standalone site needs no cross-origin setup.
 

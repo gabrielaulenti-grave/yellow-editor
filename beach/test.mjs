@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
+import { inflateSync } from "node:zlib";
 import { openBeach, frameLength } from "./emulator.mjs";
 import { newTraining, recordRound, trainingStats } from "./learner.mjs";
 
@@ -86,6 +87,14 @@ test("server streams frames, saves clips and resumes training from disk", { skip
     const base = await startServer();
     const page = await fetch(base);
     assert.match(await page.text(), /Pikachu’s Beach/);
+    for (const path of ["/pokeyellow.gbc", "/pokeyellow.sym", "/rom/pokeyellow.gbc",
+      "/rom/pokeyellow.sym", "/api/rom", "/api/memory", "/api/state",
+      "/viewer.js.map", "/server.mjs", "/beach/native/bridge.c", "/training.json",
+      "/api/clips/..%2f..%2from%2fpokeyellow.gbc", "/api/%2e%2e/rom/pokeyellow.gbc"]) {
+      assert.equal((await fetch(base + path)).status, 404, path);
+    }
+    const viewer = await (await fetch(`${base}/viewer.js`)).text();
+    assert.doesNotMatch(viewer, /\.gbc\b|\.sym\b|WebAssembly|sourceMappingURL/);
     assert.equal((await fetch(`${base}/api/live`, { headers: { Origin: "https://wrong.example" } })).status, 403);
 
     const stream = await fetch(`${base}/api/live?pace=fast`, { signal: controller.signal });
@@ -97,16 +106,25 @@ test("server streams frames, saves clips and resumes training from disk", { skip
       received += Buffer.from(item.value).toString();
     }
     const live = JSON.parse(received.split("\n\n")[0].slice(6));
-    assert.ok(live.frame.length > 0);
+    assert.equal(inflateSync(Buffer.from(live.frame, "base64")).length, frameLength);
+    assert.deepEqual(Object.keys(live).filter(key => key !== "lastRound").sort(), [
+      "action", "angle", "clips", "evaluating", "frame", "generation", "history", "hp", "phase",
+      "policy", "population", "progress", "radness", "speed", "total", "wipeouts",
+    ]);
     controller.abort();
 
     const completed = await waitForRound(live.total);
     const clip = await (await fetch(`${base}/api/clips/first`)).json();
+    assert.deepEqual(Object.keys(clip).sort(), ["finished", "frames", "progress", "score", "wipeouts"]);
     assert.equal(clip.frames.length, 120);
+    for (const frame of clip.frames) {
+      assert.deepEqual(Object.keys(frame).sort(), ["action", "frame"]);
+      assert.equal(inflateSync(Buffer.from(frame.frame, "base64")).length, frameLength);
+    }
     server.kill();
     await closed;
     const restarted = await startServer();
-    assert.equal((await fetch(`${restarted}/api/clips/first`)).status, 200);
+    assert.deepEqual(await (await fetch(`${restarted}/api/clips/first`)).json(), clip);
     assert.ok(await waitForRound(completed) > completed);
   } finally {
     controller.abort();

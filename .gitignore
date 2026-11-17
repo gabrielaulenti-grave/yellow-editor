@@ -30,3 +30,6 @@ public/wasm-tools/
 # Local Pikachu’s Beach trainer artifacts
 /beach/.build/
 /beach/.data/
+*.[gG][bB]
+*.[gG][bB][cC]
+*.[sS][yY][mM]

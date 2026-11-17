@@ -7,8 +7,8 @@ RUN sh beach/native/build.sh
 FROM node:24-bookworm-slim
 WORKDIR /app
 COPY --from=build /app/beach/.build ./beach/.build
-COPY beach/*.mjs ./beach/
-COPY public/beach ./public/beach
+COPY beach/server.mjs beach/emulator.mjs beach/training.mjs beach/learner.mjs ./beach/
+COPY public/beach/index.html public/beach/style.css public/beach/viewer.js ./public/beach/
 RUN mkdir /data && chown node:node /data
 ENV HOST=0.0.0.0 PORT=8787 BEACH_DATA=/data BEACH_ROM=/rom/pokeyellow.gbc BEACH_SYMBOLS=/rom/pokeyellow.sym
 USER node

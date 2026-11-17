@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { performance } from "node:perf_hooks";
@@ -11,12 +11,26 @@ import { loadTraining, saveTraining, train } from "./training.mjs";
 const pathFromHere = (path) => fileURLToPath(new URL(path, import.meta.url));
 const env = process.env;
 if (!env.BEACH_ROM || !env.BEACH_SYMBOLS) throw new Error("Set BEACH_ROM and BEACH_SYMBOLS to the local files exported from the patched checkout.");
+
+const [romPath, symbolsPath] = await Promise.all([realpath(env.BEACH_ROM), realpath(env.BEACH_SYMBOLS)]);
+for (const dir of ["../public", "../dist"]) {
+  const root = await realpath(pathFromHere(dir)).catch(error => {
+    if (error.code !== "ENOENT") throw error;
+    return pathFromHere(dir);
+  });
+  for (const path of [romPath, symbolsPath]) {
+    const subpath = relative(root, path);
+    if (subpath !== ".." && !subpath.startsWith(`..${sep}`) && !isAbsolute(subpath)) {
+      throw new Error("Keep the trainer ROM and symbol file outside the editor's public and build directories.");
+    }
+  }
+}
 const data = resolve(env.BEACH_DATA || pathFromHere("./.data"));
 await mkdir(data, { recursive: true });
 const checkpoint = resolve(data, "training.json");
 const emulator = await openBeach(
   resolve(env.BEACH_EMULATOR || pathFromHere("./.build/beach-emulator")),
-  resolve(env.BEACH_ROM), resolve(env.BEACH_SYMBOLS),
+  romPath, symbolsPath,
 );
 const controller = new AbortController();
 const clients = new Map();
@@ -109,20 +123,24 @@ function stop() {
 
 const encode = pixels => deflateSync(pixels, { level: 1 }).toString("base64");
 
+function publicClip({ finished, score, progress, wipeouts, frames }) {
+  return JSON.stringify({ finished, score, progress, wipeouts, frames: frames.map(({ frame, action }) => ({ frame, action })) });
+}
+
 async function saveClips(round, frames) {
   const names = [];
   if (!clips.has("first")) names.push("first");
   if (round.finished && (!clips.has("best") || round.score > clips.get("best").score)) names.push("best");
   if (!names.length) return;
-  const contents = JSON.stringify({
-    romId: emulator.id, ...round,
+  const clip = {
+    ...round,
     frames: frames.map(({ pixels, action }) => ({ frame: encode(pixels), action })),
-  });
+  };
   for (const name of names) {
     const path = clipPath(name);
-    await writeFile(`${path}.tmp`, contents, { mode: 0o600 });
+    await writeFile(`${path}.tmp`, JSON.stringify({ ...clip, romId: emulator.id }), { mode: 0o600 });
     await rename(`${path}.tmp`, path);
-    clips.set(name, { score: round.score, contents });
+    clips.set(name, { score: clip.score, contents: publicClip(clip) });
   }
 }
 
@@ -130,9 +148,8 @@ try {
   const training = await loadTraining(checkpoint, emulator.id);
   for (const name of ["first", "best"]) {
     try {
-      const contents = await readFile(clipPath(name), "utf8");
-      const { romId, score } = JSON.parse(contents);
-      if (romId === emulator.id) clips.set(name, { score, contents });
+      const clip = JSON.parse(await readFile(clipPath(name), "utf8"));
+      if (clip.romId === emulator.id) clips.set(name, { score: clip.score, contents: publicClip(clip) });
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
     }
