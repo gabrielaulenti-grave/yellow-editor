@@ -7,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
+import { remoteConfigured, restoreRemote, saveRemote } from "./remote-checkpoint.mjs";
 
 const pathFromHere = (path) => fileURLToPath(new URL(path, import.meta.url));
 const env = process.env;
@@ -145,7 +146,13 @@ async function saveClips(round, frames) {
 }
 
 try {
-  const training = await loadTraining(checkpoint, emulator.id);
+  // A configured remote store is authoritative after a restart. Never silently
+  // start at generation 1 if remote restoration fails: that can erase progress.
+  const training = remoteConfigured()
+    ? (await restoreRemote(emulator.id)) ?? await loadTraining(checkpoint, emulator.id)
+    : await loadTraining(checkpoint, emulator.id);
+  let lastRemoteSave = 0;
+  console.log(`Checkpoint store: ${remoteConfigured() ? "remote + local" : "local only (ephemeral)"}`);
   for (const name of ["first", "best"]) {
     try {
       const clip = JSON.parse(await readFile(clipPath(name), "utf8"));
@@ -167,7 +174,19 @@ try {
   process.once("SIGTERM", stop);
   await train(emulator, training, {
     signal: controller.signal,
-    checkpoint: value => saveTraining(checkpoint, emulator.id, value),
+    checkpoint: async value => {
+      await saveTraining(checkpoint, emulator.id, value);
+      if (remoteConfigured() && (lastRemoteSave === 0 || Date.now() - lastRemoteSave >= 45000)) {
+        // Persist only at round boundaries; a slow/offline database must not
+        // kill an active training session. Re-attempt next completed round.
+        try {
+          await saveRemote(emulator.id, value);
+          lastRemoteSave = Date.now();
+        } catch (error) {
+          console.error("Durable checkpoint save failed:", error.message);
+        }
+      }
+    },
     saveClip: saveClips,
     wantsFrame: () => clients.size > 0 && performance.now() - lastFrame >= 1000 / 24,
     publish(pixels, state) {
