@@ -29,3 +29,19 @@ Render Free can sleep after inactivity and offers no persistent disk. The traine
 The service is intentionally watch-only. Visitors receive rendered frames and statistics, not the ROM or playable controls. A spectator can still record the video stream.
 
 When testing, verify `/api/health` and confirm that a real viewer receives frames and that training rounds complete; health alone does not prove live gameplay is advancing.
+
+## Optional durable learning checkpoints (Supabase)
+
+Create a **dedicated** Supabase Free project for the trainer (do not reuse Funeral Workforce databases). Run `beach/checkpoints.sql` in that project's SQL editor or with the connected Supabase SQL tool. The new table has RLS enabled, no access for `anon` or `authenticated`, and server-only `service_role` access.
+
+Add two Render **secret environment variables** to the existing service:
+- `BEACH_SUPABASE_URL` — dedicated project's HTTPS URL, such as `https://<project-ref>.supabase.co`
+- `BEACH_SUPABASE_SERVICE_KEY` — the project's **secret/service_role** key (server only; never commit, log, or embed in public HTML)
+
+Only when BOTH are present does the trainer restore a remote checkpoint at startup. If fetching the configured remote database fails, startup fails closed instead of silently resetting weights. On each completed round, local checkpointing continues; a remote snapshot is attempted no more than once every 45 seconds. Transient remote write failures are logged and retried at the next round.
+
+**Important migration note:** The first redeploy into this mode replaces the currently running Render Free instance, so the old ephemeral checkpoint may be lost before remote persistence is enabled. This initial transition may reset learning. Future restarts can restore from the latest durable snapshot.
+
+Confirm initial rows appeared in `public.beach_checkpoints` and that `total` increases over time. Explicitly test a restart and check that generation/total resume rather than resetting.
+
+For optional scheduled health checks, see `beach/optional-schedule.sql`. Do not mistake checks for guaranteed uninterrupted execution; confirm the hosting service's policy and limits first.
