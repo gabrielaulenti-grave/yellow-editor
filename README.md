@@ -48,6 +48,10 @@ npm run tauri dev
 
 For source development, Yellow Editor synchronizes the already-published pinned WASM tool bundles into `public/wasm-tools` when they are not present locally. Release builds generate and package those assets with the application, so an installed desktop build does not depend on the Yellow Editor website or any external build tools at runtime.
 
+## Pikachu’s Beach trainer
+
+The **Pikachu’s Beach** link opens a separate viewer for a server that trains a surfing agent on the original minigame. See [ROM preparation and standalone server setup](beach/README.md).
+
 ## Current editor coverage
 
 The [vanilla script atlas](docs/script-atlas.md) inventories every Red/Blue and

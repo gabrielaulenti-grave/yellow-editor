@@ -74,6 +74,13 @@ input[readonly] {
   margin-bottom: 16px;
 }
 
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .app-header h1,
 .tab-content h2,
 .pokemon-editor h3,

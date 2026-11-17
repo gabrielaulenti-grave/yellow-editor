@@ -2176,7 +2176,10 @@ function App() {
           <h1>Yellow Editor</h1>
           <p className="status-line">{status}</p>
         </div>
-        <button onClick={selectProject}>Open Project</button>
+        <div className="app-header-actions">
+          <a href={`${import.meta.env.BASE_URL}beach/index.html`} target="_blank" rel="noopener noreferrer">Pikachu’s Beach</a>
+          <button onClick={selectProject}>Open Project</button>
+        </div>
       </header>
 
       {isBetaRelease && (
