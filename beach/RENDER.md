@@ -30,18 +30,21 @@ The service is intentionally watch-only. Visitors receive rendered frames and st
 
 When testing, verify `/api/health` and confirm that a real viewer receives frames and that training rounds complete; health alone does not prove live gameplay is advancing.
 
-## Optional durable learning checkpoints (Supabase)
+## Durable learning checkpoints (Supabase)
 
-Create a **dedicated** Supabase Free project for the trainer (do not reuse Funeral Workforce databases). Run `beach/checkpoints.sql` in that project's SQL editor or with the connected Supabase SQL tool. The new table has RLS enabled, no access for `anon` or `authenticated`, and server-only `service_role` access.
+The trainer has a dedicated free project under the existing Funeral Workforce organization, region us-east-1: `hytibwkykvngedxcnpee`. It does not share a database with Funeral Workforce.
 
-Add two Render **secret environment variables** to the existing service:
-- `BEACH_SUPABASE_URL` — dedicated project's HTTPS URL, such as `https://<project-ref>.supabase.co`
-- `BEACH_SUPABASE_SERVICE_KEY` — the project's **secret/service_role** key (server only; never commit, log, or embed in public HTML)
+A private, RLS-enabled table `public.beach_checkpoints` stores the most recent complete round checkpoint. The `anon` and `authenticated` roles have no table privileges. Two deliberately token-gated RPC functions provide ONLY the load and save operations. The separate random RPC token is stored in a private database schema and as a Render environment secret; it must NEVER be placed in Git or in public HTML. The public publishable Supabase API key is not an administrator credential.
 
-Only when BOTH are present does the trainer restore a remote checkpoint at startup. If fetching the configured remote database fails, startup fails closed instead of silently resetting weights. On each completed round, local checkpointing continues; a remote snapshot is attempted no more than once every 45 seconds. Transient remote write failures are logged and retried at the next round.
+Render environment variables:
+- `BEACH_SUPABASE_URL` — `https://hytibwkykvngedxcnpee.supabase.co`
+- `BEACH_SUPABASE_PUBLISHABLE_KEY` — project's default publishable API key
+- `BEACH_CHECKPOINT_TOKEN` — private 256-bit credential, generated on the database and installed server-side
 
-**Important migration note:** The first redeploy into this mode replaces the currently running Render Free instance, so the old ephemeral checkpoint may be lost before remote persistence is enabled. This initial transition may reset learning. Future restarts can restore from the latest durable snapshot.
+Only when all three are present does the trainer restore a remote checkpoint at startup. If the remote fetch fails, startup deliberately fails instead of resetting weights silently. On completed rounds the trainer saves locally and remotely, at most once per 45 seconds; failures trigger a retry at the next round.
 
-Confirm initial rows appeared in `public.beach_checkpoints` and that `total` increases over time. Explicitly test a restart and check that generation/total resume rather than resetting.
+The first redeploy into this mode necessarily replaces the old Render Free container, which may erase that container's ephemeral weights. Future restarts should restore the latest remote checkpoint. Verify `total` increases in `public.beach_checkpoints` and a later restart preserves progress.
 
-For optional scheduled health checks, see `beach/optional-schedule.sql`. Do not mistake checks for guaranteed uninterrupted execution; confirm the hosting service's policy and limits first.
+## Scheduled health check
+
+The dedicated Supabase project also has one cron job named `pikachus-beach-check`, schedule `*/14 * * * *`, issuing a GET to the public Render `/api/health` endpoint. Inspect `cron.job_run_details` and `net._http_response` when testing it. This is a basic availability check, not a guarantee of 24/7 training. Render retains its right to restart the instance or suspend it on exceeding free usage limits, and project sleep/restarts are still possible.
