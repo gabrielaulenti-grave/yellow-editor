@@ -1,54 +1,52 @@
-// Optional durable checkpoint store. Only accessed on the server.
+// Server-only checkpoint adapter using a scoped RPC token and a publishable API key.
+// Never embed BEACH_CHECKPOINT_TOKEN in browser code or in a public source file.
 const base = process.env.BEACH_SUPABASE_URL;
-const key = process.env.BEACH_SUPABASE_SERVICE_KEY;
-if (Boolean(base) !== Boolean(key)) {
-  throw new Error("Configure both BEACH_SUPABASE_URL and BEACH_SUPABASE_SERVICE_KEY, or neither.");
+const publishableKey = process.env.BEACH_SUPABASE_PUBLISHABLE_KEY;
+const token = process.env.BEACH_CHECKPOINT_TOKEN;
+const configured = [base, publishableKey, token].filter(Boolean).length;
+if (configured !== 0 && configured !== 3) {
+  throw new Error("Configure all of BEACH_SUPABASE_URL, BEACH_SUPABASE_PUBLISHABLE_KEY, and BEACH_CHECKPOINT_TOKEN, or none.");
 }
-const endpoint = base ? new URL("/rest/v1/beach_checkpoints", base) : null;
-if (endpoint && (endpoint.protocol !== "https:" || endpoint.username || endpoint.password)) {
-  throw new Error("BEACH_SUPABASE_URL must be an HTTPS URL without embedded credentials.");
+const root = base ? new URL("/rest/v1/rpc/", base) : null;
+if (root && (root.protocol !== "https:" || root.username || root.password)) {
+  throw new Error("BEACH_SUPABASE_URL must be HTTPS without credentials.");
 }
-const headers = () => ({
-  apikey: key,
-  Authorization: `Bearer ${key}`,
-  "Content-Type": "application/json",
-  Accept: "application/json",
-});
-const controller = () => AbortSignal.timeout(12000);
 function validRecord(record, romId) {
   if (!record || record.version !== 1 || record.rom_id !== romId ||
       !record.training || !Number.isSafeInteger(record.training.total) ||
       !Number.isSafeInteger(record.training.generation) ||
       !Array.isArray(record.training.champion) ||
       !Array.isArray(record.training.candidates)) {
-    throw new Error("Durable checkpoint is invalid or belongs to an incompatible ROM.");
+    throw new Error("Remote checkpoint is corrupted or belongs to a different trainer ROM.");
   }
   return record.training;
 }
-
-export function remoteConfigured() { return Boolean(endpoint); }
-
-export async function restoreRemote(romId) {
-  if (!endpoint) return null;
-  const url = new URL(endpoint);
-  url.searchParams.set("id", "eq.main");
-  url.searchParams.set("select", "version,rom_id,training");
-  const response = await fetch(url, { headers: headers(), signal: controller() });
-  if (!response.ok) throw new Error(`Remote checkpoint read failed (HTTP ${response.status})`);
-  const records = await response.json();
-  if (!Array.isArray(records) || records.length > 1) throw new Error("Unexpected remote checkpoint response");
-  return records.length ? validRecord(records[0], romId) : null;
-}
-
-export async function saveRemote(romId, training) {
-  if (!endpoint) return;
-  const url = new URL(endpoint);
-  url.searchParams.set("on_conflict", "id");
-  const response = await fetch(url, {
+async function rpc(name, body) {
+  const response = await fetch(new URL(name, root), {
     method: "POST",
-    headers: { ...headers(), Prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify([{ id: "main", version: 1, rom_id: romId, training, total: training.total }]),
-    signal: controller(),
+    headers: {
+      apikey: publishableKey,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({ p_token: token, ...body }),
+    signal: AbortSignal.timeout(12000),
   });
-  if (!response.ok) throw new Error(`Remote checkpoint write failed (HTTP ${response.status})`);
+  if (!response.ok) throw new Error(`Remote checkpoint ${name} failed (HTTP ${response.status})`);
+  return response.json();
+}
+export function remoteConfigured() { return Boolean(root); }
+export async function restoreRemote(romId) {
+  if (!root) return null;
+  const record = await rpc("beach_load", {});
+  return record == null ? null : validRecord(record, romId);
+}
+export async function saveRemote(romId, training) {
+  if (!root) return;
+  await rpc("beach_save", {
+    p_rom_id: romId,
+    p_version: 1,
+    p_total: training.total,
+    p_training: training,
+  });
 }
