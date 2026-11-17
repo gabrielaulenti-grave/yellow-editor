@@ -27,6 +27,7 @@
     "test:scripts": "node scripts/check-script-round-trips.mjs",
     "test:scripts:rom": "node scripts/check-script-round-trips.mjs --rom",
     "dev": "vite",
+    "prebuild": "node scripts/check-public-assets.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "prepare:pret-wasm": "node scripts/prepare-pret-tools-wasm.mjs",

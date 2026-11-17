@@ -1,0 +1,14 @@
+**
+!beach/
+!beach/native/
+!beach/native/bridge.c
+!beach/native/build.sh
+!beach/server.mjs
+!beach/emulator.mjs
+!beach/training.mjs
+!beach/learner.mjs
+!public/
+!public/beach/
+!public/beach/index.html
+!public/beach/style.css
+!public/beach/viewer.js
