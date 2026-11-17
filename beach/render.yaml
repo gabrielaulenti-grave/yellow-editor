@@ -1,0 +1,27 @@
+# Render Blueprint for the separate Pikachu's Beach spectator/trainer service.
+# Select beach/render.yaml as the Blueprint Path during setup.
+# The ROM and symbol file must be supplied as Render Secret Files:
+#   pokeyellow.gbc -> /etc/secrets/pokeyellow.gbc
+#   pokeyellow.sym -> /etc/secrets/pokeyellow.sym
+# Do not commit either file to Git. Free Render storage is EPHEMERAL.
+services:
+  - type: web
+    name: pikachus-beach
+    runtime: docker
+    plan: free
+    branch: pikachus-beach-trainer
+    dockerfilePath: ./beach/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeployTrigger: off
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: BEACH_ROM
+        value: /etc/secrets/pokeyellow.gbc
+      - key: BEACH_SYMBOLS
+        value: /etc/secrets/pokeyellow.sym
+      - key: BEACH_DATA
+        value: /data
+      - key: HOST
+        value: 0.0.0.0
