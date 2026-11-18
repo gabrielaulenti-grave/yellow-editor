@@ -131,8 +131,46 @@ async function show(state, source) {
   if (state.lastRound) {
     const last = byId("last-round");
     last.hidden = false;
-    last.textContent = state.lastRound.finished ? `Last round · ${number.format(state.lastRound.score)} points` :
+    last.textContent = state.lastRound.finished ? `Last round · ${number.format(state.lastRound.score)} game / ${Number.isSafeInteger(state.lastRound.extendedScore) ? number.format(state.lastRound.extendedScore) : "unverified"} extended` :
       `Last round · Ran out of HP at ${Math.floor(state.lastRound.progress * 100)}%`;
+  }
+}
+
+function renderExtendedRecords(records) {
+  const signature = records.map(r => r.id + ":" + r.extendedScore + ":" + r.firstMaxout).join("|");
+  if(signature === extendedSignature) return;
+  extendedSignature = signature;
+  const list = byId("extended-list");
+  list.replaceChildren();
+  byId("extended-empty").hidden = records.length > 0;
+  for (const record of records) {
+    const id = String(record.id);
+    if(!/^[1-9][0-9]{0,14}$/.test(id)) continue;
+    const row = document.createElement("div");
+    row.className = "record-row";
+    const info = document.createElement("span");
+    const tag = record.firstMaxout ? "★ FIRST GAME 9,999 · " : "";
+    info.textContent = tag + number.format(record.extendedScore) + " extended / " +
+      number.format(record.score) + " game · Gen " + record.generation +
+      " · Round " + number.format(record.total);
+    const watch = document.createElement("button");
+    watch.type = "button";
+    watch.textContent = "Watch";
+    watch.addEventListener("click", () => {
+      const url = endpoint + "/api/extended-records/" + id;
+      const video = byId("extended-video");
+      video.hidden = false;
+      video.src = url;
+      video.load();
+      video.play().catch(() => {});
+      const download = byId("extended-download");
+      download.hidden = false;
+      download.href = url;
+      download.download = "beach-extended-" + record.extendedScore + "-run-" + record.total + ".webm";
+      download.textContent = "Download " + number.format(record.extendedScore) + "-point recording";
+    });
+    row.append(info, watch);
+    list.append(row);
   }
 }
 
@@ -362,6 +400,7 @@ function renderAnalytics(summary, runs) {
     cell.append(numberElement, name);
     tricks.append(cell);
   }
+  drawMetric("chart-extended",runs.filter(row=>row.extendedValid !== false && Number.isSafeInteger(row.extendedScore)),"extendedScore","#f0c877");
   drawMetric("chart-score",runs,"score","#f1df79");
   drawMetric("chart-radness",runs,"radness","#8fe3be");
   drawMetric("chart-hp",runs,"hpRemaining","#a3c8ff");
