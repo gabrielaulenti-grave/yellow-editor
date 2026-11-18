@@ -48,6 +48,7 @@ const archivedGenerations = [];
 let currentTraining;
 const assets = new Map(await Promise.all([
   ["/", "index.html", "text/html"], ["/style.css", "style.css", "text/css"], ["/viewer.js", "viewer.js", "text/javascript"],
+  ["/downloads/pokeyellow-landing-telemetry-disassembly.zip", "pokeyellow-landing-telemetry-disassembly.zip", "application/zip"],
 ].map(async ([route, file, type]) => [route, { type, contents: await readFile(pathFromHere(`../public/beach/${file}`)) }])));
 let errorMessage;
 let lastFrame = 0;
@@ -218,7 +219,13 @@ const server = createServer((req, res) => {
   }
   const asset = assets.get(url.pathname === "/index.html" ? "/" : url.pathname);
   if (asset) {
-    res.writeHead(200, { "Content-Type": `${asset.type}; charset=utf-8`, "X-Content-Type-Options": "nosniff" });
+    const isZip=url.pathname.endsWith("/pokeyellow-landing-telemetry-disassembly.zip");
+    res.writeHead(200, {
+      "Content-Type": isZip ? "application/zip" : `${asset.type}; charset=utf-8`,
+      "Content-Length": asset.contents.length,
+      "X-Content-Type-Options": "nosniff",
+      ...(isZip ? { "Content-Disposition": 'attachment; filename="pokeyellow-landing-telemetry-disassembly.zip"' } : {}),
+    });
     res.end(asset.contents);
     return;
   }
