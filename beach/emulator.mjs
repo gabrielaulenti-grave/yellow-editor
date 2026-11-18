@@ -14,6 +14,7 @@ export const memoryFields = {
   x: ["wAnimatedObject0XCoord", 1],
   y: ["wAnimatedObject0YCoord", 1],
   yOffset: ["wAnimatedObject0YOffset", 1],
+  yFraction: ["wAnimatedObject0FieldC", 1],
   angle: ["wAnimatedObject0FramesetID", 1],
   descending: ["wSurfingMinigameJumpDescending", 1],
   jumpMagnitude: ["wSurfingMinigameJumpArcMagnitude", 1],
@@ -22,6 +23,7 @@ export const memoryFields = {
   surfaceTile: ["wSurfingMinigameBGMapReadBuffer", 1],
   scroll: ["hSCX", 1],
   water: ["wSurfingMinigameWaveHeight", 20],
+  terrainTiles: ["__lookahead__", 12],
 };
 export const frameLength = 160 * 144 * 4;
 export const actionNames = ["Release", "Left", "Right"];
@@ -36,11 +38,17 @@ export async function openBeach(executable, romPath, symPath) {
   }
   const addresses = [];
   for (const [label, width] of Object.values(memoryFields)) {
+    if (label === "__lookahead__") continue;
     const address = symbols.get(label)?.address;
     if (!(address >= 0xc000 && address + width <= 0xffff)) throw new Error(`Missing or invalid symbol ${label}.`);
     for (let i = 0; i < width; i++) addresses.push((address + i).toString(16));
   }
-  const child = spawn(executable, [romPath, ...addresses], { stdio: ["pipe", "pipe", "inherit"] });
+  const scrollAddress = symbols.get("hSCX")?.address;
+  const heightsAddress = symbols.get("wSurfingMinigameWaveHeight")?.address;
+  if (!(scrollAddress >= 0xc000 && heightsAddress >= 0xc000)) throw new Error("Missing lookahead symbols");
+  const terrainArgument = `T${scrollAddress.toString(16)},${heightsAddress.toString(16)}`;
+  const sampleBytes = memoryFields.terrainTiles[1];
+  const child = spawn(executable, [romPath, ...addresses, terrainArgument], { stdio: ["pipe", "pipe", "inherit"] });
   let request;
   let failure;
   function fail(error) {
@@ -66,7 +74,7 @@ export async function openBeach(executable, romPath, symPath) {
     const { buffer, resolve, timer } = request;
     request = undefined;
     clearTimeout(timer);
-    resolve({ state: decode(buffer), pixels: buffer.length > addresses.length ? buffer.subarray(addresses.length) : null });
+    resolve({ state: decode(buffer), pixels: buffer.length > addresses.length + sampleBytes ? buffer.subarray(addresses.length + sampleBytes) : null });
   });
   await once(child, "spawn");
 
@@ -77,7 +85,7 @@ export async function openBeach(executable, romPath, symPath) {
       if (request) return Promise.reject(new Error("Emulator step already in flight."));
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => fail(new Error("Emulator frame timed out.")), 5000);
-        request = { resolve, reject, timer, buffer: Buffer.allocUnsafe(addresses.length + (pixels ? frameLength : 0)), offset: 0 };
+        request = { resolve, reject, timer, buffer: Buffer.allocUnsafe(addresses.length + sampleBytes + (pixels ? frameLength : 0)), offset: 0 };
         child.stdin.write(Buffer.from([action | (pixels ? 4 : 0)]));
       });
     },
@@ -102,6 +110,7 @@ export function decode(memory) {
     speed: values.speed.readUInt16LE() / 256, progress: Math.min(1, values.distance.readUIntBE(0, 3) / (24 * 65536)),
     x: byte("x") - 8, y: ((byte("y") + byte("yOffset")) & 255) - 16,
     angle: byte("angle"),
+    rawY: byte("y"), yFraction: byte("yFraction"),
     descending: byte("descending"),
     jumpMagnitude: byte("jumpMagnitude"),
     jumpFraction: byte("jumpFraction"),
@@ -111,6 +120,9 @@ export function decode(memory) {
     // This unsigned modular distance is 0 at contact; it may wrap after contact.
     landingClearance: (byte("groundHeight") - byte("y") + 256) & 255,
     surfaceTile: byte("surfaceTile"),
+    scroll: byte("scroll"),
+    waveHeights: [...values.water],
+    terrainTiles: [...values.terrainTiles],
     // The 20-height buffer starts at tile 2 relative to the aligned viewport.
     // Sample tiles at fixed screen positions; the newest entries can be offscreen.
     water: Array.from({ length: 8 }, (_, i) => values.water[((40 + 16 * i + (byte("scroll") & 15)) >> 3) - 2]),
