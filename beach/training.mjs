@@ -1,4 +1,5 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
+import { deflateSync } from "node:zlib";
 import { decide, newTraining, recordRound, trainingStats } from "./learner.mjs";
 import { actionNames } from "./emulator.mjs";
 
@@ -31,6 +32,7 @@ export async function train(emulator, training, options) {
   const clipSize = 120;
   const clip = new Array(clipSize);
   let clipFrames = 0;
+  let fullFrames = [];
   while (!options.signal.aborted) {
     const active = state?.routine === 1 && attempt?.finished === undefined;
     const observation = active && {
@@ -44,7 +46,10 @@ export async function train(emulator, training, options) {
     const capture = active && frame % captureEvery === 0;
     const live = options.wantsFrame();
     const result = await emulator.step(exit ? 3 : action, capture || live);
-    if (capture) clip[clipFrames++ % clipSize] = { pixels: result.pixels, action: actionNames[action] };
+    if (capture) {
+      clip[clipFrames++ % clipSize] = { pixels: result.pixels, action: actionNames[action] };
+      if (fullFrames.length < 1800) fullFrames.push(deflateSync(result.pixels, { level: 1 }));
+    }
     frame++;
     state = result.state;
     if (!attempt && state.routine === 1) {
@@ -60,14 +65,24 @@ export async function train(emulator, training, options) {
         if (finished || state.routine === 12) {
           attempt.finished = finished;
           lastRound = { finished, score: finished ? state.score : 0, progress: state.progress, wipeouts: attempt.wipeouts };
+          const isNewRecord = lastRound.finished && lastRound.score > (training.highScore || 0);
+          const generation = training.generation;
           recordRound(training, lastRound);
+          // Preserve the model before encoding/uploading a potentially long recording.
+          await options.checkpoint(training);
           if (clipFrames) {
             const start = Math.max(0, clipFrames - clipSize);
             const frames = Array.from({ length: Math.min(clipFrames, clipSize) }, (_, i) => clip[(start + i) % clipSize]);
-            await options.saveClip(lastRound, frames);
+            try {
+              await options.saveClip(lastRound, frames, isNewRecord ? fullFrames : null, {
+                generation, total: training.total,
+              });
+            } catch (error) {
+              console.error("Video/clip archival failed:", error.message);
+            }
           }
           clipFrames = 0;
-          await options.checkpoint(training);
+          fullFrames = [];
           watchdog = 0;
         }
       }
