@@ -70,3 +70,29 @@ test("an unidentified positive radness increment is preserved, never misclassifi
   assert.equal(row.tricks[50],0);
   assert.equal(row.unclassifiedRadness,100);
 });
+
+test("a real +500 landing is flagged for independent video archival", () => {
+  const t = startRunTelemetry();
+  const sample = (state,radness) =>
+    observeRun(t,{routine:1,state,radness,hp:2000,speed:1.5});
+  assert.equal(sample(0,0),false);
+  assert.equal(sample(1,0),false);
+  assert.equal(sample(2,500),true);
+  assert.equal(sample(2,500),false);
+  assert.equal(sample(0,500),false);
+  assert.equal(sample(1,500),false);
+  assert.equal(sample(2,1000),true);
+  const result = finishRunTelemetry(t,{
+    finished:false,score:0,progress:0.78,wipeouts:1
+  });
+  assert.equal(result.confirmed500,2);
+  assert.equal(result.tricks["500"],2);
+  assert.equal(result.finished,false);
+});
+test("a +500 score increase without a successful landing is NOT preservation evidence", () => {
+  const t = startRunTelemetry();
+  observeRun(t,{routine:1,state:0,radness:0,speed:1,hp:500});
+  assert.equal(observeRun(t,{routine:1,state:1,radness:500,speed:1,hp:500}),false);
+  assert.equal(observeRun(t,{routine:1,state:3,radness:1000,speed:1,hp:500}),false);
+  assert.equal(finishRunTelemetry(t,{finished:false,score:0,progress:.1,wipeouts:1}).confirmed500,0);
+});
