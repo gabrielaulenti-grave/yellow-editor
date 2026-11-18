@@ -10,12 +10,16 @@ export function trickAward(meter, flags) {
 export function startRunTelemetry() {
   return { tricks: { "50":0, "150":0, "180":0, "350":0, "500":0 },
     speedSum: 0, speedSamples: 0, hpRemaining: 0, radness: 0,
-    lastState: null, lastRadness: 0, unclassifiedRadness: 0 };
+    lastState: null, lastRadness: 0, unclassifiedRadness: 0, confirmed500: 0 };
 }
 
 export function observeRun(run, state) {
   if (!run || state.routine !== 1) return;
   const increase = state.radness - run.lastRadness;
+  // The ROM awards a stunt on the exact jumping -> landing transition.
+  // A score increase on a different animation state is not evidence of a landing.
+  const landed500 = run.lastState === 1 && state.state === 2 && increase === 500;
+  if (landed500) run.confirmed500++;
   // The ROM awards radness immediately when a stunt is landed. Count the
   // actual BCD-score delta rather than inferring from possibly stale meter
   // values; this also catches rewards spanning an animation boundary.
@@ -29,6 +33,7 @@ export function observeRun(run, state) {
   run.speedSamples++;
   run.hpRemaining = state.hp;
   run.radness = state.radness;
+  return landed500;
 }
 
 export function finishRunTelemetry(run, result) {
@@ -41,6 +46,7 @@ export function finishRunTelemetry(run, result) {
     hpRemaining: run.hpRemaining,
     averageSpeed: run.speedSamples ? +(run.speedSum / run.speedSamples).toFixed(4) : 0,
     tricks: { ...run.tricks },
+    confirmed500: run.confirmed500,
     unclassifiedRadness: Math.max(0, run.radness - TRICK_VALUES.reduce(
       (sum, value) => sum + value * run.tricks[String(value)], 0)),
   };
