@@ -1,3 +1,4 @@
+import { landingSafety } from "./landing-predictor.mjs";
 // Per-run telemetry derived from observed changes to the actual ROM radness score.
 export const TRICK_VALUES = [50, 150, 180, 350, 500];
 
@@ -14,6 +15,8 @@ export function startRunTelemetry() {
     lastState:null, lastRadness:0, lastMeter:0, lastFlags:0,
     uncappedRadness:0, unclassifiedRadness:0, confirmed500:0,
     attributionMismatch:false, overflowUncertain:false,
+    jumps:{started:0,landed:0,wipeouts:0,zeroTrick:0,
+      clean:0,rough:0,hard:0,unknownQuality:0,earnedPoints:0},
   };
 }
 
@@ -24,9 +27,24 @@ export function observeRun(run, state) {
   const current = hasRadness ? state.radness : run.lastRadness;
   const previous = run.lastRadness;
   const increase = Math.max(0, current - previous);
+  if (active && state.state===1 && run.lastState!==1)
+    run.jumps.started++;
   const landed = run.lastState === 1 && state.state === 2;
+  const crashed = run.lastState === 1 && state.state === 3;
   const award = landed ? trickAward(run.lastMeter,run.lastFlags) : 0;
   const landed500 = award === 500;
+  if (crashed) run.jumps.wipeouts++;
+  if (landed) {
+    run.jumps.landed++;
+    if (!award && !increase) run.jumps.zeroTrick++;
+    // Tile/angle sampled at landing: diagnostic estimate, not a ROM event.
+    const quality=landingSafety(state.surfaceTile,state.angle);
+    if (quality===3) run.jumps.clean++;
+    else if (quality===2) run.jumps.rough++;
+    else if (quality===1) run.jumps.hard++;
+    else run.jumps.unknownQuality++;
+    run.jumps.earnedPoints+=award||increase;
+  }
 
   // Before saturation, the original ROM's radness value is authoritative,
   // including any final trick that lands just after routine 1 ends.
@@ -89,6 +107,9 @@ export function finishRunTelemetry(run, result) {
     scoreReconciliation:finished && !aboveCap ? gameScore-independentlyComputed : null,
     extendedSource:!finished ? "not-awarded" : aboveCap ? "uncapped-tricks" : "game-verified",
     confirmed500:run.confirmed500,unclassifiedRadness:run.unclassifiedRadness,
+    jumps:{...run.jumps,
+      avgPointsPerLanding:run.jumps.landed
+        ? +(run.jumps.earnedPoints/run.jumps.landed).toFixed(2) : null},
   };
 }
 
@@ -101,8 +122,25 @@ export function generationSummary(generation, runs) {
     : null;
   const tricks = Object.fromEntries(TRICK_VALUES.map(value =>
     [String(value), runs.reduce((sum, row) => sum + (row.tricks?.[value] || 0), 0)]));
+  const jumpRuns=runs.filter(row=>row.jumps && Number.isFinite(row.jumps.landed));
+  const jumpTotals=jumpRuns.reduce((acc,row)=>{
+    for(const key of ["started","landed","wipeouts","zeroTrick","clean",
+      "rough","hard","unknownQuality","earnedPoints"])
+      acc[key]+=(row.jumps[key]||0);
+    return acc;
+  },{started:0,landed:0,wipeouts:0,zeroTrick:0,clean:0,
+     rough:0,hard:0,unknownQuality:0,earnedPoints:0});
+  const jumpSummary=jumpRuns.length?{
+    ...jumpTotals,
+    measuredRuns:jumpRuns.length,
+    averagePointsPerLanding:jumpTotals.landed
+      ? +(jumpTotals.earnedPoints/jumpTotals.landed).toFixed(2):null,
+    zeroTrickRate:jumpTotals.landed
+      ? +(jumpTotals.zeroTrick/jumpTotals.landed).toFixed(4):null,
+  }:null;
   return {
     generation, runs: count, complete: count === 48,
+    jumpSummary,
     completionRate: count ? +(runs.filter(row => row.finished).length / count).toFixed(4) : 0,
     averageScore: mean("score"), averageRadness: mean("radness"),
     averageExtendedScore: averageExtended,
