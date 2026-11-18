@@ -112,3 +112,15 @@ The landing prediction remains available internally to the neural network but ha
 ### Reward attribution verification
 
 Initial live generation metrics revealed some discrepancies between flip-meter-derived counts and the actual radness total. The trainer now classifies the exact observed positive delta of `wSurfingMinigameRadnessScore` on each gameplay frame (50, 150, 180, 350, or 500) rather than relying on the prior frame's flip meter. Any other positive delta is retained as `unclassifiedRadness`, and the dashboard shows a reconciliation note rather than inventing a trick. This measurement is for analytics and does not affect gameplay or fitness. Existing partial-generation runs retain their original counts and can show a reconciliation discrepancy.
+
+## Verified +500 mixed-flip video evidence
+
+Any run that produces a **genuine +500 radness delta precisely when Pikachu changes from jumping (state 1) to landing (state 2)** triggers an independent evidence recording. Attempts that crash and spurious/non-landing score changes are NOT evidence. This is separate from the high-score rule and applies even if the run later fails, scores zero, or finishes below the all-time record. Multiple +500 awards during a run are counted in one recording.
+
+The recorder first tries a full-run 12fps WebM, subject to the existing 1,800-frame capture horizon and 4 MiB per-video cap. It also snapshots a rolling ~10-second pre-event frame buffer and the next ~10 seconds after the first +500, so it can always fall back to a centered maneuver clip when the full run is truncated or too large. The API includes `fullRun` to distinguish complete runs from event clips. Recording failures are logged, not silently reported as successes.
+
+A dedicated `public.beach_500_videos` table holds immutable evidence. It uses RLS and secret-token-gated `beach_500_save`, `beach_500_list`, and `beach_500_read` RPCs, all called server-side with the existing private checkpoint token. No privilege-bearing token or ROM bytes are served to spectators. Each `(rom_id,total)` is unique, and **these recordings are never pruned by the 20-item high-score retention policy**. The spectator has a separate +500 gallery at `/api/milestones` and `/api/milestones/:id`.
+
+Because the Supabase Free database has limited storage, perpetual retention ultimately depends on space remaining or a future archive/storage upgrade. The list API returns the 100 most recent entries, but no records are deleted automatically. For a rare event, the trainer bypasses the normal 45-second checkpoint throttle before uploading to satisfy ROM/round integrity checks. Historical generations and old videos are untouched.
+
+The new detector is regression-tested for both successful +500 landings and +500 deltas occurring without a landing; deployment should validate the API is empty before the first genuine event and that remote generation progress continues after restart.
