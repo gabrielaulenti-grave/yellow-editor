@@ -174,3 +174,32 @@ test("missing old extended points are excluded from average, not replaced by zer
  assert.equal(result.extendedScoredRuns,2);
  assert.equal(result.extendedMissingRuns,1);
 });
+
+test("per-jump telemetry separates no-trick, scored, and crash events",()=>{
+ const t=startRunTelemetry();
+ const common={routine:1,hp:2000,speed:1.3,surfaceTile:11,angle:4};
+ observeRun(t,{...common,state:0,radness:0});
+ observeRun(t,{...common,state:1,radness:0,trickMeter:0,trickFlags:0});
+ observeRun(t,{...common,state:2,radness:0,trickMeter:0,trickFlags:0});
+ observeRun(t,{...common,state:1,radness:0,trickMeter:2,trickFlags:3});
+ observeRun(t,{...common,state:2,radness:180,trickMeter:2,trickFlags:3});
+ observeRun(t,{...common,state:1,radness:180,trickMeter:0,trickFlags:0});
+ observeRun(t,{...common,state:3,radness:180,trickMeter:0,trickFlags:0});
+ const row=finishRunTelemetry(t,{finished:false,score:0,progress:.8,wipeouts:1});
+ assert.equal(row.jumps.started,3);
+ assert.equal(row.jumps.landed,2);
+ assert.equal(row.jumps.wipeouts,1);
+ assert.equal(row.jumps.zeroTrick,1);
+ assert.equal(row.jumps.clean,2);
+ assert.equal(row.jumps.earnedPoints,180);
+ assert.equal(row.jumps.avgPointsPerLanding,90);
+ const summary=generationSummary(99,[row,row]);
+ assert.equal(summary.jumpSummary.measuredRuns,2);
+ assert.equal(summary.jumpSummary.landed,4);
+ assert.equal(summary.jumpSummary.zeroTrickRate,.5);
+ assert.equal(summary.jumpSummary.averagePointsPerLanding,90);
+});
+test("historic generation summaries never invent jump measurements",()=>{
+ const summary=generationSummary(42,[{finished:true,score:1200,tricks:{"180":1}}]);
+ assert.equal(summary.jumpSummary,null);
+});
