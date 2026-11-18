@@ -5,6 +5,7 @@ let pace = "normal";
 let decoding = false;
 let endpoint;
 let view = 0;
+let archiveSignature = "";
 const params = new URL(location.href).searchParams;
 const number = new Intl.NumberFormat();
 
@@ -73,6 +74,8 @@ async function show(state, source) {
   byId("screen-message").hidden = true;
   for (const key of ["generation", "total", "hp", "radness", "wipeouts"]) byId(key).textContent = number.format(state[key]);
   byId("speed").textContent = state.speed.toFixed(2);
+  byId("high-score").textContent = number.format(state.highScore || 0);
+  renderRecords(state.records || []);
   const progress = Math.floor(state.progress * 100);
   byId("progress").value = progress;
   byId("progress-value").textContent = `${progress}%`;
@@ -87,6 +90,42 @@ async function show(state, source) {
     last.hidden = false;
     last.textContent = state.lastRound.finished ? `Last round · ${number.format(state.lastRound.score)} points` :
       `Last round · Ran out of HP at ${Math.floor(state.lastRound.progress * 100)}%`;
+  }
+}
+
+function renderRecords(records) {
+  const signature = records.map(record => `${record.id}:${record.score}`).join("|");
+  if (signature === archiveSignature) return;
+  archiveSignature = signature;
+  const list = byId("record-list");
+  list.replaceChildren();
+  byId("record-empty").hidden = records.length > 0;
+  for (const record of records) {
+    const row = document.createElement("div");
+    row.className = "record-row";
+    const info = document.createElement("span");
+    info.textContent = `${number.format(record.score)} points · Gen ${record.generation} · Round ${number.format(record.total)}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Watch";
+    button.setAttribute("aria-label", `Watch record of ${number.format(record.score)} points`);
+    button.addEventListener("click", () => {
+      const id = String(record.id);
+      if (!/^[1-9][0-9]{0,14}$/.test(id)) return;
+      const url = `${endpoint}/api/records/${id}`;
+      const video = byId("record-video");
+      video.hidden = false;
+      video.src = url;
+      video.load();
+      video.play().catch(() => {});
+      const download = byId("record-download");
+      download.hidden = false;
+      download.href = url;
+      download.download = `pikachus-beach-${record.score}-points.webm`;
+      download.textContent = `Download ${number.format(record.score)}-point recording`;
+    });
+    row.append(info, button);
+    list.append(row);
   }
 }
 
