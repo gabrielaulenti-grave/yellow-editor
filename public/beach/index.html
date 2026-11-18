@@ -60,6 +60,14 @@
           <canvas id="trend" width="320" height="79" aria-label="Average evaluation score by generation" hidden></canvas>
           <p id="last-round" hidden></p>
         </div>
+        <div class="history milestone-archive">
+          <h3>500-point trick discoveries</h3>
+          <p>Every verified +500 mixed-flip landing gets its own protected recording—even without a high score, and even if the run ends in a wipeout.</p>
+          <p id="milestone-empty">No +500 tricks captured yet. The trainer is still learning.</p>
+          <div id="milestone-list" class="record-list" aria-label="500-point trick recordings"></div>
+          <video id="milestone-video" controls playsinline preload="none" hidden aria-label="500-point trick evidence video"></video>
+          <a id="milestone-download" hidden download>Download 500-point trick recording (.webm)</a>
+        </div>
         <div class="history record-archive">
           <h3>Record-breaking runs</h3>
           <p>Completed runs that beat every earlier tracked score. Recordings are preserved across server restarts, up to the latest 20 records.</p>
