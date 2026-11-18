@@ -6,7 +6,8 @@ const ORIGINAL_INPUTS = 19;
 const TEMPORAL_INPUTS = 6; // last four steering actions, turn delta, speed delta
 const LANDING_INPUTS = 8; // descent, velocity, fractional velocity, clearance, four terrain types
 const PREDICTION_INPUTS = 8; // known, horizon, offset, surface type and safety
-const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS + LANDING_INPUTS + PREDICTION_INPUTS;
+const FLIP_INPUTS = 5; // left/right hold progress, credited flips, left/right trick flags
+const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS + LANDING_INPUTS + PREDICTION_INPUTS + FLIP_INPUTS;
 const HIDDEN = 8;
 const OUTPUTS = 3;
 const WEIGHTS = (INPUTS + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
@@ -189,19 +190,21 @@ export function fitness(round, finishRate = 0) {
 export function migrateTraining(training) {
   if (!training || !Array.isArray(training.champion) || !Array.isArray(training.candidates))
     throw new Error("Invalid training state");
-  // Preserve all three previous policy layouts (187, 235, 299 weights).
+  // Preserve all previous policy layouts (187, 235, 299, 363 weights).
   // Appending zero-weight landing inputs to each hidden neuron exactly preserves
   // the old network outputs until mutations start training the new connections.
   const v1Inputs = ORIGINAL_INPUTS;
   const v2Inputs = ORIGINAL_INPUTS + TEMPORAL_INPUTS;
   const v3Inputs = v2Inputs + LANDING_INPUTS;
+  const v4Inputs = v3Inputs + PREDICTION_INPUTS;
   const widthFor = inputs => (inputs + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
   const expand = weights => {
     if (!Array.isArray(weights)) throw new Error("Invalid policy weights");
     if (weights.length === WEIGHTS) return weights;
     const oldInputs = weights.length === widthFor(v1Inputs) ? v1Inputs :
       weights.length === widthFor(v2Inputs) ? v2Inputs :
-      weights.length === widthFor(v3Inputs) ? v3Inputs : null;
+      weights.length === widthFor(v3Inputs) ? v3Inputs :
+      weights.length === widthFor(v4Inputs) ? v4Inputs : null;
     if (oldInputs === null) throw new Error("Unknown policy architecture");
     const result = [];
     for (let neuron = 0; neuron < HIDDEN; neuron++) {
@@ -214,7 +217,18 @@ export function migrateTraining(training) {
   training.champion = expand(training.champion);
   for (const candidate of training.candidates) candidate.weights = expand(candidate.weights);
   training.elites = (training.elites || []).map(expand);
-  training.policyVersion = 4;
+  // A redeploy can occur halfway through the protected champion duel.
+  // Both frozen contestants must migrate with the candidates to maintain
+  // identical behavior before evolution learns the five new observations.
+  if (training.duel) {
+    training.duel.incumbent = expand(training.duel.incumbent);
+    training.duel.challenger = expand(training.duel.challenger);
+  }
+  for (const entry of Object.values(training.hallOfFame || {})) {
+    if (entry?.specialist?.weights)
+      entry.specialist.weights = expand(entry.specialist.weights);
+  }
+  training.policyVersion = 5;
   training.selectionVersion = 2;
   training.highScore ||= 0;
   // A recorded score below the ROM cap is a proven uncapped-score floor.
@@ -234,7 +248,7 @@ export function migrateTraining(training) {
 
 export function newTraining() {
   return {
-    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, highExtendedScore: 0, policyVersion: 4, elites: [],
+    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, highExtendedScore: 0, policyVersion: 5, elites: [],
     generationRuns: [], pendingGenerations: [], hallOfFame: {},
     selectionVersion: 2, duel: null, lastSelection: null,
     champion: Array(WEIGHTS).fill(0),
@@ -271,6 +285,14 @@ export function decide(training, state, verticalMotion, memory = {}, prediction 
     Math.min(2, (state.landingClearance ?? 0) / 144),
     ...[6, 20, 18, 7].map(tile => +(state.surfaceTile === tile)),
     ...landingFeatures(prediction),
+    // The sound-effect-equivalent flip state. The original game requires
+    // 12 uninterrupted left or 14 uninterrupted right input frames before
+    // the trick meter advances; switching resets the opposite counter.
+    Math.min(state.leftFlipProgress ?? 0, 12) / 12,
+    Math.min(state.rightFlipProgress ?? 0, 14) / 14,
+    Math.min(state.trickMeter ?? 0, 3) / 3,
+    ((state.trickFlags ?? 0) & 1) ? 1 : 0,
+    ((state.trickFlags ?? 0) & 2) ? 1 : 0,
 
   ];
   let offset = 0;
