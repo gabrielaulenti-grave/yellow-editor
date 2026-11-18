@@ -9,7 +9,7 @@ import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
 import { migrateTraining } from "./learner.mjs";
 import { generationSummary } from "./telemetry.mjs";
-import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun, saveGeneration, listGenerations, readGeneration } from "./remote-checkpoint.mjs";
+import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun, saveGeneration, listGenerations, readGeneration, list500Videos, read500Video, save500Video } from "./remote-checkpoint.mjs";
 import { encodeWebm } from "./video.mjs";
 
 const pathFromHere = (path) => fileURLToPath(new URL(path, import.meta.url));
@@ -42,6 +42,7 @@ const allowedOrigins = new Set((env.BEACH_VIEWER_ORIGINS || "").split(",").map(v
 const clipPath = name => resolve(data, `${name}.json`);
 const clips = new Map();
 const records = [];
+const milestoneVideos = [];
 const archivedGenerations = [];
 let currentTraining;
 const assets = new Map(await Promise.all([
@@ -130,6 +131,33 @@ const server = createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === "/api/milestones") {
+    const headers = viewerHeaders(req);
+    if (!headers) return res.writeHead(403).end();
+    res.writeHead(200, {...headers, "Content-Type":"application/json", "Cache-Control":"no-store"})
+      .end(JSON.stringify(milestoneVideos));
+    return;
+  }
+  const milestoneMatch = url.pathname.match(/^\/api\/milestones\/([1-9][0-9]{0,14})$/);
+  if (milestoneMatch) {
+    const headers = viewerHeaders(req);
+    if (!headers) return res.writeHead(403).end();
+    const id = milestoneMatch[1];
+    if (!milestoneVideos.some(entry => String(entry.id) === id))
+      return res.writeHead(404,headers).end();
+    void read500Video(id).then(video => {
+      if (!video) return res.writeHead(404,headers).end();
+      res.writeHead(200, {
+        ...headers, "Content-Type":"video/webm", "Cache-Control":"no-store",
+        "Content-Length":video.length,"X-Content-Type-Options":"nosniff",
+        "Content-Disposition":`inline; filename="pikachus-beach-500-trick-${id}.webm"`,
+      }).end(video);
+    }).catch(error => {
+      console.error("Milestone recording read failed:",error.message);
+      if (!res.headersSent) res.writeHead(503).end();
+    });
+    return;
+  }
   if (url.pathname === "/api/records") {
     const headers = viewerHeaders(req);
     if (!headers) return res.writeHead(403).end();
@@ -206,13 +234,43 @@ async function saveClips(round, frames, fullFrames, meta) {
     clips.set(name, { score: clip.score, contents: publicClip(clip) });
   }
   if (fullFrames?.length && remoteConfigured()) {
-    // Only completed runs that set a NEW score record are encoded. Viewer
-    // actions can neither play the ROM nor trigger recording.
-    const video = await encodeWebm(fullFrames);
-    const inserted = await saveArchivedRun(emulator.id, round.score, meta.generation, meta.total, video);
-    if (inserted) {
-      records.splice(0, records.length, ...await listArchivedRuns());
-      console.log(`Archived record run: ${round.score} points, ${video.length} bytes`);
+    let fullVideo = null;
+    let fullVideoError = null;
+    if (meta.isRecord || (meta.specialCount && !meta.fullCaptureTruncated)) {
+      try {
+        fullVideo = await encodeWebm(fullFrames);
+      } catch (error) {
+        fullVideoError = error;
+      }
+    }
+    if (meta.isRecord && fullVideo) {
+      try {
+        const inserted = await saveArchivedRun(emulator.id, round.score, meta.generation, meta.total, fullVideo);
+        if (inserted) {
+          records.splice(0, records.length, ...await listArchivedRuns());
+          console.log(`Archived record run: ${round.score} points, ${fullVideo.length} bytes`);
+        }
+      } catch (error) {
+        console.error("High-score video archival failed:",error.message);
+      }
+    } else if (meta.isRecord && fullVideoError) {
+      console.error("High-score video encoding failed:",fullVideoError.message);
+    }
+    if (meta.specialCount > 0) {
+      // A special video is stored regardless of whether the course finished
+      // or achieved a record. The archive never evicts these rare events.
+      let evidence = meta.fullCaptureTruncated ? null : fullVideo;
+      let fullRun = !!evidence;
+      if (!evidence && meta.specialFrames?.length) {
+        evidence = await encodeWebm(meta.specialFrames);
+        fullRun = false;
+      }
+      if (!evidence) throw new Error("Unable to encode verified +500 evidence");
+      const inserted = await save500Video(emulator.id, round, meta, evidence, fullRun);
+      if (inserted) {
+        milestoneVideos.splice(0, milestoneVideos.length, ...await list500Videos());
+        console.log(`Preserved ${meta.specialCount} verified +500 trick(s) from run ${meta.total}; ${fullRun ? "full run" : "maneuver clip"} ${evidence.length} bytes`);
+      }
     }
   }
 }
@@ -228,6 +286,7 @@ try {
   if (remoteConfigured()) {
     records.splice(0, records.length, ...await listArchivedRuns());
     archivedGenerations.splice(0, archivedGenerations.length, ...await listGenerations());
+    milestoneVideos.splice(0, milestoneVideos.length, ...await list500Videos());
     if (records.length) training.highScore = Math.max(training.highScore || 0, records[0].score);
   }
   console.log(`Checkpoint store: ${remoteConfigured() ? "remote + local" : "local only (ephemeral)"}`);
@@ -252,11 +311,11 @@ try {
   process.once("SIGTERM", stop);
   await train(emulator, training, {
     signal: controller.signal,
-    checkpoint: async value => {
+    checkpoint: async (value, context = {}) => {
       await saveTraining(checkpoint, emulator.id, value);
       if (!remoteConfigured()) return;
       const mustArchive = value.pendingGenerations?.length > 0;
-      if (!mustArchive && lastRemoteSave !== 0 && Date.now() - lastRemoteSave < 45000) return;
+      if (!mustArchive && !context.milestone && lastRemoteSave !== 0 && Date.now() - lastRemoteSave < 45000) return;
       try {
         // Save the pending generation queue before attempting archival so
         // transient database failure never silently loses completed runs.
@@ -281,7 +340,7 @@ try {
     publish(pixels, state) {
       lastFrame = performance.now();
       const frame = encode(pixels);
-      lastEvent = `data: ${JSON.stringify({ ...state, frame, records, clips: [...clips.keys()] })}\n\n`;
+      lastEvent = `data: ${JSON.stringify({ ...state, frame, records, milestoneVideos, clips: [...clips.keys()] })}\n\n`;
       broadcast(lastEvent);
     },
     pace() {
