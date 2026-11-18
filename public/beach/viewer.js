@@ -259,6 +259,9 @@ function renderAnalytics(summary, runs) {
   byId("analytics-runs").textContent = format(runs.length);
   byId("analytics-finish").textContent = `${Math.round((summary.completionRate || 0) * 100)}%`;
   byId("analytics-best").textContent = format(summary.bestScore);
+  const unclassified = byId("trick-unclassified");
+  unclassified.hidden = !(summary.unclassifiedRadness > 0);
+  unclassified.textContent = `${format(summary.unclassifiedRadness)} radness points not assigned to a specific trick reward (instrumentation reconciliation).`;
   const tricks = byId("trick-breakdown");
   tricks.replaceChildren();
   for (const award of [50,150,180,350,500]) {
