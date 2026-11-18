@@ -12,7 +12,7 @@
 <label>Matching symbol file (optional) <input id="symbols" type="file" accept=".sym,.txt,text/plain"></label>
 </div>
 <p class="hint">Stats require the Pikachu's Beach telemetry-enabled ROM. The server's build is recognized automatically; for a separately compiled build, select its matching <code>.sym</code> file. Ordinary Pokémon Yellow ROMs can play, but cannot report detailed landing statistics.</p>
-<div class="tools"><button id="launch" disabled>Launch ROM</button><button id="pause" disabled>Pause</button><button id="reset" disabled>Restart game</button><label>Speed <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label></div>
+<div class="tools"><button id="launch" disabled>Launch ROM</button><button id="pause" disabled>Pause</button><button id="reset" disabled>Restart game</button><button id="audio" aria-pressed="true">Sound: On</button><label>Speed <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label></div>
 <p id="status" role="status">Select your own ROM to begin.</p></section>
 <div class="layout">
 <section class="panel gameplay" aria-labelledby="game-title"><h2 id="game-title">Your game</h2><div class="screen"><canvas id="screen" width="160" height="144" aria-label="Playable Game Boy screen"></canvas></div>
