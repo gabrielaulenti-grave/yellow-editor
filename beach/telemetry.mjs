@@ -10,25 +10,35 @@ export function trickAward(meter, flags) {
 export function startRunTelemetry() {
   return { tricks: { "50":0, "150":0, "180":0, "350":0, "500":0 },
     speedSum: 0, speedSamples: 0, hpRemaining: 0, radness: 0,
-    lastState: null, lastRadness: 0, unclassifiedRadness: 0, confirmed500: 0 };
+    lastState: null, lastRadness: 0, lastMeter: 0, lastFlags: 0,
+    uncappedRadness: 0, attributionMismatch: false,
+    unclassifiedRadness: 0, confirmed500: 0 };
 }
 
 export function observeRun(run, state) {
   if (!run || state.routine !== 1) return;
   const increase = state.radness - run.lastRadness;
-  // The ROM awards a stunt on the exact jumping -> landing transition.
-  // A score increase on a different animation state is not evidence of a landing.
-  const landed500 = run.lastState === 1 && state.state === 2 && increase === 500;
-  if (landed500) run.confirmed500++;
-  // The ROM awards radness immediately when a stunt is landed. Count the
-  // actual BCD-score delta rather than inferring from possibly stale meter
-  // values; this also catches rewards spanning an animation boundary.
-  if (increase > 0) {
-    if (TRICK_VALUES.includes(increase)) run.tricks[String(increase)]++;
-    else run.unclassifiedRadness += increase;
+  const landed = run.lastState === 1 && state.state === 2;
+  // The original ROM computes this reward from the flip meter/flags at
+  // successful landing. Read the preceding airborne frame, uncapped.
+  const award = landed ? trickAward(run.lastMeter, run.lastFlags) : 0;
+  const landed500 = award === 500;
+  if (award) {
+    run.tricks[String(award)]++;
+    run.uncappedRadness += award;
+    if (landed500) run.confirmed500++;
+  }
+  // Score deltas become zero beyond the original ROM's 9,999 cap.
+  // Require agreement while the BCD subtotal is not saturated.
+  const expected = Math.min(9999, run.lastRadness + award) - run.lastRadness;
+  if (increase !== expected) {
+    run.attributionMismatch = true;
+    if (increase > 0 && award === 0) run.unclassifiedRadness += increase;
   }
   run.lastState = state.state;
   run.lastRadness = state.radness;
+  run.lastMeter = state.trickMeter ?? 0;
+  run.lastFlags = state.trickFlags ?? 0;
   run.speedSum += state.speed;
   run.speedSamples++;
   run.hpRemaining = state.hp;
@@ -46,9 +56,12 @@ export function finishRunTelemetry(run, result) {
     hpRemaining: run.hpRemaining,
     averageSpeed: run.speedSamples ? +(run.speedSum / run.speedSamples).toFixed(4) : 0,
     tricks: { ...run.tricks },
+    uncappedRadness: run.uncappedRadness,
+    extendedScore: result.finished && !run.attributionMismatch
+      ? run.uncappedRadness + run.hpRemaining : null,
+    extendedValid: !run.attributionMismatch,
     confirmed500: run.confirmed500,
-    unclassifiedRadness: Math.max(0, run.radness - TRICK_VALUES.reduce(
-      (sum, value) => sum + value * run.tricks[String(value)], 0)),
+    unclassifiedRadness: run.unclassifiedRadness,
   };
 }
 
@@ -61,6 +74,8 @@ export function generationSummary(generation, runs) {
     generation, runs: count, complete: count === 48,
     completionRate: count ? +(runs.filter(row => row.finished).length / count).toFixed(4) : 0,
     averageScore: mean("score"), averageRadness: mean("radness"),
+    averageExtendedScore: mean("extendedScore"),
+    bestExtendedScore: count ? Math.max(0,...runs.map(row=>row.extendedScore||0)) : 0,
     averageHP: mean("hpRemaining"), averageSpeed: mean("averageSpeed"),
     bestScore: count ? Math.max(...runs.map(row => row.score || 0)) : 0,
     unclassifiedRadness: runs.reduce((sum,row)=>sum+(row.unclassifiedRadness ?? Math.max(0, (row.radness || 0) - TRICK_VALUES.reduce((s,v)=>s+v*(row.tricks?.[v] || 0),0))),0),
