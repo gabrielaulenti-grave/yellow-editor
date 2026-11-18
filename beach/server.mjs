@@ -114,7 +114,7 @@ const server = createServer((req, res) => {
     return res.writeHead(200, { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" })
       .end(JSON.stringify(archivedGenerations));
   }
-  const generationMatch = /^\\/api\\/generations\\/([1-9][0-9]{0,8})$/.exec(url.pathname);
+  const generationMatch = url.pathname.match(new RegExp("^/api/generations/([1-9][0-9]{0,8})$"));
   if (generationMatch) {
     const headers = viewerHeaders(req);
     if (!headers) return res.writeHead(403).end();
