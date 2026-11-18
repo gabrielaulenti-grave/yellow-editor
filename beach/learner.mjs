@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { generationSummary } from "./telemetry.mjs";
 import { landingFeatures } from "./landing-predictor.mjs";
 
 const ORIGINAL_INPUTS = 19;
@@ -51,12 +52,15 @@ export function migrateTraining(training) {
   training.elites = (training.elites || []).map(expand);
   training.policyVersion = 4;
   training.highScore ||= 0;
+  training.generationRuns ||= [];
+  training.pendingGenerations ||= [];
   return training;
 }
 
 export function newTraining() {
   return {
     generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, policyVersion: 4, elites: [],
+    generationRuns: [], pendingGenerations: [],
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
       weights: index === 0 ? Array(WEIGHTS).fill(0) : perturb(Array(WEIGHTS).fill(0), 0.65),
@@ -117,6 +121,15 @@ function summary(rounds) {
 
 export function recordRound(training, round) {
   training.total++;
+  // Retain exact run observations through candidate and evaluation phases.
+  // Historic checkpoints only have summary data; never manufacture missing rows.
+  if (round.tricks && Number.isFinite(round.averageSpeed)) {
+    training.generationRuns.push({
+      run: training.total,
+      policy: training.candidate < POPULATION ? training.candidate + 1 : "evaluation",
+      ...round,
+    });
+  }
   // Store only genuine, completed-course scores; partial attempts are not records.
   if (round.finished && round.score > (training.highScore || 0)) training.highScore = round.score;
   if (training.candidate < POPULATION) {
@@ -144,6 +157,12 @@ export function recordRound(training, round) {
   training.evaluation.push(round);
   if (training.evaluation.length < EVALUATION_RUNS) return;
   training.history.push({ generation: training.generation, ...summary(training.evaluation) });
+  const archivedRuns = training.generationRuns;
+  training.pendingGenerations.push({
+    generation: training.generation, runs: archivedRuns,
+    summary: generationSummary(training.generation, archivedRuns),
+  });
+  training.generationRuns = [];
   training.history = training.history.slice(-100);
   training.generation++;
   training.candidate = 0;
@@ -162,5 +181,7 @@ export function trainingStats(training) {
     evaluating: training.candidate === POPULATION,
     policy: Math.min(POPULATION, training.candidate + 1),
     population: POPULATION, history: training.history,
+    generationRuns: training.generationRuns,
+    currentGenerationSummary: generationSummary(training.generation, training.generationRuns),
   };
 }
