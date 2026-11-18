@@ -6,6 +6,7 @@ let decoding = false;
 let endpoint;
 let view = 0;
 let archiveSignature = "";
+let milestoneSignature = "";
 let generationArchive = [];
 let selectedGeneration = "current";
 let analyticsLastTotal = -1;
@@ -28,6 +29,11 @@ function connect(address) {
   }
   endpoint = url.origin;
   archiveSignature = "";
+  milestoneSignature = "";
+  void fetch(`${endpoint}/api/milestones`, {cache:"no-store"})
+    .then(response => response.ok ? response.json() : [])
+    .then(rows => { if (endpoint === url.origin && Array.isArray(rows)) renderMilestones(rows); })
+    .catch(() => {});
   void fetch(`${endpoint}/api/records`, { cache: "no-store" })
     .then(response => response.ok ? response.json() : [])
     .then(records => { if (endpoint === url.origin && Array.isArray(records)) renderRecords(records); })
@@ -100,6 +106,7 @@ async function show(state, source) {
   }
 
   renderRecords(state.records || []);
+  renderMilestones(state.milestoneVideos || []);
   const progress = Math.floor(state.progress * 100);
   byId("progress").value = progress;
   byId("progress-value").textContent = `${progress}%`;
@@ -149,6 +156,43 @@ function renderRecords(records) {
       download.textContent = `Download ${number.format(record.score)}-point recording`;
     });
     row.append(info, button);
+    list.append(row);
+  }
+}
+
+function renderMilestones(rows) {
+  const signature = rows.map(row => `${row.id}:${row.total}:${row.awards}`).join("|");
+  if (signature === milestoneSignature) return;
+  milestoneSignature = signature;
+  const list = byId("milestone-list");
+  list.replaceChildren();
+  byId("milestone-empty").hidden = rows.length > 0;
+  for (const entry of rows) {
+    const id = String(entry.id);
+    if (!/^[1-9][0-9]{0,14}$/.test(id)) continue;
+    const row = document.createElement("div");
+    row.className = "record-row";
+    const description = document.createElement("span");
+    const outcome = entry.finished ? `${number.format(entry.score)} final score` : "Run ended early";
+    description.textContent = `${entry.awards} × +500 · Gen ${entry.generation} · Round ${number.format(entry.total)} · ${outcome} · ${entry.fullRun ? "Full run" : "Trick highlight"}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = "Watch";
+    button.setAttribute("aria-label", `Watch verified 500-point trick from round ${entry.total}`);
+    button.addEventListener("click", () => {
+      const url = `${endpoint}/api/milestones/${id}`;
+      const video = byId("milestone-video");
+      video.hidden = false;
+      video.src = url;
+      video.load();
+      video.play().catch(() => {});
+      const download = byId("milestone-download");
+      download.hidden = false;
+      download.href = url;
+      download.download = `pikachus-beach-500-trick-run-${entry.total}.webm`;
+      download.textContent = `Download run ${number.format(entry.total)} recording`;
+    });
+    row.append(description, button);
     list.append(row);
   }
 }
