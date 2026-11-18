@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { once } from "node:events";
 
-const fields = {
+export const memoryFields = {
   routine: ["wSurfingMinigameRoutineNumber", 1],
   state: ["wSurfingMinigamePikachuState", 1],
   hp: ["wSurfingMinigamePikachuHP", 2],
@@ -35,7 +35,7 @@ export async function openBeach(executable, romPath, symPath) {
     throw new Error("Use the patched Pikachu’s Beach ROM and its matching .sym export.");
   }
   const addresses = [];
-  for (const [label, width] of Object.values(fields)) {
+  for (const [label, width] of Object.values(memoryFields)) {
     const address = symbols.get(label)?.address;
     if (!(address >= 0xc000 && address + width <= 0xffff)) throw new Error(`Missing or invalid symbol ${label}.`);
     for (let i = 0; i < width; i++) addresses.push((address + i).toString(16));
@@ -85,10 +85,10 @@ export async function openBeach(executable, romPath, symPath) {
   };
 }
 
-function decode(memory) {
+export function decode(memory) {
   let offset = 0;
   const values = {};
-  for (const [key, [, width]] of Object.entries(fields)) {
+  for (const [key, [, width]] of Object.entries(memoryFields)) {
     values[key] = memory.subarray(offset, offset + width);
     offset += width;
   }
