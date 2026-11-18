@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><meta name="description" content="Play your own Pikachu's Beach ROM locally and track surfing statistics.">
+<title>Play & Track · Pikachu's Beach</title><link rel="stylesheet" href="/play/style.css">
+<script type="module" src="/play/app.mjs"></script></head><body>
+<main>
+<header><div><p class="eyebrow">PIKACHU'S BEACH</p><h1>Play & Track</h1><p>Play your ROM. Keep your records.</p></div><nav><a href="/">Watch the AI</a></nav></header>
+<div class="notice"><strong>Private by design.</strong> Your ROM stays in this browser, never uploaded to the server. Your statistics are stored locally on this device; export a copy to keep them.</div>
+<section class="panel load" aria-labelledby="rom-title"><h2 id="rom-title">Load your game</h2>
+<div class="upload-grid">
+<label>Game Boy ROM <input id="rom" type="file" accept=".gb,.gbc,.bin,application/octet-stream"></label>
+<label>Matching symbol file (optional) <input id="symbols" type="file" accept=".sym,.txt,text/plain"></label>
+</div>
+<p class="hint">Stats require the Pikachu's Beach telemetry-enabled ROM. The server's build is recognized automatically; for a separately compiled build, select its matching <code>.sym</code> file. Ordinary Pokémon Yellow ROMs can play, but cannot report detailed landing statistics.</p>
+<div class="tools"><button id="launch" disabled>Launch ROM</button><button id="pause" disabled>Pause</button><button id="reset" disabled>Restart game</button><label>Speed <select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label></div>
+<p id="status" role="status">Select your own ROM to begin.</p></section>
+<div class="layout">
+<section class="panel gameplay" aria-labelledby="game-title"><h2 id="game-title">Your game</h2><div class="screen"><canvas id="screen" width="160" height="144" aria-label="Playable Game Boy screen"></canvas></div>
+<div class="controls"><div class="dpad"><button data-button="up" aria-label="Up">▲</button><div><button data-button="left" aria-label="Left">◀</button><button data-button="down" aria-label="Down">▼</button><button data-button="right" aria-label="Right">▶</button></div></div><div class="action"><button data-button="b">B</button><button data-button="a">A</button><button data-button="start">Start</button><button data-button="select">Select</button></div></div>
+<p class="hint">Keyboard: arrow keys to steer · X = A · Z = B · Enter = Start · Shift = Select. On mobile, hold the onscreen controls. Select can end a run early when the ROM permits it.</p>
+</section>
+<section class="panel records"><h2>Your records</h2>
+<div class="metrics"><div><span>Best score</span><strong id="best">—</strong></div><div><span>Courses completed</span><strong id="finished">0</strong></div><div><span>Average completed score</span><strong id="average">—</strong></div><div><span>Total attempts</span><strong id="attempts">0</strong></div></div>
+<p id="current">Load the ROM to view your progress.</p>
+<h3>Landings (from ROM)</h3><div id="landings" class="mini-grid"></div><h3>Successful tricks</h3><div id="tricks" class="mini-grid"></div>
+<div class="tools"><button id="export-json" disabled>Export stats (JSON)</button><button id="export-csv" disabled>Export run history (CSV)</button><button id="import-json" disabled>Import stats</button><input type="file" id="stats-file" accept=".json,application/json" hidden></div>
+<h3>Recent runs</h3><div id="recent" class="recent"><p class="hint">No runs recorded on this device yet.</p></div>
+</section></div>
+<footer>Stats are associated with this ROM's fingerprint on this device. Clearing browser site data removes locally saved statistics unless you have exported them. <a href="/">Return to the watch-only trainer</a>.</footer>
+</main></body></html>
