@@ -7,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
+import { migrateTraining } from "./learner.mjs";
 import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun } from "./remote-checkpoint.mjs";
 import { encodeWebm } from "./video.mjs";
 
@@ -186,9 +187,9 @@ async function saveClips(round, frames, fullFrames, meta) {
 try {
   // A configured remote store is authoritative after a restart. Never silently
   // start at generation 1 if remote restoration fails: that can erase progress.
-  const training = remoteConfigured()
+  const training = migrateTraining(remoteConfigured()
     ? (await restoreRemote(emulator.id)) ?? await loadTraining(checkpoint, emulator.id)
-    : await loadTraining(checkpoint, emulator.id);
+    : await loadTraining(checkpoint, emulator.id));
   let lastRemoteSave = 0;
   if (remoteConfigured()) {
     records.splice(0, records.length, ...await listArchivedRuns());
@@ -234,7 +235,7 @@ try {
     publish(pixels, state) {
       lastFrame = performance.now();
       const frame = encode(pixels);
-      lastEvent = `data: ${JSON.stringify({ ...state, frame, clips: [...clips.keys()] })}\n\n`;
+      lastEvent = `data: ${JSON.stringify({ ...state, frame, records, clips: [...clips.keys()] })}\n\n`;
       broadcast(lastEvent);
     },
     pace() {
