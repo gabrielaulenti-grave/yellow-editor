@@ -80,6 +80,16 @@ async function show(state, source) {
   for (const key of ["generation", "total", "hp", "radness", "wipeouts"]) byId(key).textContent = number.format(state[key]);
   byId("speed").textContent = state.speed.toFixed(2);
   byId("high-score").textContent = number.format(state.highScore || 0);
+  const prediction = state.predictedLanding;
+  const label = byId("landing-forecast");
+  if (state.phase !== "Surfing" || !prediction?.known) {
+    label.textContent = "Landing forecast: unknown or not airborne";
+  } else {
+    const terrain = ({6:"rising slope",20:"wave crest",18:"wave face",7:"falling slope"})[prediction.tile] || "flat water";
+    const safety = ["wipeout", "hard landing", "rough landing", "clean landing"][prediction.safety] || "unknown";
+    label.textContent = `Estimated landing in ${prediction.frames} frames · ${terrain} · ${safety} at current pose`;
+  }
+
   renderRecords(state.records || []);
   const progress = Math.floor(state.progress * 100);
   byId("progress").value = progress;
