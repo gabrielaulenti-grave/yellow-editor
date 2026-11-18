@@ -1,11 +1,12 @@
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync } from "node:zlib";
 import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
-import { openBeach } from "./emulator.mjs";
+import { openBeach, memoryFields } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
 import { migrateTraining, backfillMilestones, recoverCurrentSpecialists, MILESTONE_AWARDS } from "./learner.mjs";
 import { generationSummary } from "./telemetry.mjs";
@@ -36,6 +37,15 @@ const emulator = await openBeach(
   resolve(env.BEACH_EMULATOR || pathFromHere("./.build/beach-emulator")),
   romPath, symbolsPath,
 );
+// Expose only symbol addresses and the hash of the server's pinned ROM,
+ // never cartridge bytes. The player's own ROM stays inside their browser.
+const matchingSymbols=new Map([...((await readFile(symbolsPath,"utf8")).matchAll(/^([\\da-f]+):([\\da-f]{4})\\s+(\\S+)/gim))]
+  .map(([,bank,address,name])=>[name,parseInt(address,16)]));
+const playerSymbols=JSON.stringify({
+  sha256:createHash("sha256").update(await readFile(romPath)).digest("hex"),
+  symbols:Object.fromEntries([...new Set(Object.values(memoryFields).map(([name])=>name))]
+    .filter(name=>matchingSymbols.has(name)).map(name=>[name,matchingSymbols.get(name)])),
+});
 const controller = new AbortController();
 const clients = new Map();
 const allowedOrigins = new Set((env.BEACH_VIEWER_ORIGINS || "").split(",").map(value => value.trim()).filter(Boolean));
@@ -49,6 +59,13 @@ let currentTraining;
 const assets = new Map(await Promise.all([
   ["/", "index.html", "text/html"], ["/style.css", "style.css", "text/css"], ["/viewer.js", "viewer.js", "text/javascript"],
   ["/downloads/pokeyellow-landing-telemetry-disassembly.zip", "pokeyellow-landing-telemetry-disassembly.zip", "application/zip"],
+  ["/play", "play.html", "text/html"], ["/play/", "play.html", "text/html"],
+  ["/play/style.css", "play.css", "text/css"],
+  ["/play/app.mjs", "play-app.mjs", "text/javascript"],
+  ["/play/play-stats.mjs", "play-stats.mjs", "text/javascript"],
+  ["/play/binjgb.js", "binjgb.js", "text/javascript"],
+  ["/play/binjgb.wasm", "binjgb.wasm", "application/wasm"],
+  ["/play/LICENSE.binjgb", "LICENSE.binjgb", "text/plain"],
 ].map(async ([route, file, type]) => [route, { type, contents: await readFile(pathFromHere(`../public/beach/${file}`)) }])));
 let errorMessage;
 let lastFrame = 0;
@@ -212,6 +229,12 @@ const server = createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === "/play/symbols.json") {
+    return res.writeHead(200, {
+      "Content-Type":"application/json; charset=utf-8",
+      "Cache-Control":"no-store","X-Content-Type-Options":"nosniff",
+    }).end(playerSymbols);
+  }
   if (url.pathname === "/api/health") {
     res.writeHead(errorMessage ? 503 : 200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify({ ok: !errorMessage }));
@@ -221,9 +244,10 @@ const server = createServer((req, res) => {
   if (asset) {
     const isZip=url.pathname.endsWith("/pokeyellow-landing-telemetry-disassembly.zip");
     res.writeHead(200, {
-      "Content-Type": isZip ? "application/zip" : `${asset.type}; charset=utf-8`,
+      "Content-Type": isZip || asset.type==="application/wasm" ? asset.type : `${asset.type}; charset=utf-8`,
       "Content-Length": asset.contents.length,
       "X-Content-Type-Options": "nosniff",
+      ...(url.pathname.startsWith("/play") ? {"Referrer-Policy":"no-referrer","Cache-Control":"no-store"} : {}),
       ...(isZip ? { "Content-Disposition": 'attachment; filename="pokeyellow-landing-telemetry-disassembly.zip"' } : {}),
     });
     res.end(asset.contents);
