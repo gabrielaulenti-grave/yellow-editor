@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
 import { newTraining, recordRound, trainingStats, migrateTraining, fitness, decide } from "./learner.mjs";
 import { encodeWebm } from "./video.mjs";
+import { decode, memoryFields } from "./emulator.mjs";
 
 test("high score only increases on successful completed courses", () => {
   const training = newTraining();
@@ -90,4 +91,25 @@ test("new temporal features affect steering decisions", () => {
   const before = decide(t,state,0,{actions:[]});
   const after = decide(t,state,0,{actions:[2]});
   assert.notEqual(before, after);
+});
+
+test("emulator decodes physical landing variables without using sprite-display offsets", () => {
+  const fieldBytes = Object.values(memoryFields).reduce((sum, [, width]) => sum + width, 0);
+  const buffer = Buffer.alloc(fieldBytes);
+  let offset = 0;
+  const set = { state: 1, angle: 4, y: 80, yOffset: 3, descending: 1,
+    jumpMagnitude: 5, jumpFraction: 128, groundHeight: 105, surfaceTile: 20 };
+  for (const [name, [, width]] of Object.entries(memoryFields)) {
+    if (Object.hasOwn(set, name)) buffer.writeUInt8(set[name], offset);
+    offset += width;
+  }
+  const state = decode(buffer);
+  assert.equal(state.angle, 4);
+  assert.equal(state.descending, 1);
+  assert.equal(state.jumpMagnitude, 5);
+  assert.equal(state.jumpFraction, 128);
+  assert.equal(state.groundHeight, 105);
+  assert.equal(state.surfaceTile, 20);
+  assert.equal(state.landingClearance, 25);
+  assert.equal(state.y, 67); // display Y: raw 80 + offset 3 - sprite origin 16
 });
