@@ -57,8 +57,9 @@
         <progress id="progress" max="100" value="0"></progress>
 
         <div class="history">
-          <h3>Evaluation on fresh courses</h3>
-          <p id="evaluation">Generation results appear after eight evaluation rounds.</p>
+          <h3>Retained champion on fresh courses</h3>
+          <p id="evaluation">Generation results appear after champion evaluation.</p>
+          <p id="selection-status" class="analytics-note">Waiting for a champion comparison.</p>
           <canvas id="trend" width="320" height="79" aria-label="Average evaluation score by generation" hidden></canvas>
           <p id="last-round" hidden></p>
         </div>
@@ -117,7 +118,7 @@
       </div>
       <div class="milestone-chart">
         <h3>Trick discovery milestones</h3>
-        <p class="analytics-note">The first verified discovery and whether its neural-network policy survives in the training pool.</p>
+        <p class="analytics-note">The first verified discovery and whether its specialist policy is still contributing offspring. Retired policies keep their milestone credit.</p>
         <div id="milestone-chart" class="milestone-chart-rows" aria-label="Trick discovery and preserved policy history">
           <p class="analytics-note">Waiting for training history…</p>
         </div>
