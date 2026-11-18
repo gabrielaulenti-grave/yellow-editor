@@ -7,7 +7,7 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
-import { migrateTraining } from "./learner.mjs";
+import { migrateTraining, backfillMilestones, MILESTONE_AWARDS } from "./learner.mjs";
 import { generationSummary } from "./telemetry.mjs";
 import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun, saveGeneration, listGenerations, readGeneration, list500Videos, read500Video, save500Video } from "./remote-checkpoint.mjs";
 import { encodeWebm } from "./video.mjs";
@@ -286,6 +286,24 @@ try {
   if (remoteConfigured()) {
     records.splice(0, records.length, ...await listArchivedRuns());
     archivedGenerations.splice(0, archivedGenerations.length, ...await listGenerations());
+    // Earlier +350 discoveries exist in per-generation telemetry, but no
+    // weights were saved. Recover their genuine first-run provenance without
+    // claiming to reproduce those historic candidate policies.
+    const earliest = new Map();
+    for (const row of [...archivedGenerations].reverse()) {
+      for (const award of MILESTONE_AWARDS) {
+        if ((row.tricks?.[String(award)] || 0) > 0 && !earliest.has(award))
+          earliest.set(award,row.generation);
+      }
+    }
+    const discovered = [];
+    for (const generation of new Set(earliest.values())) {
+      const snapshot=await readGeneration(generation);
+      if (snapshot && Array.isArray(snapshot.runs))
+        discovered.push({generation,runs:snapshot.runs});
+    }
+    discovered.push({generation:training.generation,runs:training.generationRuns || []});
+    backfillMilestones(training,discovered);
     milestoneVideos.splice(0, milestoneVideos.length, ...await list500Videos());
     if (records.length) training.highScore = Math.max(training.highScore || 0, records[0].score);
   }
