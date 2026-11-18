@@ -316,26 +316,46 @@ export function recordRound(training, round) {
     training.candidate++;
     if (training.candidate !== POPULATION) return;
 
-    const baseline = training.history.length
-      ? training.history.slice(-3).reduce((sum, entry) => sum + entry.finishRate, 0) / Math.min(3, training.history.length)
-      : 0;
-    const rank = entry => ({
-      fitness: average(entry.rounds, round => fitness(round, baseline)),
-      score: average(entry.rounds, round =>
-        round.extendedValid !== false && Number.isSafeInteger(round.extendedScore)
-          ? round.extendedScore : round.score),
-      finishes: entry.rounds.filter(round => round.finished).length,
-    });
-    const ranked = training.candidates.map(entry => ({ ...entry, ...rank(entry) }))
-      .sort((a, b) => b.fitness - a.fitness || b.score - a.score || b.finishes - a.finishes);
-    training.champion = [...ranked[0].weights];
-    training.elites = ranked.slice(0, ELITE_COUNT).map(entry => [...entry.weights]);
+
+    const ranked=selectCandidate(training);
+    // Candidate zero is the previous champion. Hold it as incumbent.
+    const challenger=ranked.find(entry=>entry.index!==0);
+    training.duel={
+      incumbent:[...training.champion],
+      challenger:[...(challenger?.weights||training.champion)],
+      challengerIndex:challenger?.index??0,
+      baseline:completionBaseline(training),
+      incumbentRounds:[...training.candidates[0].rounds],
+      challengerRounds:[...(challenger?.rounds||training.candidates[0].rounds)]
+    };
+    training.elites=ranked.slice(0,ELITE_COUNT).map(entry=>[...entry.weights]);
     return;
   }
 
+
   training.evaluation.push(round);
-  if (training.evaluation.length < EVALUATION_RUNS) return;
-  training.history.push({ generation: training.generation, ...summary(training.evaluation) });
+  if(training.evaluation.length<EVALUATION_RUNS) return;
+  if(training.duel) {
+    const duel=training.duel;
+    const challengerTrials=[...duel.challengerRounds,...training.evaluation.slice(0,4)];
+    const incumbentTrials=[...duel.incumbentRounds,...training.evaluation.slice(4,8)];
+    const challengerFitness=meanFitness(challengerTrials,duel.baseline);
+    const incumbentFitness=meanFitness(incumbentTrials,duel.baseline);
+    const promoted=duel.challengerIndex!==0 &&
+      challengerFitness>=incumbentFitness+PROMOTION_MARGIN;
+    if(promoted) training.champion=[...duel.challenger];
+    training.history.push({generation:training.generation,
+      ...summary(promoted?training.evaluation.slice(0,4):
+        training.evaluation.slice(4,8))});
+    training.lastSelection={generation:training.generation,promoted,
+      challengerIndex:duel.challengerIndex+1,
+      challengerFitness:Math.round(challengerFitness),
+      incumbentFitness:Math.round(incumbentFitness),margin:PROMOTION_MARGIN};
+  } else {
+    // An evaluation already in progress at deployment uses legacy semantics.
+    training.history.push({generation:training.generation,
+      ...summary(training.evaluation)});
+  }
   const archivedRuns = training.generationRuns;
   training.pendingGenerations.push({
     generation: training.generation, runs: archivedRuns,
@@ -346,6 +366,7 @@ export function recordRound(training, round) {
   training.generation++;
   training.candidate = 0;
   training.evaluation = [];
+  training.duel = null;
   training.candidates = nextGenerationPolicies(training);
 }
 
@@ -357,5 +378,6 @@ export function trainingStats(training) {
     policy: Math.min(POPULATION, training.candidate + 1),
     population: POPULATION, history: training.history,
     milestones: publicMilestones(training),
+    selection: training.lastSelection || null,
   };
 }
