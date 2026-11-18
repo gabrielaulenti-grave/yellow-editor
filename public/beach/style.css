@@ -61,3 +61,12 @@ input { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius
 #address-error { color: #ffd3ba; }
 @media (max-width: 760px) { .dashboard { grid-template-columns: 1fr; } }
 @media (max-width: 460px) { header, footer { align-items: start; flex-direction: column; } }
+
+.record-stat dd { color: var(--accent); font-weight: 750; }
+.record-list { display: grid; gap: 7px; margin-top: 12px; }
+.record-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); padding: 8px 0; font-size: .8rem; }
+.record-row span { line-height: 1.4; }
+.record-row button { flex-shrink: 0; }
+#record-video { width: 100%; height: auto; margin-top: 12px; border: 1px solid var(--line); border-radius: 9px; image-rendering: pixelated; background: #091514; }
+#record-download { display: inline-block; margin-top: 8px; color: var(--accent); font-size: .82rem; }
+#record-download[hidden], #record-video[hidden] { display: none; }
