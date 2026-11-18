@@ -125,6 +125,7 @@
       <h3>Successfully landed trick rewards</h3>
       <div id="trick-breakdown" class="trick-breakdown" aria-label="Awarded tricks by score"></div>
       <p id="trick-unclassified" class="analytics-note" hidden></p>
+      <p class="analytics-note" id="extended-coverage">Extended-score coverage will appear after telemetry loads.</p>
       <div class="analytics-charts">
         <div class="metric-chart"><h3>Extended score (uncapped)</h3><canvas id="chart-extended" width="540" height="150" aria-label="Uncapped score by completed run"></canvas></div>
         <div class="metric-chart"><h3>Game score (max 9,999)</h3><canvas id="chart-score" width="540" height="150" aria-label="Score by completed run"></canvas></div>
@@ -132,7 +133,7 @@
         <div class="metric-chart"><h3>HP remaining</h3><canvas id="chart-hp" width="540" height="150" aria-label="HP remaining by completed run"></canvas></div>
         <div class="metric-chart"><h3>Average surfing speed</h3><canvas id="chart-speed" width="540" height="150" aria-label="Average speed by completed run"></canvas></div>
       </div>
-      <p class="analytics-note">Extended-score measurements begin with this update; historical runs without verified uncapped scoring are not retroactively estimated. Each graph represents one completed or failed course attempt. Failed attempts count as zero score. Archive begins with this update; earlier generations did not retain these per-run measurements.</p>
+      <p class="analytics-note">Extended-score measurements begin with the super-max-out update; historical runs without those measurements are not retroactively estimated. Early failures award no final points, although their earned radness remains recorded separately. Each graph represents one course attempt. Failed attempts count as zero score. Archive begins with this update; earlier generations did not retain these per-run measurements.</p>
     </section>
 
     <footer>
