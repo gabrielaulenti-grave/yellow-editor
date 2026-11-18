@@ -64,3 +64,13 @@ The archive uses database space, not the separate Supabase Storage allowance. Su
 Ten candidates each play four runs. Rank policies by number of completed courses, then mean completed-course score (failed courses count as zero), then mean course progress. The selected policy plays eight additional fresh evaluation runs, recorded as finish rate, average score, and average wipeouts. Wipeouts are *not* separately penalized except insofar as they lower game score, progress, or completion probability.
 
 Validate deployment using `node --test beach/highscores.test.mjs` (run by the Docker build). Check the Render logs for new archive messages, verify `public.beach_highscore_videos` rows grow after new records, and test a stored WebM playback across a Render restart.
+
+## Temporal policy / points-first fitness (v2)
+
+Training architecture v2 expands the previous 187-weight feedforward policy to 235 weights (25 inputs, 8 hidden, 3 outputs). Six new inputs describe the last four steering actions, the recent change in angle, and change in speed. The action buffer is **cleared at the beginning and end of each run**, preventing leakage across unrelated courses.
+
+Checkpoint migration preserves the existing weights by inserting six zero-weight inputs in every hidden neuron: preexisting behavior is unchanged at migration time. Existing candidate rounds, history, champion and high score remain intact. The new weights become trainable through mutation in later generations. Migration is idempotent.
+
+Candidate fitness now prioritizes average game score, plus a completion bonus, minus a light wipeout penalty; failures get a small proportional-progress reward. The completion bonus is 1,200 while recent finish rates are below 85%, and 400 once they are higher. This encourages successful surfing early and higher trick scores after reliability develops. All candidate runs count, including failures. A new generation preserves up to three distinct top-ranked elite policies, with the remaining candidates derived by mutation from those elites. Eight fresh-course evaluation rounds remain unchanged.
+
+The archive now appears in the live update payload and is independently fetched from `/api/records`, so viewers see already-stored videos immediately after connecting. The stats HTML literal `\\n` markup glitch is corrected. The original archived WebMs remain in the separate Supabase table.
