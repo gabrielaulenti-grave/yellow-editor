@@ -7,8 +7,8 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
-import { migrateTraining } from "./learner.mjs";
-import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun } from "./remote-checkpoint.mjs";
+import { migrateTraining, trainingStats } from "./learner.mjs";
+import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun, saveGeneration, listGenerations, readGeneration } from "./remote-checkpoint.mjs";
 import { encodeWebm } from "./video.mjs";
 
 const pathFromHere = (path) => fileURLToPath(new URL(path, import.meta.url));
@@ -41,6 +41,8 @@ const allowedOrigins = new Set((env.BEACH_VIEWER_ORIGINS || "").split(",").map(v
 const clipPath = name => resolve(data, `${name}.json`);
 const clips = new Map();
 const records = [];
+const archivedGenerations = [];
+let currentTraining;
 const assets = new Map(await Promise.all([
   ["/", "index.html", "text/html"], ["/style.css", "style.css", "text/css"], ["/viewer.js", "viewer.js", "text/javascript"],
 ].map(async ([route, file, type]) => [route, { type, contents: await readFile(pathFromHere(`../public/beach/${file}`)) }])));
@@ -95,6 +97,36 @@ const server = createServer((req, res) => {
     const clip = clips.get(url.pathname.slice("/api/clips/".length));
     if (!clip) return res.writeHead(404, headers).end();
     res.writeHead(200, { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" }).end(clip.contents);
+    return;
+  }
+  if (url.pathname === "/api/generation/current") {
+    const headers = viewerHeaders(req);
+    if (!headers) return res.writeHead(403).end();
+    if (!currentTraining) return res.writeHead(503).end();
+    const snapshot = trainingStats(currentTraining);
+    return res.writeHead(200, { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" })
+      .end(JSON.stringify({ summary: snapshot.currentGenerationSummary, runs: snapshot.generationRuns }));
+  }
+  if (url.pathname === "/api/generations") {
+    const headers = viewerHeaders(req);
+    if (!headers) return res.writeHead(403).end();
+    return res.writeHead(200, { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" })
+      .end(JSON.stringify(archivedGenerations));
+  }
+  const generationMatch = /^\\/api\\/generations\\/([1-9][0-9]{0,8})$/.exec(url.pathname);
+  if (generationMatch) {
+    const headers = viewerHeaders(req);
+    if (!headers) return res.writeHead(403).end();
+    const generation = Number(generationMatch[1]);
+    if (!archivedGenerations.some(row => row.generation === generation)) return res.writeHead(404, headers).end();
+    void readGeneration(generation).then(snapshot => {
+      if (!snapshot) return res.writeHead(404, headers).end();
+      res.writeHead(200, { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" })
+        .end(JSON.stringify(snapshot));
+    }).catch(error => {
+      console.error("Archived generation read failed:", error.message);
+      if (!res.headersSent) res.writeHead(503).end();
+    });
     return;
   }
   if (url.pathname === "/api/records") {
@@ -190,9 +222,11 @@ try {
   const training = migrateTraining(remoteConfigured()
     ? (await restoreRemote(emulator.id)) ?? await loadTraining(checkpoint, emulator.id)
     : await loadTraining(checkpoint, emulator.id));
+  currentTraining = training;
   let lastRemoteSave = 0;
   if (remoteConfigured()) {
     records.splice(0, records.length, ...await listArchivedRuns());
+    archivedGenerations.splice(0, archivedGenerations.length, ...await listGenerations());
     if (records.length) training.highScore = Math.max(training.highScore || 0, records[0].score);
   }
   console.log(`Checkpoint store: ${remoteConfigured() ? "remote + local" : "local only (ephemeral)"}`);
@@ -219,15 +253,26 @@ try {
     signal: controller.signal,
     checkpoint: async value => {
       await saveTraining(checkpoint, emulator.id, value);
-      if (remoteConfigured() && (lastRemoteSave === 0 || Date.now() - lastRemoteSave >= 45000)) {
-        // Persist only at round boundaries; a slow/offline database must not
-        // kill an active training session. Re-attempt next completed round.
-        try {
+      if (!remoteConfigured()) return;
+      const mustArchive = value.pendingGenerations?.length > 0;
+      if (!mustArchive && lastRemoteSave !== 0 && Date.now() - lastRemoteSave < 45000) return;
+      try {
+        // Save the pending generation queue before attempting archival so
+        // transient database failure never silently loses completed runs.
+        await saveRemote(emulator.id, value);
+        lastRemoteSave = Date.now();
+        if (mustArchive) {
+          for (const entry of [...value.pendingGenerations]) {
+            await saveGeneration(emulator.id, entry);
+            value.pendingGenerations.shift();
+          }
+          archivedGenerations.splice(0, archivedGenerations.length, ...await listGenerations());
           await saveRemote(emulator.id, value);
-          lastRemoteSave = Date.now();
-        } catch (error) {
-          console.error("Durable checkpoint save failed:", error.message);
+          await saveTraining(checkpoint, emulator.id, value);
+          console.log(`Archived generation: ${value.generation - 1}`);
         }
+      } catch (error) {
+        console.error("Durable checkpoint or generation archive failed:", error.message);
       }
     },
     saveClip: saveClips,
