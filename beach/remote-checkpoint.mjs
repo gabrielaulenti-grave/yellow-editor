@@ -50,3 +50,32 @@ export async function saveRemote(romId, training) {
     p_training: training,
   });
 }
+
+export async function listArchivedRuns() {
+  if (!root) return [];
+  const rows = await rpc("beach_archive_list", {});
+  if (!Array.isArray(rows)) throw new Error("Invalid video archive index");
+  return rows.filter(row =>
+    Number.isSafeInteger(Number(row.id)) && Number.isFinite(row.score) &&
+    Number.isFinite(row.total) && Number.isFinite(row.generation)
+  );
+}
+export async function readArchivedVideo(id) {
+  if (!root || !/^[1-9][0-9]{0,14}$/.test(String(id))) return null;
+  const base64 = await rpc("beach_archive_read", { p_id: Number(id) });
+  if (base64 === null) return null;
+  if (typeof base64 !== "string" || base64.length > 6000000) throw new Error("Invalid video archive payload");
+  const bytes = Buffer.from(base64, "base64");
+  if (bytes.length < 16 || bytes.length > 4194304 || bytes.subarray(0, 4).toString("hex") !== "1a45dfa3") {
+    throw new Error("Invalid archived WebM");
+  }
+  return bytes;
+}
+export async function saveArchivedRun(romId, score, generation, total, webm) {
+  if (!root) return false;
+  if (!Buffer.isBuffer(webm) || webm.length > 4194304) throw new Error("Video larger than archive limit");
+  return rpc("beach_archive_save", {
+    p_rom_id: romId, p_score: score, p_generation: generation,
+    p_total: total, p_video_base64: webm.toString("base64"),
+  });
+}
