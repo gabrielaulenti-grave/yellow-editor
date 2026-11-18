@@ -108,3 +108,7 @@ At generation rollover, the trainer first durably saves the pending archive queu
 **Historic runs from before this feature do not exist as individual records.** The first generation after deployment may be partially observed; it is labeled partial rather than showing invented rows. Older high-score video archives and the existing `history` evaluation summaries are preserved.
 
 The landing prediction remains available internally to the neural network but has been removed from the spectator display.
+
+### Reward attribution verification
+
+Initial live generation metrics revealed some discrepancies between flip-meter-derived counts and the actual radness total. The trainer now classifies the exact observed positive delta of `wSurfingMinigameRadnessScore` on each gameplay frame (50, 150, 180, 350, or 500) rather than relying on the prior frame's flip meter. Any other positive delta is retained as `unclassifiedRadness`, and the dashboard shows a reconciliation note rather than inventing a trick. This measurement is for analytics and does not affect gameplay or fitness. Existing partial-generation runs retain their original counts and can show a reconciliation discrepancy.
