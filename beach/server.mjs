@@ -7,7 +7,7 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
-import { migrateTraining, backfillMilestones, MILESTONE_AWARDS } from "./learner.mjs";
+import { migrateTraining, backfillMilestones, recoverCurrentSpecialists, MILESTONE_AWARDS } from "./learner.mjs";
 import { generationSummary } from "./telemetry.mjs";
 import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun, saveGeneration, listGenerations, readGeneration, list500Videos, read500Video, save500Video } from "./remote-checkpoint.mjs";
 import { encodeWebm } from "./video.mjs";
@@ -304,6 +304,7 @@ try {
     }
     discovered.push({generation:training.generation,runs:training.generationRuns || []});
     backfillMilestones(training,discovered);
+    recoverCurrentSpecialists(training);
     milestoneVideos.splice(0, milestoneVideos.length, ...await list500Videos());
     if (records.length) training.highScore = Math.max(training.highScore || 0, records[0].score);
   }
