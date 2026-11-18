@@ -33,13 +33,21 @@ export async function train(emulator, training, options) {
   const clip = new Array(clipSize);
   let clipFrames = 0;
   let fullFrames = [];
+  let actionMemory = { actions: [] };
   while (!options.signal.aborted) {
     const active = state?.routine === 1 && attempt?.finished === undefined;
     const observation = active && {
       state: state.state, x: state.x, y: state.y, angle: state.angle,
       speed: state.speed, hp: state.hp, progress: state.progress, water: state.water,
     };
-    const action = active ? decide(training, observation, state.y - lastY) : 0;
+    const action = active ? decide(training, observation, state.y - lastY, actionMemory) : 0;
+    if (active) {
+      // Memory is scoped to a single course, never leaked across runs.
+      actionMemory.actions.push(action);
+      if (actionMemory.actions.length > 4) actionMemory.actions.shift();
+      actionMemory.lastAngle = observation.angle;
+      actionMemory.lastSpeed = observation.speed;
+    }
     // A is a host-only action. It is tapped on the original exit screens.
     const exit = (state?.routine === 11 || state?.routine === 12) && frame % 12 === 0;
     lastY = state?.y ?? 0;
@@ -55,6 +63,7 @@ export async function train(emulator, training, options) {
     if (!attempt && state.routine === 1) {
       lastY = state.y;
       attempt = { wipeouts: 0, previousState: state.state };
+      actionMemory = { actions: [] };
     }
     if (attempt && attempt.finished === undefined) {
       if (state.state === 3 && attempt.previousState !== 3) attempt.wipeouts++;
@@ -87,7 +96,10 @@ export async function train(emulator, training, options) {
         }
       }
     }
-    if (attempt?.finished !== undefined && state.routine === 0) attempt = undefined;
+    if (attempt?.finished !== undefined && state.routine === 0) {
+      attempt = undefined;
+      actionMemory = { actions: [] };
+    }
     if (++watchdog > 8500) throw new Error("The ROM did not start or finish a round in time.");
 
     if (live) {
