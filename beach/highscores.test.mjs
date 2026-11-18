@@ -100,7 +100,8 @@ test("emulator decodes physical landing variables without using sprite-display o
   let offset = 0;
   const set = { state: 1, angle: 4, y: 80, yOffset: 3, descending: 1,
     jumpMagnitude: 5, jumpFraction: 128, groundHeight: 105, surfaceTile: 20,
-    leftFlipProgress: 11, rightFlipProgress: 13, trickMeter: 2, trickFlags: 3 };
+    leftFlipProgress: 11, rightFlipProgress: 13, trickMeter: 2, trickFlags: 3,
+    landingQuality: 2 };
   for (const [name, [, width]] of Object.entries(memoryFields)) {
     if (Object.hasOwn(set, name)) buffer.writeUInt8(set[name], offset);
     offset += width;
@@ -111,6 +112,7 @@ test("emulator decodes physical landing variables without using sprite-display o
   assert.equal(state.rightFlipProgress, 13);
   assert.equal(state.trickMeter, 2);
   assert.equal(state.trickFlags, 3);
+  assert.equal(state.landingQuality, 2);
   assert.equal(state.descending, 1);
   assert.equal(state.jumpMagnitude, 5);
   assert.equal(state.jumpFraction, 128);
