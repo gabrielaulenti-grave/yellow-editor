@@ -3,6 +3,7 @@ import { deflateSync } from "node:zlib";
 import { decide, newTraining, recordRound, trainingStats } from "./learner.mjs";
 import { actionNames } from "./emulator.mjs";
 import { predictLanding } from "./landing-predictor.mjs";
+import { startRunTelemetry, observeRun, finishRunTelemetry } from "./telemetry.mjs";
 
 export async function loadTraining(path, romId) {
   try {
@@ -35,6 +36,7 @@ export async function train(emulator, training, options) {
   let clipFrames = 0;
   let fullFrames = [];
   let actionMemory = { actions: [] };
+  let runTelemetry;
   while (!options.signal.aborted) {
     const active = state?.routine === 1 && attempt?.finished === undefined;
     const observation = active && {
@@ -69,8 +71,10 @@ export async function train(emulator, training, options) {
       lastY = state.y;
       attempt = { wipeouts: 0, previousState: state.state };
       actionMemory = { actions: [] };
+      runTelemetry = startRunTelemetry();
     }
     if (attempt && attempt.finished === undefined) {
+      observeRun(runTelemetry, state);
       if (state.state === 3 && attempt.previousState !== 3) attempt.wipeouts++;
       attempt.previousState = state.state;
       if (state.routine >= 2 && state.routine <= 12) {
@@ -78,7 +82,10 @@ export async function train(emulator, training, options) {
         const finished = state.routine === 10 || state.routine === 11;
         if (finished || state.routine === 12) {
           attempt.finished = finished;
-          lastRound = { finished, score: finished ? state.score : 0, progress: state.progress, wipeouts: attempt.wipeouts };
+          lastRound = finishRunTelemetry(runTelemetry, {
+            finished, score: finished ? state.score : 0,
+            progress: state.progress, wipeouts: attempt.wipeouts,
+          });
           const isNewRecord = lastRound.finished && lastRound.score > (training.highScore || 0);
           const generation = training.generation;
           recordRound(training, lastRound);
@@ -104,6 +111,7 @@ export async function train(emulator, training, options) {
     if (attempt?.finished !== undefined && state.routine === 0) {
       attempt = undefined;
       actionMemory = { actions: [] };
+      runTelemetry = undefined;
     }
     if (++watchdog > 8500) throw new Error("The ROM did not start or finish a round in time.");
 
