@@ -87,7 +87,7 @@ test("new temporal features affect steering decisions", () => {
   t.candidates[0].weights.fill(0);
   t.candidates[0].weights[20] = 10;
   // Steer right when that neuron is active; release otherwise.
-  t.candidates[0].weights[272 + 2 * 9 + 1] = 10;
+  t.candidates[0].weights[336 + 2 * 9 + 1] = 10;
   const state = { state:1, angle:4,x:80,y:70,speed:1,hp:6000,progress:0.3,water:[100,100,100,100,100,100,100,100] };
   const before = decide(t,state,0,{actions:[]});
   const after = decide(t,state,0,{actions:[2]});
@@ -154,6 +154,6 @@ test("unknown future tiles or future beyond generated buffer never become fake f
   assert.equal(predictLanding(state).known, false);
   assert.deepEqual(landingFeatures(predictLanding(state)), Array(8).fill(0));
   const tooFar = { ...state, rawY: 10, jumpMagnitude: 0,
-    terrainTiles: Array(12).fill(11) };
+    terrainTiles: Array(2).fill(11) };
   assert.equal(predictLanding(tooFar).known, false);
 });
