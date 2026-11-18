@@ -6,6 +6,12 @@ let decoding = false;
 let endpoint;
 let view = 0;
 let archiveSignature = "";
+let generationArchive = [];
+let selectedGeneration = "current";
+let analyticsLastTotal = -1;
+let analyticsLastGen = -1;
+let analyticsLastRefresh = 0;
+let analyticsLoading = false;
 const params = new URL(location.href).searchParams;
 const number = new Intl.NumberFormat();
 
@@ -26,6 +32,10 @@ function connect(address) {
     .then(response => response.ok ? response.json() : [])
     .then(records => { if (endpoint === url.origin && Array.isArray(records)) renderRecords(records); })
     .catch(() => {});
+  analyticsLastTotal = -1;
+  analyticsLastGen = -1;
+  void loadGenerations();
+  void loadAnalytics();
   view++;
   byId("return-live").hidden = true;
   byId("endpoint").value = endpoint;
@@ -80,14 +90,13 @@ async function show(state, source) {
   for (const key of ["generation", "total", "hp", "radness", "wipeouts"]) byId(key).textContent = number.format(state[key]);
   byId("speed").textContent = state.speed.toFixed(2);
   byId("high-score").textContent = number.format(state.highScore || 0);
-  const prediction = state.predictedLanding;
-  const label = byId("landing-forecast");
-  if (state.phase !== "Surfing" || !prediction?.known) {
-    label.textContent = "Landing forecast: unknown or not airborne";
-  } else {
-    const terrain = ({6:"rising slope",20:"wave crest",18:"wave face",7:"falling slope"})[prediction.tile] || "flat water";
-    const safety = ["wipeout", "hard landing", "rough landing", "clean landing"][prediction.safety] || "unknown";
-    label.textContent = `Estimated landing in ${prediction.frames} frames · ${terrain} · ${safety} at current pose`;
+  // The landing predictor is strictly for the agent, not a spectator metric.
+  if (state.generation !== analyticsLastGen || (state.total !== analyticsLastTotal &&
+      performance.now() - analyticsLastRefresh > 7000)) {
+    if (state.generation !== analyticsLastGen) void loadGenerations();
+    analyticsLastTotal = state.total;
+    analyticsLastGen = state.generation;
+    if (selectedGeneration === "current") void loadAnalytics();
   }
 
   renderRecords(state.records || []);
@@ -143,6 +152,134 @@ function renderRecords(records) {
     list.append(row);
   }
 }
+
+async function loadGenerations() {
+  if (!endpoint) return;
+  const origin = endpoint;
+  try {
+    const response = await fetch(`${origin}/api/generations`, { cache: "no-store" });
+    if (!response.ok) throw new Error("Unable to load generation archive");
+    const rows = await response.json();
+    if (origin !== endpoint || !Array.isArray(rows)) return;
+    generationArchive = rows;
+    const picker = byId("generation-picker");
+    const current = picker.value;
+    picker.replaceChildren();
+    const option = document.createElement("option");
+    option.value = "current";
+    option.textContent = "Current generation";
+    picker.append(option);
+    for (const entry of rows) {
+      if (!Number.isSafeInteger(entry.generation)) continue;
+      const item = document.createElement("option");
+      item.value = String(entry.generation);
+      item.textContent = `Generation ${entry.generation}${entry.complete ? "" : " (partial)"}`;
+      picker.append(item);
+    }
+    if (current === "current" || rows.some(row => String(row.generation) === current)) {
+      picker.value = current;
+    } else {
+      picker.value = "current";
+      selectedGeneration = "current";
+    }
+  } catch (error) {
+    byId("analytics-status").textContent = error.message;
+  }
+}
+
+async function loadAnalytics() {
+  if (!endpoint || analyticsLoading) return;
+  analyticsLoading = true;
+  analyticsLastRefresh = performance.now();
+  const origin = endpoint;
+  const selection = selectedGeneration;
+  try {
+    const url = selection === "current" ?
+      `${origin}/api/generation/current` : `${origin}/api/generations/${selection}`;
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error("Generation telemetry temporarily unavailable");
+    const result = await response.json();
+    if (origin !== endpoint || selection !== selectedGeneration || !Array.isArray(result.runs)) return;
+    renderAnalytics(result.summary, result.runs);
+  } catch (error) {
+    byId("analytics-status").textContent = error.message;
+  } finally {
+    analyticsLoading = false;
+  }
+}
+
+function drawMetric(canvasId, runs, key, color) {
+  const canvas = byId(canvasId);
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width, h = canvas.height;
+  const left = 41, top = 12, bottom = h - 24, right = w - 14;
+  ctx.clearRect(0, 0, w, h);
+  ctx.lineWidth = 1;
+  ctx.font = "12px system-ui";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#a9c2bc";
+  ctx.strokeStyle = "#365250";
+  const maxValue = Math.max(1, ...runs.map(run => Number(run[key]) || 0));
+  const ceiling = Math.ceil(maxValue / (maxValue > 100 ? 100 : maxValue > 10 ? 5 : 1)) *
+    (maxValue > 100 ? 100 : maxValue > 10 ? 5 : 1);
+  for (let i = 0; i <= 3; i++) {
+    const y = top + (bottom - top) * i / 3;
+    ctx.beginPath(); ctx.moveTo(left,y); ctx.lineTo(right,y); ctx.stroke();
+    ctx.textAlign = "right";
+    const label = ceiling * (3 - i) / 3;
+    ctx.fillText(key === "averageSpeed" ? label.toFixed(1) : Math.round(label).toString(), left - 5, y);
+  }
+  if (!runs.length) {
+    ctx.textAlign = "center";
+    ctx.fillText("No runs recorded", (left + right) / 2, (top + bottom) / 2);
+    return;
+  }
+  ctx.textAlign = "center";
+  ctx.fillText("1",left,bottom+15);
+  ctx.fillText(String(runs.length),right,bottom+15);
+  const points = runs.map((run,i) => ({
+    x: left + (runs.length === 1 ? .5 : i / (runs.length-1)) * (right-left),
+    y: bottom - ((Number(run[key]) || 0) / ceiling) * (bottom - top),
+  }));
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  points.forEach((p,i) => i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
+  ctx.stroke();
+  ctx.fillStyle = color;
+  if (points.length <= 55) for (const p of points) {
+    ctx.beginPath(); ctx.arc(p.x,p.y,2.4,0,Math.PI*2); ctx.fill();
+  }
+}
+
+function renderAnalytics(summary, runs) {
+  if (!summary) return;
+  const format = n => number.format(Math.round(n || 0));
+  byId("analytics-status").textContent = `Generation ${summary.generation} · ${summary.complete ? "Complete archive" : "Collecting / partial data"} · ${runs.length} recorded attempts`;
+  byId("analytics-runs").textContent = format(runs.length);
+  byId("analytics-finish").textContent = `${Math.round((summary.completionRate || 0) * 100)}%`;
+  byId("analytics-best").textContent = format(summary.bestScore);
+  const tricks = byId("trick-breakdown");
+  tricks.replaceChildren();
+  for (const award of [50,150,180,350,500]) {
+    const cell = document.createElement("div");
+    const numberElement = document.createElement("strong");
+    numberElement.textContent = format(summary.tricks?.[award] || 0);
+    const name = document.createElement("span");
+    name.textContent = `+${award} tricks`;
+    cell.append(numberElement, name);
+    tricks.append(cell);
+  }
+  drawMetric("chart-score",runs,"score","#f1df79");
+  drawMetric("chart-radness",runs,"radness","#8fe3be");
+  drawMetric("chart-hp",runs,"hpRemaining","#a3c8ff");
+  drawMetric("chart-speed",runs,"averageSpeed","#edac82");
+}
+
+byId("generation-picker").addEventListener("change", event => {
+  selectedGeneration = event.target.value;
+  void loadAnalytics();
+});
 
 async function playClip(button) {
   const currentView = ++view;
