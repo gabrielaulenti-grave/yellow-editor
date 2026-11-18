@@ -7,7 +7,8 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
-import { migrateTraining, trainingStats } from "./learner.mjs";
+import { migrateTraining } from "./learner.mjs";
+import { generationSummary } from "./telemetry.mjs";
 import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun, saveGeneration, listGenerations, readGeneration } from "./remote-checkpoint.mjs";
 import { encodeWebm } from "./video.mjs";
 
@@ -103,9 +104,9 @@ const server = createServer((req, res) => {
     const headers = viewerHeaders(req);
     if (!headers) return res.writeHead(403).end();
     if (!currentTraining) return res.writeHead(503).end();
-    const snapshot = trainingStats(currentTraining);
+    const runs = currentTraining.generationRuns || [];
     return res.writeHead(200, { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" })
-      .end(JSON.stringify({ summary: snapshot.currentGenerationSummary, runs: snapshot.generationRuns }));
+      .end(JSON.stringify({ summary: generationSummary(currentTraining.generation, runs), runs }));
   }
   if (url.pathname === "/api/generations") {
     const headers = viewerHeaders(req);
