@@ -57,7 +57,7 @@ export function generationSummary(generation, runs) {
     averageScore: mean("score"), averageRadness: mean("radness"),
     averageHP: mean("hpRemaining"), averageSpeed: mean("averageSpeed"),
     bestScore: count ? Math.max(...runs.map(row => row.score || 0)) : 0,
-    unclassifiedRadness: runs.reduce((sum,row)=>sum+(row.unclassifiedRadness || 0),0),
+    unclassifiedRadness: runs.reduce((sum,row)=>sum+(row.unclassifiedRadness ?? Math.max(0, (row.radness || 0) - TRICK_VALUES.reduce((s,v)=>s+v*(row.tricks?.[v] || 0),0))),0),
     tricks,
   };
 }
