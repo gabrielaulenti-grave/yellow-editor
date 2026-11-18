@@ -124,11 +124,11 @@ export async function train(emulator, training, options) {
             const frames = Array.from({ length: Math.min(clipFrames, clipSize) }, (_, i) => clip[(start + i) % clipSize]);
             try {
               await options.saveClip(lastRound, frames,
-                isNewRecord || isNewExtendedRecord || isMaxout || lastRound.confirmed500 > 0 ? fullFrames : null, {
+                isNewRecord || (isNewExtendedRecord && lastRound.extendedScore > 9999) || isMaxout || lastRound.confirmed500 > 0 ? fullFrames : null, {
                 generation, total: training.total,
                 specialCount: lastRound.confirmed500 || 0,
                 isRecord: isNewRecord,
-                isExtendedRecord: isNewExtendedRecord,
+                isExtendedRecord: isNewExtendedRecord && lastRound.extendedScore > 9999,
                 isMaxout,
                 specialFrames: milestoneFrames,
                 fullCaptureTruncated: sampledFrames > 1800,
