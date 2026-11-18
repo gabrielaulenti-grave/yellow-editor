@@ -73,6 +73,17 @@ instrumentedGame=replaceOnce(instrumentedGame,
 instrumentedGame=replaceOnce(instrumentedGame,
   ".wipeout\n\tld a, 0.25",
   ".wipeout\n\tld a, 4\n\tld [wBeachTrainerLastLandingQuality], a\n\tld a, 0.25");
+// Adding instrumentation lengthens the collision routine; use full JP
+// branches there so no upstream short JR silently crosses its 8-bit range.
+const collisionStart=instrumentedGame.indexOf("SurfingMinigame_TileInteraction:");
+const collisionEnd=instrumentedGame.indexOf("\nSurfingMinigame_SpeedUpPikachu:",collisionStart);
+if(collisionStart<0 || collisionEnd<0) throw new Error("Cannot locate collision routine");
+const collision=instrumentedGame.slice(collisionStart,collisionEnd)
+  .replace(/\tjr (z|nz|c|nc), /g,"\tjp $1, ")
+  .replace(/\tjr (\.[A-Za-z][A-Za-z0-9]*)/g,"\tjp $1");
+instrumentedGame=instrumentedGame.slice(0,collisionStart)+collision+
+  instrumentedGame.slice(collisionEnd);
+
 
 await writeFile(gamePath, instrumentedGame);
 try {
