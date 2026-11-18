@@ -116,14 +116,14 @@ test("uncapped tricks continue beyond 9999 while the ROM BCD radness is saturate
   assert.equal(row.confirmed500,22);
 });
 
-test("missing observed landing points are flagged rather than allowed to inflate records",()=>{
+test("sub-cap game score remains authoritative if the trick detector differs",()=>{
   const t=startRunTelemetry();
   observeRun(t,{routine:1,state:1,radness:0,trickMeter:3,trickFlags:1,hp:1000,speed:1.5});
   observeRun(t,{routine:1,state:2,radness:100,trickMeter:3,trickFlags:1,hp:1000,speed:1.5});
   const row=finishRunTelemetry(t,{finished:true,score:1100,progress:1,wipeouts:0});
   assert.equal(row.tricks["350"],1);
-  assert.equal(row.extendedValid,false);
-  assert.equal(row.extendedScore,null);
+  assert.equal(row.extendedValid,true);
+  assert.equal(row.extendedScore,1100);
 });
 
 test("uncompleted runs retain earned uncapped radness but never get an extended record score",()=>{
@@ -132,5 +132,45 @@ test("uncompleted runs retain earned uncapped radness but never get an extended 
   observeRun(t,{routine:1,state:2,radness:180,trickMeter:2,trickFlags:3,hp:10,speed:1});
   const row=finishRunTelemetry(t,{finished:false,score:0,progress:.85,wipeouts:8});
   assert.equal(row.uncappedRadness,180);
-  assert.equal(row.extendedScore,null);
+  assert.equal(row.extendedScore,0);
+  assert.equal(row.extendedSource,"not-awarded");
+});
+
+test("post-course landing and results HP transfer are observed correctly",()=>{
+ const t=startRunTelemetry();
+ observeRun(t,{routine:1,state:1,radness:0,trickMeter:1,trickFlags:1,hp:1401,speed:1.5});
+ observeRun(t,{routine:2,state:2,radness:50,hp:1400});
+ observeRun(t,{routine:7,state:4,radness:50,hp:1400});
+ observeRun(t,{routine:8,state:4,radness:50,hp:1301});
+ const row=finishRunTelemetry(t,{finished:true,score:1450,progress:1,wipeouts:0});
+ assert.equal(row.radness,50);assert.equal(row.uncappedRadness,50);
+ assert.equal(row.hpRemaining,1400);assert.equal(row.extendedScore,1450);
+ assert.equal(row.tricks["50"],1);
+});
+test("HP sample disagreement cannot invent extra points below the game cap",()=>{
+ const t=startRunTelemetry();
+ observeRun(t,{routine:1,state:1,radness:0,hp:1886,speed:1.5});
+ observeRun(t,{routine:2,state:4,radness:950,hp:1885});
+ const row=finishRunTelemetry(t,{finished:true,score:2835,progress:1,wipeouts:0});
+ assert.equal(row.extendedScore,2835);assert.equal(row.extendedValid,true);
+ assert.equal(row.scoreReconciliation,0);
+});
+test("failed runs retain earned radness but are awarded zero in both score charts",()=>{
+ const t=startRunTelemetry();
+ observeRun(t,{routine:1,state:1,radness:0,trickMeter:2,trickFlags:3,hp:60,speed:1});
+ observeRun(t,{routine:1,state:2,radness:180,hp:59,speed:1});
+ const row=finishRunTelemetry(t,{finished:false,score:0,progress:.7,wipeouts:2});
+ assert.equal(row.score,0);assert.equal(row.extendedScore,0);
+ assert.equal(row.uncappedRadness,180);
+});
+test("missing old extended points are excluded from average, not replaced by zeros",()=>{
+ const result=generationSummary(34,[
+  {finished:true,score:3000,extendedScore:3000},
+  {finished:true,score:3500,extendedScore:null},
+  {finished:false,score:0,extendedScore:0},
+ ]);
+ assert.equal(result.averageScore,2166.667);
+ assert.equal(result.averageExtendedScore,1500);
+ assert.equal(result.extendedScoredRuns,2);
+ assert.equal(result.extendedMissingRuns,1);
 });
