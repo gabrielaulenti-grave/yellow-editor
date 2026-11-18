@@ -113,3 +113,8 @@ input { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius
   .milestone-chart-row { grid-template-columns:50px 1fr; }
   .milestone-chart-row span:last-child { grid-column:2; }
 }
+
+.extended-archive h3 { color: var(--accent); }
+#extended-video { display:block; width:100%; height:auto; background:#091514; border:1px solid var(--line); border-radius:9px; margin-top:12px; image-rendering:pixelated; }
+#extended-video[hidden], #extended-download[hidden] { display:none; }
+#extended-download { display:inline-block; margin-top:8px; color:var(--accent); font-size:.82rem; }
