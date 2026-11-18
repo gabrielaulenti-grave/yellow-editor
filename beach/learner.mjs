@@ -163,7 +163,9 @@ export function migrateTraining(training) {
   training.elites = (training.elites || []).map(expand);
   training.policyVersion = 4;
   training.highScore ||= 0;
-  training.highExtendedScore ||= 0;
+  // A recorded score below the ROM cap is a proven uncapped-score floor.
+  // We do not fabricate historic per-run events.
+  training.highExtendedScore ??= (training.highScore < 9999 ? training.highScore : 0);
   training.generationRuns ||= [];
   training.pendingGenerations ||= [];
   training.hallOfFame ||= {};
