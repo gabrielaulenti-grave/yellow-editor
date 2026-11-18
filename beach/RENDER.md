@@ -48,3 +48,19 @@ The first redeploy into this mode necessarily replaces the old Render Free conta
 ## Scheduled health check
 
 The dedicated Supabase project also has one cron job named `pikachus-beach-check`, schedule `*/14 * * * *`, issuing a GET to the public Render `/api/health` endpoint. Inspect `cron.job_run_details` and `net._http_response` when testing it. This is a basic availability check, not a guarantee of 24/7 training. Render retains its right to restart the instance or suspend it on exceeding free usage limits, and project sleep/restarts are still possible.
+
+## All-time score and record-run video archive
+
+The learner tracks `highScore` for completed courses in its remote model checkpoint. High score tracking begins with this release; older completed records were not retained as individual scores, so the display cannot retrospectively reconstruct historical best runs.
+
+Only a *new* completed-run record is archived. The server compresses each captured 160×144 RGBA frame during the round, then uses FFmpeg's VP8/WebM encoder at 12 frames per second if the run beats the existing best. This avoids real-time encoding overhead during every candidate evaluation. Each encoded file is limited to 4 MiB. Encoding/upload failure logs an error but does not cancel learner progression.
+
+The free Supabase project holds up to the **20 latest record-setting WebM videos** in a dedicated RLS-enabled table. Videos are accessible only through token-guarded RPCs, proxied by the Render server as `/api/records/:id`; visitors receive video but no game ROM or API token. A public `/api/records` route returns only score/round/generation metadata. The viewer offers Watch and Download buttons for archived videos.
+
+The archive uses database space, not the separate Supabase Storage allowance. Supabase Free includes 500 MB database size; the 20×4 MiB cap bounds the archive to approximately 80 MiB of WebM bytes (plus database overhead). These are video recordings without game audio. Older entries are deleted after the 20-entry limit is reached.
+
+### Learning fitness, unchanged
+
+Ten candidates each play four runs. Rank policies by number of completed courses, then mean completed-course score (failed courses count as zero), then mean course progress. The selected policy plays eight additional fresh evaluation runs, recorded as finish rate, average score, and average wipeouts. Wipeouts are *not* separately penalized except insofar as they lower game score, progress, or completion probability.
+
+Validate deployment using `node --test beach/highscores.test.mjs` (run by the Docker build). Check the Render logs for new archive messages, verify `public.beach_highscore_videos` rows grow after new records, and test a stored WebM playback across a Render restart.
