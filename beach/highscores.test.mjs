@@ -157,3 +157,35 @@ test("unknown future tiles or future beyond generated buffer never become fake f
     terrainTiles: Array(2).fill(11) };
   assert.equal(predictLanding(tooFar).known, false);
 });
+
+test("identical game max-outs still improve the separate uncapped record", () => {
+  const t=newTraining();
+  recordRound(t,{finished:true,score:9999,extendedScore:10500,extendedValid:true,
+    progress:1,wipeouts:0,tricks:{"500":2}});
+  assert.equal(t.highScore,9999);
+  assert.equal(t.highExtendedScore,10500);
+  recordRound(t,{finished:true,score:9999,extendedScore:12600,extendedValid:true,
+    progress:1,wipeouts:0,tricks:{"500":3}});
+  assert.equal(t.highScore,9999);
+  assert.equal(t.highExtendedScore,12600);
+  assert.equal(trainingStats(t).highExtendedScore,12600);
+  assert.ok(fitness({finished:true,score:9999,extendedScore:12600,extendedValid:true,wipeouts:0},.95)>
+    fitness({finished:true,score:9999,extendedScore:10500,extendedValid:true,wipeouts:0},.95));
+});
+test("migration preserves older high score as verified sub-cap extended floor",()=>{
+  const t=newTraining();
+  delete t.highExtendedScore;
+  t.highScore=4599;
+  migrateTraining(t);
+  assert.equal(t.highScore,4599);
+  assert.equal(t.highExtendedScore,4599);
+});
+test("invalid extended telemetry never supplants a verified original score",()=>{
+  const t=newTraining();
+  t.highScore=4500;
+  t.highExtendedScore=4500;
+  recordRound(t,{finished:true,score:4000,extendedScore:null,extendedValid:false,
+    progress:1,wipeouts:0});
+  assert.equal(t.highExtendedScore,4500);
+  assert.equal(t.highScore,4500);
+});
