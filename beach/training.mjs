@@ -50,6 +50,8 @@ export async function train(emulator, training, options) {
       descending: state.descending, jumpMagnitude: state.jumpMagnitude,
       jumpFraction: state.jumpFraction, landingClearance: state.landingClearance,
       surfaceTile: state.surfaceTile,
+      leftFlipProgress: state.leftFlipProgress, rightFlipProgress: state.rightFlipProgress,
+      trickMeter: state.trickMeter, trickFlags: state.trickFlags,
     };
     const prediction = active ? predictLanding(state) : null;
     const action = active ? decide(training, observation, state.y - lastY, actionMemory, prediction) : 0;
