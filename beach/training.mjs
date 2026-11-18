@@ -113,7 +113,7 @@ export async function train(emulator, training, options) {
           const generation = training.generation;
           recordRound(training, lastRound);
           // Preserve the model before encoding/uploading a potentially long recording.
-          await options.checkpoint(training);
+          await options.checkpoint(training, { milestone: lastRound.confirmed500 > 0 });
           if (clipFrames) {
             const start = Math.max(0, clipFrames - clipSize);
             const frames = Array.from({ length: Math.min(clipFrames, clipSize) }, (_, i) => clip[(start + i) % clipSize]);
@@ -122,6 +122,7 @@ export async function train(emulator, training, options) {
                 isNewRecord || lastRound.confirmed500 > 0 ? fullFrames : null, {
                 generation, total: training.total,
                 specialCount: lastRound.confirmed500 || 0,
+                isRecord: isNewRecord,
                 specialFrames: milestoneFrames,
                 fullCaptureTruncated: sampledFrames > 1800,
               });
