@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
-import { newTraining, recordRound, trainingStats, migrateTraining, fitness, decide } from "./learner.mjs";
+import { newTraining, recordRound, trainingStats, migrateTraining, fitness, decide, rotationTimingFeatures } from "./learner.mjs";
 import { encodeWebm } from "./video.mjs";
 import { decode, memoryFields } from "./emulator.mjs";
 import { predictLanding, landingSafety, landingFeatures } from "./landing-predictor.mjs";
@@ -29,8 +29,8 @@ test("full-run encoder produces valid, compact WebM", async () => {
   assert.ok(video.length > 100 && video.length < 4194304);
 });
 
-test("v1 through v4 checkpoints migrate without losing any learned connections", () => {
-  for (const oldInputs of [19, 25, 33, 41]) {
+test("v1 through v5 checkpoints migrate without losing any learned connections", () => {
+  for (const oldInputs of [19, 25, 33, 41, 46]) {
     const oldWidth = (oldInputs + 1) * 8 + 9 * 3;
     const old = Array.from({length: oldWidth}, (_, i) => Math.sin(i * 0.17));
     const saved = newTraining();
@@ -38,21 +38,21 @@ test("v1 through v4 checkpoints migrate without losing any learned connections",
     saved.candidates.forEach(entry => entry.weights = [...old]);
     saved.elites = [[...old]];
     const migrated = migrateTraining(saved);
-    assert.equal(migrated.champion.length, 403);
-    assert.equal(migrated.candidates[0].weights.length, 403);
-    assert.equal(migrated.elites[0].length, 403);
-    assert.equal(migrated.policyVersion, 5);
+    assert.equal(migrated.champion.length, 419);
+    assert.equal(migrated.candidates[0].weights.length, 419);
+    assert.equal(migrated.elites[0].length, 419);
+    assert.equal(migrated.policyVersion, 6);
     for (let h = 0; h < 8; h++) {
-      const target = h * 47;
+      const target = h * 49;
       const source = h * (oldInputs + 1);
       assert.deepEqual(
         migrated.champion.slice(target, target + oldInputs + 1),
         old.slice(source, source + oldInputs + 1),
       );
-      assert.deepEqual(migrated.champion.slice(target + oldInputs + 1, target + 47),
-        Array(46 - oldInputs).fill(0));
+      assert.deepEqual(migrated.champion.slice(target + oldInputs + 1, target + 49),
+        Array(48 - oldInputs).fill(0));
     }
-    assert.deepEqual(migrated.champion.slice(376), old.slice((oldInputs + 1) * 8));
+    assert.deepEqual(migrated.champion.slice(392), old.slice((oldInputs + 1) * 8));
     assert.deepEqual(migrateTraining(saved).champion, migrated.champion);
   }
 });
@@ -62,7 +62,7 @@ test("new model responds to actual landing and descending telemetry", () => {
   // First neuron: react to descending flag at input index 25.
   t.candidates[0].weights[26] = 10;
   // A strong positive signal to turn right from first neuron.
-  t.candidates[0].weights[376 + 2 * 9 + 1] = 10;
+  t.candidates[0].weights[392 + 2 * 9 + 1] = 10;
   const state = {
     state: 1, angle: 4, x: 80, y: 70, speed: 1,
     hp: 6000, progress: 0.3,
@@ -87,7 +87,7 @@ test("new temporal features affect steering decisions", () => {
   t.candidates[0].weights.fill(0);
   t.candidates[0].weights[20] = 10;
   // Steer right when that neuron is active; release otherwise.
-  t.candidates[0].weights[376 + 2 * 9 + 1] = 10;
+  t.candidates[0].weights[392 + 2 * 9 + 1] = 10;
   const state = { state:1, angle:4,x:80,y:70,speed:1,hp:6000,progress:0.3,water:[100,100,100,100,100,100,100,100] };
   const before = decide(t,state,0,{actions:[]});
   const after = decide(t,state,0,{actions:[2]});
@@ -213,13 +213,13 @@ test("five flip-state observations independently influence network action", () =
     const weights=training.candidates[0].weights;
     weights.fill(0);
     weights[example.index+1]=10;
-    weights[376 + 2*9 + 1]=10;
+    weights[392 + 2*9 + 1]=10;
     assert.equal(decide(training,normal,0),0);
     assert.equal(decide(training,{...normal,...example.state},0),2);
   }
 });
 
-test("a mid-generation duel and fresh trick specialist migrate from 363 to 403 without mutation", () => {
+test("a mid-generation duel and fresh trick specialist migrate from 363 to 419 without mutation", () => {
   const training = newTraining();
   const old = Array.from({length:363},(_,i)=>Math.cos(i/29));
   training.champion=[...old];
@@ -234,18 +234,45 @@ test("a mid-generation duel and fresh trick specialist migrate from 363 to 403 w
     },
   };
   const saved=migrateTraining(training);
-  assert.equal(saved.policyVersion,5);
+  assert.equal(saved.policyVersion,6);
   for (const weights of [saved.champion,saved.candidates[0].weights,
     saved.elites[0],saved.duel.incumbent,saved.duel.challenger,
     saved.hallOfFame["180"].specialist.weights]) {
-    assert.equal(weights.length,403);
+    assert.equal(weights.length,419);
     for(let neuron=0;neuron<8;neuron++) {
-      assert.deepEqual(weights.slice(neuron*47,neuron*47+42),
+      assert.deepEqual(weights.slice(neuron*49,neuron*49+42),
         old.slice(neuron*42,(neuron+1)*42));
-      assert.deepEqual(weights.slice(neuron*47+42,(neuron+1)*47),Array(5).fill(0));
+      assert.deepEqual(weights.slice(neuron*49+42,(neuron+1)*49),Array(7).fill(0));
     }
-    assert.deepEqual(weights.slice(376),old.slice(336));
+    assert.deepEqual(weights.slice(392),old.slice(336));
   }
   assert.equal(saved.evaluation.length,1);
   assert.deepEqual(migrateTraining(saved).champion,saved.champion);
+});
+
+test("rotation time-budget features reflect both directions and the landing horizon",()=>{
+  const partial={leftFlipProgress:8,rightFlipProgress:0};
+  assert.deepEqual(rotationTimingFeatures(partial,{known:false}),[0,0]);
+  assert.deepEqual(rotationTimingFeatures(partial,{known:true,frames:12}),
+    [5/24,-5/24]);
+  assert.deepEqual(rotationTimingFeatures({leftFlipProgress:0,rightFlipProgress:0},
+    {known:true,frames:1}),[-14/24,-16/24]);
+  assert.deepEqual(rotationTimingFeatures({leftFlipProgress:12,rightFlipProgress:14},
+    {known:true,frames:30}),[1,1]);
+});
+test("both timing observations are independently actionable by the migrated network",()=>{
+  const t=newTraining();
+  const state={state:1,angle:4,x:80,y:70,speed:1,hp:6000,progress:.3,
+    water:Array(8).fill(100),leftFlipProgress:0,rightFlipProgress:0,
+    trickMeter:0,trickFlags:0};
+  for(const index of [46,47]) {
+    const weights=t.candidates[0].weights;
+    weights.fill(0);
+    weights[index+1]=10;
+    weights[392+2*9+1]=10;
+    const baseline=decide(t,state,0,{}, {known:false});
+    const extended=decide(t,state,0,{}, {known:true,frames:50,offset:60,tile:11,safety:2});
+    assert.equal(baseline,0);
+    assert.equal(extended,2);
+  }
 });
