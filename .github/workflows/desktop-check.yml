@@ -28,6 +28,9 @@ jobs:
       - name: Check TypeScript
         run: npm exec tsc -- --noEmit
 
+      - name: Check pret helper compatibility for modified disassemblies
+        run: node scripts/check-helper-source-compatibility.mjs
+
       - name: Check script round trips
         run: npm run test:scripts
 
