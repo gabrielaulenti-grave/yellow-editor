@@ -9,7 +9,8 @@ if (process.argv.length !== 3) {
 const root = resolve(process.argv[2]);
 const initPath = resolve(root, "home/init.asm");
 const gamePath = resolve(root, "engine/minigame/surfing_pikachu.asm");
-const [init, game] = await Promise.all([readFile(initPath, "utf8"), readFile(gamePath, "utf8")]);
+const ramPath = resolve(root, "ram/wram.asm");
+const [init, game, ram] = await Promise.all([readFile(initPath, "utf8"), readFile(gamePath, "utf8"), readFile(ramPath, "utf8")]);
 
 function replaceOnce(source, original, replacement) {
   const start = source.indexOf(original);
@@ -19,7 +20,7 @@ function replaceOnce(source, original, replacement) {
   return source.slice(0, start) + replacement + source.slice(start + original.length);
 }
 
-if (init.includes("BeachTrainerSignature::") && !game.includes("call ReloadMapAfterSurfingMinigame")) {
+if (init.includes("BeachTrainerSignature::") && game.includes("wBeachTrainerLastLandingQuality") && ram.includes("wBeachTrainerLastLandingQuality::")) {
   console.log("The checkout already has the Pikachu’s Beach boot patch.");
   process.exit(0);
 }
@@ -57,11 +58,29 @@ const patchedGame = replaceOnce(game,
   "\tcall ReloadMapAfterSurfingMinigame\n\tcall PlayDefaultMusic\n\tcall GBPalNormal\n",
   "");
 
-await writeFile(gamePath, patchedGame);
+// Reserve one byte in the minigame's existing WRAM union. The same buffer
+// is cleared on minigame startup, and each jump additionally resets the byte.
+const patchedRam=replaceOnce(ram,
+  "wSurfingMinigameIntroAnimationFinished:: db",
+  "wSurfingMinigameIntroAnimationFinished:: db\n" +
+  "wBeachTrainerLastLandingQuality:: db ; 0=none, 1=clean, 2=rough, 3=hard, 4=wipeout");
+let instrumentedGame=replaceOnce(patchedGame,
+  "\tld [wSurfingMinigameTrickFlags], a\n\txor a",
+  "\tld [wSurfingMinigameTrickFlags], a\n\tld [wBeachTrainerLastLandingQuality], a\n\txor a");
+instrumentedGame=replaceOnce(instrumentedGame,
+  ".hardLanding\n\tcall SurfingMinigame_ReduceSpeedBy128\n\tjr .cleanLanding\n\n.roughLanding\n\tcall SurfingMinigame_ReduceSpeedBy64\n.cleanLanding",
+  ".hardLanding\n\tld a, 3\n\tld [wBeachTrainerLastLandingQuality], a\n\tcall SurfingMinigame_ReduceSpeedBy128\n\tjr .landingSound\n\n.roughLanding\n\tld a, 2\n\tld [wBeachTrainerLastLandingQuality], a\n\tcall SurfingMinigame_ReduceSpeedBy64\n\tjr .landingSound\n.cleanLanding\n\tld a, 1\n\tld [wBeachTrainerLastLandingQuality], a\n.landingSound");
+instrumentedGame=replaceOnce(instrumentedGame,
+  ".wipeout\n\tld a, 0.25",
+  ".wipeout\n\tld a, 4\n\tld [wBeachTrainerLastLandingQuality], a\n\tld a, 0.25");
+
+await writeFile(gamePath, instrumentedGame);
 try {
   await writeFile(initPath, patchedInit);
+  await writeFile(ramPath, patchedRam);
 } catch (error) {
   await writeFile(gamePath, game);
+  await writeFile(ramPath, ram);
   throw error;
 }
-console.log("Patched the checkout. Build Pokémon Yellow in Yellow Editor and download its ROM and .sym file.");
+console.log("Patched boot flow and definitive landing-quality telemetry. Build using RGBDS.");
