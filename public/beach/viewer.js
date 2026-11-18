@@ -7,6 +7,7 @@ let endpoint;
 let view = 0;
 let archiveSignature = "";
 let milestoneSignature = "";
+let milestoneChartSignature = "";
 let generationArchive = [];
 let selectedGeneration = "current";
 let analyticsLastTotal = -1;
@@ -30,6 +31,7 @@ function connect(address) {
   endpoint = url.origin;
   archiveSignature = "";
   milestoneSignature = "";
+  milestoneChartSignature = "";
   void fetch(`${endpoint}/api/milestones`, {cache:"no-store"})
     .then(response => response.ok ? response.json() : [])
     .then(rows => { if (endpoint === url.origin && Array.isArray(rows)) renderMilestones(rows); })
@@ -105,6 +107,7 @@ async function show(state, source) {
     if (selectedGeneration === "current") void loadAnalytics();
   }
 
+  renderMilestoneChart(state.milestones || []);
   renderRecords(state.records || []);
   renderMilestones(state.milestoneVideos || []);
   const progress = Math.floor(state.progress * 100);
@@ -157,6 +160,39 @@ function renderRecords(records) {
     });
     row.append(info, button);
     list.append(row);
+  }
+}
+
+function renderMilestoneChart(milestones) {
+  const signature=JSON.stringify(milestones);
+  if(signature===milestoneChartSignature) return;
+  milestoneChartSignature=signature;
+  const container=byId("milestone-chart");
+  container.replaceChildren();
+  for(const award of [180,350,500]) {
+    const row=milestones.find(item=>item.award===award)||{};
+    const line=document.createElement("div");
+    line.className="milestone-chart-row";
+    const awardLabel=document.createElement("strong");
+    awardLabel.textContent=`+${award}`;
+    const description=document.createElement("span");
+    if (!row.first) {
+      description.textContent="Not yet observed";
+    } else {
+      const first=row.first;
+      description.textContent=`First: gen ${first.generation}, run ${number.format(first.run)}${first.policy ? `, policy ${first.policy}` : ""}`;
+    }
+    const survival=document.createElement("span");
+    survival.className=row.specialist ? "milestone-survived" : "milestone-unpreserved";
+    if(row.specialist) {
+      survival.textContent=`Policy preserved · run ${number.format(row.specialist.run)}`;
+    } else if(row.first) {
+      survival.textContent="Historic discovery · weights unavailable";
+    } else {
+      survival.textContent="Awaiting discovery";
+    }
+    line.append(awardLabel,description,survival);
+    container.append(line);
   }
 }
 
