@@ -409,8 +409,9 @@ function renderAnalytics(summary, runs) {
       ["Measured runs",jump.measuredRuns],
       ["Points per landing",jump.averagePointsPerLanding == null ? "—" : jump.averagePointsPerLanding.toFixed(1)],
       ["Landings without a trick",jump.zeroTrickRate == null ? "—" : (jump.zeroTrickRate*100).toFixed(1)+"%"],
-      ["Estimated clean / rough / hard",`${jump.clean} / ${jump.rough} / ${jump.hard}`],
+      ["ROM clean / rough / hard",`${jump.clean} / ${jump.rough} / ${jump.hard}`],
       ["Unclassified landings",jump.unknownQuality],
+      ["Collision telemetry contradictions",jump.classificationMismatch||0],
       ["Wipeouts after jumps",jump.wipeouts],
     ];
     for(const [name,value] of columns) {
