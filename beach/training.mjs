@@ -110,19 +110,26 @@ export async function train(emulator, training, options) {
             progress: state.progress, wipeouts: attempt.wipeouts,
           });
           const isNewRecord = lastRound.finished && lastRound.score > (training.highScore || 0);
+          const isNewExtendedRecord = lastRound.finished && lastRound.extendedValid &&
+            Number.isSafeInteger(lastRound.extendedScore) &&
+            lastRound.extendedScore > (training.highExtendedScore || 0);
+          const isMaxout = lastRound.finished && lastRound.score === 9999 &&
+            lastRound.extendedValid && Number.isSafeInteger(lastRound.extendedScore);
           const generation = training.generation;
           recordRound(training, lastRound);
           // Preserve the model before encoding/uploading a potentially long recording.
-          await options.checkpoint(training, { milestone: lastRound.confirmed500 > 0 });
+          await options.checkpoint(training, { milestone: lastRound.confirmed500 > 0 || isMaxout });
           if (clipFrames) {
             const start = Math.max(0, clipFrames - clipSize);
             const frames = Array.from({ length: Math.min(clipFrames, clipSize) }, (_, i) => clip[(start + i) % clipSize]);
             try {
               await options.saveClip(lastRound, frames,
-                isNewRecord || lastRound.confirmed500 > 0 ? fullFrames : null, {
+                isNewRecord || isNewExtendedRecord || isMaxout || lastRound.confirmed500 > 0 ? fullFrames : null, {
                 generation, total: training.total,
                 specialCount: lastRound.confirmed500 || 0,
                 isRecord: isNewRecord,
+                isExtendedRecord: isNewExtendedRecord,
+                isMaxout,
                 specialFrames: milestoneFrames,
                 fullCaptureTruncated: sampledFrames > 1800,
               });
@@ -153,7 +160,9 @@ export async function train(emulator, training, options) {
         action: actionNames[action],
         phase: state.routine === 1 ? "Surfing" : state.routine >= 2 && state.routine <= 12 ? "Results" : "Starting",
         hp: state.hp, speed: state.speed, progress: state.progress,
-        angle: state.angle, radness: state.radness, wipeouts: attempt?.wipeouts ?? 0,
+        angle: state.angle, radness: state.radness,
+        uncappedRadness: runTelemetry?.uncappedRadness ?? 0,
+        wipeouts: attempt?.wipeouts ?? 0,
         predictedLanding: prediction?.known ? prediction : { known: false },
       });
     }
