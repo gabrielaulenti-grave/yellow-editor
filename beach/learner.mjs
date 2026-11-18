@@ -7,7 +7,8 @@ const TEMPORAL_INPUTS = 6; // last four steering actions, turn delta, speed delt
 const LANDING_INPUTS = 8; // descent, velocity, fractional velocity, clearance, four terrain types
 const PREDICTION_INPUTS = 8; // known, horizon, offset, surface type and safety
 const FLIP_INPUTS = 5; // left/right hold progress, credited flips, left/right trick flags
-const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS + LANDING_INPUTS + PREDICTION_INPUTS + FLIP_INPUTS;
+const TIMING_INPUTS = 2; // left/right frames remaining until landing after completing a flip
+const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS + LANDING_INPUTS + PREDICTION_INPUTS + FLIP_INPUTS + TIMING_INPUTS;
 const HIDDEN = 8;
 const OUTPUTS = 3;
 const WEIGHTS = (INPUTS + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
@@ -178,6 +179,20 @@ function evaluationPolicy(training) {
 }
 
 
+// Positive: a flip can finish with time to spare. Negative: the landing
+// is predicted before the flip completes. A conservative 3-frame buffer
+// accounts for course prediction uncertainty and steering to a safe angle.
+// Zero for unknown landing time; the existing predictor-known input disambiguates.
+export function rotationTimingFeatures(state, prediction) {
+  if (!prediction?.known || !Number.isFinite(prediction.frames)) return [0,0];
+  const frames=Math.max(0,prediction.frames);
+  const margin=(needed)=>Math.max(-1,Math.min(1,(frames-needed-3)/24));
+  return [
+    margin(Math.max(0,12-(state.leftFlipProgress??0))),
+    margin(Math.max(0,14-(state.rightFlipProgress??0))),
+  ];
+}
+
 // Progressively shift from dependable completion to high-scoring tricks.
 export function fitness(round, finishRate = 0) {
   const completionBonus = finishRate >= 0.85 ? 400 : 1200;
@@ -190,13 +205,14 @@ export function fitness(round, finishRate = 0) {
 export function migrateTraining(training) {
   if (!training || !Array.isArray(training.champion) || !Array.isArray(training.candidates))
     throw new Error("Invalid training state");
-  // Preserve all previous policy layouts (187, 235, 299, 363 weights).
+  // Preserve all previous policy layouts (187, 235, 299, 363, 403 weights).
   // Appending zero-weight landing inputs to each hidden neuron exactly preserves
   // the old network outputs until mutations start training the new connections.
   const v1Inputs = ORIGINAL_INPUTS;
   const v2Inputs = ORIGINAL_INPUTS + TEMPORAL_INPUTS;
   const v3Inputs = v2Inputs + LANDING_INPUTS;
   const v4Inputs = v3Inputs + PREDICTION_INPUTS;
+  const v5Inputs = v4Inputs + FLIP_INPUTS;
   const widthFor = inputs => (inputs + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
   const expand = weights => {
     if (!Array.isArray(weights)) throw new Error("Invalid policy weights");
@@ -204,7 +220,8 @@ export function migrateTraining(training) {
     const oldInputs = weights.length === widthFor(v1Inputs) ? v1Inputs :
       weights.length === widthFor(v2Inputs) ? v2Inputs :
       weights.length === widthFor(v3Inputs) ? v3Inputs :
-      weights.length === widthFor(v4Inputs) ? v4Inputs : null;
+      weights.length === widthFor(v4Inputs) ? v4Inputs :
+      weights.length === widthFor(v5Inputs) ? v5Inputs : null;
     if (oldInputs === null) throw new Error("Unknown policy architecture");
     const result = [];
     for (let neuron = 0; neuron < HIDDEN; neuron++) {
@@ -228,7 +245,7 @@ export function migrateTraining(training) {
     if (entry?.specialist?.weights)
       entry.specialist.weights = expand(entry.specialist.weights);
   }
-  training.policyVersion = 5;
+  training.policyVersion = 6;
   training.selectionVersion = 2;
   training.highScore ||= 0;
   // A recorded score below the ROM cap is a proven uncapped-score floor.
@@ -248,7 +265,7 @@ export function migrateTraining(training) {
 
 export function newTraining() {
   return {
-    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, highExtendedScore: 0, policyVersion: 5, elites: [],
+    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, highExtendedScore: 0, policyVersion: 6, elites: [],
     generationRuns: [], pendingGenerations: [], hallOfFame: {},
     selectionVersion: 2, duel: null, lastSelection: null,
     champion: Array(WEIGHTS).fill(0),
@@ -293,6 +310,7 @@ export function decide(training, state, verticalMotion, memory = {}, prediction 
     Math.min(state.trickMeter ?? 0, 3) / 3,
     ((state.trickFlags ?? 0) & 1) ? 1 : 0,
     ((state.trickFlags ?? 0) & 2) ? 1 : 0,
+    ...rotationTimingFeatures(state,prediction),
 
   ];
   let offset = 0;
