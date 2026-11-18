@@ -72,3 +72,26 @@ input { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius
 #record-download[hidden], #record-video[hidden] { display: none; }
 
 .landing-forecast { color: var(--subtle); font-size: .78rem; margin-top: 8px; line-height: 1.5; }
+
+.analytics { margin-top:18px; }
+.analytics-head { display:flex; align-items:end; justify-content:space-between; flex-wrap:wrap; gap:12px; }
+.analytics-head p, .analytics-status, .analytics-note { color:var(--subtle); font-size:.82rem; line-height:1.5; margin-top:6px; }
+.analytics-head label { display:flex; flex-direction:column; gap:5px; font-size:.78rem; color:var(--subtle); }
+.analytics-head select { border:1px solid var(--line); border-radius:7px; color:#f5f4df; background:#102525; padding:7px 10px; min-width:190px; font:inherit; }
+.analytics-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; margin:16px 0 20px; }
+.analytics-summary span { display:grid; gap:5px; padding:10px 12px; border:1px solid var(--line); border-radius:9px; font-size:.76rem; color:var(--subtle); }
+.analytics-summary strong { font:600 1.15rem ui-monospace,monospace; color:#f5f4df; }
+.trick-breakdown { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:8px; margin:12px 0 22px; }
+.trick-breakdown div { display:grid; gap:3px; text-align:center; border-radius:8px; background:#203b39; padding:12px 5px; }
+.trick-breakdown strong { font:700 1.24rem ui-monospace,monospace; color:var(--accent); }
+.trick-breakdown span { font-size:.73rem; color:var(--subtle); }
+.analytics-charts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.metric-chart { border:1px solid var(--line); border-radius:9px; padding:12px; min-width:0; }
+.metric-chart h3 { margin-bottom:10px; }
+.metric-chart canvas { display:block; width:100%; height:auto; }
+@media (max-width:650px) {
+ .analytics-charts { grid-template-columns:1fr; }
+ .trick-breakdown { grid-template-columns:repeat(3,minmax(0,1fr)); }
+ .analytics-summary { gap:5px; }
+ .analytics-summary span { padding:8px; }
+}
