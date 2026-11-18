@@ -165,7 +165,7 @@ const server = createServer((req, res) => {
     return res.writeHead(200,{...headers,"Content-Type":"application/json","Cache-Control":"no-store"})
       .end(JSON.stringify(extendedRecords));
   }
-  const extendedMatch=url.pathname.match(/^\\/api\\/extended-records\\/([1-9][0-9]{0,14})$/);
+  const extendedMatch=url.pathname.match(new RegExp("^/api/extended-records/([1-9][0-9]{0,14})$"));
   if(extendedMatch) {
     const headers=viewerHeaders(req);
     if(!headers) return res.writeHead(403).end();
