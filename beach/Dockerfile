@@ -31,6 +31,14 @@ WORKDIR /app
 COPY beach/native ./beach/native
 RUN sh beach/native/build.sh
 
+# Dedicated browser-only emulator; includes a single read-only RAM reader.
+FROM debian:bookworm-slim AS browser-emulator-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git cmake make emscripten \
+    && rm -rf /var/lib/apt/lists/*
+COPY beach/browser/build.sh /app/beach/browser/build.sh
+RUN sh /app/beach/browser/build.sh
+
 FROM node:24-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
@@ -40,8 +48,16 @@ COPY --from=rom-build /build/pokeyellow/pokeyellow.sym.gz /rom/pokeyellow.sym.gz
 COPY --from=rom-build /build/pokeyellow-landing-telemetry-disassembly.zip ./public/beach/pokeyellow-landing-telemetry-disassembly.zip
 COPY beach/server.mjs beach/emulator.mjs beach/training.mjs beach/learner.mjs beach/remote-checkpoint.mjs beach/video.mjs beach/landing-predictor.mjs beach/telemetry.mjs beach/highscores.test.mjs beach/telemetry.test.mjs beach/milestones.test.mjs ./beach/
 RUN node --test beach/highscores.test.mjs beach/telemetry.test.mjs beach/milestones.test.mjs
-COPY public/beach/index.html public/beach/style.css public/beach/viewer.js ./public/beach/
-RUN node --check beach/server.mjs && node --check beach/training.mjs && node --check public/beach/viewer.js
+COPY public/beach/index.html public/beach/style.css public/beach/viewer.js \
+  public/beach/play.html public/beach/play.css public/beach/play-app.mjs \
+  public/beach/play-stats.mjs public/beach/play-stats.test.mjs ./public/beach/
+COPY --from=browser-emulator-build /build/beach-browser/binjgb.js ./public/beach/binjgb.js
+COPY --from=browser-emulator-build /build/beach-browser/binjgb.wasm ./public/beach/binjgb.wasm
+COPY --from=browser-emulator-build /build/beach-browser/LICENSE.binjgb ./public/beach/LICENSE.binjgb
+RUN node --check beach/server.mjs && node --check beach/training.mjs \
+    && node --check public/beach/viewer.js \
+    && node --check public/beach/play-app.mjs \
+    && node --test public/beach/play-stats.test.mjs
 RUN mkdir /data && chown node:node /data
 ENV HOST=0.0.0.0 PORT=8787 BEACH_DATA=/data BEACH_ROM=/tmp/pokeyellow.gbc BEACH_SYMBOLS=/tmp/pokeyellow.sym
 USER node
