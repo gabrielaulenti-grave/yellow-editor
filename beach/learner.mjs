@@ -181,7 +181,5 @@ export function trainingStats(training) {
     evaluating: training.candidate === POPULATION,
     policy: Math.min(POPULATION, training.candidate + 1),
     population: POPULATION, history: training.history,
-    generationRuns: training.generationRuns,
-    currentGenerationSummary: generationSummary(training.generation, training.generationRuns),
   };
 }
