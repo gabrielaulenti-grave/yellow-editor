@@ -29,8 +29,8 @@ test("full-run encoder produces valid, compact WebM", async () => {
   assert.ok(video.length > 100 && video.length < 4194304);
 });
 
-test("v1, v2, v3 checkpoints migrate without losing any learned connections", () => {
-  for (const oldInputs of [19, 25, 33]) {
+test("v1 through v4 checkpoints migrate without losing any learned connections", () => {
+  for (const oldInputs of [19, 25, 33, 41]) {
     const oldWidth = (oldInputs + 1) * 8 + 9 * 3;
     const old = Array.from({length: oldWidth}, (_, i) => Math.sin(i * 0.17));
     const saved = newTraining();
@@ -38,21 +38,21 @@ test("v1, v2, v3 checkpoints migrate without losing any learned connections", ()
     saved.candidates.forEach(entry => entry.weights = [...old]);
     saved.elites = [[...old]];
     const migrated = migrateTraining(saved);
-    assert.equal(migrated.champion.length, 363);
-    assert.equal(migrated.candidates[0].weights.length, 363);
-    assert.equal(migrated.elites[0].length, 363);
-    assert.equal(migrated.policyVersion, 4);
+    assert.equal(migrated.champion.length, 403);
+    assert.equal(migrated.candidates[0].weights.length, 403);
+    assert.equal(migrated.elites[0].length, 403);
+    assert.equal(migrated.policyVersion, 5);
     for (let h = 0; h < 8; h++) {
-      const target = h * 42;
+      const target = h * 47;
       const source = h * (oldInputs + 1);
       assert.deepEqual(
         migrated.champion.slice(target, target + oldInputs + 1),
         old.slice(source, source + oldInputs + 1),
       );
-      assert.deepEqual(migrated.champion.slice(target + oldInputs + 1, target + 42),
-        Array(41 - oldInputs).fill(0));
+      assert.deepEqual(migrated.champion.slice(target + oldInputs + 1, target + 47),
+        Array(46 - oldInputs).fill(0));
     }
-    assert.deepEqual(migrated.champion.slice(336), old.slice((oldInputs + 1) * 8));
+    assert.deepEqual(migrated.champion.slice(376), old.slice((oldInputs + 1) * 8));
     assert.deepEqual(migrateTraining(saved).champion, migrated.champion);
   }
 });
@@ -62,7 +62,7 @@ test("new model responds to actual landing and descending telemetry", () => {
   // First neuron: react to descending flag at input index 25.
   t.candidates[0].weights[26] = 10;
   // A strong positive signal to turn right from first neuron.
-  t.candidates[0].weights[336 + 2 * 9 + 1] = 10;
+  t.candidates[0].weights[376 + 2 * 9 + 1] = 10;
   const state = {
     state: 1, angle: 4, x: 80, y: 70, speed: 1,
     hp: 6000, progress: 0.3,
@@ -87,7 +87,7 @@ test("new temporal features affect steering decisions", () => {
   t.candidates[0].weights.fill(0);
   t.candidates[0].weights[20] = 10;
   // Steer right when that neuron is active; release otherwise.
-  t.candidates[0].weights[336 + 2 * 9 + 1] = 10;
+  t.candidates[0].weights[376 + 2 * 9 + 1] = 10;
   const state = { state:1, angle:4,x:80,y:70,speed:1,hp:6000,progress:0.3,water:[100,100,100,100,100,100,100,100] };
   const before = decide(t,state,0,{actions:[]});
   const after = decide(t,state,0,{actions:[2]});
@@ -99,13 +99,18 @@ test("emulator decodes physical landing variables without using sprite-display o
   const buffer = Buffer.alloc(fieldBytes);
   let offset = 0;
   const set = { state: 1, angle: 4, y: 80, yOffset: 3, descending: 1,
-    jumpMagnitude: 5, jumpFraction: 128, groundHeight: 105, surfaceTile: 20 };
+    jumpMagnitude: 5, jumpFraction: 128, groundHeight: 105, surfaceTile: 20,
+    leftFlipProgress: 11, rightFlipProgress: 13, trickMeter: 2, trickFlags: 3 };
   for (const [name, [, width]] of Object.entries(memoryFields)) {
     if (Object.hasOwn(set, name)) buffer.writeUInt8(set[name], offset);
     offset += width;
   }
   const state = decode(buffer);
   assert.equal(state.angle, 4);
+  assert.equal(state.leftFlipProgress, 11);
+  assert.equal(state.rightFlipProgress, 13);
+  assert.equal(state.trickMeter, 2);
+  assert.equal(state.trickFlags, 3);
   assert.equal(state.descending, 1);
   assert.equal(state.jumpMagnitude, 5);
   assert.equal(state.jumpFraction, 128);
@@ -188,4 +193,59 @@ test("invalid extended telemetry never supplants a verified original score",()=>
     progress:1,wipeouts:0});
   assert.equal(t.highExtendedScore,4500);
   assert.equal(t.highScore,4500);
+});
+
+test("five flip-state observations independently influence network action", () => {
+  const training = newTraining();
+  const normal = {
+    state:1, angle:4, x:80, y:70, speed:1, hp:6000, progress:.3,
+    water:Array(8).fill(100), leftFlipProgress:0, rightFlipProgress:0,
+    trickMeter:0, trickFlags:0,
+  };
+  const examples = [
+    { index:41, state:{leftFlipProgress:11} },
+    { index:42, state:{rightFlipProgress:13} },
+    { index:43, state:{trickMeter:2} },
+    { index:44, state:{trickFlags:1} },
+    { index:45, state:{trickFlags:2} },
+  ];
+  for (const example of examples) {
+    const weights=training.candidates[0].weights;
+    weights.fill(0);
+    weights[example.index+1]=10;
+    weights[376 + 2*9 + 1]=10;
+    assert.equal(decide(training,normal,0),0);
+    assert.equal(decide(training,{...normal,...example.state},0),2);
+  }
+});
+
+test("a mid-generation duel and fresh trick specialist migrate from 363 to 403 without mutation", () => {
+  const training = newTraining();
+  const old = Array.from({length:363},(_,i)=>Math.cos(i/29));
+  training.champion=[...old];
+  training.candidates.forEach(entry=>entry.weights=[...old]);
+  training.elites=[[...old]];
+  training.duel={incumbent:[...old],challenger:[...old],
+    challengerIndex:1,baseline:0,incumbentRounds:[],challengerRounds:[]};
+  training.evaluation=[{finished:true,score:1300,progress:1,wipeouts:0}];
+  training.hallOfFame["180"]={
+    first:{generation:1,run:1}, specialist:{
+      generation:1,run:1,policy:1,score:180,weights:[...old],
+    },
+  };
+  const saved=migrateTraining(training);
+  assert.equal(saved.policyVersion,5);
+  for (const weights of [saved.champion,saved.candidates[0].weights,
+    saved.elites[0],saved.duel.incumbent,saved.duel.challenger,
+    saved.hallOfFame["180"].specialist.weights]) {
+    assert.equal(weights.length,403);
+    for(let neuron=0;neuron<8;neuron++) {
+      assert.deepEqual(weights.slice(neuron*47,neuron*47+42),
+        old.slice(neuron*42,(neuron+1)*42));
+      assert.deepEqual(weights.slice(neuron*47+42,(neuron+1)*47),Array(5).fill(0));
+    }
+    assert.deepEqual(weights.slice(376),old.slice(336));
+  }
+  assert.equal(saved.evaluation.length,1);
+  assert.deepEqual(migrateTraining(saved).champion,saved.champion);
 });
