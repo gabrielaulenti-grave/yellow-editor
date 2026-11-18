@@ -44,10 +44,12 @@
         <h2 id="training-title">Training</h2>
         <dl class="stats">
           <div><dt>Generation</dt><dd id="generation">—</dd></div>
-          <div class="record-stat"><dt>Highest score</dt><dd id="high-score">—</dd></div>
+          <div class="record-stat"><dt>Highest extended score</dt><dd id="high-extended-score">—</dd></div>
+          <div><dt>Game high score (max 9,999)</dt><dd id="high-score">—</dd></div>
           <div><dt>Rounds played</dt><dd id="total">—</dd></div>
           <div><dt>HP left</dt><dd id="hp">—</dd></div>
-          <div><dt>Radness</dt><dd id="radness">—</dd></div>
+          <div><dt>Radness (game)</dt><dd id="radness">—</dd></div>
+          <div><dt>Radness (uncapped)</dt><dd id="uncapped-radness">—</dd></div>
           <div><dt>Speed</dt><dd id="speed">—</dd></div>
           <div><dt>Wipeouts</dt><dd id="wipeouts">—</dd></div>
         </dl>
@@ -67,6 +69,14 @@
           <div id="milestone-list" class="record-list" aria-label="500-point trick recordings"></div>
           <video id="milestone-video" controls playsinline preload="none" hidden aria-label="500-point trick evidence video"></video>
           <a id="milestone-download" hidden download>Download 500-point trick recording (.webm)</a>
+        </div>
+        <div class="history extended-archive">
+          <h3>Super-max-out records</h3>
+          <p>Verified extended scores over 9,999. The first game-displayed 9,999 is pinned permanently; later extended records keep improving. Older game records are retained separately.</p>
+          <p id="extended-empty">No super-max-out recordings yet.</p>
+          <div id="extended-list" class="record-list" aria-label="Extended-score videos"></div>
+          <video id="extended-video" controls playsinline preload="none" hidden aria-label="Extended-score recording"></video>
+          <a id="extended-download" hidden download>Download extended-score recording (.webm)</a>
         </div>
         <div class="history record-archive">
           <h3>Record-breaking runs</h3>
@@ -116,12 +126,13 @@
       <div id="trick-breakdown" class="trick-breakdown" aria-label="Awarded tricks by score"></div>
       <p id="trick-unclassified" class="analytics-note" hidden></p>
       <div class="analytics-charts">
-        <div class="metric-chart"><h3>Score</h3><canvas id="chart-score" width="540" height="150" aria-label="Score by completed run"></canvas></div>
+        <div class="metric-chart"><h3>Extended score (uncapped)</h3><canvas id="chart-extended" width="540" height="150" aria-label="Uncapped score by completed run"></canvas></div>
+        <div class="metric-chart"><h3>Game score (max 9,999)</h3><canvas id="chart-score" width="540" height="150" aria-label="Score by completed run"></canvas></div>
         <div class="metric-chart"><h3>Radness</h3><canvas id="chart-radness" width="540" height="150" aria-label="Radness by completed run"></canvas></div>
         <div class="metric-chart"><h3>HP remaining</h3><canvas id="chart-hp" width="540" height="150" aria-label="HP remaining by completed run"></canvas></div>
         <div class="metric-chart"><h3>Average surfing speed</h3><canvas id="chart-speed" width="540" height="150" aria-label="Average speed by completed run"></canvas></div>
       </div>
-      <p class="analytics-note">Each graph represents one completed or failed course attempt. Failed attempts count as zero score. Archive begins with this update; earlier generations did not retain these per-run measurements.</p>
+      <p class="analytics-note">Extended-score measurements begin with this update; historical runs without verified uncapped scoring are not retroactively estimated. Each graph represents one completed or failed course attempt. Failed attempts count as zero score. Archive begins with this update; earlier generations did not retain these per-run measurements.</p>
     </section>
 
     <footer>
