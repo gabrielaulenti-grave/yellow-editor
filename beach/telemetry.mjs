@@ -1,4 +1,3 @@
-import { landingSafety } from "./landing-predictor.mjs";
 // Per-run telemetry derived from observed changes to the actual ROM radness score.
 export const TRICK_VALUES = [50, 150, 180, 350, 500];
 
@@ -16,7 +15,7 @@ export function startRunTelemetry() {
     uncappedRadness:0, unclassifiedRadness:0, confirmed500:0,
     attributionMismatch:false, overflowUncertain:false,
     jumps:{started:0,landed:0,wipeouts:0,zeroTrick:0,
-      clean:0,rough:0,hard:0,unknownQuality:0,earnedPoints:0},
+      clean:0,rough:0,hard:0,unknownQuality:0,classificationMismatch:0,earnedPoints:0},
   };
 }
 
@@ -33,16 +32,23 @@ export function observeRun(run, state) {
   const crashed = run.lastState === 1 && state.state === 3;
   const award = landed ? trickAward(run.lastMeter,run.lastFlags) : 0;
   const landed500 = award === 500;
-  if (crashed) run.jumps.wipeouts++;
+  if (crashed) {
+    run.jumps.wipeouts++;
+    if (state.landingQuality!==4) run.jumps.classificationMismatch++;
+  }
   if (landed) {
     run.jumps.landed++;
     if (!award && !increase) run.jumps.zeroTrick++;
-    // Tile/angle sampled at landing: diagnostic estimate, not a ROM event.
-    const quality=landingSafety(state.surfaceTile,state.angle);
-    if (quality===3) run.jumps.clean++;
+    // The ROM itself writes 1/2/3/4 in its definitive collision branch.
+    // On a transition into LANDING the value must be 1, 2 or 3.
+    const quality=state.landingQuality;
+    if (quality===1) run.jumps.clean++;
     else if (quality===2) run.jumps.rough++;
-    else if (quality===1) run.jumps.hard++;
-    else run.jumps.unknownQuality++;
+    else if (quality===3) run.jumps.hard++;
+    else {
+      run.jumps.unknownQuality++;
+      if (quality===4) run.jumps.classificationMismatch++;
+    }
     run.jumps.earnedPoints+=award||increase;
   }
 
@@ -125,7 +131,7 @@ export function generationSummary(generation, runs) {
   const jumpRuns=runs.filter(row=>row.jumps && Number.isFinite(row.jumps.landed));
   const jumpTotals=jumpRuns.reduce((acc,row)=>{
     for(const key of ["started","landed","wipeouts","zeroTrick","clean",
-      "rough","hard","unknownQuality","earnedPoints"])
+      "rough","hard","unknownQuality","classificationMismatch","earnedPoints"])
       acc[key]+=(row.jumps[key]||0);
     return acc;
   },{started:0,landed:0,wipeouts:0,zeroTrick:0,clean:0,
