@@ -21,6 +21,11 @@ function connect(address) {
     throw new Error("Enter an HTTP or HTTPS server address without credentials.");
   }
   endpoint = url.origin;
+  archiveSignature = "";
+  void fetch(`${endpoint}/api/records`, { cache: "no-store" })
+    .then(response => response.ok ? response.json() : [])
+    .then(records => { if (endpoint === url.origin && Array.isArray(records)) renderRecords(records); })
+    .catch(() => {});
   view++;
   byId("return-live").hidden = true;
   byId("endpoint").value = endpoint;
