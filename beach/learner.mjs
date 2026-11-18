@@ -14,6 +14,9 @@ const POPULATION = 10;
 const RUNS_PER_POLICY = 4;
 const EVALUATION_RUNS = 8;
 const ELITE_COUNT = 3;
+const SPECIALIST_GENERATIONS = 2;
+const PROMOTION_MARGIN = 125;
+const MUTATION_SCALES = [0.055, 0.085, 0.11, 0.15, 0.20, 0.26, 0.34];
 
 const MILESTONE_BONUSES = Object.freeze({ "150": 15, "180": 100, "350": 150, "500": 300 });
 export const MILESTONE_AWARDS = Object.freeze([180, 350, 500]);
@@ -109,18 +112,63 @@ function captureMilestones(training,round) {
   }
 }
 
+
+function retireOldSpecialists(training) {
+  for(const award of MILESTONE_AWARDS) {
+    const specialist=training.hallOfFame?.[String(award)]?.specialist;
+    if (!specialist?.weights) continue;
+    if (training.generation-specialist.generation>=SPECIALIST_GENERATIONS) {
+      delete specialist.weights;
+      specialist.retiredAt=training.generation;
+    }
+  }
+}
+function samePolicy(a,b) {
+  return a.length===b.length && a.every((value,i)=>value===b[i]);
+}
 function nextGenerationPolicies(training) {
-  const elites=training.elites?.length ? training.elites : [training.champion];
-  const specialists=MILESTONE_AWARDS.map(award=>
-    training.hallOfFame?.[String(award)]?.specialist?.weights).filter(validPolicy);
-  // Exact survivor slots protect innovations even if their average score is low.
-  const preserved=[...elites.slice(0,ELITE_COUNT),...specialists];
-  return Array.from({length:POPULATION},(_,index)=>({
-    weights:index<preserved.length ? [...preserved[index]]
-      : perturb(preserved[(index-preserved.length)%preserved.length],
-        0.16+index*0.025),
-    rounds:[],
-  }));
+  retireOldSpecialists(training);
+  const parents=[training.champion];
+  for(const elite of training.elites||[]) {
+    if(validPolicy(elite) && parents.length<ELITE_COUNT &&
+       !parents.some(existing=>samePolicy(existing,elite))) parents.push(elite);
+  }
+  const recent=MILESTONE_AWARDS.map(award=>
+    training.hallOfFame?.[String(award)]?.specialist)
+    .filter(item=>item && validPolicy(item.weights) &&
+       training.generation-item.generation<SPECIALIST_GENERATIONS)
+    .sort((a,b)=>b.generation-a.generation);
+  const candidates=parents.map(weights=>({weights:[...weights],rounds:[]}));
+  let mutation=0;
+  if (recent.length && candidates.length<POPULATION) {
+    candidates.push({weights:perturb(recent[0].weights,0.10),rounds:[]});
+    mutation++;
+  }
+  while(candidates.length<POPULATION) {
+    const scale=MUTATION_SCALES[Math.min(mutation,MUTATION_SCALES.length-1)];
+    candidates.push({weights:perturb(parents[mutation%parents.length],scale),rounds:[]});
+    mutation++;
+  }
+  return candidates;
+}
+function meanFitness(rounds,baseline) {
+  return average(rounds,round=>fitness(round,baseline));
+}
+function completionBaseline(training) {
+  const history=training.history.slice(-3);
+  return history.length?average(history,item=>item.finishRate):0;
+}
+function selectCandidate(training) {
+  const baseline=completionBaseline(training);
+  return training.candidates.map((candidate,index)=>({
+    index,weights:candidate.weights,rounds:candidate.rounds,
+    fitness:meanFitness(candidate.rounds,baseline),
+    finishes:candidate.rounds.filter(row=>row.finished).length,
+  })).sort((a,b)=>b.fitness-a.fitness||b.finishes-a.finishes);
+}
+function evaluationPolicy(training) {
+  if(!training.duel) return training.champion;
+  return training.evaluation.length<4?training.duel.challenger:training.duel.incumbent;
 }
 
 
@@ -162,6 +210,7 @@ export function migrateTraining(training) {
   for (const candidate of training.candidates) candidate.weights = expand(candidate.weights);
   training.elites = (training.elites || []).map(expand);
   training.policyVersion = 4;
+  training.selectionVersion = 2;
   training.highScore ||= 0;
   // A recorded score below the ROM cap is a proven uncapped-score floor.
   // We do not fabricate historic per-run events.
@@ -171,9 +220,10 @@ export function migrateTraining(training) {
   training.hallOfFame ||= {};
   for(const award of MILESTONE_AWARDS) {
     const specialist=training.hallOfFame[String(award)]?.specialist;
-    if(specialist && !validPolicy(specialist.weights))
+    if(specialist?.weights && !validPolicy(specialist.weights))
       throw new Error("Invalid preserved milestone policy weights");
   }
+  retireOldSpecialists(training);
   return training;
 }
 
@@ -181,6 +231,7 @@ export function newTraining() {
   return {
     generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, highExtendedScore: 0, policyVersion: 4, elites: [],
     generationRuns: [], pendingGenerations: [], hallOfFame: {},
+    selectionVersion: 2, duel: null, lastSelection: null,
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
       weights: index === 0 ? Array(WEIGHTS).fill(0) : perturb(Array(WEIGHTS).fill(0), 0.65),
@@ -197,7 +248,7 @@ function perturb(weights, scale) {
 
 export function decide(training, state, verticalMotion, memory = {}, prediction = null) {
   if (state.state !== 1) return 0;
-  const policy = training.candidate < POPULATION ? training.candidates[training.candidate].weights : training.champion;
+  const policy = training.candidate < POPULATION ? training.candidates[training.candidate].weights : evaluationPolicy(training);
   const angle = (state.angle - 4) * Math.PI / 7;
   const input = [
     state.x / 160, state.y / 144, verticalMotion / 8, Math.sin(angle), Math.cos(angle),
