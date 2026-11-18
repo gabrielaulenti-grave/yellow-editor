@@ -1,4 +1,4 @@
-// Per-run telemetry derived from actual ROM state transitions; no guessed rewards.
+// Per-run telemetry derived from observed changes to the actual ROM radness score.
 export const TRICK_VALUES = [50, 150, 180, 350, 500];
 
 export function trickAward(meter, flags) {
@@ -10,20 +10,21 @@ export function trickAward(meter, flags) {
 export function startRunTelemetry() {
   return { tricks: { "50":0, "150":0, "180":0, "350":0, "500":0 },
     speedSum: 0, speedSamples: 0, hpRemaining: 0, radness: 0,
-    lastState: null, lastMeter: 0, lastFlags: 0 };
+    lastState: null, lastRadness: 0, unclassifiedRadness: 0 };
 }
 
 export function observeRun(run, state) {
   if (!run || state.routine !== 1) return;
-  if (run.lastState === 1 && state.state === 2) {
-    // The original ROM awards radness when Jumping -> Landing succeeds.
-    // These meter/flags are from the immediately preceding jumping frame.
-    const award = trickAward(run.lastMeter, run.lastFlags);
-    if (award) run.tricks[String(award)]++;
+  const increase = state.radness - run.lastRadness;
+  // The ROM awards radness immediately when a stunt is landed. Count the
+  // actual BCD-score delta rather than inferring from possibly stale meter
+  // values; this also catches rewards spanning an animation boundary.
+  if (increase > 0) {
+    if (TRICK_VALUES.includes(increase)) run.tricks[String(increase)]++;
+    else run.unclassifiedRadness += increase;
   }
   run.lastState = state.state;
-  run.lastMeter = state.trickMeter;
-  run.lastFlags = state.trickFlags;
+  run.lastRadness = state.radness;
   run.speedSum += state.speed;
   run.speedSamples++;
   run.hpRemaining = state.hp;
@@ -40,6 +41,8 @@ export function finishRunTelemetry(run, result) {
     hpRemaining: run.hpRemaining,
     averageSpeed: run.speedSamples ? +(run.speedSum / run.speedSamples).toFixed(4) : 0,
     tricks: { ...run.tricks },
+    unclassifiedRadness: Math.max(0, run.radness - TRICK_VALUES.reduce(
+      (sum, value) => sum + value * run.tricks[String(value)], 0)),
   };
 }
 
@@ -54,6 +57,7 @@ export function generationSummary(generation, runs) {
     averageScore: mean("score"), averageRadness: mean("radness"),
     averageHP: mean("hpRemaining"), averageSpeed: mean("averageSpeed"),
     bestScore: count ? Math.max(...runs.map(row => row.score || 0)) : 0,
+    unclassifiedRadness: runs.reduce((sum,row)=>sum+(row.unclassifiedRadness || 0),0),
     tricks,
   };
 }
