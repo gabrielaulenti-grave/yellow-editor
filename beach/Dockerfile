@@ -33,7 +33,7 @@ WORKDIR /app
 COPY --from=emulator-build /app/beach/.build ./beach/.build
 COPY --from=rom-build /build/pokeyellow/pokeyellow.gbc.gz /rom/pokeyellow.gbc.gz
 COPY --from=rom-build /build/pokeyellow/pokeyellow.sym.gz /rom/pokeyellow.sym.gz
-COPY beach/server.mjs beach/emulator.mjs beach/training.mjs beach/learner.mjs beach/remote-checkpoint.mjs beach/video.mjs beach/highscores.test.mjs ./beach/
+COPY beach/server.mjs beach/emulator.mjs beach/training.mjs beach/learner.mjs beach/remote-checkpoint.mjs beach/video.mjs beach/landing-predictor.mjs beach/highscores.test.mjs ./beach/
 RUN node --test beach/highscores.test.mjs
 COPY public/beach/index.html public/beach/style.css public/beach/viewer.js ./public/beach/
 RUN mkdir /data && chown node:node /data
