@@ -10,7 +10,7 @@ const EVALUATION_RUNS = 8;
 
 export function newTraining() {
   return {
-    generation: 1, total: 0, candidate: 0, history: [], evaluation: [],
+    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0,
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
       weights: index === 0 ? Array(WEIGHTS).fill(0) : perturb(Array(WEIGHTS).fill(0), 0.65),
@@ -59,6 +59,8 @@ function summary(rounds) {
 
 export function recordRound(training, round) {
   training.total++;
+  // Store only genuine, completed-course scores; partial attempts are not records.
+  if (round.finished && round.score > (training.highScore || 0)) training.highScore = round.score;
   if (training.candidate < POPULATION) {
     const candidate = training.candidates[training.candidate];
     candidate.rounds.push(round);
@@ -92,7 +94,7 @@ export function recordRound(training, round) {
 
 export function trainingStats(training) {
   return {
-    generation: training.generation, total: training.total,
+    generation: training.generation, total: training.total, highScore: training.highScore || 0,
     evaluating: training.candidate === POPULATION,
     policy: Math.min(POPULATION, training.candidate + 1),
     population: POPULATION, history: training.history,
