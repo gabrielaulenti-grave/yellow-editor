@@ -73,14 +73,14 @@ test("an unidentified positive radness increment is preserved, never misclassifi
 
 test("a real +500 landing is flagged for independent video archival", () => {
   const t = startRunTelemetry();
-  const sample = (state,radness) =>
-    observeRun(t,{routine:1,state,radness,hp:2000,speed:1.5});
+  const sample = (state,radness,meter=0,flags=0) =>
+    observeRun(t,{routine:1,state,radness,trickMeter:meter,trickFlags:flags,hp:2000,speed:1.5});
   assert.equal(sample(0,0),false);
-  assert.equal(sample(1,0),false);
+  assert.equal(sample(1,0,3,3),false);
   assert.equal(sample(2,500),true);
   assert.equal(sample(2,500),false);
   assert.equal(sample(0,500),false);
-  assert.equal(sample(1,500),false);
+  assert.equal(sample(1,500,3,3),false);
   assert.equal(sample(2,1000),true);
   const result = finishRunTelemetry(t,{
     finished:false,score:0,progress:0.78,wipeouts:1
@@ -95,4 +95,42 @@ test("a +500 score increase without a successful landing is NOT preservation evi
   assert.equal(observeRun(t,{routine:1,state:1,radness:500,speed:1,hp:500}),false);
   assert.equal(observeRun(t,{routine:1,state:3,radness:1000,speed:1,hp:500}),false);
   assert.equal(finishRunTelemetry(t,{finished:false,score:0,progress:.1,wipeouts:1}).confirmed500,0);
+});
+
+test("uncapped tricks continue beyond 9999 while the ROM BCD radness is saturated", () => {
+  const telemetry=startRunTelemetry();
+  const base={routine:1,hp:1400,speed:1.5};
+  observeRun(telemetry,{...base,state:0,radness:0,trickMeter:0,trickFlags:0});
+  for(let n=1;n<=22;n++) {
+    const oldCapped=Math.min(9999,(n-1)*500);
+    const newCapped=Math.min(9999,n*500);
+    observeRun(telemetry,{...base,state:1,radness:oldCapped,trickMeter:3,trickFlags:3});
+    assert.equal(observeRun(telemetry,{...base,state:2,radness:newCapped,trickMeter:3,trickFlags:3}),true);
+  }
+  const row=finishRunTelemetry(telemetry,{finished:true,score:9999,progress:1,wipeouts:0});
+  assert.equal(row.tricks["500"],22);
+  assert.equal(row.uncappedRadness,11000);
+  assert.equal(row.extendedScore,12400);
+  assert.equal(row.radness,9999);
+  assert.equal(row.extendedValid,true);
+  assert.equal(row.confirmed500,22);
+});
+
+test("missing observed landing points are flagged rather than allowed to inflate records",()=>{
+  const t=startRunTelemetry();
+  observeRun(t,{routine:1,state:1,radness:0,trickMeter:3,trickFlags:1,hp:1000,speed:1.5});
+  observeRun(t,{routine:1,state:2,radness:100,trickMeter:3,trickFlags:1,hp:1000,speed:1.5});
+  const row=finishRunTelemetry(t,{finished:true,score:1100,progress:1,wipeouts:0});
+  assert.equal(row.tricks["350"],1);
+  assert.equal(row.extendedValid,false);
+  assert.equal(row.extendedScore,null);
+});
+
+test("uncompleted runs retain earned uncapped radness but never get an extended record score",()=>{
+  const t=startRunTelemetry();
+  observeRun(t,{routine:1,state:1,radness:0,trickMeter:2,trickFlags:3,hp:10,speed:1});
+  observeRun(t,{routine:1,state:2,radness:180,trickMeter:2,trickFlags:3,hp:10,speed:1});
+  const row=finishRunTelemetry(t,{finished:false,score:0,progress:.85,wipeouts:8});
+  assert.equal(row.uncappedRadness,180);
+  assert.equal(row.extendedScore,null);
 });
