@@ -401,6 +401,31 @@ function renderAnalytics(summary, runs) {
   byId("analytics-runs").textContent = format(runs.length);
   byId("analytics-finish").textContent = `${Math.round((summary.completionRate || 0) * 100)}%`;
   byId("analytics-best").textContent = format(summary.bestScore);
+  const jumpBox=byId("jump-summary");
+  jumpBox.replaceChildren();
+  const jump=summary.jumpSummary;
+  if(jump) {
+    const columns=[
+      ["Measured runs",jump.measuredRuns],
+      ["Points per landing",jump.averagePointsPerLanding == null ? "—" : jump.averagePointsPerLanding.toFixed(1)],
+      ["Landings without a trick",jump.zeroTrickRate == null ? "—" : (jump.zeroTrickRate*100).toFixed(1)+"%"],
+      ["Estimated clean / rough / hard",`${jump.clean} / ${jump.rough} / ${jump.hard}`],
+      ["Unclassified landings",jump.unknownQuality],
+      ["Wipeouts after jumps",jump.wipeouts],
+    ];
+    for(const [name,value] of columns) {
+      const cell=document.createElement("span");
+      cell.append(document.createTextNode(name+" "));
+      const strong=document.createElement("strong");
+      strong.textContent=String(value);
+      cell.append(strong);
+      jumpBox.append(cell);
+    }
+  } else {
+    const notice=document.createElement("span");
+    notice.textContent="Per-jump measurements unavailable for this generation.";
+    jumpBox.append(notice);
+  }
   const unclassified = byId("trick-unclassified");
   unclassified.hidden = !(summary.unclassifiedRadness > 0);
   unclassified.textContent = `${format(summary.unclassifiedRadness)} radness points not assigned to a specific trick reward (instrumentation reconciliation).`;
