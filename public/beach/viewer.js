@@ -128,6 +128,12 @@ async function show(state, source) {
   byId("clips").hidden = !state.clips.length;
   document.querySelectorAll("[data-clip]").forEach(button => { button.hidden = !state.clips.includes(button.dataset.clip); });
   if (state.history.length) drawHistory(state.history);
+  const selection=byId("selection-status");
+  if(state.selection) {
+    selection.textContent = state.selection.promoted
+      ? `Generation ${state.selection.generation}: challenger ${state.selection.challengerIndex} promoted (+${state.selection.challengerFitness-state.selection.incumbentFitness} fitness)`
+      : `Generation ${state.selection.generation}: incumbent retained (challenger ${state.selection.challengerIndex}, difference ${state.selection.challengerFitness-state.selection.incumbentFitness})`;
+  } else selection.textContent="Champion comparisons begin with the next completed generation.";
   if (state.lastRound) {
     const last = byId("last-round");
     last.hidden = false;
@@ -230,9 +236,11 @@ function renderMilestoneChart(milestones) {
       description.textContent=`First: gen ${first.generation}, run ${number.format(first.run)}${first.policy ? `, policy ${first.policy}` : ""}`;
     }
     const survival=document.createElement("span");
-    survival.className=row.specialist ? "milestone-survived" : "milestone-unpreserved";
+    survival.className=row.specialist?.active ? "milestone-survived" : "milestone-unpreserved";
     if(row.specialist) {
-      survival.textContent=`Policy preserved · run ${number.format(row.specialist.run)}`;
+      survival.textContent=row.specialist.active
+        ? `Recent specialist contributing descendants · run ${number.format(row.specialist.run)}`
+        : `Discovery passed to descendants; original retired · run ${number.format(row.specialist.run)}`;
     } else if(row.first) {
       survival.textContent="Historic discovery · weights unavailable";
     } else {
