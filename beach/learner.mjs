@@ -1,9 +1,11 @@
 import { randomBytes } from "node:crypto";
+import { landingFeatures } from "./landing-predictor.mjs";
 
 const ORIGINAL_INPUTS = 19;
 const TEMPORAL_INPUTS = 6; // last four steering actions, turn delta, speed delta
 const LANDING_INPUTS = 8; // descent, velocity, fractional velocity, clearance, four terrain types
-const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS + LANDING_INPUTS;
+const PREDICTION_INPUTS = 8; // known, horizon, offset, surface type and safety
+const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS + LANDING_INPUTS + PREDICTION_INPUTS;
 const HIDDEN = 8;
 const OUTPUTS = 3;
 const WEIGHTS = (INPUTS + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
@@ -22,17 +24,19 @@ export function fitness(round, finishRate = 0) {
 export function migrateTraining(training) {
   if (!training || !Array.isArray(training.champion) || !Array.isArray(training.candidates))
     throw new Error("Invalid training state");
-  // Preserve the 187-weight original and the 235-weight temporal policy.
+  // Preserve all three previous policy layouts (187, 235, 299 weights).
   // Appending zero-weight landing inputs to each hidden neuron exactly preserves
   // the old network outputs until mutations start training the new connections.
   const v1Inputs = ORIGINAL_INPUTS;
   const v2Inputs = ORIGINAL_INPUTS + TEMPORAL_INPUTS;
+  const v3Inputs = v2Inputs + LANDING_INPUTS;
   const widthFor = inputs => (inputs + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
   const expand = weights => {
     if (!Array.isArray(weights)) throw new Error("Invalid policy weights");
     if (weights.length === WEIGHTS) return weights;
     const oldInputs = weights.length === widthFor(v1Inputs) ? v1Inputs :
-      weights.length === widthFor(v2Inputs) ? v2Inputs : null;
+      weights.length === widthFor(v2Inputs) ? v2Inputs :
+      weights.length === widthFor(v3Inputs) ? v3Inputs : null;
     if (oldInputs === null) throw new Error("Unknown policy architecture");
     const result = [];
     for (let neuron = 0; neuron < HIDDEN; neuron++) {
@@ -45,14 +49,14 @@ export function migrateTraining(training) {
   training.champion = expand(training.champion);
   for (const candidate of training.candidates) candidate.weights = expand(candidate.weights);
   training.elites = (training.elites || []).map(expand);
-  training.policyVersion = 3;
+  training.policyVersion = 4;
   training.highScore ||= 0;
   return training;
 }
 
 export function newTraining() {
   return {
-    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, policyVersion: 3, elites: [],
+    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, policyVersion: 4, elites: [],
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
       weights: index === 0 ? Array(WEIGHTS).fill(0) : perturb(Array(WEIGHTS).fill(0), 0.65),
@@ -67,7 +71,7 @@ function perturb(weights, scale) {
   return weights.map((value, index) => value + (bytes.readUInt16LE(index * 2) / 32767.5 - 1) * scale);
 }
 
-export function decide(training, state, verticalMotion, memory = {}) {
+export function decide(training, state, verticalMotion, memory = {}, prediction = null) {
   if (state.state !== 1) return 0;
   const policy = training.candidate < POPULATION ? training.candidates[training.candidate].weights : training.champion;
   const angle = (state.angle - 4) * Math.PI / 7;
@@ -86,6 +90,7 @@ export function decide(training, state, verticalMotion, memory = {}) {
     (state.jumpFraction ?? 0) / 256,
     Math.min(2, (state.landingClearance ?? 0) / 144),
     ...[6, 20, 18, 7].map(tile => +(state.surfaceTile === tile)),
+    ...landingFeatures(prediction),
 
   ];
   let offset = 0;
