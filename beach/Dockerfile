@@ -36,6 +36,7 @@ COPY --from=rom-build /build/pokeyellow/pokeyellow.sym.gz /rom/pokeyellow.sym.gz
 COPY beach/server.mjs beach/emulator.mjs beach/training.mjs beach/learner.mjs beach/remote-checkpoint.mjs beach/video.mjs beach/landing-predictor.mjs beach/telemetry.mjs beach/highscores.test.mjs beach/telemetry.test.mjs ./beach/
 RUN node --test beach/highscores.test.mjs beach/telemetry.test.mjs
 COPY public/beach/index.html public/beach/style.css public/beach/viewer.js ./public/beach/
+RUN node --check beach/server.mjs && node --check beach/training.mjs && node --check public/beach/viewer.js
 RUN mkdir /data && chown node:node /data
 ENV HOST=0.0.0.0 PORT=8787 BEACH_DATA=/data BEACH_ROM=/tmp/pokeyellow.gbc BEACH_SYMBOLS=/tmp/pokeyellow.sym
 USER node
