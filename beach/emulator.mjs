@@ -15,6 +15,11 @@ const fields = {
   y: ["wAnimatedObject0YCoord", 1],
   yOffset: ["wAnimatedObject0YOffset", 1],
   angle: ["wAnimatedObject0FramesetID", 1],
+  descending: ["wSurfingMinigameJumpDescending", 1],
+  jumpMagnitude: ["wSurfingMinigameJumpArcMagnitude", 1],
+  jumpFraction: ["wSurfingMinigameJumpArcFraction", 1],
+  groundHeight: ["wSurfingMinigamePikachuObjectHeight", 1],
+  surfaceTile: ["wSurfingMinigameBGMapReadBuffer", 1],
   scroll: ["hSCX", 1],
   water: ["wSurfingMinigameWaveHeight", 20],
 };
@@ -97,6 +102,15 @@ function decode(memory) {
     speed: values.speed.readUInt16LE() / 256, progress: Math.min(1, values.distance.readUIntBE(0, 3) / (24 * 65536)),
     x: byte("x") - 8, y: ((byte("y") + byte("yOffset")) & 255) - 16,
     angle: byte("angle"),
+    descending: byte("descending"),
+    jumpMagnitude: byte("jumpMagnitude"),
+    jumpFraction: byte("jumpFraction"),
+    groundHeight: byte("groundHeight"),
+    // Read the raw animated-object Y coordinate, not the display-only Y offset.
+    // Values >=144 are wrapped coordinates when Pikachu is above the viewport.
+    // This unsigned modular distance is 0 at contact; it may wrap after contact.
+    landingClearance: (byte("groundHeight") - byte("y") + 256) & 255,
+    surfaceTile: byte("surfaceTile"),
     // The 20-height buffer starts at tile 2 relative to the aligned viewport.
     // Sample tiles at fixed screen positions; the newest entries can be offscreen.
     water: Array.from({ length: 8 }, (_, i) => values.water[((40 + 16 * i + (byte("scroll") & 15)) >> 3) - 2]),
