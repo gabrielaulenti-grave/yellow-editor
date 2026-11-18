@@ -79,3 +79,22 @@ export async function saveArchivedRun(romId, score, generation, total, webm) {
     p_total: total, p_video_base64: webm.toString("base64"),
   });
 }
+
+export async function saveGeneration(romId, entry) {
+  if (!root) return false;
+  await rpc("beach_generation_save", {
+    p_rom_id: romId, p_generation: entry.generation,
+    p_summary: entry.summary, p_runs: entry.runs,
+  });
+  return true;
+}
+export async function listGenerations(limit = 100) {
+  if (!root) return [];
+  const rows = await rpc("beach_generation_list", { p_limit: limit });
+  if (!Array.isArray(rows)) throw new Error("Invalid generation archive list");
+  return rows;
+}
+export async function readGeneration(generation) {
+  if (!root || !Number.isSafeInteger(generation) || generation < 1) return null;
+  return rpc("beach_generation_read", { p_generation: generation });
+}
