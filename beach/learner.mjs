@@ -15,11 +15,94 @@ const RUNS_PER_POLICY = 4;
 const EVALUATION_RUNS = 8;
 const ELITE_COUNT = 3;
 
+const MILESTONE_BONUSES = Object.freeze({ "150": 15, "180": 100, "350": 150, "500": 300 });
+export const MILESTONE_AWARDS = Object.freeze([180, 350, 500]);
+
+function trickCount(round, award) {
+  const value = round?.tricks?.[String(award)];
+  return Number.isSafeInteger(value) && value > 0 ? value : 0;
+}
+
+export function milestoneBonus(round) {
+  // Modest and capped: impressive tricks matter, but finishing still matters.
+  return Object.entries(MILESTONE_BONUSES).reduce((sum,[award,bonus]) =>
+    sum + Math.min(2,trickCount(round,award))*bonus,0);
+}
+
+function validPolicy(weights) {
+  return Array.isArray(weights) && weights.length === WEIGHTS &&
+    weights.every(Number.isFinite);
+}
+
+export function backfillMilestones(training, generations) {
+  training.hallOfFame ||= {};
+  // Past generation archives contain observations but NOT candidate weights.
+  for(const entry of [...generations].sort((a,b)=>a.generation-b.generation)) {
+    if(!Array.isArray(entry.runs)) continue;
+    for(const row of entry.runs) for(const award of MILESTONE_AWARDS) {
+      if(!trickCount(row,award)) continue;
+      const key=String(award);
+      const first={generation:entry.generation,run:row.run,policy:row.policy,
+        score:row.score,finished:!!row.finished};
+      const previous=training.hallOfFame[key]?.first;
+      if(!previous || first.run<previous.run) {
+        training.hallOfFame[key]={...(training.hallOfFame[key]||{}),first};
+      }
+    }
+  }
+  return training.hallOfFame;
+}
+
+export function publicMilestones(training) {
+  return MILESTONE_AWARDS.map(award=>{
+    const value=training.hallOfFame?.[String(award)];
+    const specialist=value?.specialist;
+    return {award,first:value?.first||null,specialist:specialist ? {
+      generation:specialist.generation,run:specialist.run,
+      policy:specialist.policy,score:specialist.score
+    } : null};
+  });
+}
+
+function captureMilestones(training,round) {
+  training.hallOfFame ||= {};
+  for(const award of MILESTONE_AWARDS) {
+    if(!trickCount(round,award)) continue;
+    const key=String(award);
+    const old=training.hallOfFame[key]||{};
+    const provenance={generation:training.generation,run:training.total,
+      policy:training.candidate<POPULATION ? training.candidate+1 : "evaluation",
+      score:round.score,finished:!!round.finished};
+    const weights=training.candidate<POPULATION
+      ? training.candidates[training.candidate]?.weights : training.champion;
+    training.hallOfFame[key]={
+      first:old.first||provenance,
+      specialist:old.specialist||(validPolicy(weights)
+        ? {...provenance,weights:[...weights]} : null),
+    };
+  }
+}
+
+function nextGenerationPolicies(training) {
+  const elites=training.elites?.length ? training.elites : [training.champion];
+  const specialists=MILESTONE_AWARDS.map(award=>
+    training.hallOfFame?.[String(award)]?.specialist?.weights).filter(validPolicy);
+  // Exact survivor slots protect innovations even if their average score is low.
+  const preserved=[...elites.slice(0,ELITE_COUNT),...specialists];
+  return Array.from({length:POPULATION},(_,index)=>({
+    weights:index<preserved.length ? [...preserved[index]]
+      : perturb(preserved[(index-preserved.length)%preserved.length],
+        0.16+index*0.025),
+    rounds:[],
+  }));
+}
+
+
 // Progressively shift from dependable completion to high-scoring tricks.
 export function fitness(round, finishRate = 0) {
   const completionBonus = finishRate >= 0.85 ? 400 : 1200;
   return (round.finished ? round.score + completionBonus : 125 * Math.max(0, round.progress || 0))
-    - 35 * Math.max(0, round.wipeouts || 0);
+    - 35 * Math.max(0, round.wipeouts || 0) + milestoneBonus(round);
 }
 
 export function migrateTraining(training) {
@@ -54,13 +137,19 @@ export function migrateTraining(training) {
   training.highScore ||= 0;
   training.generationRuns ||= [];
   training.pendingGenerations ||= [];
+  training.hallOfFame ||= {};
+  for(const award of MILESTONE_AWARDS) {
+    const specialist=training.hallOfFame[String(award)]?.specialist;
+    if(specialist && !validPolicy(specialist.weights))
+      throw new Error("Invalid preserved milestone policy weights");
+  }
   return training;
 }
 
 export function newTraining() {
   return {
     generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, policyVersion: 4, elites: [],
-    generationRuns: [], pendingGenerations: [],
+    generationRuns: [], pendingGenerations: [], hallOfFame: {},
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
       weights: index === 0 ? Array(WEIGHTS).fill(0) : perturb(Array(WEIGHTS).fill(0), 0.65),
@@ -121,6 +210,7 @@ function summary(rounds) {
 
 export function recordRound(training, round) {
   training.total++;
+  captureMilestones(training,round);
   // Retain exact run observations through candidate and evaluation phases.
   // Historic checkpoints only have summary data; never manufacture missing rows.
   if (round.tricks && Number.isFinite(round.averageSpeed)) {
@@ -167,12 +257,7 @@ export function recordRound(training, round) {
   training.generation++;
   training.candidate = 0;
   training.evaluation = [];
-  const elites = training.elites?.length ? training.elites : [training.champion];
-  training.candidates = Array.from({ length: POPULATION }, (_, index) => ({
-    weights: index < elites.length ? [...elites[index]] :
-      perturb(elites[(index - elites.length) % elites.length], 0.16 + index * 0.025),
-    rounds: [],
-  }));
+  training.candidates = nextGenerationPolicies(training);
 }
 
 export function trainingStats(training) {
@@ -181,5 +266,6 @@ export function trainingStats(training) {
     evaluating: training.candidate === POPULATION,
     policy: Math.min(POPULATION, training.candidate + 1),
     population: POPULATION, history: training.history,
+    milestones: publicMilestones(training),
   };
 }
