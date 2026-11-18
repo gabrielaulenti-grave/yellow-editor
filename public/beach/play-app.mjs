@@ -302,6 +302,13 @@ $("launch").addEventListener("click",()=>{void launch()});
 $("reset").addEventListener("click",()=>{void launch()});
 $("pause").addEventListener("click",()=>{if(paused)resumeGame();else pauseGame()});
 $("speed").addEventListener("change",()=>{lastMs=0;leftover=0});
+// Some mobile browsers still initiate selection from text immediately beside
+// a held D-pad button. Suppress it only inside the gameplay panel.
+for(const type of ["selectstart","dragstart"]) {
+  document.querySelector(".gameplay").addEventListener(type,event=>{
+    event.preventDefault();
+  });
+}
 for(const button of document.querySelectorAll("[data-button]")){
   button.addEventListener("pointerdown",event=>{
     event.preventDefault();if(!game)return;
