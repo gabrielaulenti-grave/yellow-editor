@@ -39,7 +39,7 @@ const emulator = await openBeach(
 );
 // Expose only symbol addresses and the hash of the server's pinned ROM,
  // never cartridge bytes. The player's own ROM stays inside their browser.
-const matchingSymbols=new Map([...((await readFile(symbolsPath,"utf8")).matchAll(/^([\\da-f]+):([\\da-f]{4})\\s+(\\S+)/gim))]
+const matchingSymbols=new Map([...((await readFile(symbolsPath,"utf8")).matchAll(/^([\da-f]+):([\da-f]{4})\s+(\S+)/gim))]
   .map(([,bank,address,name])=>[name,parseInt(address,16)]));
 const playerSymbols=JSON.stringify({
   sha256:createHash("sha256").update(await readFile(romPath)).digest("hex"),
