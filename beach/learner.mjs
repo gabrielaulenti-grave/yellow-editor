@@ -69,7 +69,9 @@ export function recoverCurrentSpecialists(training) {
       if(prior.specialist) continue;
       const weights=Number.isInteger(row.policy) && row.policy>=1 && row.policy<=POPULATION
         ? training.candidates[row.policy-1]?.weights
-        : row.policy==="evaluation" ? training.champion : null;
+        : row.policy==="evaluation" ? training.champion :
+          row.policy==="challenger" ? training.duel?.challenger :
+          row.policy==="incumbent" ? training.duel?.incumbent : null;
       if(!validPolicy(weights)) continue;
       training.hallOfFame[key]={
         first:prior.first||{generation:training.generation,run:row.run,policy:row.policy,
@@ -88,7 +90,10 @@ export function publicMilestones(training) {
     const specialist=value?.specialist;
     return {award,first:value?.first||null,specialist:specialist ? {
       generation:specialist.generation,run:specialist.run,
-      policy:specialist.policy,score:specialist.score
+      policy:specialist.policy,score:specialist.score,
+      active:validPolicy(specialist.weights) &&
+        training.generation-specialist.generation<SPECIALIST_GENERATIONS,
+      retiredAt:specialist.retiredAt||null
     } : null};
   });
 }
@@ -103,7 +108,7 @@ function captureMilestones(training,round) {
       policy:training.candidate<POPULATION ? training.candidate+1 : "evaluation",
       score:round.score,finished:!!round.finished};
     const weights=training.candidate<POPULATION
-      ? training.candidates[training.candidate]?.weights : training.champion;
+      ? training.candidates[training.candidate]?.weights : evaluationPolicy(training);
     training.hallOfFame[key]={
       first:old.first||provenance,
       specialist:old.specialist||(validPolicy(weights)
@@ -300,7 +305,8 @@ export function recordRound(training, round) {
   if (round.tricks && Number.isFinite(round.averageSpeed)) {
     training.generationRuns.push({
       run: training.total,
-      policy: training.candidate < POPULATION ? training.candidate + 1 : "evaluation",
+      policy: training.candidate < POPULATION ? training.candidate + 1 :
+        training.duel ? (training.evaluation.length<4 ? "challenger":"incumbent") : "evaluation",
       ...round,
     });
   }
