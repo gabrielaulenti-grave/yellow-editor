@@ -94,3 +94,17 @@ Predictions include known/unknown, estimated frames to impact, horizontal offset
 The v4 policy adds 8 normalized prediction features, increasing the 33-input/299-weight v3 network to 41 inputs/363 weights (8 hidden, 3 outputs). Existing 187/235/299-weight checkpoints are expanded with **zero weights** for new inputs, preserving their learned outputs. Champion, candidates, elite policies, high score and archived videos remain stored in the existing remote checkpoint database. Prediction telemetry is also shown beneath the spectator's progress bar.
 
 Run the Docker build's `node --test beach/highscores.test.mjs` and validate that new v4 checkpoints are written with 363 weights after the deployment. A unit test verifies actual tile types and fail-closed unknown results.
+
+## Per-run scoring analytics and historical generations
+
+The trainer tracks actual successful jump-to-landing trick awards by reading `wSurfingMinigameRadnessMeter` and `wSurfingMinigameTrickFlags` from the unmodified ROM on the final airborne frame. Counts are +50 (one flip), +150 (two same-direction flips), +180 (two mixed flips), +350 (three same-direction flips), and +500 (three mixed flips). A failed jump awards nothing.
+
+For each run (including HP failures) it records game score (zero if failed), radness points accumulated during active surfing, HP remaining at the end of gameplay, arithmetic mean of all game-frame surfing speed observations, number of wipeouts, progress, finish status, and trick award counts. These are observational analytics only: they do not alter the fitness or ROM.
+
+`training.generationRuns` is saved in the current Supabase checkpoint and displayed under the dashboard's Generation analytics section. The full 40-candidate + 8-evaluation generation is archived as a separate `public.beach_generations` row in Supabase, with a summary and up to 48 per-run JSON entries. All archive RPC operations require the private token; public visitors can view sanitized JSON through the Render proxy, not access the database token. The dashboard offers a selector to compare the current and last 100 archived generations.
+
+At generation rollover, the trainer first durably saves the pending archive queue in the remote checkpoint, then writes the archived generation with an idempotent upsert, then clears the queue and saves the checkpoint again. Temporary failures retain pending work and retry on the next completed round.
+
+**Historic runs from before this feature do not exist as individual records.** The first generation after deployment may be partially observed; it is labeled partial rather than showing invented rows. Older high-score video archives and the existing `history` evaluation summaries are preserved.
+
+The landing prediction remains available internally to the neural network but has been removed from the spectator display.
