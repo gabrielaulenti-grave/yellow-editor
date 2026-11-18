@@ -7,7 +7,8 @@ import { performance } from "node:perf_hooks";
 import { setTimeout as delay } from "node:timers/promises";
 import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
-import { remoteConfigured, restoreRemote, saveRemote } from "./remote-checkpoint.mjs";
+import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun } from "./remote-checkpoint.mjs";
+import { encodeWebm } from "./video.mjs";
 
 const pathFromHere = (path) => fileURLToPath(new URL(path, import.meta.url));
 const env = process.env;
@@ -38,6 +39,7 @@ const clients = new Map();
 const allowedOrigins = new Set((env.BEACH_VIEWER_ORIGINS || "").split(",").map(value => value.trim()).filter(Boolean));
 const clipPath = name => resolve(data, `${name}.json`);
 const clips = new Map();
+const records = [];
 const assets = new Map(await Promise.all([
   ["/", "index.html", "text/html"], ["/style.css", "style.css", "text/css"], ["/viewer.js", "viewer.js", "text/javascript"],
 ].map(async ([route, file, type]) => [route, { type, contents: await readFile(pathFromHere(`../public/beach/${file}`)) }])));
@@ -94,6 +96,32 @@ const server = createServer((req, res) => {
     res.writeHead(200, { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" }).end(clip.contents);
     return;
   }
+  if (url.pathname === "/api/records") {
+    const headers = viewerHeaders(req);
+    if (!headers) return res.writeHead(403).end();
+    res.writeHead(200, { ...headers, "Content-Type": "application/json", "Cache-Control": "no-store" });
+    res.end(JSON.stringify(records));
+    return;
+  }
+  const videoMatch = /^\/api\/records\/([1-9][0-9]{0,14})$/.exec(url.pathname);
+  if (videoMatch) {
+    const headers = viewerHeaders(req);
+    if (!headers) return res.writeHead(403).end();
+    const id = videoMatch[1];
+    if (!records.some(record => String(record.id) === id)) return res.writeHead(404, headers).end();
+    void readArchivedVideo(id).then(video => {
+      if (!video) return res.writeHead(404, headers).end();
+      res.writeHead(200, {
+        ...headers, "Content-Type": "video/webm", "Cache-Control": "no-store",
+        "Content-Length": video.length, "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": `inline; filename="pikachus-beach-record-${id}.webm"`,
+      }).end(video);
+    }).catch(error => {
+      console.error("Video archive read failed:", error.message);
+      if (!res.headersSent) res.writeHead(503).end();
+    });
+    return;
+  }
   if (url.pathname === "/api/health") {
     res.writeHead(errorMessage ? 503 : 200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
     res.end(JSON.stringify({ ok: !errorMessage }));
@@ -128,11 +156,11 @@ function publicClip({ finished, score, progress, wipeouts, frames }) {
   return JSON.stringify({ finished, score, progress, wipeouts, frames: frames.map(({ frame, action }) => ({ frame, action })) });
 }
 
-async function saveClips(round, frames) {
+async function saveClips(round, frames, fullFrames, meta) {
   const names = [];
   if (!clips.has("first")) names.push("first");
   if (round.finished && (!clips.has("best") || round.score > clips.get("best").score)) names.push("best");
-  if (!names.length) return;
+  if (!names.length && !fullFrames) return;
   const clip = {
     ...round,
     frames: frames.map(({ pixels, action }) => ({ frame: encode(pixels), action })),
@@ -143,6 +171,16 @@ async function saveClips(round, frames) {
     await rename(`${path}.tmp`, path);
     clips.set(name, { score: clip.score, contents: publicClip(clip) });
   }
+  if (fullFrames?.length && remoteConfigured()) {
+    // Only completed runs that set a NEW score record are encoded. Viewer
+    // actions can neither play the ROM nor trigger recording.
+    const video = await encodeWebm(fullFrames);
+    const inserted = await saveArchivedRun(emulator.id, round.score, meta.generation, meta.total, video);
+    if (inserted) {
+      records.splice(0, records.length, ...await listArchivedRuns());
+      console.log(`Archived record run: ${round.score} points, ${video.length} bytes`);
+    }
+  }
 }
 
 try {
@@ -152,6 +190,10 @@ try {
     ? (await restoreRemote(emulator.id)) ?? await loadTraining(checkpoint, emulator.id)
     : await loadTraining(checkpoint, emulator.id);
   let lastRemoteSave = 0;
+  if (remoteConfigured()) {
+    records.splice(0, records.length, ...await listArchivedRuns());
+    if (records.length) training.highScore = Math.max(training.highScore || 0, records[0].score);
+  }
   console.log(`Checkpoint store: ${remoteConfigured() ? "remote + local" : "local only (ephemeral)"}`);
   for (const name of ["first", "best"]) {
     try {
