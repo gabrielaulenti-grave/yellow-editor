@@ -53,6 +53,32 @@ export function backfillMilestones(training, generations) {
   return training.hallOfFame;
 }
 
+export function recoverCurrentSpecialists(training) {
+  // Candidate weights do remain in an in-progress generation, even after
+  // that candidate has finished its four evaluation runs. This permits
+  // reliable reconstruction of discoveries made earlier in THIS generation.
+  training.hallOfFame ||= {};
+  for (const row of training.generationRuns || []) {
+    for (const award of MILESTONE_AWARDS) {
+      if (!trickCount(row,award)) continue;
+      const key=String(award);
+      const prior=training.hallOfFame[key] || {};
+      if(prior.specialist) continue;
+      const weights=Number.isInteger(row.policy) && row.policy>=1 && row.policy<=POPULATION
+        ? training.candidates[row.policy-1]?.weights
+        : row.policy==="evaluation" ? training.champion : null;
+      if(!validPolicy(weights)) continue;
+      training.hallOfFame[key]={
+        first:prior.first||{generation:training.generation,run:row.run,policy:row.policy,
+          score:row.score,finished:!!row.finished},
+        specialist:{generation:training.generation,run:row.run,policy:row.policy,
+          score:row.score,finished:!!row.finished,weights:[...weights]},
+      };
+    }
+  }
+  return training.hallOfFame;
+}
+
 export function publicMilestones(training) {
   return MILESTONE_AWARDS.map(award=>{
     const value=training.hallOfFame?.[String(award)];
