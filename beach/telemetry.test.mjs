@@ -177,14 +177,14 @@ test("missing old extended points are excluded from average, not replaced by zer
 
 test("per-jump telemetry separates no-trick, scored, and crash events",()=>{
  const t=startRunTelemetry();
- const common={routine:1,hp:2000,speed:1.3,surfaceTile:11,angle:4};
+ const common={routine:1,hp:2000,speed:1.3,surfaceTile:11,angle:4,landingQuality:1};
  observeRun(t,{...common,state:0,radness:0});
  observeRun(t,{...common,state:1,radness:0,trickMeter:0,trickFlags:0});
  observeRun(t,{...common,state:2,radness:0,trickMeter:0,trickFlags:0});
  observeRun(t,{...common,state:1,radness:0,trickMeter:2,trickFlags:3});
  observeRun(t,{...common,state:2,radness:180,trickMeter:2,trickFlags:3});
  observeRun(t,{...common,state:1,radness:180,trickMeter:0,trickFlags:0});
- observeRun(t,{...common,state:3,radness:180,trickMeter:0,trickFlags:0});
+ observeRun(t,{...common,state:3,radness:180,trickMeter:0,trickFlags:0,landingQuality:4});
  const row=finishRunTelemetry(t,{finished:false,score:0,progress:.8,wipeouts:1});
  assert.equal(row.jumps.started,3);
  assert.equal(row.jumps.landed,2);
@@ -202,4 +202,36 @@ test("per-jump telemetry separates no-trick, scored, and crash events",()=>{
 test("historic generation summaries never invent jump measurements",()=>{
  const summary=generationSummary(42,[{finished:true,score:1200,tricks:{"180":1}}]);
  assert.equal(summary.jumpSummary,null);
+});
+
+test("ROM landing decision overrides conflicting orientation and terrain estimates",()=>{
+  for(const [quality,field] of [[1,"clean"],[2,"rough"],[3,"hard"]]) {
+    const t=startRunTelemetry();
+    observeRun(t,{routine:1,state:1,radness:0,hp:1500,speed:1.3,
+      surfaceTile:11,angle:7,landingQuality:0});
+    observeRun(t,{routine:1,state:2,radness:0,hp:1500,speed:1.3,
+      surfaceTile:11,angle:7,landingQuality:quality});
+    const row=finishRunTelemetry(t,{finished:true,score:1500,progress:1,wipeouts:0});
+    assert.equal(row.jumps[field],1);
+    assert.equal(row.jumps.unknownQuality,0);
+    assert.equal(row.jumps.classificationMismatch,0);
+  }
+});
+test("ROM collision code 4 is recognized as wipeout, not a successful landing",()=>{
+  const t=startRunTelemetry();
+  observeRun(t,{routine:1,state:1,radness:0,hp:1500,speed:1.5,landingQuality:0});
+  observeRun(t,{routine:1,state:3,radness:0,hp:1300,speed:.25,landingQuality:4});
+  const row=finishRunTelemetry(t,{finished:false,score:0,progress:.2,wipeouts:1});
+  assert.equal(row.jumps.wipeouts,1);
+  assert.equal(row.jumps.landed,0);
+  assert.equal(row.jumps.unknownQuality,0);
+  assert.equal(row.jumps.classificationMismatch,0);
+});
+test("missing ROM quality and contradictory successful-wipeout signal are distinguished",()=>{
+  const t=startRunTelemetry();
+  observeRun(t,{routine:1,state:1,radness:0,hp:1000});
+  observeRun(t,{routine:1,state:2,radness:0,hp:1000,landingQuality:4});
+  const row=finishRunTelemetry(t,{finished:true,score:1000,progress:1,wipeouts:0});
+  assert.equal(row.jumps.unknownQuality,1);
+  assert.equal(row.jumps.classificationMismatch,1);
 });
