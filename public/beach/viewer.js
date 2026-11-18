@@ -6,6 +6,7 @@ let decoding = false;
 let endpoint;
 let view = 0;
 let archiveSignature = "";
+let extendedSignature = "";
 let milestoneSignature = "";
 let milestoneChartSignature = "";
 let generationArchive = [];
@@ -30,6 +31,11 @@ function connect(address) {
   }
   endpoint = url.origin;
   archiveSignature = "";
+  extendedSignature = "";
+  void fetch(endpoint + "/api/extended-records", {cache:"no-store"})
+    .then(r=>r.ok?r.json():[]).then(rows=>{
+      if(endpoint===url.origin && Array.isArray(rows)) renderExtendedRecords(rows);
+    }).catch(()=>{});
   milestoneSignature = "";
   milestoneChartSignature = "";
   void fetch(`${endpoint}/api/milestones`, {cache:"no-store"})
@@ -98,6 +104,8 @@ async function show(state, source) {
   for (const key of ["generation", "total", "hp", "radness", "wipeouts"]) byId(key).textContent = number.format(state[key]);
   byId("speed").textContent = state.speed.toFixed(2);
   byId("high-score").textContent = number.format(state.highScore || 0);
+  byId("high-extended-score").textContent = number.format(state.highExtendedScore || 0);
+  byId("uncapped-radness").textContent = number.format(state.uncappedRadness || 0);
   // The landing predictor is strictly for the agent, not a spectator metric.
   if (state.generation !== analyticsLastGen || (state.total !== analyticsLastTotal &&
       performance.now() - analyticsLastRefresh > 7000)) {
@@ -109,6 +117,7 @@ async function show(state, source) {
 
   renderMilestoneChart(state.milestones || []);
   renderRecords(state.records || []);
+  renderExtendedRecords(state.extendedRecords || []);
   renderMilestones(state.milestoneVideos || []);
   const progress = Math.floor(state.progress * 100);
   byId("progress").value = progress;
