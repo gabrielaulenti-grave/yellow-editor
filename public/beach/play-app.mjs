@@ -194,7 +194,6 @@ function destroy(){
   $("pause").disabled=true;$("reset").disabled=true;
   availableButtons(false);
   paused=false;lastMs=0;leftover=0;elapsed=0;audioScheduled=0;
-  if(audioContext)void audioContext.suspend().catch(()=>{});
 }
 function sample() {
   if(!addresses||!game?.mod._beach_read_u8)return;
@@ -228,7 +227,12 @@ function tick(ms){
     const event=m._emulator_run_until_f64(game.emulator,target);
     if(event&16){note("Emulation encountered an invalid opcode.");pauseGame();break;}
     if(event&1){frames++;sample();}
-    if(event&2)pushAudio();
+    if(event&2)try {pushAudio();} catch(error) {
+      console.warn("Audio output failed:",error);
+      audioEnabled=false;
+      $("audio").textContent="Sound: Unavailable";
+      $("audio").setAttribute("aria-pressed","false");
+    }
     if(event&4)break;
     if(++loop>600){note("Emulator stalled.");pauseGame();break;}
   }
