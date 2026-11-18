@@ -39,6 +39,9 @@ export async function train(emulator, training, options) {
     const observation = active && {
       state: state.state, x: state.x, y: state.y, angle: state.angle,
       speed: state.speed, hp: state.hp, progress: state.progress, water: state.water,
+      descending: state.descending, jumpMagnitude: state.jumpMagnitude,
+      jumpFraction: state.jumpFraction, landingClearance: state.landingClearance,
+      surfaceTile: state.surfaceTile,
     };
     const action = active ? decide(training, observation, state.y - lastY, actionMemory) : 0;
     if (active) {
