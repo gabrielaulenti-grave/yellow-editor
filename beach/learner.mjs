@@ -1,16 +1,51 @@
 import { randomBytes } from "node:crypto";
 
-const INPUTS = 19;
+const ORIGINAL_INPUTS = 19;
+const TEMPORAL_INPUTS = 6; // last four steering actions, turn delta, speed delta
+const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS;
 const HIDDEN = 8;
 const OUTPUTS = 3;
 const WEIGHTS = (INPUTS + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
 const POPULATION = 10;
 const RUNS_PER_POLICY = 4;
 const EVALUATION_RUNS = 8;
+const ELITE_COUNT = 3;
+
+// Progressively shift from dependable completion to high-scoring tricks.
+export function fitness(round, finishRate = 0) {
+  const completionBonus = finishRate >= 0.85 ? 400 : 1200;
+  return (round.finished ? round.score + completionBonus : 125 * Math.max(0, round.progress || 0))
+    - 35 * Math.max(0, round.wipeouts || 0);
+}
+
+export function migrateTraining(training) {
+  if (!training || !Array.isArray(training.champion) || !Array.isArray(training.candidates))
+    throw new Error("Invalid training state");
+  const oldWidth = (ORIGINAL_INPUTS + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
+  const expand = weights => {
+    if (!Array.isArray(weights)) throw new Error("Invalid policy weights");
+    if (weights.length === WEIGHTS) return weights;
+    if (weights.length !== oldWidth) throw new Error("Unknown policy architecture");
+    const result = [];
+    for (let neuron = 0; neuron < HIDDEN; neuron++) {
+      result.push(...weights.slice(neuron * (ORIGINAL_INPUTS + 1), (neuron + 1) * (ORIGINAL_INPUTS + 1)));
+      result.push(...Array(TEMPORAL_INPUTS).fill(0));
+    }
+    result.push(...weights.slice((ORIGINAL_INPUTS + 1) * HIDDEN));
+    return result;
+  };
+  training.champion = expand(training.champion);
+  for (const candidate of training.candidates) candidate.weights = expand(candidate.weights);
+  training.elites = (training.elites || []).map(expand);
+  training.policyVersion = 2;
+  training.highScore ||= 0;
+  return training;
+}
+
 
 export function newTraining() {
   return {
-    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0,
+    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, policyVersion: 2, elites: [],
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
       weights: index === 0 ? Array(WEIGHTS).fill(0) : perturb(Array(WEIGHTS).fill(0), 0.65),
@@ -25,7 +60,7 @@ function perturb(weights, scale) {
   return weights.map((value, index) => value + (bytes.readUInt16LE(index * 2) / 32767.5 - 1) * scale);
 }
 
-export function decide(training, state, verticalMotion) {
+export function decide(training, state, verticalMotion, memory = {}) {
   if (state.state !== 1) return 0;
   const policy = training.candidate < POPULATION ? training.candidates[training.candidate].weights : training.champion;
   const angle = (state.angle - 4) * Math.PI / 7;
@@ -34,6 +69,9 @@ export function decide(training, state, verticalMotion) {
     state.speed / 4, state.hp / 6000, state.progress,
     ...state.water.map(y => (116 - y) / 48),
     ...state.water.slice(2, 5).map((y, i) => (y - state.water[i + 1]) / 16),
+    ...Array.from({ length: 4 }, (_, i) => (memory.actions?.at(-1-i) ?? 0) / 2),
+    (state.angle - (memory.lastAngle ?? state.angle)) / 7,
+    (state.speed - (memory.lastSpeed ?? state.speed)) / 4,
   ];
   let offset = 0;
   const layer = (values, width) => Array.from({ length: width }, () => {
@@ -68,14 +106,18 @@ export function recordRound(training, round) {
     training.candidate++;
     if (training.candidate !== POPULATION) return;
 
+    const baseline = training.history.length
+      ? training.history.slice(-3).reduce((sum, entry) => sum + entry.finishRate, 0) / Math.min(3, training.history.length)
+      : 0;
     const rank = entry => ({
-      score: average(entry.rounds, result => result.score),
-      progress: average(entry.rounds, result => result.progress),
-      finishes: entry.rounds.filter(result => result.finished).length,
+      fitness: average(entry.rounds, round => fitness(round, baseline)),
+      score: average(entry.rounds, round => round.score),
+      finishes: entry.rounds.filter(round => round.finished).length,
     });
     const ranked = training.candidates.map(entry => ({ ...entry, ...rank(entry) }))
-      .sort((a, b) => b.finishes - a.finishes || b.score - a.score || b.progress - a.progress);
-    training.champion = ranked[0].weights;
+      .sort((a, b) => b.fitness - a.fitness || b.score - a.score || b.finishes - a.finishes);
+    training.champion = [...ranked[0].weights];
+    training.elites = ranked.slice(0, ELITE_COUNT).map(entry => [...entry.weights]);
     return;
   }
 
@@ -86,8 +128,10 @@ export function recordRound(training, round) {
   training.generation++;
   training.candidate = 0;
   training.evaluation = [];
+  const elites = training.elites?.length ? training.elites : [training.champion];
   training.candidates = Array.from({ length: POPULATION }, (_, index) => ({
-    weights: index === 0 ? training.champion : perturb(training.champion, 0.16 + index * 0.025),
+    weights: index < elites.length ? [...elites[index]] :
+      perturb(elites[(index - elites.length) % elites.length], 0.16 + index * 0.025),
     rounds: [],
   }));
 }
