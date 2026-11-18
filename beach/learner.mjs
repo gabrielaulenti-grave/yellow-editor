@@ -127,7 +127,9 @@ function nextGenerationPolicies(training) {
 // Progressively shift from dependable completion to high-scoring tricks.
 export function fitness(round, finishRate = 0) {
   const completionBonus = finishRate >= 0.85 ? 400 : 1200;
-  return (round.finished ? round.score + completionBonus : 125 * Math.max(0, round.progress || 0))
+  const points = round.extendedValid !== false && Number.isSafeInteger(round.extendedScore)
+    ? round.extendedScore : round.score;
+  return (round.finished ? points + completionBonus : 125 * Math.max(0, round.progress || 0))
     - 35 * Math.max(0, round.wipeouts || 0) + milestoneBonus(round);
 }
 
@@ -161,6 +163,7 @@ export function migrateTraining(training) {
   training.elites = (training.elites || []).map(expand);
   training.policyVersion = 4;
   training.highScore ||= 0;
+  training.highExtendedScore ||= 0;
   training.generationRuns ||= [];
   training.pendingGenerations ||= [];
   training.hallOfFame ||= {};
@@ -174,7 +177,7 @@ export function migrateTraining(training) {
 
 export function newTraining() {
   return {
-    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, policyVersion: 4, elites: [],
+    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, highExtendedScore: 0, policyVersion: 4, elites: [],
     generationRuns: [], pendingGenerations: [], hallOfFame: {},
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
@@ -230,6 +233,8 @@ function summary(rounds) {
   return {
     finishRate: average(rounds, round => +round.finished),
     averageScore: Math.round(average(rounds, round => round.score)),
+    averageExtendedScore: Math.round(average(rounds, round =>
+      Number.isSafeInteger(round.extendedScore) ? round.extendedScore : round.score)),
     averageWipeouts: average(rounds, round => round.wipeouts),
   };
 }
@@ -248,6 +253,9 @@ export function recordRound(training, round) {
   }
   // Store only genuine, completed-course scores; partial attempts are not records.
   if (round.finished && round.score > (training.highScore || 0)) training.highScore = round.score;
+  if (round.finished && round.extendedValid !== false && Number.isSafeInteger(round.extendedScore)
+      && round.extendedScore > (training.highExtendedScore || 0))
+    training.highExtendedScore = round.extendedScore;
   if (training.candidate < POPULATION) {
     const candidate = training.candidates[training.candidate];
     candidate.rounds.push(round);
@@ -260,7 +268,9 @@ export function recordRound(training, round) {
       : 0;
     const rank = entry => ({
       fitness: average(entry.rounds, round => fitness(round, baseline)),
-      score: average(entry.rounds, round => round.score),
+      score: average(entry.rounds, round =>
+        round.extendedValid !== false && Number.isSafeInteger(round.extendedScore)
+          ? round.extendedScore : round.score),
       finishes: entry.rounds.filter(round => round.finished).length,
     });
     const ranked = training.candidates.map(entry => ({ ...entry, ...rank(entry) }))
@@ -289,6 +299,7 @@ export function recordRound(training, round) {
 export function trainingStats(training) {
   return {
     generation: training.generation, total: training.total, highScore: training.highScore || 0,
+    highExtendedScore: training.highExtendedScore || 0,
     evaluating: training.candidate === POPULATION,
     policy: Math.min(POPULATION, training.candidate + 1),
     population: POPULATION, history: training.history,
