@@ -18,7 +18,7 @@ The shared Red/Blue and Yellow helper sources are currently byte-identical for:
 
 Yellow additionally uses `pcm` for Pikachu audio conversion.
 
-For a normal ROM build, Yellow Editor requires `scan_includes`, `gfx`, and `pkmncompress` for both projects and additionally requires `pcm` when the checkout contains `tools/pcm.c`. `make_patch` is bundled for the later Virtual Console patch workflow but is not required for a normal ROM build.
+For a normal ROM build, Yellow Editor requires matching `gfx` and `pkmncompress` sources for both projects and additionally requires `pcm` when the checkout contains `tools/pcm.c`. `scan_includes` is bundled but **not executed** by the browser/desktop build graph: TypeScript scans dependencies directly, so a changed or missing `tools/scan_includes.c` does not block ROM compilation. `make_patch` is bundled for the later Virtual Console patch workflow but is not required for a normal ROM build.
 
 Generated files live under:
 
@@ -78,7 +78,7 @@ The generated ROM stays in application memory and can be passed directly to the 
 
 The pret helper manifest contains SHA-256 hashes of the exact helper C/header sources used to produce the WASM bundle. Yellow Editor hashes the checkout's corresponding `tools/*.c` and `tools/common.h` files before marking a helper as available.
 
-If pret changes a helper implementation later, Yellow Editor refuses to silently use stale helper modules. Updating the pinned source commit/blob SHAs and rebuilding the bundle is required instead.
+If pret changes an **executed, required** helper implementation later, Yellow Editor refuses to silently use a stale helper module. Updating the pinned source commit/blob SHAs and rebuilding the bundle is required instead. A differing `scan_includes.c` is reported as an optional mismatch, because it is not executed by the build graph. This does not waive compatibility checks for `gfx`, `pkmncompress`, or `pcm`.
 
 ## Development and release preparation
 
