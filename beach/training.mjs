@@ -35,6 +35,11 @@ export async function train(emulator, training, options) {
   const clip = new Array(clipSize);
   let clipFrames = 0;
   let fullFrames = [];
+  // Keep a bounded witness of a rare +500 independently of full run length.
+  const recentPacked = [];
+  let milestoneFrames = null;
+  let milestoneAfter = 0;
+  let sampledFrames = 0;
   let actionMemory = { actions: [] };
   let runTelemetry;
   while (!options.signal.aborted) {
@@ -63,7 +68,15 @@ export async function train(emulator, training, options) {
     const result = await emulator.step(exit ? 3 : action, capture || live);
     if (capture) {
       clip[clipFrames++ % clipSize] = { pixels: result.pixels, action: actionNames[action] };
-      if (fullFrames.length < 1800) fullFrames.push(deflateSync(result.pixels, { level: 1 }));
+      const packed = deflateSync(result.pixels, { level: 1 });
+      sampledFrames++;
+      if (fullFrames.length < 1800) fullFrames.push(packed);
+      recentPacked.push(packed);
+      if (recentPacked.length > 120) recentPacked.shift();
+      if (milestoneFrames && milestoneAfter > 0) {
+        milestoneFrames.push(packed);
+        milestoneAfter--;
+      }
     }
     frame++;
     state = result.state;
@@ -72,9 +85,19 @@ export async function train(emulator, training, options) {
       attempt = { wipeouts: 0, previousState: state.state };
       actionMemory = { actions: [] };
       runTelemetry = startRunTelemetry();
+      recentPacked.length = 0;
+      milestoneFrames = null;
+      milestoneAfter = 0;
+      sampledFrames = 0;
     }
     if (attempt && attempt.finished === undefined) {
-      observeRun(runTelemetry, state);
+      const landed500 = observeRun(runTelemetry, state);
+      if (landed500 && !milestoneFrames) {
+        // Capture roughly 10 seconds before the first verified +500 and
+        // the next 10 seconds at 12 video samples per second.
+        milestoneFrames = recentPacked.slice(-120);
+        milestoneAfter = 120;
+      }
       if (state.state === 3 && attempt.previousState !== 3) attempt.wipeouts++;
       attempt.previousState = state.state;
       if (state.routine >= 2 && state.routine <= 12) {
@@ -95,8 +118,12 @@ export async function train(emulator, training, options) {
             const start = Math.max(0, clipFrames - clipSize);
             const frames = Array.from({ length: Math.min(clipFrames, clipSize) }, (_, i) => clip[(start + i) % clipSize]);
             try {
-              await options.saveClip(lastRound, frames, isNewRecord ? fullFrames : null, {
+              await options.saveClip(lastRound, frames,
+                isNewRecord || lastRound.confirmed500 > 0 ? fullFrames : null, {
                 generation, total: training.total,
+                specialCount: lastRound.confirmed500 || 0,
+                specialFrames: milestoneFrames,
+                fullCaptureTruncated: sampledFrames > 1800,
               });
             } catch (error) {
               console.error("Video/clip archival failed:", error.message);
@@ -104,6 +131,10 @@ export async function train(emulator, training, options) {
           }
           clipFrames = 0;
           fullFrames = [];
+          recentPacked.length = 0;
+          milestoneFrames = null;
+          milestoneAfter = 0;
+          sampledFrames = 0;
           watchdog = 0;
         }
       }
