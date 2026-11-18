@@ -11,7 +11,11 @@ import type {
 } from "./toolRuntime";
 
 const MANIFEST_PATH = "wasm-tools/pret-gen1/manifest.json";
-const BASE_HELPER_TOOLS = ["scan_includes", "gfx", "pkmncompress"] as const;
+// The build graph scans INCLUDE/INCBIN dependencies in TypeScript and never invokes
+// the upstream scan_includes executable. Treat its C source as informational,
+// rather than refusing otherwise compatible modified disassemblies.
+const BASE_HELPER_TOOLS = ["gfx", "pkmncompress"] as const;
+const OPTIONAL_HELPER_TOOLS = ["scan_includes"] as const;
 
 interface PretWasmSourceFile {
   gitBlobSha: string;
@@ -124,7 +128,7 @@ async function projectHelperTools(source: ProjectSource): Promise<{
   visible: string[];
 }> {
   const required: string[] = [...BASE_HELPER_TOOLS];
-  const visible: string[] = [...BASE_HELPER_TOOLS];
+  const visible: string[] = [...BASE_HELPER_TOOLS, ...OPTIONAL_HELPER_TOOLS];
 
   if (await source.exists("tools/make_patch.c")) {
     visible.push("make_patch");
@@ -210,8 +214,11 @@ export async function inspectPretWasmTools(
     (name) => compatibility.get(name) === true,
   );
 
-  const incompatible = visible.filter(
+  const incompatible = required.filter(
     (name) => compatibility.get(name) !== true,
+  );
+  const optionalDifferences = visible.filter(
+    (name) => !required.includes(name) && compatibility.get(name) !== true,
   );
 
   return {
@@ -220,7 +227,7 @@ export async function inspectPretWasmTools(
     sourceCommit: manifest.source.commit,
     emscriptenVersion: manifest.emscripten.version,
     message: readyForRomBuild
-      ? "The precompiled pret helper WebAssembly tools match this checkout. RGBDS/WASM and the browser build graph are the remaining pieces before ROM builds can run in the web app."
+      ? `Required pret helper WebAssembly tools match this checkout. The TypeScript build graph handles assembly dependencies without scan_includes.${optionalDifferences.length ? ` Optional helper sources differ: ${optionalDifferences.join(", ")}; this does not prevent ROM compilation.` : ""} RGBDS/WASM and the browser build graph are the remaining pieces before ROM builds can run in the web app.`
       : `The helper WASM bundle does not match this checkout${
           incompatible.length ? ` for: ${incompatible.join(", ")}` : ""
         }. Yellow Editor will not use mismatched helper binaries.`,
