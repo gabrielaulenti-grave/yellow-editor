@@ -53,7 +53,6 @@
         </dl>
         <label for="progress">Course progress <span id="progress-value">—</span></label>
         <progress id="progress" max="100" value="0"></progress>
-        <p class="landing-forecast" id="landing-forecast" aria-live="off">Landing forecast: awaiting jump</p>
 
         <div class="history">
           <h3>Evaluation on fresh courses</h3>
@@ -80,6 +79,34 @@
         </div>
       </section>
     </div>
+
+
+    <section class="panel analytics" aria-labelledby="analytics-title">
+      <div class="analytics-head">
+        <div>
+          <h2 id="analytics-title">Generation analytics</h2>
+          <p>Successful trick rewards and completed-run performance</p>
+        </div>
+        <label for="generation-picker">View generation
+          <select id="generation-picker"><option value="current">Current generation</option></select>
+        </label>
+      </div>
+      <p class="analytics-status" id="analytics-status">Collecting this generation's runs…</p>
+      <div class="analytics-summary" id="analytics-summary">
+        <span>Completed runs <strong id="analytics-runs">0</strong></span>
+        <span>Completion rate <strong id="analytics-finish">—</strong></span>
+        <span>Best score <strong id="analytics-best">—</strong></span>
+      </div>
+      <h3>Successfully landed trick rewards</h3>
+      <div id="trick-breakdown" class="trick-breakdown" aria-label="Awarded tricks by score"></div>
+      <div class="analytics-charts">
+        <div class="metric-chart"><h3>Score</h3><canvas id="chart-score" width="540" height="150" aria-label="Score by completed run"></canvas></div>
+        <div class="metric-chart"><h3>Radness</h3><canvas id="chart-radness" width="540" height="150" aria-label="Radness by completed run"></canvas></div>
+        <div class="metric-chart"><h3>HP remaining</h3><canvas id="chart-hp" width="540" height="150" aria-label="HP remaining by completed run"></canvas></div>
+        <div class="metric-chart"><h3>Average surfing speed</h3><canvas id="chart-speed" width="540" height="150" aria-label="Average speed by completed run"></canvas></div>
+      </div>
+      <p class="analytics-note">Each graph represents one completed or failed course attempt. Failed attempts count as zero score. Archive begins with this update; earlier generations did not retain these per-run measurements.</p>
+    </section>
 
     <footer>
       <details id="settings">
