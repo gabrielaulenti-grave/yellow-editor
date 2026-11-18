@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 
 const ORIGINAL_INPUTS = 19;
 const TEMPORAL_INPUTS = 6; // last four steering actions, turn delta, speed delta
-const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS;
+const LANDING_INPUTS = 8; // descent, velocity, fractional velocity, clearance, four terrain types
+const INPUTS = ORIGINAL_INPUTS + TEMPORAL_INPUTS + LANDING_INPUTS;
 const HIDDEN = 8;
 const OUTPUTS = 3;
 const WEIGHTS = (INPUTS + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
@@ -21,31 +22,37 @@ export function fitness(round, finishRate = 0) {
 export function migrateTraining(training) {
   if (!training || !Array.isArray(training.champion) || !Array.isArray(training.candidates))
     throw new Error("Invalid training state");
-  const oldWidth = (ORIGINAL_INPUTS + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
+  // Preserve the 187-weight original and the 235-weight temporal policy.
+  // Appending zero-weight landing inputs to each hidden neuron exactly preserves
+  // the old network outputs until mutations start training the new connections.
+  const v1Inputs = ORIGINAL_INPUTS;
+  const v2Inputs = ORIGINAL_INPUTS + TEMPORAL_INPUTS;
+  const widthFor = inputs => (inputs + 1) * HIDDEN + (HIDDEN + 1) * OUTPUTS;
   const expand = weights => {
     if (!Array.isArray(weights)) throw new Error("Invalid policy weights");
     if (weights.length === WEIGHTS) return weights;
-    if (weights.length !== oldWidth) throw new Error("Unknown policy architecture");
+    const oldInputs = weights.length === widthFor(v1Inputs) ? v1Inputs :
+      weights.length === widthFor(v2Inputs) ? v2Inputs : null;
+    if (oldInputs === null) throw new Error("Unknown policy architecture");
     const result = [];
     for (let neuron = 0; neuron < HIDDEN; neuron++) {
-      result.push(...weights.slice(neuron * (ORIGINAL_INPUTS + 1), (neuron + 1) * (ORIGINAL_INPUTS + 1)));
-      result.push(...Array(TEMPORAL_INPUTS).fill(0));
+      result.push(...weights.slice(neuron * (oldInputs + 1), (neuron + 1) * (oldInputs + 1)));
+      result.push(...Array(INPUTS - oldInputs).fill(0));
     }
-    result.push(...weights.slice((ORIGINAL_INPUTS + 1) * HIDDEN));
+    result.push(...weights.slice((oldInputs + 1) * HIDDEN));
     return result;
   };
   training.champion = expand(training.champion);
   for (const candidate of training.candidates) candidate.weights = expand(candidate.weights);
   training.elites = (training.elites || []).map(expand);
-  training.policyVersion = 2;
+  training.policyVersion = 3;
   training.highScore ||= 0;
   return training;
 }
 
-
 export function newTraining() {
   return {
-    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, policyVersion: 2, elites: [],
+    generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, policyVersion: 3, elites: [],
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
       weights: index === 0 ? Array(WEIGHTS).fill(0) : perturb(Array(WEIGHTS).fill(0), 0.65),
@@ -72,6 +79,14 @@ export function decide(training, state, verticalMotion, memory = {}) {
     ...Array.from({ length: 4 }, (_, i) => (memory.actions?.at(-1-i) ?? 0) / 2),
     (state.angle - (memory.lastAngle ?? state.angle)) / 7,
     (state.speed - (memory.lastSpeed ?? state.speed)) / 4,
+    // The original game scores the frameset against this exact contact tile.
+    // Expose time-to-contact cues without predicting or overriding game physics.
+    (state.descending ?? 0) ? 1 : 0,
+    (state.jumpMagnitude ?? 0) / 16,
+    (state.jumpFraction ?? 0) / 256,
+    Math.min(2, (state.landingClearance ?? 0) / 144),
+    ...[6, 20, 18, 7].map(tile => +(state.surfaceTile === tile)),
+
   ];
   let offset = 0;
   const layer = (values, width) => Array.from({ length: width }, () => {
