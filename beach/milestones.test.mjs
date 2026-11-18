@@ -32,27 +32,24 @@ test("first historic +350 discovery is credited without inventing saved weights"
   assert.equal(t.hallOfFame["350"].first.run,901);
 });
 
-test("a non-elite +350 discoverer survives across future generations",()=>{
+test("milestone specialist contributes only a short-lived mutated descendant",()=>{
   const t=newTraining();
-  t.candidates[9].weights.fill(0.77);
-  const specialist=[...t.candidates[9].weights];
-  for(let i=0;i<48;i++) {
-    const isTenth=i>=36 && i<40;
-    recordRound(t,round(isTenth ? 100 : 4000,
-      i===36 ? {"350":1} : {}));
-  }
+  t.candidates[9].weights.fill(.77);
+  const source=[...t.candidates[9].weights];
+  for(let i=0;i<48;i++)
+    recordRound(t,round(i>=36&&i<40?100:4000,i===36?{"350":1}:{}));
   assert.equal(t.generation,2);
-  const hof=t.hallOfFame["350"];
-  assert.equal(hof.first.run,37);
-  assert.deepEqual(hof.specialist.weights,specialist);
-  assert.deepEqual(t.candidates[3].weights,specialist);
-  assert.equal(publicMilestones(t).find(x=>x.award===350).specialist.run,37);
-  // Even 48 rounds with no milestone cannot evict the specialty.
+  assert.equal(t.hallOfFame["350"].first.run,37);
+  assert.deepEqual(t.hallOfFame["350"].specialist.weights,source);
+  assert.equal(t.candidates.some(c=>JSON.stringify(c.weights)===JSON.stringify(source)),false);
+  const inherited=t.candidates.some(c=>c.weights.every((v,j)=>Math.abs(v-source[j])<=.101));
+  assert.equal(inherited,true);
   for(let i=0;i<48;i++) recordRound(t,round(4500));
   assert.equal(t.generation,3);
-  assert.deepEqual(t.hallOfFame["350"].specialist.weights,specialist);
-  assert.deepEqual(t.candidates[3].weights,specialist);
-  assert.equal(migrateTraining(t).hallOfFame["350"].specialist.run,37);
+  assert.equal(t.hallOfFame["350"].specialist.weights,undefined);
+  assert.equal(t.hallOfFame["350"].specialist.retiredAt,3);
+  assert.equal(publicMilestones(t).find(v=>v.award===350).specialist.active,false);
+  assert.equal(migrateTraining(t).hallOfFame["350"].first.run,37);
 });
 
 test("historically recorded first discovery and newly recovered specialist stay distinct",()=>{
@@ -93,4 +90,46 @@ test("recover exact current-generation +180 and +350 specialists after checkpoin
   assert.deepEqual(t.hallOfFame["350"].specialist.weights,t.candidates[3].weights);
   assert.equal(t.hallOfFame["180"].first.run,998);
   assert.deepEqual(t.hallOfFame["180"].specialist.weights,t.candidates[9].weights);
+});
+
+test("retired decades-old specialists never regain an active breeding slot",()=>{
+  const t=newTraining();
+  t.generation=64;
+  const old=Array(363).fill(.75);
+  t.hallOfFame["350"]={first:{generation:19,run:901},
+    specialist:{generation:21,run:975,weights:old}};
+  migrateTraining(t);
+  assert.equal(t.hallOfFame["350"].specialist.weights,undefined);
+  for(let i=0;i<48;i++) recordRound(t,round(4000));
+  assert.ok(t.candidates.every(c=>c.weights.some(v=>v!==.75)));
+});
+test("challenger must beat incumbent across equal evaluation trials before promotion",()=>{
+  const t=newTraining();
+  // Force a large apparent advantage across the first four discovery runs.
+  t.candidates[1].weights.fill(.4);
+  for(let i=0;i<40;i++) {
+    const policy=Math.floor(i/4);
+    recordRound(t,round(policy===1?5000:3000));
+  }
+  assert.equal(t.candidate,10);
+  assert.equal(t.duel.challengerIndex,1);
+  const incumbent=[...t.champion];
+  for(let i=0;i<4;i++) recordRound(t,round(800));
+  for(let i=0;i<4;i++) recordRound(t,round(3000));
+  assert.equal(t.generation,2);
+  assert.equal(t.lastSelection.promoted,false);
+  assert.deepEqual(t.champion,incumbent);
+  assert.equal(t.lastSelection.challengerIndex,2);
+  assert.equal(t.duel,null);
+});
+test("sustained challenger improvements promote without losing lineage",()=>{
+  const t=newTraining();
+  t.candidates[1].weights.fill(.43);
+  for(let i=0;i<40;i++) recordRound(t,round(Math.floor(i/4)===1?5000:2000));
+  for(let i=0;i<4;i++) recordRound(t,round(4800));
+  for(let i=0;i<4;i++) recordRound(t,round(2100));
+  assert.equal(t.lastSelection.promoted,true);
+  assert.ok(t.champion.every(v=>v===.43));
+  assert.deepEqual(t.candidates[0].weights,t.champion);
+  assert.equal(t.history[0].averageScore,4800);
 });
