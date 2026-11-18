@@ -346,7 +346,7 @@ function drawMetric(canvasId, runs, key, color) {
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#a9c2bc";
   ctx.strokeStyle = "#365250";
-  const maxValue = Math.max(1, ...runs.map(run => Number(run[key]) || 0));
+  const maxValue = Math.max(1, ...runs.filter(run => Number.isFinite(run[key])).map(run => run[key]));
   const ceiling = Math.ceil(maxValue / (maxValue > 100 ? 100 : maxValue > 10 ? 5 : 1)) *
     (maxValue > 100 ? 100 : maxValue > 10 ? 5 : 1);
   for (let i = 0; i <= 3; i++) {
@@ -364,18 +364,25 @@ function drawMetric(canvasId, runs, key, color) {
   ctx.textAlign = "center";
   ctx.fillText("1",left,bottom+15);
   ctx.fillText(String(runs.length),right,bottom+15);
-  const points = runs.map((run,i) => ({
+  const points = runs.map((run,i) => Number.isFinite(run[key]) ? ({
     x: left + (runs.length === 1 ? .5 : i / (runs.length-1)) * (right-left),
-    y: bottom - ((Number(run[key]) || 0) / ceiling) * (bottom - top),
-  }));
+    y: bottom - (run[key] / ceiling) * (bottom - top),
+  }) : null);
   ctx.strokeStyle = color;
   ctx.lineWidth = 2;
   ctx.beginPath();
-  points.forEach((p,i) => i ? ctx.lineTo(p.x,p.y) : ctx.moveTo(p.x,p.y));
+  let connected = false;
+  for (const point of points) {
+    if (!point) { connected=false; continue; }
+    if (connected) ctx.lineTo(point.x,point.y);
+    else ctx.moveTo(point.x,point.y);
+    connected=true;
+  }
   ctx.stroke();
   ctx.fillStyle = color;
-  if (points.length <= 55) for (const p of points) {
-    ctx.beginPath(); ctx.arc(p.x,p.y,2.4,0,Math.PI*2); ctx.fill();
+  if (points.length <= 55) for (const point of points) {
+    if (!point) continue;
+    ctx.beginPath(); ctx.arc(point.x,point.y,2.4,0,Math.PI*2); ctx.fill();
   }
 }
 
@@ -400,7 +407,11 @@ function renderAnalytics(summary, runs) {
     cell.append(numberElement, name);
     tricks.append(cell);
   }
-  drawMetric("chart-extended",runs.filter(row=>row.extendedValid !== false && Number.isSafeInteger(row.extendedScore)),"extendedScore","#f0c877");
+  const extendedCoverage = runs.filter(row => Number.isSafeInteger(row.extendedScore)).length;
+  byId("extended-coverage").textContent = `Extended scoring available for ${extendedCoverage} of ${runs.length} runs. Failed runs score zero; older or unverified runs remain gaps, not zeroes.`;
+  drawMetric("chart-extended",runs.map(row=>({
+    extendedScore: Number.isSafeInteger(row.extendedScore) ? row.extendedScore : null,
+  })),"extendedScore","#f0c877");
   drawMetric("chart-score",runs,"score","#f1df79");
   drawMetric("chart-radness",runs,"radness","#8fe3be");
   drawMetric("chart-hp",runs,"hpRemaining","#a3c8ff");
