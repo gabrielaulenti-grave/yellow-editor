@@ -9,7 +9,7 @@ import { openBeach } from "./emulator.mjs";
 import { loadTraining, saveTraining, train } from "./training.mjs";
 import { migrateTraining, backfillMilestones, recoverCurrentSpecialists, MILESTONE_AWARDS } from "./learner.mjs";
 import { generationSummary } from "./telemetry.mjs";
-import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun, saveGeneration, listGenerations, readGeneration, list500Videos, read500Video, save500Video } from "./remote-checkpoint.mjs";
+import { remoteConfigured, restoreRemote, saveRemote, listArchivedRuns, readArchivedVideo, saveArchivedRun, saveGeneration, listGenerations, readGeneration, list500Videos, read500Video, save500Video, listExtendedVideos, readExtendedVideo, saveExtendedVideo } from "./remote-checkpoint.mjs";
 import { encodeWebm } from "./video.mjs";
 
 const pathFromHere = (path) => fileURLToPath(new URL(path, import.meta.url));
@@ -43,6 +43,7 @@ const clipPath = name => resolve(data, `${name}.json`);
 const clips = new Map();
 const records = [];
 const milestoneVideos = [];
+const extendedRecords = [];
 const archivedGenerations = [];
 let currentTraining;
 const assets = new Map(await Promise.all([
@@ -158,6 +159,32 @@ const server = createServer((req, res) => {
     });
     return;
   }
+  if (url.pathname === "/api/extended-records") {
+    const headers=viewerHeaders(req);
+    if(!headers) return res.writeHead(403).end();
+    return res.writeHead(200,{...headers,"Content-Type":"application/json","Cache-Control":"no-store"})
+      .end(JSON.stringify(extendedRecords));
+  }
+  const extendedMatch=url.pathname.match(/^\\/api\\/extended-records\\/([1-9][0-9]{0,14})$/);
+  if(extendedMatch) {
+    const headers=viewerHeaders(req);
+    if(!headers) return res.writeHead(403).end();
+    const id=extendedMatch[1];
+    if(!extendedRecords.some(item=>String(item.id)===id))
+      return res.writeHead(404,headers).end();
+    void readExtendedVideo(id).then(video=>{
+      if(!video) return res.writeHead(404,headers).end();
+      res.writeHead(200,{...headers,"Content-Type":"video/webm",
+        "Cache-Control":"no-store","Content-Length":video.length,
+        "X-Content-Type-Options":"nosniff",
+        "Content-Disposition":`inline; filename="beach-super-maxout-${id}.webm"`,
+      }).end(video);
+    }).catch(error=>{
+      console.error("Extended video read failed:",error.message);
+      if(!res.headersSent) res.writeHead(503).end();
+    });
+    return;
+  }
   if (url.pathname === "/api/records") {
     const headers = viewerHeaders(req);
     if (!headers) return res.writeHead(403).end();
@@ -236,7 +263,8 @@ async function saveClips(round, frames, fullFrames, meta) {
   if (fullFrames?.length && remoteConfigured()) {
     let fullVideo = null;
     let fullVideoError = null;
-    if (meta.isRecord || (meta.specialCount && !meta.fullCaptureTruncated)) {
+    if (meta.isRecord || meta.isExtendedRecord || meta.isMaxout ||
+        (meta.specialCount && !meta.fullCaptureTruncated)) {
       try {
         fullVideo = await encodeWebm(fullFrames);
       } catch (error) {
@@ -255,6 +283,25 @@ async function saveClips(round, frames, fullFrames, meta) {
       }
     } else if (meta.isRecord && fullVideoError) {
       console.error("High-score video encoding failed:",fullVideoError.message);
+    }
+    if (meta.isExtendedRecord || meta.isMaxout) {
+      const firstMaxout=meta.isMaxout && !extendedRecords.some(item=>item.firstMaxout);
+      try {
+        let video=meta.fullCaptureTruncated ? null : fullVideo;
+        // Preserve a short visual witness rather than discard a genuine
+        // first max-out when the run is longer than the capture/file limit.
+        if(!video && frames.length)
+          video=await encodeWebm(frames.map(frame=>deflateSync(frame.pixels,{level:1})));
+        if(!video) throw new Error("No encodable extended-record frames");
+        const inserted=await saveExtendedVideo(emulator.id,round,
+          {...meta,firstMaxout},video);
+        if(inserted) {
+          extendedRecords.splice(0,extendedRecords.length,...await listExtendedVideos());
+          console.log(`Archived extended record ${round.extendedScore} (game ${round.score}) run ${meta.total}, first maxout=${firstMaxout}`);
+        }
+      } catch(error) {
+        console.error("Extended-score archival failed:",error.message);
+      }
     }
     if (meta.specialCount > 0) {
       // A special video is stored regardless of whether the course finished
@@ -285,6 +332,7 @@ try {
   let lastRemoteSave = 0;
   if (remoteConfigured()) {
     records.splice(0, records.length, ...await listArchivedRuns());
+    extendedRecords.splice(0,extendedRecords.length,...await listExtendedVideos());
     archivedGenerations.splice(0, archivedGenerations.length, ...await listGenerations());
     // Earlier +350 discoveries exist in per-generation telemetry, but no
     // weights were saved. Recover their genuine first-run provenance without
@@ -359,7 +407,7 @@ try {
     publish(pixels, state) {
       lastFrame = performance.now();
       const frame = encode(pixels);
-      lastEvent = `data: ${JSON.stringify({ ...state, frame, records, milestoneVideos, clips: [...clips.keys()] })}\n\n`;
+      lastEvent = `data: ${JSON.stringify({ ...state, frame, records, extendedRecords, milestoneVideos, clips: [...clips.keys()] })}\n\n`;
       broadcast(lastEvent);
     },
     pace() {
