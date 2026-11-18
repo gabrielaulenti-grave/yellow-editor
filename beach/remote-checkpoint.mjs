@@ -98,3 +98,34 @@ export async function readGeneration(generation) {
   if (!root || !Number.isSafeInteger(generation) || generation < 1) return null;
   return rpc("beach_generation_read", { p_generation: generation });
 }
+
+export async function list500Videos() {
+  if (!root) return [];
+  const rows = await rpc("beach_500_list", {});
+  if (!Array.isArray(rows)) throw new Error("Invalid special recording list");
+  return rows.filter(row => Number.isSafeInteger(Number(row.id)) &&
+    Number.isSafeInteger(Number(row.total)) && Number(row.awards) > 0);
+}
+export async function read500Video(id) {
+  if (!root || !/^[1-9][0-9]{0,14}$/.test(String(id))) return null;
+  const base64 = await rpc("beach_500_read", { p_id: Number(id) });
+  if (base64 == null) return null;
+  if (typeof base64 !== "string" || base64.length > 6000000)
+    throw new Error("Invalid special recording payload");
+  const bytes = Buffer.from(base64, "base64");
+  if (bytes.length < 16 || bytes.length > 4194304 ||
+      bytes.subarray(0,4).toString("hex") !== "1a45dfa3")
+    throw new Error("Invalid special WebM recording");
+  return bytes;
+}
+export async function save500Video(romId, round, meta, video, fullRun) {
+  if (!root) return false;
+  if (!Buffer.isBuffer(video) || video.length > 4194304)
+    throw new Error("Milestone recording exceeds 4 MiB limit");
+  return rpc("beach_500_save", {
+    p_rom_id: romId, p_total: meta.total, p_generation: meta.generation,
+    p_score: round.score, p_finished: round.finished,
+    p_awards: meta.specialCount, p_full_run: fullRun,
+    p_video_base64: video.toString("base64"),
+  });
+}
