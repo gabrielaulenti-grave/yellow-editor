@@ -95,3 +95,9 @@ input { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius
  .analytics-summary { gap:5px; }
  .analytics-summary span { padding:8px; }
 }
+
+.milestone-archive { border-top-color: #d1b66d; }
+.milestone-archive h3 { color: #f1df79; }
+#milestone-video { display:block; width:100%; height:auto; background:#091514; border:1px solid var(--line); border-radius:9px; margin-top:12px; image-rendering:pixelated; }
+#milestone-video[hidden], #milestone-download[hidden] { display:none; }
+#milestone-download { display:inline-block; color:var(--accent); margin-top:8px; font-size:.82rem; }
