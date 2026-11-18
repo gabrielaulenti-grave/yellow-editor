@@ -2,7 +2,7 @@
 # No ROM or symbol files are committed to Git or copied into any public assets.
 FROM node:24-bookworm-slim AS rom-build
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git make gcc g++ libc6-dev bison flex libpng-dev pkg-config \
+    ca-certificates git make gcc g++ libc6-dev bison flex libpng-dev pkg-config zip unzip \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /build
 RUN git clone --depth 1 --branch v1.0.4 https://github.com/gbdev/rgbds.git rgbds \
@@ -19,7 +19,11 @@ RUN node /build/prepare-rom.mjs /build/pokeyellow \
     && gzip -9 -c /build/pokeyellow/pokeyellow.gbc > /build/pokeyellow/pokeyellow.gbc.gz \
     && gzip -9 -c /build/pokeyellow/pokeyellow.sym > /build/pokeyellow/pokeyellow.sym.gz \
     && sha256sum /build/pokeyellow/pokeyellow.gbc /build/pokeyellow/pokeyellow.sym \
-    && wc -c /build/pokeyellow/pokeyellow.gbc.gz /build/pokeyellow/pokeyellow.sym.gz
+    && wc -c /build/pokeyellow/pokeyellow.gbc.gz /build/pokeyellow/pokeyellow.sym.gz \
+    && printf '%s\n' 'Pokémon Yellow (pret/pokeyellow), pinned commit b452f2ab07185075140061c5084ab866d5e4a794.' 'Pikachu Beach trainer: automatic private minigame launch and one-byte landing-result telemetry.' 'This is a source-only disassembly, NOT a compiled Nintendo ROM.' 'Build with RGBDS v1.0.4: make RGBDS=/path/to/rgbds/ yellow' 'Landing result in wBeachTrainerLastLandingQuality: 0 none, 1 clean, 2 rough, 3 hard, 4 crash.' > /build/pokeyellow/BEACH_TELEMETRY_README.txt \
+    && cd /build/pokeyellow \
+    && zip -q -r -9 /build/pokeyellow-landing-telemetry-disassembly.zip . -x './.git/*' '*.gbc' '*.gb' '*.sym' '*.map' '*.o' '*.sav' '*.gbc.gz' '*.sym.gz' \
+    && unzip -l /build/pokeyellow-landing-telemetry-disassembly.zip | tail -n 3
 
 FROM node:24-bookworm-slim AS emulator-build
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gcc git libc6-dev && rm -rf /var/lib/apt/lists/*
@@ -33,6 +37,7 @@ WORKDIR /app
 COPY --from=emulator-build /app/beach/.build ./beach/.build
 COPY --from=rom-build /build/pokeyellow/pokeyellow.gbc.gz /rom/pokeyellow.gbc.gz
 COPY --from=rom-build /build/pokeyellow/pokeyellow.sym.gz /rom/pokeyellow.sym.gz
+COPY --from=rom-build /build/pokeyellow-landing-telemetry-disassembly.zip ./public/beach/pokeyellow-landing-telemetry-disassembly.zip
 COPY beach/server.mjs beach/emulator.mjs beach/training.mjs beach/learner.mjs beach/remote-checkpoint.mjs beach/video.mjs beach/landing-predictor.mjs beach/telemetry.mjs beach/highscores.test.mjs beach/telemetry.test.mjs beach/milestones.test.mjs ./beach/
 RUN node --test beach/highscores.test.mjs beach/telemetry.test.mjs beach/milestones.test.mjs
 COPY public/beach/index.html public/beach/style.css public/beach/viewer.js ./public/beach/
