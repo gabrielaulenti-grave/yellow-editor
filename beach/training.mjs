@@ -2,6 +2,7 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import { deflateSync } from "node:zlib";
 import { decide, newTraining, recordRound, trainingStats } from "./learner.mjs";
 import { actionNames } from "./emulator.mjs";
+import { predictLanding } from "./landing-predictor.mjs";
 
 export async function loadTraining(path, romId) {
   try {
@@ -43,7 +44,8 @@ export async function train(emulator, training, options) {
       jumpFraction: state.jumpFraction, landingClearance: state.landingClearance,
       surfaceTile: state.surfaceTile,
     };
-    const action = active ? decide(training, observation, state.y - lastY, actionMemory) : 0;
+    const prediction = active ? predictLanding(state) : null;
+    const action = active ? decide(training, observation, state.y - lastY, actionMemory, prediction) : 0;
     if (active) {
       // Memory is scoped to a single course, never leaked across runs.
       actionMemory.actions.push(action);
@@ -112,6 +114,7 @@ export async function train(emulator, training, options) {
         phase: state.routine === 1 ? "Surfing" : state.routine >= 2 && state.routine <= 12 ? "Results" : "Starting",
         hp: state.hp, speed: state.speed, progress: state.progress,
         angle: state.angle, radness: state.radness, wipeouts: attempt?.wipeouts ?? 0,
+        predictedLanding: prediction?.known ? prediction : { known: false },
       });
     }
     await options.pace();
