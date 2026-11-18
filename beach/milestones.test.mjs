@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { newTraining, migrateTraining, recordRound, fitness,
-  milestoneBonus, backfillMilestones, publicMilestones } from "./learner.mjs";
+  milestoneBonus, backfillMilestones, recoverCurrentSpecialists, publicMilestones } from "./learner.mjs";
 
 function round(score, tricks={}) {
   return { finished:true,score,progress:1,wipeouts:0,
@@ -73,4 +73,24 @@ test("milestone public telemetry never leaks full network weights",()=>{
   assert.ok(publicView.includes('"award":180'));
   assert.ok(!publicView.includes('"weights"'));
   assert.ok(!publicView.includes('"champion"'));
+});
+
+test("recover exact current-generation +180 and +350 specialists after checkpoint migration",()=>{
+  const t=newTraining();
+  t.generation=21;
+  t.candidates[3].weights.fill(.44);
+  t.candidates[9].weights.fill(.99);
+  t.generationRuns=[
+    {run:975,policy:4,score:2239,finished:true,tricks:{"350":1}},
+    {run:998,policy:10,score:1500,finished:true,tricks:{"180":1}},
+  ];
+  backfillMilestones(t,[{generation:19,runs:[{
+    run:901,policy:10,score:3113,finished:true,tricks:{"350":1}
+  }]}]);
+  recoverCurrentSpecialists(t);
+  assert.equal(t.hallOfFame["350"].first.run,901);
+  assert.equal(t.hallOfFame["350"].specialist.run,975);
+  assert.deepEqual(t.hallOfFame["350"].specialist.weights,t.candidates[3].weights);
+  assert.equal(t.hallOfFame["180"].first.run,998);
+  assert.deepEqual(t.hallOfFame["180"].specialist.weights,t.candidates[9].weights);
 });
