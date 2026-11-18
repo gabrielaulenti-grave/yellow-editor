@@ -8,7 +8,7 @@ const frameTicks=4194304;
 const maxRomSize=8*1024*1024;
 let modPromise,game=null,sourceBytes=null,sourceName="",romKey="",statsTracker=null,
   autoSymbols=null,addresses=null,currentRomHash=null,paused=false,raf=null,
-  lastMs=0,leftover=0,elapsed=0;
+  lastMs=0,leftover=0,elapsed=0,audioContext=null,audioScheduled=0,audioEnabled=true;
 const number=new Intl.NumberFormat("en-US");
 const canvas=$("screen"),ctx=canvas.getContext("2d",{alpha:false});
 ctx.imageSmoothingEnabled=false;
@@ -139,6 +139,39 @@ function renderStats(){
   }
   table.append(tbody);root.append(table);
 }
+function enableAudio(){
+  if(!audioEnabled)return null;
+  try{
+    const NativeAudio=window.AudioContext||window.webkitAudioContext;
+    if(!NativeAudio)return null;
+    audioContext??=new NativeAudio();
+    void audioContext.resume().catch(()=>{});
+  }catch(error){console.warn("Audio unavailable:",error);}
+  return audioContext;
+}
+function pushAudio(){
+  if(!game||!audioEnabled||audioContext?.state!=="running")return;
+  const {mod,emulator}=game;
+  const ptr=mod._get_audio_buffer_ptr(emulator);
+  const byteCount=mod._get_audio_buffer_capacity(emulator);
+  if(!ptr||byteCount<2||byteCount>65536)return;
+  const frames=byteCount/2;
+  if(!Number.isInteger(frames))return;
+  const buffer=audioContext.createBuffer(2,frames,audioContext.sampleRate);
+  const left=buffer.getChannelData(0),right=buffer.getChannelData(1);
+  const raw=new Int8Array(mod.HEAP8.buffer,ptr,byteCount);
+  for(let i=0;i<frames;i++){
+    left[i]=raw[2*i]/255;
+    right[i]=raw[2*i+1]/255;
+  }
+  const now=audioContext.currentTime;
+  if(audioScheduled<now||audioScheduled>now+.5)audioScheduled=now+.07;
+  const node=audioContext.createBufferSource();
+  node.buffer=buffer;
+  node.connect(audioContext.destination);
+  node.start(audioScheduled);
+  audioScheduled+=frames/audioContext.sampleRate;
+}
 function setInput(name,pressed) {
   if(!game)return;
   const method={up:"_set_joyp_up",down:"_set_joyp_down",left:"_set_joyp_left",
@@ -160,7 +193,8 @@ function destroy(){
   }
   $("pause").disabled=true;$("reset").disabled=true;
   availableButtons(false);
-  paused=false;lastMs=0;leftover=0;elapsed=0;
+  paused=false;lastMs=0;leftover=0;elapsed=0;audioScheduled=0;
+  if(audioContext)void audioContext.suspend().catch(()=>{});
 }
 function sample() {
   if(!addresses||!game?.mod._beach_read_u8)return;
@@ -194,6 +228,7 @@ function tick(ms){
     const event=m._emulator_run_until_f64(game.emulator,target);
     if(event&16){note("Emulation encountered an invalid opcode.");pauseGame();break;}
     if(event&1){frames++;sample();}
+    if(event&2)pushAudio();
     if(event&4)break;
     if(++loop>600){note("Emulator stalled.");pauseGame();break;}
   }
@@ -207,25 +242,29 @@ function pauseGame() {
   paused=true;
   if(raf!==null)cancelAnimationFrame(raf);
   raf=null;releaseAll();$("pause").textContent="Resume";
+  if(audioContext)void audioContext.suspend().catch(()=>{});
+  audioScheduled=0;
   note("Paused. ROM and personal statistics remain in this browser.");
   saveStats();
 }
 function resumeGame(){
   if(!game)return;
-  paused=false;lastMs=0;
+  paused=false;lastMs=0;audioScheduled=0;
+  enableAudio();
   $("pause").textContent="Pause";raf=requestAnimationFrame(tick);
   note("Playing "+sourceName+(addresses?" · ROM telemetry active":" · visual-only mode"));
 }
 async function launch() {
   if(!sourceBytes)return;
   $("launch").disabled=true;note("Loading local Game Boy emulator…");
+  enableAudio();
   try{
     const m=await loadBinjgb();
     destroy();
     const ptr=m._malloc(sourceBytes.length);
     if(!ptr)throw new Error("Could not allocate cartridge memory.");
     m.HEAPU8.set(sourceBytes,ptr);
-    const e=m._emulator_new_simple(ptr,sourceBytes.length,44100,4096);
+    const e=m._emulator_new_simple(ptr,sourceBytes.length,audioContext?.sampleRate||44100,4096);
     if(!e){m._free(ptr);throw new Error("Emulator rejected this cartridge.");}
     const joypad=m._joypad_new();
     if(!joypad){m._emulator_delete(e);m._free(ptr);throw new Error("Could not allocate joypad.");}
@@ -247,6 +286,14 @@ async function launch() {
     note("Could not start ROM: "+readableError(error));
   }
 }
+$("audio").addEventListener("click",()=>{
+  audioEnabled=!audioEnabled;
+  $("audio").textContent="Sound: "+(audioEnabled?"On":"Off");
+  $("audio").setAttribute("aria-pressed",String(audioEnabled));
+  if(audioEnabled&&game)enableAudio();
+  else if(audioContext)void audioContext.suspend().catch(()=>{});
+  audioScheduled=0;
+});
 $("launch").addEventListener("click",()=>{void launch()});
 $("reset").addEventListener("click",()=>{void launch()});
 $("pause").addEventListener("click",()=>{if(paused)resumeGame();else pauseGame()});
