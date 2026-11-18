@@ -70,3 +70,5 @@ input { min-width: 0; padding: 6px; border: 1px solid var(--line); border-radius
 #record-video { width: 100%; height: auto; margin-top: 12px; border: 1px solid var(--line); border-radius: 9px; image-rendering: pixelated; background: #091514; }
 #record-download { display: inline-block; margin-top: 8px; color: var(--accent); font-size: .82rem; }
 #record-download[hidden], #record-video[hidden] { display: none; }
+
+.landing-forecast { color: var(--subtle); font-size: .78rem; margin-top: 8px; line-height: 1.5; }
