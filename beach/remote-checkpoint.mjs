@@ -129,3 +129,35 @@ export async function save500Video(romId, round, meta, video, fullRun) {
     p_video_base64: video.toString("base64"),
   });
 }
+
+export async function listExtendedVideos() {
+  if (!root) return [];
+  const rows=await rpc("beach_extended_list",{});
+  if (!Array.isArray(rows)) throw new Error("Invalid extended-record index");
+  return rows.filter(row=>Number.isSafeInteger(Number(row.id)) &&
+    Number.isSafeInteger(Number(row.total)) && Number.isSafeInteger(row.extendedScore));
+}
+export async function readExtendedVideo(id) {
+  if (!root || !/^[1-9][0-9]{0,14}$/.test(String(id))) return null;
+  const base64=await rpc("beach_extended_read",{p_id:Number(id)});
+  if(base64==null) return null;
+  if(typeof base64!=="string" || base64.length>6000000)
+    throw new Error("Invalid extended-record payload");
+  const bytes=Buffer.from(base64,"base64");
+  if(bytes.length<16 || bytes.length>4194304 ||
+    bytes.subarray(0,4).toString("hex")!=="1a45dfa3")
+    throw new Error("Invalid extended-record WebM");
+  return bytes;
+}
+export async function saveExtendedVideo(romId,round,meta,webm) {
+  if (!root) return false;
+  if(!Buffer.isBuffer(webm) || webm.length>4194304)
+    throw new Error("Extended video exceeds 4 MiB");
+  if(!round.finished || !Number.isSafeInteger(round.extendedScore) ||
+      round.extendedValid===false) return false;
+  return rpc("beach_extended_save",{
+    p_rom_id:romId,p_total:meta.total,p_generation:meta.generation,
+    p_game_score:round.score,p_extended_score:round.extendedScore,
+    p_first_maxout:!!meta.firstMaxout,p_video_base64:webm.toString("base64"),
+  });
+}
