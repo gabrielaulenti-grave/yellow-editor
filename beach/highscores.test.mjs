@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
-import { newTraining, recordRound, trainingStats, migrateTraining, fitness, decide, rotationTimingFeatures } from "./learner.mjs";
+import { newTraining, recordRound, trainingStats, migrateTraining, fitness, decide, rotationTimingFeatures, opportunityPenalty } from "./learner.mjs";
 import { encodeWebm } from "./video.mjs";
 import { decode, memoryFields } from "./emulator.mjs";
 import { predictLanding, landingSafety, landingFeatures } from "./landing-predictor.mjs";
@@ -277,4 +277,19 @@ test("both timing observations are independently actionable by the migrated netw
     assert.equal(baseline,0);
     assert.equal(extended,2);
   }
+});
+
+test("modest opportunity shaping is capped, absent on historical rows, and leaves scores untouched",()=>{
+ const base={finished:true,score:4000,extendedScore:4000,extendedValid:true,
+   progress:1,wipeouts:0,tricks:{}};
+ const unmeasured=fitness(base,.95);
+ assert.equal(opportunityPenalty(base),0);
+ assert.equal(opportunityPenalty({...base,opportunity:{eligibleEmpty:2,abandonedRotations:3}}),22);
+ assert.equal(fitness({...base,opportunity:{eligibleEmpty:2,abandonedRotations:3}},.95),unmeasured-22);
+ assert.equal(opportunityPenalty({...base,opportunity:{eligibleEmpty:80,abandonedRotations:40}}),150);
+ assert.equal(opportunityPenalty({...base,opportunity:{eligibleEmpty:0,abandonedRotations:0}}),0);
+ assert.equal(fitness(base,.95),unmeasured);
+ const t=newTraining();
+ recordRound(t,{...base,opportunity:{eligibleEmpty:2,abandonedRotations:3}});
+ assert.equal(t.highScore,4000);
 });
