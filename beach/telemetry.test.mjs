@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { startRunTelemetry, observeRun, finishRunTelemetry, trickAward, generationSummary } from "./telemetry.mjs";
+import { startRunTelemetry, observeRun, observeOpportunity, finishRunTelemetry, trickAward, generationSummary } from "./telemetry.mjs";
 import { newTraining, migrateTraining, recordRound } from "./learner.mjs";
 
 test("classifies exact original-game trick awards, including mixed +500", () => {
@@ -234,4 +234,38 @@ test("missing ROM quality and contradictory successful-wipeout signal are distin
   const row=finishRunTelemetry(t,{finished:true,score:1000,progress:1,wipeouts:0});
   assert.equal(row.jumps.unknownQuality,1);
   assert.equal(row.jumps.classificationMismatch,1);
+});
+
+test("opportunity-qualified empty landings distinguish feasible and short jumps",()=>{
+ const t=startRunTelemetry();
+ const base={routine:1,hp:1000,radness:0,speed:2,landingQuality:1,trickMeter:0,trickFlags:0};
+ observeRun(t,{...base,state:0});
+ observeRun(t,{...base,state:1});
+ observeOpportunity(t,{...base,state:1,leftFlipProgress:0,rightFlipProgress:0},{known:true,frames:25},0);
+ observeRun(t,{...base,state:2});
+ observeRun(t,{...base,state:1});
+ observeOpportunity(t,{...base,state:1,leftFlipProgress:0,rightFlipProgress:0},{known:true,frames:9},0);
+ observeRun(t,{...base,state:2});
+ const r=finishRunTelemetry(t,{finished:true,score:1100,progress:1,wipeouts:0});
+ assert.equal(r.jumps.zeroTrick,2);
+ assert.equal(r.opportunity.eligibleEmpty,1);
+ assert.equal(r.opportunity.eligibleJumps,1);
+});
+test("rotation reversal penalty only counts substantial wasted progress with time remaining",()=>{
+ const t=startRunTelemetry();
+ const base={routine:1,state:1};
+ observeRun(t,{...base,radness:0,hp:1000});
+ observeOpportunity(t,{...base,leftFlipProgress:8,rightFlipProgress:0},{known:true,frames:30},2);
+ observeOpportunity(t,{...base,leftFlipProgress:9,rightFlipProgress:0},{known:true,frames:5},2);
+ observeOpportunity(t,{...base,leftFlipProgress:3,rightFlipProgress:0},{known:true,frames:30},2);
+ observeOpportunity(t,{...base,leftFlipProgress:0,rightFlipProgress:9},{known:true,frames:32},1);
+ observeOpportunity(t,{...base,leftFlipProgress:0,rightFlipProgress:9},{known:false},1);
+ observeOpportunity(t,{...base,leftFlipProgress:11,rightFlipProgress:0},{known:true,frames:30},1);
+ const r=finishRunTelemetry(t,{finished:false,score:0,progress:.3,wipeouts:0});
+ assert.equal(r.opportunity.abandonedRotations,2);
+});
+test("older archives lack shaping telemetry instead of being assigned artificial zeros",()=>{
+ const result=generationSummary(200,[{finished:true,score:1000,tricks:{}}],
+ );
+ assert.equal(result.opportunitySummary,null);
 });
