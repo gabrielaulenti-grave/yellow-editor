@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Watch an agent learn to surf in Pokémon Yellow’s original minigame.">
+  <meta name="color-scheme" content="dark">
+  <title>Pikachu’s Beach · Surf Trainer</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./viewer.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="kicker">Pokémon Yellow / Surf Trainer</p>
+        <h1>Pikachu’s Beach</h1>
+        <p><a href="/play/" style="color:#f0c877">Play yourself &amp; track your stats</a></p>
+      </div>
+      <p id="connection" class="connection" role="status"><span></span> Connecting</p>
+    </header>
+
+    <div class="dashboard">
+      <section class="panel player" aria-labelledby="attempt-title">
+        <div class="player-head">
+          <h2 id="attempt-title">Live attempt</h2>
+          <div class="pace" role="group" aria-label="Playback speed">
+            <button type="button" data-pace="normal" aria-pressed="true">Watch</button>
+            <button type="button" data-pace="fast" aria-pressed="false">Train fast</button>
+          </div>
+        </div>
+        <div class="screen">
+          <canvas id="screen" width="160" height="144" aria-label="Live Game Boy screen"></canvas>
+          <p id="screen-message">Waiting for the trainer</p>
+        </div>
+        <div class="player-foot">
+          <p id="phase">Awaiting first frame</p>
+          <div class="dpad" aria-label="Live D-pad input">
+            <span id="left">←</span><span id="action">Release</span><span id="right">→</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel telemetry" aria-labelledby="training-title">
+        <h2 id="training-title">Training</h2>
+        <dl class="stats">
+          <div><dt>Generation</dt><dd id="generation">—</dd></div>
+          <div class="record-stat"><dt>Highest extended score</dt><dd id="high-extended-score">—</dd></div>
+          <div><dt>Game high score (max 9,999)</dt><dd id="high-score">—</dd></div>
+          <div><dt>Rounds played</dt><dd id="total">—</dd></div>
+          <div><dt>HP left</dt><dd id="hp">—</dd></div>
+          <div><dt>Radness (game)</dt><dd id="radness">—</dd></div>
+          <div><dt>Radness (uncapped)</dt><dd id="uncapped-radness">—</dd></div>
+          <div><dt>Speed</dt><dd id="speed">—</dd></div>
+          <div><dt>Wipeouts</dt><dd id="wipeouts">—</dd></div>
+        </dl>
+        <label for="progress">Course progress <span id="progress-value">—</span></label>
+        <progress id="progress" max="100" value="0"></progress>
+
+        <div class="history">
+          <h3>Retained champion on fresh courses</h3>
+          <p id="evaluation">Generation results appear after champion evaluation.</p>
+          <p id="selection-status" class="analytics-note">Waiting for a champion comparison.</p>
+          <canvas id="trend" width="320" height="79" aria-label="Average evaluation score by generation" hidden></canvas>
+          <p id="last-round" hidden></p>
+        </div>
+        <div class="history milestone-archive">
+          <h3>500-point trick discoveries</h3>
+          <p>Every verified +500 mixed-flip landing gets its own protected recording—even without a high score, and even if the run ends in a wipeout.</p>
+          <p id="milestone-empty">No +500 tricks captured yet. The trainer is still learning.</p>
+          <div id="milestone-list" class="record-list" aria-label="500-point trick recordings"></div>
+          <video id="milestone-video" controls playsinline preload="none" hidden aria-label="500-point trick evidence video"></video>
+          <a id="milestone-download" hidden download>Download 500-point trick recording (.webm)</a>
+        </div>
+        <div class="history extended-archive">
+          <h3>Super-max-out records</h3>
+          <p>Verified extended scores over 9,999. The first game-displayed 9,999 is pinned permanently; later extended records keep improving. Older game records are retained separately.</p>
+          <p id="extended-empty">No super-max-out recordings yet.</p>
+          <div id="extended-list" class="record-list" aria-label="Extended-score videos"></div>
+          <video id="extended-video" controls playsinline preload="none" hidden aria-label="Extended-score recording"></video>
+          <a id="extended-download" hidden download>Download extended-score recording (.webm)</a>
+        </div>
+        <div class="history record-archive">
+          <h3>Record-breaking runs</h3>
+          <p>Completed runs that beat every earlier tracked score. Recordings are preserved across server restarts, up to the latest 20 records.</p>
+          <p id="record-empty">No record videos archived yet.</p>
+          <div id="record-list" class="record-list" aria-label="Archived record runs"></div>
+          <video id="record-video" controls playsinline preload="none" hidden aria-label="Archived high-score video"></video>
+          <a id="record-download" hidden download>Download recording (.webm)</a>
+        </div>
+        <div class="history" id="clips" hidden>
+          <h3>Captured runs</h3>
+          <p>The last ten seconds of each attempt.</p>
+          <div class="clip-buttons">
+            <button type="button" data-clip="first" hidden>First run</button>
+            <button type="button" data-clip="best" hidden>Best score</button>
+            <button type="button" id="return-live" hidden>Return to live</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+
+    <section class="panel analytics" aria-labelledby="analytics-title">
+      <div class="analytics-head">
+        <div>
+          <h2 id="analytics-title">Generation analytics</h2>
+          <p>Successful trick rewards and completed-run performance</p>
+        </div>
+        <label for="generation-picker">View generation
+          <select id="generation-picker"><option value="current">Current generation</option></select>
+        </label>
+      </div>
+      <p class="analytics-status" id="analytics-status">Collecting this generation's runs…</p>
+      <div class="analytics-summary" id="analytics-summary">
+        <span>Completed runs <strong id="analytics-runs">0</strong></span>
+        <span>Completion rate <strong id="analytics-finish">—</strong></span>
+        <span>Best score <strong id="analytics-best">—</strong></span>
+      </div>
+      <div class="milestone-chart">
+        <h3>Trick discovery milestones</h3>
+        <p class="analytics-note">The first verified discovery and whether its specialist policy is still contributing offspring. Retired policies keep their milestone credit.</p>
+        <div id="milestone-chart" class="milestone-chart-rows" aria-label="Trick discovery and preserved policy history">
+          <p class="analytics-note">Waiting for training history…</p>
+        </div>
+      </div>
+      <div class="milestone-chart">
+        <h3>Jump efficiency</h3>
+        <p class="analytics-note">Measured from the new telemetry onward; landing quality comes from the original game’s collision decision.</p>
+        <div id="jump-summary" class="analytics-summary" aria-live="polite">
+          <span>Waiting for measured jumps…</span>
+        </div>
+      </div>
+      <h3>Successfully landed trick rewards</h3>
+      <div id="trick-breakdown" class="trick-breakdown" aria-label="Awarded tricks by score"></div>
+      <p id="trick-unclassified" class="analytics-note" hidden></p>
+      <p class="analytics-note" id="extended-coverage">Extended-score coverage will appear after telemetry loads.</p>
+      <div class="analytics-charts">
+        <div class="metric-chart"><h3>Extended score (uncapped)</h3><canvas id="chart-extended" width="540" height="150" aria-label="Uncapped score by completed run"></canvas></div>
+        <div class="metric-chart"><h3>Game score (max 9,999)</h3><canvas id="chart-score" width="540" height="150" aria-label="Score by completed run"></canvas></div>
+        <div class="metric-chart"><h3>Radness</h3><canvas id="chart-radness" width="540" height="150" aria-label="Radness by completed run"></canvas></div>
+        <div class="metric-chart"><h3>HP remaining</h3><canvas id="chart-hp" width="540" height="150" aria-label="HP remaining by completed run"></canvas></div>
+        <div class="metric-chart"><h3>Average surfing speed</h3><canvas id="chart-speed" width="540" height="150" aria-label="Average speed by completed run"></canvas></div>
+      </div>
+      <p class="analytics-note">Extended-score measurements begin with the super-max-out update; historical runs without those measurements are not retroactively estimated. Early failures award no final points, although their earned radness remains recorded separately. Each graph represents one course attempt. Failed attempts count as zero score. Archive begins with this update; earlier generations did not retain these per-run measurements.</p>
+    </section>
+
+    <footer>
+      <details id="settings">
+        <summary>Trainer server</summary>
+        <form id="server-form">
+          <label for="endpoint">Server address</label>
+          <div class="server-input">
+            <input id="endpoint" type="url" placeholder="https://surf.example.com" required>
+            <button type="submit">Connect</button>
+          </div>
+          <p id="address-error" role="alert"></p>
+        </form>
+      </details>
+      <p>Training continues on the server when you close this page.</p>
+    </footer>
+  </main>
+</body>
+</html>

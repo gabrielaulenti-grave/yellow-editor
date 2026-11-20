@@ -1,0 +1,65 @@
+# Build the patched minigame ROM server-side from pinned public disassembly sources.
+# No ROM or symbol files are committed to Git or copied into any public assets.
+FROM node:24-bookworm-slim AS rom-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git make gcc g++ libc6-dev bison flex libpng-dev pkg-config zip unzip \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+RUN git clone --depth 1 --branch v1.0.4 https://github.com/gbdev/rgbds.git rgbds \
+    && make -C rgbds -j2
+RUN mkdir pokeyellow && cd pokeyellow && git init \
+    && git remote add origin https://github.com/pret/pokeyellow.git \
+    && git fetch --depth 1 origin b452f2ab07185075140061c5084ab866d5e4a794 \
+    && git checkout --detach FETCH_HEAD
+COPY beach/prepare-rom.mjs /build/prepare-rom.mjs
+RUN node /build/prepare-rom.mjs /build/pokeyellow \
+    && make -C /build/pokeyellow RGBDS=/build/rgbds/ -j2 yellow \
+    && test -s /build/pokeyellow/pokeyellow.gbc \
+    && test -s /build/pokeyellow/pokeyellow.sym \
+    && gzip -9 -c /build/pokeyellow/pokeyellow.gbc > /build/pokeyellow/pokeyellow.gbc.gz \
+    && gzip -9 -c /build/pokeyellow/pokeyellow.sym > /build/pokeyellow/pokeyellow.sym.gz \
+    && sha256sum /build/pokeyellow/pokeyellow.gbc /build/pokeyellow/pokeyellow.sym \
+    && wc -c /build/pokeyellow/pokeyellow.gbc.gz /build/pokeyellow/pokeyellow.sym.gz \
+    && printf '%s\n' 'Pokémon Yellow (pret/pokeyellow), pinned commit b452f2ab07185075140061c5084ab866d5e4a794.' 'Pikachu Beach trainer: automatic private minigame launch and one-byte landing-result telemetry.' 'This is a source-only disassembly, NOT a compiled Nintendo ROM.' 'Build with RGBDS v1.0.4: make RGBDS=/path/to/rgbds/ yellow' 'Landing result in wBeachTrainerLastLandingQuality: 0 none, 1 clean, 2 rough, 3 hard, 4 crash.' > /build/pokeyellow/BEACH_TELEMETRY_README.txt \
+    && cd /build/pokeyellow \
+    && zip -q -r -9 /build/pokeyellow-landing-telemetry-disassembly.zip . -x './.git/*' '*.gbc' '*.gb' '*.sym' '*.map' '*.o' '*.sav' '*.gbc.gz' '*.sym.gz' \
+    && unzip -l /build/pokeyellow-landing-telemetry-disassembly.zip | tail -n 3
+
+FROM node:24-bookworm-slim AS emulator-build
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates gcc git libc6-dev && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY beach/native ./beach/native
+RUN sh beach/native/build.sh
+
+# Dedicated browser-only emulator; includes a single read-only RAM reader.
+FROM debian:bookworm-slim AS browser-emulator-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates git cmake make emscripten \
+    && rm -rf /var/lib/apt/lists/*
+COPY beach/browser/build.sh /app/beach/browser/build.sh
+RUN sh /app/beach/browser/build.sh
+
+FROM node:24-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=emulator-build /app/beach/.build ./beach/.build
+COPY --from=rom-build /build/pokeyellow/pokeyellow.gbc.gz /rom/pokeyellow.gbc.gz
+COPY --from=rom-build /build/pokeyellow/pokeyellow.sym.gz /rom/pokeyellow.sym.gz
+COPY --from=rom-build /build/pokeyellow-landing-telemetry-disassembly.zip ./public/beach/pokeyellow-landing-telemetry-disassembly.zip
+COPY beach/server.mjs beach/emulator.mjs beach/training.mjs beach/learner.mjs beach/remote-checkpoint.mjs beach/video.mjs beach/landing-predictor.mjs beach/telemetry.mjs beach/highscores.test.mjs beach/telemetry.test.mjs beach/milestones.test.mjs ./beach/
+RUN node --test beach/highscores.test.mjs beach/telemetry.test.mjs beach/milestones.test.mjs
+COPY public/beach/index.html public/beach/style.css public/beach/viewer.js \
+  public/beach/play.html public/beach/play.css public/beach/play-app.mjs \
+  public/beach/play-stats.mjs public/beach/play-stats.test.mjs ./public/beach/
+COPY --from=browser-emulator-build /build/beach-browser/binjgb.js ./public/beach/binjgb.js
+COPY --from=browser-emulator-build /build/beach-browser/binjgb.wasm ./public/beach/binjgb.wasm
+COPY --from=browser-emulator-build /build/beach-browser/LICENSE.binjgb ./public/beach/LICENSE.binjgb
+RUN node --check beach/server.mjs && node --check beach/training.mjs \
+    && node --check public/beach/viewer.js \
+    && node --check public/beach/play-app.mjs \
+    && node --test public/beach/play-stats.test.mjs
+RUN mkdir /data && chown node:node /data
+ENV HOST=0.0.0.0 PORT=8787 BEACH_DATA=/data BEACH_ROM=/tmp/pokeyellow.gbc BEACH_SYMBOLS=/tmp/pokeyellow.sym
+USER node
+EXPOSE 8787
+CMD ["sh", "-ec", "gzip -dc /rom/pokeyellow.gbc.gz > /tmp/pokeyellow.gbc && gzip -dc /rom/pokeyellow.sym.gz > /tmp/pokeyellow.sym && exec node beach/server.mjs"]
