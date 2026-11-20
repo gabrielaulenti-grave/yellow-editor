@@ -193,13 +193,25 @@ export function rotationTimingFeatures(state, prediction) {
   ];
 }
 
+// Small bounded shaping rewards. Never infer opportunities for historical
+// runs missing the new telemetry. The original score and records are untouched.
+export function opportunityPenalty(round) {
+  const o=round?.opportunity;
+  if (!o || !Number.isSafeInteger(o.eligibleEmpty) ||
+      !Number.isSafeInteger(o.abandonedRotations)) return 0;
+  const missed=Math.max(0,Math.min(1000,o.eligibleEmpty));
+  const abandoned=Math.max(0,Math.min(10000,o.abandonedRotations));
+  return Math.min(150,8*missed+2*abandoned);
+}
+
 // Progressively shift from dependable completion to high-scoring tricks.
 export function fitness(round, finishRate = 0) {
   const completionBonus = finishRate >= 0.85 ? 400 : 1200;
   const points = round.extendedValid !== false && Number.isSafeInteger(round.extendedScore)
     ? round.extendedScore : round.score;
   return (round.finished ? points + completionBonus : 125 * Math.max(0, round.progress || 0))
-    - 35 * Math.max(0, round.wipeouts || 0) + milestoneBonus(round);
+    - 35 * Math.max(0, round.wipeouts || 0) + milestoneBonus(round)
+    - opportunityPenalty(round);
 }
 
 export function migrateTraining(training) {
