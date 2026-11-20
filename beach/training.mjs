@@ -3,7 +3,7 @@ import { deflateSync } from "node:zlib";
 import { decide, newTraining, recordRound, trainingStats } from "./learner.mjs";
 import { actionNames } from "./emulator.mjs";
 import { predictLanding } from "./landing-predictor.mjs";
-import { startRunTelemetry, observeRun, finishRunTelemetry } from "./telemetry.mjs";
+import { startRunTelemetry, observeRun, observeOpportunity, finishRunTelemetry } from "./telemetry.mjs";
 
 export async function loadTraining(path, romId) {
   try {
@@ -55,6 +55,7 @@ export async function train(emulator, training, options) {
     };
     const prediction = active ? predictLanding(state) : null;
     const action = active ? decide(training, observation, state.y - lastY, actionMemory, prediction) : 0;
+    if (active && runTelemetry) observeOpportunity(runTelemetry, state, prediction, action);
     if (active) {
       // Memory is scoped to a single course, never leaked across runs.
       actionMemory.actions.push(action);
