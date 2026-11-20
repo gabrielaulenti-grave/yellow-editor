@@ -14,9 +14,25 @@ export function startRunTelemetry() {
     lastState:null, lastRadness:0, lastMeter:0, lastFlags:0,
     uncappedRadness:0, unclassifiedRadness:0, confirmed500:0,
     attributionMismatch:false, overflowUncertain:false,
+    opportunity:{eligibleEmpty:0,abandonedRotations:0,eligibleJumps:0},
+    jumpHadOpportunity:false,
     jumps:{started:0,landed:0,wipeouts:0,zeroTrick:0,
       clean:0,rough:0,hard:0,unknownQuality:0,classificationMismatch:0,earnedPoints:0},
   };
+}
+
+// Called before steering, with the live ROM counters and contact forecast.
+// Only count a reversal when meaningful flip progress is thrown away while
+// substantial flight remains. No steering intervention or ROM modification.
+export function observeOpportunity(run,state,prediction,action) {
+  if (!run || state?.routine!==1 || state.state!==1) return;
+  if (!prediction?.known || !Number.isFinite(prediction.frames)) return;
+  if (prediction.frames>=20) run.jumpHadOpportunity=true;
+  const left=state.leftFlipProgress??0;
+  const right=state.rightFlipProgress??0;
+  const reversal=(action===2 && left>=7 && left<12) ||
+    (action===1 && right>=8 && right<14);
+  if (reversal && prediction.frames>=20) run.opportunity.abandonedRotations++;
 }
 
 export function observeRun(run, state) {
@@ -26,19 +42,27 @@ export function observeRun(run, state) {
   const current = hasRadness ? state.radness : run.lastRadness;
   const previous = run.lastRadness;
   const increase = Math.max(0, current - previous);
-  if (active && state.state===1 && run.lastState!==1)
+  if (active && state.state===1 && run.lastState!==1) {
     run.jumps.started++;
+    run.jumpHadOpportunity=false;
+  }
   const landed = run.lastState === 1 && state.state === 2;
   const crashed = run.lastState === 1 && state.state === 3;
   const award = landed ? trickAward(run.lastMeter,run.lastFlags) : 0;
   const landed500 = award === 500;
   if (crashed) {
+    run.jumpHadOpportunity=false;
     run.jumps.wipeouts++;
     if (state.landingQuality!==4) run.jumps.classificationMismatch++;
   }
   if (landed) {
     run.jumps.landed++;
-    if (!award && !increase) run.jumps.zeroTrick++;
+    if (!award && !increase) {
+      run.jumps.zeroTrick++;
+      if (run.jumpHadOpportunity) run.opportunity.eligibleEmpty++;
+    }
+    if (run.jumpHadOpportunity) run.opportunity.eligibleJumps++;
+    run.jumpHadOpportunity=false;
     // The ROM itself writes 1/2/3/4 in its definitive collision branch.
     // On a transition into LANDING the value must be 1, 2 or 3.
     const quality=state.landingQuality;
@@ -113,6 +137,7 @@ export function finishRunTelemetry(run, result) {
     scoreReconciliation:finished && !aboveCap ? gameScore-independentlyComputed : null,
     extendedSource:!finished ? "not-awarded" : aboveCap ? "uncapped-tricks" : "game-verified",
     confirmed500:run.confirmed500,unclassifiedRadness:run.unclassifiedRadness,
+    opportunity:{...run.opportunity},
     jumps:{...run.jumps,
       avgPointsPerLanding:run.jumps.landed
         ? +(run.jumps.earnedPoints/run.jumps.landed).toFixed(2) : null},
@@ -128,6 +153,13 @@ export function generationSummary(generation, runs) {
     : null;
   const tricks = Object.fromEntries(TRICK_VALUES.map(value =>
     [String(value), runs.reduce((sum, row) => sum + (row.tricks?.[value] || 0), 0)]));
+  const opportunityRuns=runs.filter(row=>row.opportunity && Number.isSafeInteger(row.opportunity.eligibleEmpty));
+  const opportunitySummary=opportunityRuns.length ? {
+    measuredRuns:opportunityRuns.length,
+    eligibleEmpty:opportunityRuns.reduce((sum,row)=>sum+row.opportunity.eligibleEmpty,0),
+    abandonedRotations:opportunityRuns.reduce((sum,row)=>sum+row.opportunity.abandonedRotations,0),
+    eligibleJumps:opportunityRuns.reduce((sum,row)=>sum+row.opportunity.eligibleJumps,0),
+  }:null;
   const jumpRuns=runs.filter(row=>row.jumps && Number.isFinite(row.jumps.landed));
   const jumpTotals=jumpRuns.reduce((acc,row)=>{
     for(const key of ["started","landed","wipeouts","zeroTrick","clean",
@@ -146,7 +178,7 @@ export function generationSummary(generation, runs) {
   }:null;
   return {
     generation, runs: count, complete: count === 48,
-    jumpSummary,
+    jumpSummary,opportunitySummary,
     completionRate: count ? +(runs.filter(row => row.finished).length / count).toFixed(4) : 0,
     averageScore: mean("score"), averageRadness: mean("radness"),
     averageExtendedScore: averageExtended,
