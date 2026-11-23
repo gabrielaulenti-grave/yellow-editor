@@ -39,6 +39,9 @@ jobs:
       - name: Check script round trips
         run: npm run test:scripts
 
+      - name: Verify standalone Beach assets are not published by Yellow Editor
+        run: node scripts/check-beach-isolation.mjs
+
       - name: Check Pages channel packaging
         run: npm run test:pages
 
