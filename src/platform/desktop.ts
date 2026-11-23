@@ -125,8 +125,11 @@ function createDesktopSource(projectPath: string): ProjectSource {
       });
     },
 
-    writeBytes(relativePath, contents) {
-      return invoke<void>("write_project_bytes", { projectPath, relativePath, bytes: Array.from(contents) });
+    async writeBytes(relativePath, contents) {
+      await invoke<void>("write_project_bytes", { projectPath, relativePath, bytes: Array.from(contents) });
+      const cached = assetUrls.get(relativePath);
+      if (cached?.startsWith("blob:")) URL.revokeObjectURL(cached);
+      assetUrls.delete(relativePath);
     },
 
     createFile(relativePath, contents) {

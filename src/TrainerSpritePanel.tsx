@@ -7,6 +7,7 @@ import type {
   TrainerPresentation,
 } from "./core/types";
 import { convertFileSrc, invoke } from "./platform/compat";
+import { requestGraphicsEditor } from "./editor/graphicsNavigation";
 
 type Palette = [string, string, string, string];
 
@@ -344,6 +345,7 @@ export function TrainerSpritePanel({
               palette={palette}
             />
             <figcaption>Battle portrait</figcaption>
+            <button type="button" disabled={overrideBusy || !activeSpriteSourcePath} onClick={() => activeSpriteSourcePath && requestGraphicsEditor({ path: activeSpriteSourcePath, palette, returnTab: "trainers" })}>Edit portrait artwork</button>
           </figure>
         </div>
 

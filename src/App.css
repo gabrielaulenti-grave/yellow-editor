@@ -74,6 +74,13 @@ input[readonly] {
   margin-bottom: 16px;
 }
 
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .app-header h1,
 .tab-content h2,
 .pokemon-editor h3,
@@ -450,6 +457,10 @@ input[readonly] {
   gap: 24px;
   align-items: start;
 }
+
+.move-edit-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.move-edit-fields .editor-field { min-width: 0; }
+.move-edit-fields select { width: 100%; min-width: 0; max-width: 100%; }
 
 .full-width-input {
   width: 100%;
@@ -1401,6 +1412,8 @@ pre {
   box-sizing: border-box;
   font: inherit;
 }
+
+.trainer-reward-field input[type="checkbox"] { width: auto; }
 
 .trainer-reward-selection-preview {
   display: grid;
@@ -2777,3 +2790,13 @@ pre {
 @media (max-width: 480px) {
   .field-tool-editor .two-column-fields { grid-template-columns: minmax(0, 1fr); }
 }
+
+.move-edit-fields .move-behavior-fields, .content-create-dialog .move-behavior-fields { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 12px 0; min-width: 0; }
+.move-behavior-fields legend { padding: 0 6px; font-weight: 600; }
+.move-behavior-fields input[type="checkbox"] { width: auto; }
+.move-stat-changes { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.move-stat-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(100px, .65fr) auto; gap: 8px; align-items: end; margin-bottom: 8px; }
+.move-stat-row > .editor-field { margin: 0; min-width: 0; }
+.move-stat-row > button { align-self: end; }
+.move-stat-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+@media (max-width: 520px) { .move-stat-row { grid-template-columns: minmax(0, 1fr) minmax(100px, .65fr); } .move-stat-row > button { grid-column: 1 / -1; justify-self: start; } }

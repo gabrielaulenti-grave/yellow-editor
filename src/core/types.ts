@@ -1252,6 +1252,7 @@ export interface TrainerEditSourceDocument {
 }
 
 export interface TrainerClassCreateValues {
+  independentPortrait?: boolean;
   constant: string;
   name: string;
   portraitClassConstant: string;
@@ -1595,6 +1596,19 @@ export interface ProjectSource {
 }
 
 export interface ProjectSession {
+  getMoveCreateDocument(): Promise<import("./moveCreation").MoveCreateDocument>;
+  createMove(document: import("./moveCreation").MoveCreateDocument, values: import("./moveCreation").MoveCreateValues): Promise<{ history: HistorySummary; id: number }>;
+  getTrainerPartyCreateDocument(): Promise<import("./trainerPartyCreation").TrainerPartyCreateDocument>;
+  createTrainerParty(document: import("./trainerPartyCreation").TrainerPartyCreateDocument, values: import("./trainerPartyCreation").TrainerPartyCreateValues): Promise<{ history: HistorySummary; partyId: string }>;
+  getPokemonCreateDocument(): Promise<import("./pokemonCreation").PokemonCreateDocument>;
+  createPokemon(document: import("./pokemonCreation").PokemonCreateDocument, values: import("./pokemonCreation").PokemonCreateValues): Promise<{ history: HistorySummary; internalId: number; dexNumber: number; sourceSlug: string }>;
+  getAnimationEditDocument(animationId: number | null): Promise<import("./battleAnimationEditing").AnimationEditDocument>;
+  saveAnimation(document: import("./battleAnimationEditing").AnimationEditDocument, values: import("./battleAnimationEditing").AnimationEditValues): Promise<{ history: HistorySummary; animationId: number; constant: string }>;
+  getBattleAnimationCatalog(): Promise<import("./battleAnimations").BattleAnimationCatalog>;
+  getGraphicsCatalog(refresh?: boolean): Promise<import("./graphics").GraphicsCatalog>;
+  getGraphicsDocument(path: string): Promise<import("./graphics").GraphicsDocument>;
+  getGraphicsAssetUrl(path: string): Promise<string | null>;
+  saveGraphics(document: import("./graphics").GraphicsDocument, values: import("./graphics").GraphicsValues): Promise<HistorySummary>;
   checkMap(mapConstant: string): Promise<import("./mapValidation").MapCheckReport>;
   checkProjectMaps(): Promise<import("./mapValidation").ProjectMapCheckReport>;
   getMapSignDocument(mapConstant: string, signId: number | null): Promise<import("./mapSigns").MapSignDocument>;
@@ -1631,6 +1645,8 @@ export interface ProjectSession {
     values: PokemonEditValues,
   ): Promise<HistorySummary>;
   getMoves(): Promise<MoveData[]>;
+  getMoveEditDocument(id: number): Promise<import("./moveEditing").MoveEditDocument>;
+  saveMoveEdit(document: import("./moveEditing").MoveEditDocument, values: import("./moveEditing").MoveEditValues): Promise<HistorySummary>;
   getItems(): Promise<ItemData[]>;
   getPokemonCatchProfiles(): Promise<PokemonCatchProfile[]>;
   getTmhmCompatibility(moveConstant: string): Promise<PokemonTmhmCompatibilityReference[]>;

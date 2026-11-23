@@ -269,6 +269,7 @@ export async function readProjectRgbdsSources(
 
 export function projectConstantCatalogFromSources(
   files: ProjectRgbdsSourceFile[],
+  options: { resolveConstCounters?: boolean } = {},
 ): ProjectConstantCatalog {
   const symbols = new Map<string, number>();
   const constants = new Map<string, ProjectNumericConstant>();
@@ -355,7 +356,11 @@ export function projectConstantCatalogFromSources(
       if (definition) {
         pending.push({
           symbol: definition[1],
-          expression: definition[2].trim(),
+          // These are assembly-time values at this line, not symbols to resolve
+          // after later const groups have changed their counters.
+          expression: options.resolveConstCounters
+            ? definition[2].trim().replace(/\bconst_value\b/g, String(currentValue)).replace(/\bconst_inc\b/g, String(currentStep))
+            : definition[2].trim(),
           sourcePath: file.path,
           line: lineNumber,
         });

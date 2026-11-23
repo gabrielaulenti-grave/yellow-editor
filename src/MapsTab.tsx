@@ -1,4 +1,5 @@
 import { MapCreateWizard } from "./MapCreateWizard";
+import { requestGraphicsEditor } from "./editor/graphicsNavigation";
 import { MapEncounterEditor } from "./MapEncounterEditor";
 import { MapItemEditor } from "./MapItemEditor";
 import { MapTrainerEditor } from "./MapTrainerEditor";
@@ -882,6 +883,7 @@ export function MapsTab({
 
               <div className="terrain-toolbar">
                 <button type="button" className="primary-button" onClick={() => setTerrainOpen(true)}>Edit terrain</button>
+                <button type="button" onClick={() => requestGraphicsEditor({ path: visualization.tilesetGfxPath, mapConstant: visualization.map.constant, returnTab: "maps" })}>Edit tileset artwork</button>
                 <button type="button" onClick={() => setStrengthOpen(true)}>Strength puzzles</button>
                 <button type="button" onClick={() => setPropertiesOpen(true)}>Map properties</button>
                 <button type="button" disabled={checkingMap} onClick={() => {

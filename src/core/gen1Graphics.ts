@@ -222,6 +222,9 @@ export async function convertGen1PngToTiles(
   pngBytes: Uint8Array,
   options: Gen1TileConversionOptions,
 ): Promise<Uint8Array> {
-  const decoder = registeredPngDecoder?.decode ?? decodeGen1PngWithBrowser;
-  return encodeGen1RgbaToTiles(await decoder(pngBytes), options);
+  return encodeGen1RgbaToTiles(await decodeGen1Png(pngBytes), options);
+}
+
+export async function decodeGen1Png(pngBytes: Uint8Array): Promise<Gen1DecodedImage> {
+  return (registeredPngDecoder?.decode ?? decodeGen1PngWithBrowser)(pngBytes);
 }

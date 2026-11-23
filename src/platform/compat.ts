@@ -520,6 +520,42 @@ export async function invoke<T>(
   const session = requireSession();
 
   switch (command) {
+    case "get_move_edit_document": return await session.getMoveEditDocument(numberArg(args, "id")) as T;
+    case "save_move_edit": {
+      if (!args?.document || !args.values) throw new Error("Missing move edit document or values.");
+      return await session.saveMoveEdit(args.document as import("../core/moveEditing").MoveEditDocument, args.values as import("../core/moveEditing").MoveEditValues) as T;
+    }
+    case "get_move_create_document": return await session.getMoveCreateDocument() as T;
+    case "get_trainer_party_create_document": return await session.getTrainerPartyCreateDocument() as T;
+    case "get_pokemon_create_document": return await session.getPokemonCreateDocument() as T;
+    case "create_move": {
+      if (!args?.document || !args.values) throw new Error("Missing move creation form.");
+      return await session.createMove(args.document as import("../core/moveCreation").MoveCreateDocument, args.values as import("../core/moveCreation").MoveCreateValues) as T;
+    }
+    case "create_trainer_party": {
+      if (!args?.document || !args.values) throw new Error("Missing trainer party creation form.");
+      return await session.createTrainerParty(args.document as import("../core/trainerPartyCreation").TrainerPartyCreateDocument, args.values as import("../core/trainerPartyCreation").TrainerPartyCreateValues) as T;
+    }
+    case "create_pokemon": {
+      if (!args?.document || !args.values) throw new Error("Missing Pokémon creation form.");
+      return await session.createPokemon(args.document as import("../core/pokemonCreation").PokemonCreateDocument, args.values as import("../core/pokemonCreation").PokemonCreateValues) as T;
+    }
+    case "get_battle_animation_catalog":
+      return await session.getBattleAnimationCatalog() as T;
+    case "get_animation_edit_document":
+      return await session.getAnimationEditDocument(args?.animationId === null ? null : numberArg(args, "animationId")) as T;
+    case "save_animation":
+      if (!args?.document || !args.values) throw new Error("Missing animation document or values.");
+      return await session.saveAnimation(args.document as import("../core/battleAnimationEditing").AnimationEditDocument, args.values as import("../core/battleAnimationEditing").AnimationEditValues) as T;
+    case "get_graphics_catalog":
+      return await session.getGraphicsCatalog(args?.refresh === true) as T;
+    case "get_graphics_document":
+      return await session.getGraphicsDocument(stringArg(args, "path")) as T;
+    case "get_graphics_asset_url":
+      return await session.getGraphicsAssetUrl(stringArg(args, "path")) as T;
+    case "save_graphics":
+      if (!args?.document || !args.values) throw new Error("Missing graphics document or pixel values.");
+      return await session.saveGraphics(args?.document as import("../core/graphics").GraphicsDocument, args?.values as import("../core/graphics").GraphicsValues) as T;
     case "open_project":
       return session.info as T;
 

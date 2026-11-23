@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Watch an agent learn to surf in Pokémon Yellow’s original minigame.">
+  <meta name="color-scheme" content="dark">
+  <title>Pikachu’s Beach · Surf Trainer</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="module" src="./viewer.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <p class="kicker">Pokémon Yellow / Surf Trainer</p>
+        <h1>Pikachu’s Beach</h1>
+      </div>
+      <p id="connection" class="connection" role="status"><span></span> Connecting</p>
+    </header>
+
+    <div class="dashboard">
+      <section class="panel player" aria-labelledby="attempt-title">
+        <div class="player-head">
+          <h2 id="attempt-title">Live attempt</h2>
+          <div class="pace" role="group" aria-label="Playback speed">
+            <button type="button" data-pace="normal" aria-pressed="true">Watch</button>
+            <button type="button" data-pace="fast" aria-pressed="false">Train fast</button>
+          </div>
+        </div>
+        <div class="screen">
+          <video id="preview" width="160" height="144" controls preload="none" playsinline hidden aria-label="Recorded Pikachu’s Beach trainer run"></video>
+          <canvas id="screen" width="160" height="144" aria-label="Live Game Boy screen"></canvas>
+          <p id="screen-message">Waiting for the trainer</p>
+        </div>
+        <div class="player-foot">
+          <p id="phase">Awaiting first frame</p>
+          <div class="dpad" aria-label="Live D-pad input">
+            <span id="left">←</span><span id="action">Release</span><span id="right">→</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel telemetry" aria-labelledby="training-title">
+        <h2 id="training-title">Training</h2>
+        <dl class="stats">
+          <div><dt>Generation</dt><dd id="generation">—</dd></div>
+          <div><dt>Rounds played</dt><dd id="total">—</dd></div>
+          <div><dt>HP left</dt><dd id="hp">—</dd></div>
+          <div><dt>Radness</dt><dd id="radness">—</dd></div>
+          <div><dt>Speed</dt><dd id="speed">—</dd></div>
+          <div><dt>Wipeouts</dt><dd id="wipeouts">—</dd></div>
+        </dl>
+        <label for="progress">Course progress <span id="progress-value">—</span></label>
+        <progress id="progress" max="100" value="0"></progress>
+
+        <div class="history">
+          <h3>Evaluation on fresh courses</h3>
+          <p id="evaluation">Generation results appear after eight evaluation rounds.</p>
+          <canvas id="trend" width="320" height="79" aria-label="Average evaluation score by generation" hidden></canvas>
+          <p id="last-round" hidden></p>
+        </div>
+        <div class="history" id="clips" hidden>
+          <h3>Captured runs</h3>
+          <p>The last ten seconds of each attempt.</p>
+          <div class="clip-buttons">
+            <button type="button" data-clip="first" hidden>First run</button>
+            <button type="button" data-clip="best" hidden>Best score</button>
+            <button type="button" id="return-live" hidden>Return to live</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <footer>
+      <details id="settings">
+        <summary>Trainer server</summary>
+        <form id="server-form">
+          <label for="endpoint">Server address</label>
+          <div class="server-input">
+            <input id="endpoint" type="url" placeholder="https://surf.example.com" required>
+            <button type="submit">Connect</button>
+          </div>
+          <p id="address-error" role="alert"></p>
+        </form>
+      </details>
+      <p id="training-note">Training continues on the server when you close this page.</p>
+    </footer>
+  </main>
+</body>
+</html>

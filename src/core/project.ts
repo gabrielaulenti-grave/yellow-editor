@@ -1,4 +1,11 @@
 import { loadMapCreateDocument, prepareMapCreateWrites } from "./mapCreation";
+import { loadBattleAnimationCatalog } from "./battleAnimations";
+import { loadAnimationEditDocument, prepareAnimationWrites } from "./battleAnimationEditing";
+import { loadMoveCreateDocument, prepareMoveCreateWrites } from "./moveCreation";
+import { loadTrainerPartyCreateDocument, prepareTrainerPartyCreateWrites } from "./trainerPartyCreation";
+import { loadPokemonCreateDocument, preparePokemonCreateWrites } from "./pokemonCreation";
+import { checkCreatedSymbolReferences } from "./creationSupport";
+import { loadGraphicsCatalog, loadGraphicsDocument, prepareGraphicsWrites, type GraphicsCatalog } from "./graphics";
 import { loadMapEncounterDocument, prepareMapEncounterWrites } from "./mapEncounters";
 import { loadMapItemDocument, prepareMapItemWrites } from "./mapItems";
 import { loadNativeMapObjectDocument, prepareNativeMapObjectWrites } from "./nativeMapObjects";
@@ -42,6 +49,7 @@ import {
 import { parseTrainerBaseCatalog } from "./trainerBaseIndex";
 import { parseItems } from "./itemParsing";
 import { loadItemEditDocument, prepareItemEditWrites } from "./itemEditing";
+import { loadMoveEditDocument, prepareMoveEditWrites } from "./moveEditing";
 import { loadItemCreateDocument, prepareItemCreateWrites } from "./itemCreation";
 import { loadMapTerrainDocument, prepareMapTerrainWrites, loadMapWarpDocument, prepareMapWarpWrites } from "./mapEditing";
 import { loadMapVisualization, parseMapIndex } from "./mapVisualization";
@@ -97,6 +105,7 @@ import type {
   BuildService,
   ItemCreateDocument,
   ItemCreateValues,
+  HistoryEntry,
   ItemEditDocument,
   ItemEditValues,
   PokemonCatchProfile,
@@ -196,6 +205,14 @@ export async function createProjectSession(
   source: ProjectSource,
   buildService: BuildService,
 ): Promise<ProjectSession> {
+  let graphicsCatalogPromise: Promise<GraphicsCatalog> | null = null;
+  function getGraphicsCatalog(refresh = false): Promise<GraphicsCatalog> {
+    if (refresh) graphicsCatalogPromise = null;
+    if (!graphicsCatalogPromise) {
+      graphicsCatalogPromise = loadGraphicsCatalog(source).catch(error => { graphicsCatalogPromise = null; throw error; });
+    }
+    return graphicsCatalogPromise;
+  }
   for (const file of REQUIRED_FILES) {
     if (!(await source.exists(file))) {
       throw new Error(
@@ -726,6 +743,8 @@ export async function createProjectSession(
   }
 
   function invalidateNonTrainerReadModels(paths: string[]): void {
+    graphicsCatalogPromise = null;
+    if (paths.some(path => /\.(png|1bpp|2bpp|pic)$/i.test(path))) mapVisualizationPromises.clear();
     invalidateScriptReadModels(paths);
     if (paths.some(path => path.endsWith(".blk") || path.endsWith(".bst") || path.startsWith("maps/") || path.startsWith("data/maps/") || path.startsWith("scripts/") || path.startsWith("constants/") || path.startsWith("gfx/blocksets/") || path.startsWith("gfx/tilesets") || path === "maps.asm")) {
       mapIndexPromise = null;
@@ -805,7 +824,40 @@ export async function createProjectSession(
     }
   }
 
+  async function guardCreationUndo(entry: HistoryEntry) {
+    await checkCreatedSymbolReferences(source, entry);
+    const party = entry.label.match(/^Add trainer party ([A-Z][A-Z0-9_]*:\d+)$/)?.[1];
+    if (party) {
+      const catalog = await parseTrainerCatalog(createTrainerScanSource(source), projectName);
+      const current = catalog.trainers.find(trainer => trainer.id === party);
+      if (current?.instances.length || current?.scriptReferences.length) throw new Error("Remove this trainer party's map placements and scripted battles before undoing its creation.");
+    }
+  }
   const session: ProjectSession & ProgressiveTrainerSession = {
+    getMoveCreateDocument: () => loadMoveCreateDocument(source),
+    createMove: async (document, values) => {
+      const plan = await prepareMoveCreateWrites(source, document, values);
+      const result = await history.save(`Add move ${values.constant}`, plan.changes);
+      invalidateNonTrainerReadModels(plan.changes.map(change => change.path));
+      return { history: result, id: plan.id };
+    },
+    getTrainerPartyCreateDocument: () => loadTrainerPartyCreateDocument(source),
+    createTrainerParty: async (document, values) => {
+      const plan = await prepareTrainerPartyCreateWrites(source, document, values);
+      const result = await history.save(`Add trainer party ${plan.partyId}`, plan.changes);
+      const paths = plan.changes.map(change => change.path);
+      invalidateNonTrainerReadModels(paths); invalidateTrainerBaseCatalog(paths); invalidateScriptReadModels(paths);
+      await trainerCatalogCache?.clear();
+      return { history: result, partyId: plan.partyId };
+    },
+    getPokemonCreateDocument: () => loadPokemonCreateDocument(source),
+    createPokemon: async (document, values) => {
+      const plan = await preparePokemonCreateWrites(source, document, values);
+      const result = await history.save(`Add Pokémon ${values.constant}`, plan.changes);
+      const paths = plan.changes.map(change => change.path);
+      invalidateNonTrainerReadModels(paths); invalidateTrainerBaseCatalog(paths); invalidateScriptReadModels(paths);
+      return { history: result, internalId: plan.internalId, dexNumber: plan.dexNumber, sourceSlug: plan.sourceSlug };
+    },
     info: {
       path: source.displayPath,
       valid: true,
@@ -838,6 +890,27 @@ export async function createProjectSession(
       tmhmCompatibilityIndexPromise = null;
       return result;
     },
+    getAnimationEditDocument: animationId => loadAnimationEditDocument(source, animationId),
+    saveAnimation: async (document, values) => {
+      const plan = await prepareAnimationWrites(source, document, values);
+      const result = await history.save(`${document.animationId === null ? "Create" : "Edit"} animation ${plan.constant}`, plan.changes);
+      invalidateNonTrainerReadModels(plan.changes.map(change => change.path));
+      return { history: result, animationId: plan.animationId, constant: plan.constant };
+    },
+    getBattleAnimationCatalog: async () => loadBattleAnimationCatalog(source, await getGraphicsCatalog(true)),
+    getGraphicsCatalog,
+    getGraphicsDocument: async path => loadGraphicsDocument(source, path, await getGraphicsCatalog()),
+    getGraphicsAssetUrl: async path => {
+      const asset = (await getGraphicsCatalog()).assets.find(asset => asset.path === path);
+      return asset?.format === "png" ? source.assetUrl(path) : null;
+    },
+    saveGraphics: async (document, values) => {
+      const changes = await prepareGraphicsWrites(source, document, values);
+      if (!changes.length) return history.getSummary();
+      const result = await history.save(`Edit graphic ${document.asset.name}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
     getPokemonEditDocument: (internalId, sourceSlug) =>
       loadPokemonEditDocument(source, internalId, sourceSlug),
     savePokemon: async (internalId, sourceSlug, sources, values) => {
@@ -857,6 +930,14 @@ export async function createProjectSession(
       return result;
     },
     getMoves: () => parseMoves(source),
+    getMoveEditDocument: id => loadMoveEditDocument(source, id),
+    saveMoveEdit: async (document, values) => {
+      const changes = await prepareMoveEditWrites(source, document, values);
+      if (!changes.length) return history.getSummary();
+      const result = await history.save(`Edit move ${document.constant}`, changes);
+      invalidateNonTrainerReadModels(changes.map(change => change.path));
+      return result;
+    },
     getItems: () => parseItems(source),
     getPokemonCatchProfiles,
     getItemEditDocument: (itemId) => loadItemEditDocument(source, itemId),
@@ -1202,6 +1283,7 @@ export async function createProjectSession(
         changes,
       );
       const changedPaths = changes.map((change) => change.path);
+      invalidateNonTrainerReadModels(changedPaths);
       invalidateScriptReadModels(changedPaths);
       invalidateTrainerBaseCatalog(changedPaths);
       if (trainerCacheAffected(changedPaths)) {
@@ -1281,6 +1363,7 @@ export async function createProjectSession(
       if (!entry) {
         throw new Error("That history entry is no longer available.");
       }
+      await guardCreationUndo(entry);
       const paths = entry.files.map((file) => file.path);
       const result = await history.selectivelyUndo(entryId);
       if (trainerBaseAffected(paths)) {
@@ -1316,6 +1399,7 @@ export async function createProjectSession(
     undoLastSave: async () => {
       const state = await history.getState();
       const entry = state.cursor > 0 ? state.entries[state.cursor - 1] : null;
+      if (entry) await guardCreationUndo(entry);
       const paths = entry?.files.map((file) => file.path) ?? [];
       const result = await history.undo();
       if (trainerBaseAffected(paths)) {

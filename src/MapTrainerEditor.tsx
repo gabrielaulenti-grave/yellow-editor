@@ -45,7 +45,7 @@ export function MapTrainerEditor({ visualization, objectId, onClose, onSaved, on
       {placementError && <p role="alert">{placementError}</p>}
       <div className="trainer-dialogues">{(["before", "defeat", "after"] as const).map(role => <label key={role}>{({ before: "Challenge dialogue", defeat: "Defeat dialogue", after: "Post-battle dialogue" })[role]}<textarea aria-label={`Trainer ${role} dialogue`} rows={3} value={values[role].join("\n")} onChange={e => update({ [role]: e.target.value.split("\n") })} /></label>)}</div>
       {textError && <p role="alert">{textError}</p>}
-      <p className="help-text">Up to 18 character spaces on the first row and 17 on later rows. Trainers remain available after a loss and remember a victory after saving and reloading. Editing a trainer keeps its existing defeat flag.</p>
+      <p className="help-text">Up to 18 character spaces on the first row and 17 on later rows. Defeat dialogue starts below the trainer’s name; a full first row continues safely onto the next line. Saving also upgrades trainers created with the earlier dialogue layout. Trainers remain available after a loss and remember a victory after saving and reloading. Editing a trainer keeps its existing defeat flag.</p>
     </fieldset>}
     <div className="wizard-actions"><button type="button" disabled={saving} onClick={close}>Cancel</button><button type="button" className="primary-button" disabled={!document || !values || !party || saving || Boolean(placementError || textError)} onClick={() => void save()}>{saving ? "Saving…" : objectId === null ? "Place trainer" : "Save trainer"}</button></div>
   </dialog>;

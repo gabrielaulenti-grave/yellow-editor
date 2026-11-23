@@ -1,3 +1,4 @@
+import { evaluateRgbdsExpression, projectConstantCatalogFromSources } from "./projectConstants";
 import type {
   Evolution,
   LearnsetMove,
@@ -756,19 +757,29 @@ function parseMoveConstants(contents: string): string[] {
 
 function parseMoveNames(contents: string): string[] {
   const names: string[] = [];
-
+  let active = false;
   for (const rawLine of contents.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (line.startsWith('li "') && line.endsWith('"')) {
-      names.push(line.slice(4, -1));
-    }
+    const line = codeOnly(rawLine);
+    if (/^MoveNames::{0,1}$/.test(line)) { active = true; continue; }
+    if (!active) continue;
+    if (/^assert_list_length\b/.test(line)) break;
+    const name = line.match(/^li\s+"([^"]*)"$/);
+    if (name) names.push(name[1]);
   }
 
   return names;
 }
 
 function parseAnimationLabels(contents: string): string[] {
-  return parsePointerTable(contents, "AttackAnimationPointers:");
+  const labels: string[] = []; let inTable = false;
+  for (const raw of contents.split(/\r?\n/)) {
+    const line = codeOnly(raw);
+    if (line === "AttackAnimationPointers:") { inTable = true; continue; }
+    if (!inTable || !line || /^(?:table_width|assert_table_length)\b/.test(line)) continue;
+    if (!/^dw\s/.test(line)) break;
+    labels.push(...line.slice(2).split(",").map(value => value.trim()));
+  }
+  return labels;
 }
 
 function parseAnimationScript(contents: string, label: string): string[] {
@@ -809,12 +820,16 @@ export async function parseMoves(source: ProjectSource): Promise<MoveData[]> {
   const constants = parseMoveConstants(constantsContents);
   const names = parseMoveNames(namesContents);
   const animationLabels = parseAnimationLabels(animationsContents);
+  const animationConstants = new Map(projectConstantCatalogFromSources([
+    { path: "constants/move_constants.asm", contents: constantsContents },
+  ]).constants.map(entry => [entry.symbol, entry.value]));
 
   return rows.map((row, index) => {
     const id = index + 1;
     const constant = constants[index] ?? row.animation;
     const name = names[index] ?? constant;
-    const animationLabel = animationLabels[index] ?? null;
+    const animationId = evaluateRgbdsExpression(row.animation, animationConstants);
+    const animationLabel = animationId !== null ? animationLabels[animationId - 1] ?? null : null;
 
     return {
       id,

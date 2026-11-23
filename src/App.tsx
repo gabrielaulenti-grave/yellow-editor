@@ -1,4 +1,9 @@
 import { fieldToolError } from "./FieldToolEditor";
+import type { CreatedContent } from "./ContentCreateDialog";
+import type { MoveEditDocument } from "./core/moveEditing";
+import { moveDraftFromDocument, moveDraftIsDirty, moveDraftError, parseMoveDraft, type MoveDraft } from "./editor/moveForm";
+import { GraphicsTab } from "./GraphicsTab";
+import type { GraphicsFocus } from "./core/graphics";
 import { useEffect, useRef, useState } from "react";
 import type {
   EncounterTableEditDocument,
@@ -92,11 +97,13 @@ import { invoke, open, saveProjectCopy } from "./platform/compat";
 import { isBetaRelease } from "./platform/releaseChannel";
 import "./App.css";
 
-type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "scripts" | "build";
+type Tab = "pokemon" | "moves" | "items" | "trainers" | "encounters" | "maps" | "scripts" | "graphics" | "build";
 
 function App() {
   const [project, setProject] = useState<ProjectInfo | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("pokemon");
+  const [graphicsFocus, setGraphicsFocus] = useState<GraphicsFocus | null>(null);
+  const [graphicsEditor, setGraphicsEditor] = useState<EditorController | null>(null);
   const [pokemonIndex, setPokemonIndex] = useState<PokemonIndexEntry[]>([]);
   const [status, setStatus] = useState("No project loaded.");
   const [selectedPokemonId, setSelectedPokemonId] = useState<number | null>(null);
@@ -104,6 +111,11 @@ function App() {
   const [moves, setMoves] = useState<MoveData[]>([]);
   const [selectedMoveId, setSelectedMoveId] = useState<number | null>(null);
   const [moveSearch, setMoveSearch] = useState("");
+  const [moveEditDocument, setMoveEditDocument] = useState<MoveEditDocument | null>(null);
+  const [moveDraft, setMoveDraft] = useState<MoveDraft | null>(null);
+  const [moveEditLoading, setMoveEditLoading] = useState(false);
+  const [moveEditError, setMoveEditError] = useState<string | null>(null);
+  const [moveRevision, setMoveRevision] = useState(0);
   const [items, setItems] = useState<ItemData[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null);
   const [itemSearch, setItemSearch] = useState("");
@@ -409,6 +421,21 @@ function App() {
   const selectedTrainerClassEntry =
     trainerClasses.find((entry) => entry.constant === selectedTrainerClass) ?? null;
 
+  useEffect(() => {
+    if (activeTab !== "moves" || !project || selectedMoveId === null) return;
+    let cancelled = false;
+    setMoveEditLoading(true); setMoveEditError(null); setMoveEditDocument(null); setMoveDraft(null);
+    void invoke<MoveEditDocument>("get_move_edit_document", { id: selectedMoveId }).then(document => {
+      if (!cancelled) { setMoveEditDocument(document); setMoveDraft(moveDraftFromDocument(document)); }
+    }).catch(error => { if (!cancelled) setMoveEditError(String(error)); }).finally(() => { if (!cancelled) setMoveEditLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, project?.path, selectedMoveId, moveRevision]);
+  const moveDirty = moveDraftIsDirty(moveDraft, moveEditDocument);
+  const moveError = moveDraftError(moveDraft, moveEditDocument);
+  useEffect(() => {
+    const guard = (event: BeforeUnloadEvent) => { if (moveDirty) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", guard); return () => window.removeEventListener("beforeunload", guard);
+  }, [moveDirty]);
   const pokemonDirty = pokemonDraftIsDirty(pokemonDraft, pokemonEditDocument);
   const pokemonValid = pokemonDraftIsValid(pokemonDraft, pokemonEditDocument);
   const tmDirty = Boolean(
@@ -618,7 +645,8 @@ function App() {
     knownTrainerAiRoutines,
   );
   const hasUnsavedChanges =
-    pokemonDirty
+    moveDirty
+    || pokemonDirty
     || tmDirty
     || itemDirty
     || encounterDirty
@@ -626,7 +654,8 @@ function App() {
     || trainerDirty
     || trainerClassDirty
     || scriptDirty
-    || mapDirty;
+    || mapDirty
+    || Boolean(graphicsEditor?.dirty);
 
   function clearPokemonEditor() {
     setSelectedPokemon(null);
@@ -954,6 +983,7 @@ function App() {
       setProject(result);
       setPokemonIndex(index);
       setMoves(moveData);
+      setMoveEditDocument(null); setMoveDraft(null); setMoveEditError(null); setMoveRevision(value => value + 1);
       setItems(itemData);
       clearTrainerEditor();
       if (trainerBaseResult.catalog) {
@@ -986,6 +1016,8 @@ function App() {
       setEncounterSearch("");
       setEncounterSection("walking");
       setMapFocusConstant(null);
+      setGraphicsFocus(null);
+      setGraphicsEditor(null);
       setScriptFocus(null);
       setFishingFocusMapConstant(null);
       setHistorySummary(history);
@@ -1083,6 +1115,44 @@ function App() {
       setTmMoveDraft(tmEditDocument.moveConstant);
     }
     setSelectedItemId(itemId);
+  }
+
+  function selectMove(id: number) {
+    if (id === selectedMoveId || editBusy || moveEditLoading) return;
+    if (moveDirty && !window.confirm("Discard the unsaved move changes and switch moves?")) return;
+    setMoveEditDocument(null); setMoveDraft(null); setMoveEditLoading(true);
+    setSelectedMoveId(id);
+  }
+  async function refreshMovesAfterHistory() {
+    const data = await invoke<MoveData[]>("get_moves"); setMoves(data);
+    setSelectedMoveId(current => data.some(move => move.id === current) ? current : data[0]?.id ?? null);
+    setMoveRevision(value => value + 1);
+  }
+  async function saveMoveChanges(upgrade = false) {
+    if ((!moveDirty && !(upgrade && moveEditDocument?.behaviors.upgradeAvailable)) || moveError || !moveEditDocument || moveEditDocument.id !== selectedMoveId || editBusy || moveEditLoading) return;
+    const values = parseMoveDraft(moveDraft, moveEditDocument); if (!values) return;
+    setEditBusy(true); setMoveEditError(null); let committed = false;
+    try {
+      const history = await invoke<HistorySummary>("save_move_edit", { document: moveEditDocument, values });
+      committed = true; setHistorySummary(history);
+      const [document, data] = await Promise.all([invoke<MoveEditDocument>("get_move_edit_document", { id: moveEditDocument.id }), invoke<MoveData[]>("get_moves")]);
+      setMoves(data); setMoveEditDocument(document); setMoveDraft(moveDraftFromDocument(document));
+      setStatus(`${document.values.name} saved successfully.`);
+    } catch (error) {
+      const message = committed ? `The move was saved, but refresh failed: ${String(error)}. Reload move sources before editing again.` : String(error);
+      if (committed) { setMoveEditDocument(null); setMoveDraft(null); }
+      setMoveEditError(message); setStatus(message);
+    } finally { setEditBusy(false); }
+  }
+  async function revertMoveChanges() {
+    if (selectedMoveId === null || editBusy) return;
+    setMoveEditLoading(true); setMoveEditError(null);
+    try {
+      const document = await invoke<MoveEditDocument>("get_move_edit_document", { id: selectedMoveId });
+      setMoveEditDocument(document); setMoveDraft(moveDraftFromDocument(document));
+      setMoves(await invoke<MoveData[]>("get_moves")); setStatus("Move sources reloaded; unsaved changes reverted.");
+    } catch (error) { setMoveEditError(String(error)); }
+    finally { setMoveEditLoading(false); }
   }
 
   async function openItemWizard() {
@@ -1506,6 +1576,28 @@ function App() {
     }
   }
 
+  async function handleContentCreated(result: CreatedContent): Promise<void> {
+    setHistorySummary(result.history); setEditBusy(true);
+    try {
+      const moveData = await invoke<MoveData[]>("get_moves"); setMoves(moveData);
+      if (result.kind === "move") {
+        setSelectedMoveId(result.id!); setMoveSearch("");
+        if (selectedPokemonEntry?.sourceSlug) await loadPokemon(selectedPokemonEntry);
+      }
+      if (result.kind === "pokemon") {
+        const index = await invoke<PokemonIndexEntry[]>("get_pokemon_index"); setPokemonIndex(index);
+        const entry = index.find(entry => entry.internalId === result.internalId); if (entry) await loadPokemon(entry);
+      }
+      if (result.kind === "trainer") {
+        const catalog = await invoke<TrainerCatalog>("get_trainer_base_catalog");
+        refreshTrainerBaseCatalog(catalog, result.partyId, result.partyId?.split(":")[0]); setTrainerSection("parties"); setTrainerSearch("");
+      }
+      setStatus(`${result.kind === "pokemon" ? "Pokémon" : result.kind === "move" ? "Move" : "Trainer party"} created. Existing identifiers were preserved.`);
+    } catch (error) {
+      setStatus(`Creation was saved, but the browser could not refresh: ${String(error)}. Reopen the project to reload its content.`);
+    } finally { setEditBusy(false); }
+  }
+
   async function saveTrainerClass() {
     if (
       !project
@@ -1725,6 +1817,7 @@ function App() {
       });
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+      await refreshMovesAfterHistory();
 
       const [
         refreshedEncounters,
@@ -1793,6 +1886,7 @@ function App() {
       const history = await invoke<HistorySummary>("undo_last_save");
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+      await refreshMovesAfterHistory();
       const refreshTrainerBase = Boolean(
         historySummary.latestLabel?.startsWith("Edit trainer party ")
         || historySummary.latestLabel?.startsWith("Add trainer class ")
@@ -1847,6 +1941,7 @@ function App() {
       const history = await invoke<HistorySummary>("redo_last_undo");
       setHistorySummary(history);
       window.dispatchEvent(new CustomEvent("yellow-editor:history-changed", { detail: history }));
+      await refreshMovesAfterHistory();
       const refreshTrainerBase = Boolean(
         history.latestLabel?.startsWith("Edit trainer party ")
         || history.latestLabel?.startsWith("Add trainer class ")
@@ -2075,7 +2170,11 @@ function App() {
     save: async () => undefined,
     revert: async () => undefined,
   };
-  const editorController = activeTab === "pokemon"
+  const editorController = activeTab === "graphics" && graphicsEditor
+    ? graphicsEditor
+    : activeTab === "moves"
+    ? { dirty: moveDirty, valid: !moveError, busy: editBusy || moveEditLoading, save: saveMoveChanges, revert: revertMoveChanges }
+    : activeTab === "pokemon"
     ? pokemonEditorController
     : activeTab === "items" && selectedItem?.kind === "tm"
       ? tmEditorController
@@ -2093,15 +2192,21 @@ function App() {
     if (nextTab === activeTab) {
       return true;
     }
+    if (graphicsEditor?.busy || editBusy || activeTab === "moves" && moveEditLoading) return false;
     if (
       hasUnsavedChanges &&
-      !window.confirm("Discard the unsaved changes and switch tabs?")
+      !window.confirm(graphicsEditor?.dirty ? "Leave unsaved graphics changes and switch tabs? Pixel drafts are kept; animation drafts will be discarded." : "Discard the unsaved changes and switch tabs?")
     ) {
       return false;
     }
     if (pokemonDirty) {
       await revertUnsavedChanges();
     }
+    if (moveDirty) {
+      // Tab navigation already obtained discard confirmation; the next visit reloads sources.
+      setMoveDraft(moveEditDocument ? moveDraftFromDocument(moveEditDocument) : null);
+    }
+    if (activeTab === "moves") { setMoveEditDocument(null); setMoveDraft(null); setMoveEditError(null); setMoveEditLoading(false); }
     if (tmDirty) {
       await revertTmChanges();
     }
@@ -2120,9 +2225,34 @@ function App() {
     if (trainerClassDirty) {
       revertTrainerClassChanges();
     }
+    if (activeTab === "graphics" && nextTab === "pokemon" && selectedPokemonEntry?.sourceSlug) {
+      await loadPokemon(selectedPokemonEntry, "Pokémon artwork refreshed.");
+    }
+    if (nextTab === "moves" && project) {
+      try { setMoves(await invoke<MoveData[]>("get_moves")); }
+      catch (error) { setStatus(String(error)); return false; }
+      setMoveEditDocument(null); setMoveDraft(null); setMoveEditLoading(true);
+    }
     setActiveTab(nextTab);
     return true;
   }
+
+  // Re-subscribe with the current navigation guard so nested portrait/map panels
+  // share the same unsaved-change handling as the tab bar.
+  useEffect(() => {
+    const openGraphics = (event: Event) => {
+      const focus = (event as CustomEvent<GraphicsFocus>).detail;
+      if (!project || !focus) return;
+      if (activeTab === "graphics" && (graphicsEditor?.busy || graphicsEditor?.dirty)) return;
+      void selectTab("graphics").then(opened => { if (opened) setGraphicsFocus(focus); });
+    };
+    window.addEventListener("yellow-editor:open-graphics", openGraphics);
+    return () => window.removeEventListener("yellow-editor:open-graphics", openGraphics);
+  });
+  useEffect(() => {
+    const saveKey = (event: KeyboardEvent) => { if (activeTab === "moves" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") { if (event.defaultPrevented) return; event.preventDefault(); void saveMoveChanges(); } };
+    window.addEventListener("keydown", saveKey); return () => window.removeEventListener("keydown", saveKey);
+  });
 
   async function openMapFromEncounter(mapConstant: string) {
     if (!(await selectTab("maps"))) return;
@@ -2176,7 +2306,9 @@ function App() {
           <h1>Yellow Editor</h1>
           <p className="status-line">{status}</p>
         </div>
-        <button onClick={selectProject}>Open Project</button>
+        <div className="app-header-actions">
+          <button onClick={selectProject} disabled={Boolean(graphicsEditor?.busy)}>Open Project</button>
+        </div>
       </header>
 
       {isBetaRelease && (
@@ -2281,6 +2413,9 @@ function App() {
         >
           Scripts
         </button>
+        <button className={activeTab === "graphics" ? "active" : ""} onClick={() => void selectTab("graphics")}>
+          Graphics
+        </button>
         <button
           className={activeTab === "build" ? "active" : ""}
           onClick={() => void selectTab("build")}
@@ -2303,6 +2438,7 @@ function App() {
           onSelectPokemon={selectPokemon}
           onDraftChange={setPokemonDraft}
           onPaletteConstantChange={changePokemonPaletteConstant}
+          onCreated={handleContentCreated}
         />
       )}
 
@@ -2312,8 +2448,18 @@ function App() {
           moves={moves}
           selectedMoveId={selectedMoveId}
           moveSearch={moveSearch}
-          onSelectMove={setSelectedMoveId}
+          onSelectMove={selectMove}
           onSearchChange={setMoveSearch}
+          onCreated={handleContentCreated}
+          document={moveEditDocument}
+          draft={moveDraft}
+          dirty={moveDirty}
+          busy={editBusy || moveEditLoading}
+          error={moveEditError}
+          validationError={moveDirty ? moveError : null}
+          onDraftChange={setMoveDraft}
+          onReload={() => void revertMoveChanges()}
+          onUpgrade={() => void saveMoveChanges(true)}
         />
       )}
 
@@ -2393,6 +2539,7 @@ function App() {
           onUpdateClassField={changeTrainerClassField}
           onToggleClassMoveChoice={toggleTrainerClassMoveChoice}
           onCreateClass={createTrainerClass}
+          onCreated={handleContentCreated}
           onOpenScript={(path, routineLabel, reference) => {
             void openScript(path, routineLabel, reference);
           }}
@@ -2451,6 +2598,9 @@ function App() {
           onDirtyChange={setScriptDirty}
         />
       )}
+
+      {activeTab === "graphics" && project && <GraphicsTab key={project.storageKey} project={project} focus={graphicsFocus} onControllerChange={setGraphicsEditor}
+        onReturn={() => void selectTab(graphicsFocus?.returnTab ?? "maps")} />}
 
       <BuildTestTab
         project={project}

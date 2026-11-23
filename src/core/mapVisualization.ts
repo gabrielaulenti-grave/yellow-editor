@@ -393,8 +393,13 @@ export async function parseMapIndex(source: ProjectSource): Promise<MapIndexEntr
       return match ? [match[1]] : [];
     });
 
+  const isUnused = (definition: typeof definitions[number]) =>
+    definition.width === 0 || definition.height === 0 || definition.constant.startsWith("UNUSED_MAP_");
   const pointerUseCounts = new Map<string, number>();
-  for (const pointer of pointers) {
+  for (const [id, pointer] of pointers.entries()) {
+    // Unused IDs may reuse a real map's header (for example Saffron's $0B).
+    // They must not make the playable map look like a shared-header alias.
+    if (definitions[id] && isUnused(definitions[id])) continue;
     pointerUseCounts.set(pointer, (pointerUseCounts.get(pointer) ?? 0) + 1);
   }
 
@@ -411,10 +416,7 @@ export async function parseMapIndex(source: ProjectSource): Promise<MapIndexEntr
       isAlias: Boolean(
         headerLabel && (pointerUseCounts.get(headerLabel) ?? 0) > 1,
       ),
-      isUnused:
-        definition.width === 0
-        || definition.height === 0
-        || definition.constant.startsWith("UNUSED_MAP_"),
+      isUnused: isUnused(definition),
     };
   });
 }

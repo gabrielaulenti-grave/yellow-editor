@@ -9,7 +9,7 @@ import { inspectSceneEffects, type SceneEffectsDomain } from "./sceneEffects";
 import { deriveProjectEventMacroSemantics } from "./eventMacroSemantics";
 import { hashText } from "./history";
 import { identifySequenceDialogue, renderInteractionSequence, renderSequenceServices, sequenceDialogue, sequenceDialoguePrompts, validateInteractionSequence, type InteractionAction } from "./interactionSequence";
-import { inspectPlayerConditions, validatePlayerCondition, renderConditionFailure, type PlayerCondition, type PlayerConditionDomain } from "./playerConditions";
+import { inspectPlayerConditions, validatePlayerCondition, renderConditionFailure, upgradePokedexMask, type PlayerCondition, type PlayerConditionDomain } from "./playerConditions";
 import { inspectNpcServices, type NpcServicesDomain } from "./npcServices";
 import { prepareNpcVisibility, type NpcVisibilityRule } from "./npcVisibility";
 import { reviewScriptEngineContracts } from "./scriptEngineContracts";
@@ -233,7 +233,8 @@ async function inspect(source: ProjectSource, path: string, label: string) {
   const items = [...new Set([...[...itemConstants.split(/^DEF NUM_ITEMS EQU/m)[0].matchAll(/^\s*const\s+(\w+)\s*(?:;[^\r\n]*)?$/gm)].map(m => m[1]).filter(name => name !== "NO_ITEM" && !name.startsWith("ITEM_RESERVED_") && (symbols.get(name) ?? 0) > 0 && (symbols.get(name) ?? 255) < 255), ...[...itemConstants.matchAll(/^\s*add_(hm|tm)\s+(\w+)/gm)].map(m => `${m[1].toUpperCase()}_${m[2]}`)])];
   const conditions = inspectPlayerConditions(byPath, symbols), services = await inspectNpcServices(byPath);
   const dexOrder = rows(byPath.get("data/pokemon/dex_order.asm") ?? "").flatMap(row => { const match = clean(row).match(/^db (.+)$/); return match ? [number(match[1])] : []; });
-  const pokemon = constants.constants.filter(entry => entry.sourcePath === "constants/pokemon_constants.asm" && entry.groupId !== null && entry.value > 0 && entry.value <= 255 && (dexOrder[entry.value - 1] ?? 0) > 0 && (dexOrder[entry.value - 1] ?? Infinity) <= (symbols.get("NUM_POKEMON") ?? 151)).map(entry => entry.symbol);
+  const dexCount = symbols.get("NUM_POKEMON") ?? Math.max(0, ...constants.constants.filter(entry => entry.sourcePath === "constants/pokedex_constants.asm" && entry.groupId !== null && entry.symbol.startsWith("DEX_")).map(entry => entry.value));
+  const pokemon = constants.constants.filter(entry => entry.sourcePath === "constants/pokemon_constants.asm" && entry.groupId !== null && entry.value > 0 && entry.value <= 255 && (dexOrder[entry.value - 1] ?? 0) > 0 && (dexOrder[entry.value - 1] ?? Infinity) <= dexCount).map(entry => entry.symbol);
   const pokemonReason = pokemonDeliveryReason(byPath);
   const contracts = await reviewScriptEngineContracts(files, byPath.has("scripts/OaksLab_2.asm") ? "pokeyellow" : "pokered");
   const choiceReason = contracts.find(c => c.id === "yes-no")?.sourceStatus === "reviewed-source" ? null : "Yes/No actions need the reviewed menu and screen-restoration routines; this project's routines differ.";
@@ -740,7 +741,7 @@ export async function prepareScriptInteractionWrites(source: ProjectSource, docu
     const end = script.indexOf(endMark, r.from);
     const after = script.indexOf("\n", end) + 1;
     const oldCode = renderManaged(state.old, oldMovement).trimEnd();
-    if (end < 0 || script.slice(r.from, after).replace(/\r\n/g, "\n").trimEnd() !== oldCode) throw new Error("The interaction's generated logic was changed in source. Review it before regenerating.");
+    if (end < 0 || upgradePokedexMask(script.slice(r.from, after).replace(/\r\n/g, "\n").trimEnd()) !== oldCode) throw new Error("The interaction's generated logic was changed in source. Review it before regenerating.");
     script = script.slice(0, r.from) + code.replace(/\n/g, script.includes("\r\n") ? "\r\n" : "\n") + script.slice(after).replace(/^\r?\n/, "");
   } else {
     const leaves = await attachTextEditing({} as ProjectSession, source).getTextLeafDocuments(document.path, document.label);

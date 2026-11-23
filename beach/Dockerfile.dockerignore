@@ -1,0 +1,14 @@
+**
+!beach/
+!beach/native/
+!beach/native/bridge.c
+!beach/native/build.sh
+!beach/server.mjs
+!beach/emulator.mjs
+!beach/training.mjs
+!beach/learner.mjs
+!beach/viewer/
+!beach/viewer/index.html
+!beach/viewer/style.css
+!beach/viewer/viewer.js
+!beach/viewer/agent-preview.webm

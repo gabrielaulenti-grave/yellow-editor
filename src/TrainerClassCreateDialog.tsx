@@ -42,6 +42,7 @@ export function TrainerClassCreateDialog({
     defaultClass?.constant ?? "",
   );
   const [baseReward, setBaseReward] = useState("15");
+  const [independentPortrait, setIndependentPortrait] = useState(true);
   const [level, setLevel] = useState("5");
   const [speciesConstant, setSpeciesConstant] = useState(
     species[0]?.constant ?? "",
@@ -85,6 +86,7 @@ export function TrainerClassCreateDialog({
         constant,
         name: name.trim(),
         portraitClassConstant,
+        independentPortrait,
         baseRewardPerLevel: numericReward,
         aiRoutine: behaviorClass.aiRoutine,
         aiUsesPerPokemon: behaviorClass.aiUsesPerPokemon ?? 3,
@@ -171,8 +173,10 @@ export function TrainerClassCreateDialog({
                 <option key={entry.constant} value={entry.constant}>{entry.name}</option>
               ))}
             </SearchableSelect>
-            <small>Reuses an existing trainer battle sprite until graphics editing is available.</small>
+            <small>Choose a portrait as a starting point for the new class.</small>
           </label>
+
+          <label className="trainer-reward-field"><span><input type="checkbox" checked={independentPortrait} disabled={busy} onChange={event => setIndependentPortrait(event.target.checked)} /> Create an independent portrait copy</span><small>The new source graphic can be edited or traced in Graphics. Other classes keep their original artwork. Turn this off to share the selected portrait.</small></label>
 
           <label className="trainer-reward-field">
             <span>Battle behavior template</span>

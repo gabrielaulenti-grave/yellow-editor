@@ -461,7 +461,7 @@ export function TextEditor({
                 )}
                 {document.terminator === "dex" ? (
                   <p className="help-text">
-                    Pokédex rows have {TEXT_BOX_LINE_WIDTH} character spaces. Use <strong>Next line</strong> for another row on the same page and <strong>New Pokédex page</strong> to begin the next page. The entry must begin with <strong>Start text</strong>.
+                    Pokédex rows have {TEXT_BOX_LINE_WIDTH} character spaces. Use <strong>Next line</strong> for another row on the same page and <strong>New Pokédex page</strong> to begin the next page. The entry must begin with <strong>Start text</strong>. The game automatically prints a closing period after the final row; omit that final period here.
                   </p>
                 ) : (
                   <p className="help-text">

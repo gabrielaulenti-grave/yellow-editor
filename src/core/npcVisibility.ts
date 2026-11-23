@@ -1,6 +1,6 @@
 import { hashText } from "./history";
 import { conditionVisibilityHook, sceneVisibilityHook } from "./objectVisibilityHooks";
-import { renderPlayerCondition, type PlayerCondition } from "./playerConditions";
+import { renderPlayerCondition, upgradePokedexMask, type PlayerCondition } from "./playerConditions";
 import { reviewStrengthVisibility, strengthControlsVisibility } from "./mapStrength";
 import type { InteractionInspection, ManagedInteraction } from "./scriptInteractions";
 
@@ -38,7 +38,7 @@ export async function prepareNpcVisibility(state: InteractionInspection, model: 
   const owners = all.map(m => `${m.visibilityRule!.map}:${m.visibilityRule!.object}`);
   if (new Set(owners).size !== owners.length) throw new Error("An NPC already has a visibility condition on another text entry.");
   const path = "engine/overworld/toggleable_objects.asm", before = state.byPath.get(path)!, nl = before.includes("\r\n") ? "\r\n" : "\n";
-  let text = (changed.get(path) ?? before).replace(/\r\n/g, "\n");
+  let text = upgradePokedexMask((changed.get(path) ?? before).replace(/\r\n/g, "\n"));
   if (before.includes(begin)) {
     if (!text.includes(runtime(old)) || text.split(conditionVisibilityHook).length !== 2) throw new Error("The NPC conditional-visibility runtime was changed in source.");
     text = text.replace(runtime(old), all.length ? runtime(all) : "");

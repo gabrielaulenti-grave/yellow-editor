@@ -23,6 +23,8 @@ try {
     createFile: async (p, bytes) => { if (await source.exists(p)) throw new Error("Already exists"); await writeFile(join(temp, p), bytes); }, removeFile: async p => { await rm(join(temp, p)); }, assetUrl: async () => null,
     historyStore: { persistent: false, load: async () => history, save: async h => { history = structuredClone(h); } } };
   const session = await createProjectSession(source, {} as never), map = "TRAINER_GAMEPLAY_CAVE";
+  const trainers = await session.getTrainerBaseCatalog(), young = trainers.classes.find(entry => entry.constant === "YOUNGSTER")!;
+  await session.saveTrainerClass("YOUNGSTER", trainers.editSources, { name: "ROCKET GIRL", picLabel: young.picLabel!, baseRewardPerLevel: young.baseRewardPerLevel!, aiRoutine: young.aiRoutine!, aiUsesPerPokemon: young.aiUsesPerPokemon!, moveChoiceModifiers: young.moveChoiceModifiers });
   const creation = await session.getMapCreateDocument("ROCK_TUNNEL_B1F");
   await session.createMap(creation, { constant: map, width: creation.visualization.map.width, height: creation.visualization.map.height, layout: "copy", fillBlock: 0, borderBlock: creation.borderBlock, musicMap: "DIGLETTS_CAVE", locationMap: "VERMILION_CITY", connection: null });
   await session.assignMapEncounters(await session.getMapEncounterDocument(map), { mode: "copy", tablePath: "data/wild/maps/DiglettsCave.asm" });

@@ -24,6 +24,7 @@ import { TextEditor } from "./TextEditor";
 import { TrainerSpritePanel } from "./TrainerSpritePanel";
 import { TrainerClassCreateDialog } from "./TrainerClassCreateDialog";
 import { invoke } from "./platform/compat";
+import { ContentCreateDialog, type CreatedContent } from "./ContentCreateDialog";
 
 export type TrainerSection = "parties" | "classes";
 
@@ -66,6 +67,7 @@ interface TrainersTabProps {
   ): void;
   onToggleClassMoveChoice(modifier: number): void;
   onCreateClass(values: TrainerClassCreateValues): Promise<void>;
+  onCreated(result: CreatedContent): Promise<void>;
   onOpenScript(path: string, routineLabel: string, reference: TrainerScriptReference): void;
 }
 
@@ -1039,10 +1041,13 @@ export function TrainersTab({
   onToggleClassMoveChoice,
   onCreateClass,
   onOpenScript,
+  onCreated,
 }: TrainersTabProps) {
+  const [creatingParty, setCreatingParty] = useState(false);
   return (
     <section className="tab-content">
-      <div className="tab-heading-row"><div><h2>Trainers</h2><p>Browse individual parties, their effective map instances, and shared trainer classes.</p></div></div>
+      <div className="tab-heading-row"><div><h2>Trainers</h2><p>Browse individual parties, their effective map instances, and shared trainer classes.</p></div>{project && <button type="button" disabled={busy || dirty || classDirty} onClick={() => setCreatingParty(true)}>New trainer party</button>}</div>
+      {creatingParty && <ContentCreateDialog kind="trainer" classConstant={selectedClassConstant ?? trainers.find(party => party.id === selectedTrainerId)?.classConstant} onClose={() => setCreatingParty(false)} onCreated={onCreated} />}
       <div className="segmented-control encounter-section-control">
         <button className={section === "parties" ? "active" : ""} onClick={() => onSectionChange("parties")}>Parties</button>
         <button className={section === "classes" ? "active" : ""} onClick={() => onSectionChange("classes")}>Classes</button>

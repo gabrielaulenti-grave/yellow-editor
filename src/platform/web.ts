@@ -324,6 +324,8 @@ function createWebSource(
         writable = await handle.createWritable();
         await writable.write(contents);
         await writable.close();
+        const cached = objectUrls.get(relativePath);
+        if (cached) { URL.revokeObjectURL(cached); objectUrls.delete(relativePath); }
       } catch (error) {
         try {
           await writable?.abort?.();

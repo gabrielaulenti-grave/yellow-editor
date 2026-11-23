@@ -144,6 +144,13 @@ export async function getSaveCompatibilityDescriptor(
   const eventContents = normalizeText(await source.readText(EVENT_SCHEMA_PATH));
   const eventSchema = parseEventSchema(eventContents);
   structuralParts.push(`event-storage-bits\n${eventSchema.eventBits}`);
+  if (await source.exists("constants/pokedex_constants.asm")) {
+    const dex = await source.readText("constants/pokedex_constants.asm");
+    if (dex.includes("; yellow-editor species schema")) {
+      const [species, order] = await Promise.all([source.readText("constants/pokemon_constants.asm"), source.readText("data/pokemon/dex_order.asm")]);
+      structuralParts.push(`created-species-schema\n${normalizeText(dex)}\n${normalizeText(species)}\n${normalizeText(order)}`);
+    }
+  }
 
   const [structuralHash, eventSchemaHash] = await Promise.all([
     hashText(structuralParts.join("\n\0\n")),
