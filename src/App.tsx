@@ -2307,7 +2307,6 @@ function App() {
           <p className="status-line">{status}</p>
         </div>
         <div className="app-header-actions">
-          <a href={`${import.meta.env.BASE_URL}beach/index.html`} target="_blank" rel="noopener noreferrer">Pikachu’s Beach</a>
           <button onClick={selectProject} disabled={Boolean(graphicsEditor?.busy)}>Open Project</button>
         </div>
       </header>

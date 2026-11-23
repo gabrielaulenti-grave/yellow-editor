@@ -1,6 +1,6 @@
 # Pikachu’s Beach trainer
 
-The separate page linked from Yellow Editor streams a real Game Boy emulator running the original minigame. The trainer runs independently of the editor, the browser, and any editor project. Its public page shows the live screen, D-pad decisions, and scores on fresh evaluation rounds.
+The standalone trainer server streams a real Game Boy emulator running the original minigame. Its own viewer shows the live screen, D-pad decisions, and scores on fresh evaluation rounds. The viewer is served by the trainer, not by Yellow Editor or GitHub Pages.
 
 ## Build the ROM in Yellow Editor
 
@@ -37,7 +37,7 @@ docker run -d --name pikachus-beach --restart unless-stopped \
 
 Put the service behind HTTPS on your domain. The proxy needs to stream `/api/live` without buffering. The viewer receives HTML, CSS, JavaScript, rendered frames, and gameplay telemetry. The ROM, symbols, emulator process, and training checkpoints stay on the server. Use your host’s access controls to keep the viewer, live stream, and clips private if needed. Browser users can capture the gameplay they can see.
 
-To connect from the separate page hosted with Yellow Editor, set `BEACH_VIEWER_ORIGINS` on the server to the exact allowed editor origins, comma-separated, for example `https://gabrielaulenti-grave.github.io`. Then open the **Pikachu’s Beach** link in Yellow Editor and enter the HTTPS trainer address. The standalone site needs no cross-origin setup.
+Open the trainer server's own HTTPS URL to view it. Yellow Editor no longer hosts a trainer page or navigation link. The optional `BEACH_VIEWER_ORIGINS` variable is only needed if a separate, externally hosted viewer is authorized to access the stream; the same-origin standalone viewer needs no cross-origin setup.
 
 ## Training and observations
 

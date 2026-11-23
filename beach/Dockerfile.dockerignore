@@ -7,8 +7,8 @@
 !beach/emulator.mjs
 !beach/training.mjs
 !beach/learner.mjs
-!public/
-!public/beach/
-!public/beach/index.html
-!public/beach/style.css
-!public/beach/viewer.js
+!beach/viewer/
+!beach/viewer/index.html
+!beach/viewer/style.css
+!beach/viewer/viewer.js
+!beach/viewer/agent-preview.webm

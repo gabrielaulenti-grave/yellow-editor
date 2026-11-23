@@ -39,7 +39,8 @@ const clipPath = name => resolve(data, `${name}.json`);
 const clips = new Map();
 const assets = new Map(await Promise.all([
   ["/", "index.html", "text/html"], ["/style.css", "style.css", "text/css"], ["/viewer.js", "viewer.js", "text/javascript"],
-].map(async ([route, file, type]) => [route, { type, contents: await readFile(pathFromHere(`../public/beach/${file}`)) }])));
+  ["/agent-preview.webm", "agent-preview.webm", "video/webm"],
+].map(async ([route, file, type]) => [route, { type, contents: await readFile(pathFromHere(`./viewer/${file}`)) }])));
 let errorMessage;
 let lastFrame = 0;
 let realtimeDeadline = 0;
@@ -100,7 +101,7 @@ const server = createServer((req, res) => {
   }
   const asset = assets.get(url.pathname === "/index.html" ? "/" : url.pathname);
   if (asset) {
-    res.writeHead(200, { "Content-Type": `${asset.type}; charset=utf-8`, "X-Content-Type-Options": "nosniff" });
+    res.writeHead(200, { "Content-Type": asset.type === "video/webm" ? asset.type : `${asset.type}; charset=utf-8`, "X-Content-Type-Options": "nosniff" });
     res.end(asset.contents);
     return;
   }
