@@ -161,17 +161,46 @@ function nextGenerationPolicies(training) {
 function meanFitness(rounds,baseline) {
   return average(rounds,round=>fitness(round,baseline));
 }
+// Champion selection uses only actual earned game points (or verified
+// uncapped points). Unfinished courses earn no competitive score.
+export function competitiveScore(round) {
+  if (!round?.finished) return 0;
+  if (round.extendedValid!==false && Number.isSafeInteger(round.extendedScore))
+    return round.extendedScore;
+  return Number.isSafeInteger(round.score) ? round.score : 0;
+}
+export function competitiveResults(rounds) {
+  return {
+    averageScore:average(rounds,competitiveScore),
+    finishes:rounds.filter(round=>round.finished).length,
+    runs:rounds.length,
+  };
+}
 function completionBaseline(training) {
   const history=training.history.slice(-3);
   return history.length?average(history,item=>item.finishRate):0;
 }
 function selectCandidate(training) {
   const baseline=completionBaseline(training);
-  return training.candidates.map((candidate,index)=>({
-    index,weights:candidate.weights,rounds:candidate.rounds,
-    fitness:meanFitness(candidate.rounds,baseline),
-    finishes:candidate.rounds.filter(row=>row.finished).length,
-  })).sort((a,b)=>b.fitness-a.fitness||b.finishes-a.finishes);
+  return training.candidates.map((candidate,index)=>{
+    const performance=competitiveResults(candidate.rounds);
+    return {
+      index,weights:candidate.weights,rounds:candidate.rounds,
+      fitness:meanFitness(candidate.rounds,baseline),
+      finishes:performance.finishes,gameAverage:performance.averageScore,
+    };
+  }).sort((a,b)=>b.fitness-a.fitness||b.finishes-a.finishes);
+}
+// Nominate the best genuine game score among challengers that have completed
+// at least as many discovery runs as the unchanged incumbent. Shaping bonuses
+// remain useful for breeding elites, but cannot nominate a worse-scoring
+// candidate merely for performing particular tricks.
+function selectChallenger(ranked) {
+  const incumbent=ranked.find(entry=>entry.index===0);
+  return ranked.filter(entry=>entry.index!==0 &&
+    entry.finishes >= (incumbent?.finishes??0))
+    .sort((a,b)=>b.gameAverage-a.gameAverage ||
+      b.finishes-a.finishes || b.fitness-a.fitness || a.index-b.index)[0] ?? null;
 }
 function evaluationPolicy(training) {
   if(!training.duel) return training.champion;
@@ -258,7 +287,7 @@ export function migrateTraining(training) {
       entry.specialist.weights = expand(entry.specialist.weights);
   }
   training.policyVersion = 6;
-  training.selectionVersion = 2;
+  training.selectionVersion = 3;
   training.highScore ||= 0;
   // A recorded score below the ROM cap is a proven uncapped-score floor.
   // We do not fabricate historic per-run events.
@@ -279,7 +308,7 @@ export function newTraining() {
   return {
     generation: 1, total: 0, candidate: 0, history: [], evaluation: [], highScore: 0, highExtendedScore: 0, policyVersion: 6, elites: [],
     generationRuns: [], pendingGenerations: [], hallOfFame: {},
-    selectionVersion: 2, duel: null, lastSelection: null,
+    selectionVersion: 3, duel: null, lastSelection: null,
     champion: Array(WEIGHTS).fill(0),
     candidates: Array.from({ length: POPULATION }, (_, index) => ({
       weights: index === 0 ? Array(WEIGHTS).fill(0) : perturb(Array(WEIGHTS).fill(0), 0.65),
@@ -377,7 +406,7 @@ export function recordRound(training, round) {
 
     const ranked=selectCandidate(training);
     // Candidate zero is the previous champion. Hold it as incumbent.
-    const challenger=ranked.find(entry=>entry.index!==0);
+    const challenger=selectChallenger(ranked);
     training.duel={
       incumbent:[...training.champion],
       challenger:[...(challenger?.weights||training.champion)],
@@ -386,7 +415,13 @@ export function recordRound(training, round) {
       incumbentRounds:[...training.candidates[0].rounds],
       challengerRounds:[...(challenger?.rounds||training.candidates[0].rounds)]
     };
-    training.elites=ranked.slice(0,ELITE_COUNT).map(entry=>[...entry.weights]);
+    // Keep exploration-oriented high-fitness lineages without allowing
+    // their handcrafted bonuses to determine promotion.
+    const eliteRows=[ranked.find(entry=>entry.index===0),challenger,
+      ...ranked].filter(Boolean).filter((entry,index,rows)=>
+      rows.findIndex(other=>samePolicy(other.weights,entry.weights))===index
+    ).slice(0,ELITE_COUNT);
+    training.elites=eliteRows.map(entry=>[...entry.weights]);
     return;
   }
 
@@ -397,18 +432,33 @@ export function recordRound(training, round) {
     const duel=training.duel;
     const challengerTrials=[...duel.challengerRounds,...training.evaluation.slice(0,4)];
     const incumbentTrials=[...duel.incumbentRounds,...training.evaluation.slice(4,8)];
+    // Scoring is the ROM's final score, including HP and all trick choices.
+    // A safe slow strategy therefore gets exactly the same treatment as a
+    // fast one. Preserve a reliability guard: no promotion if the contender
+    // finishes fewer of the equal-length trial set than the incumbent.
     const challengerFitness=meanFitness(challengerTrials,duel.baseline);
     const incumbentFitness=meanFitness(incumbentTrials,duel.baseline);
+    const challengerCompetitive=competitiveResults(challengerTrials);
+    const incumbentCompetitive=competitiveResults(incumbentTrials);
     const promoted=duel.challengerIndex!==0 &&
-      challengerFitness>=incumbentFitness+PROMOTION_MARGIN;
+      challengerCompetitive.runs===incumbentCompetitive.runs &&
+      challengerCompetitive.finishes>=incumbentCompetitive.finishes &&
+      challengerCompetitive.averageScore>incumbentCompetitive.averageScore;
     if(promoted) training.champion=[...duel.challenger];
     training.history.push({generation:training.generation,
       ...summary(promoted?training.evaluation.slice(0,4):
         training.evaluation.slice(4,8))});
     training.lastSelection={generation:training.generation,promoted,
+      selectionMode:"game-score-v3",
       challengerIndex:duel.challengerIndex+1,
+      challengerScore:Math.round(challengerCompetitive.averageScore),
+      incumbentScore:Math.round(incumbentCompetitive.averageScore),
+      challengerFinishes:challengerCompetitive.finishes,
+      incumbentFinishes:incumbentCompetitive.finishes,
+      trialCount:challengerCompetitive.runs,
+      // Exploratory shaping is retained for diagnostic comparisons only.
       challengerFitness:Math.round(challengerFitness),
-      incumbentFitness:Math.round(incumbentFitness),margin:PROMOTION_MARGIN};
+      incumbentFitness:Math.round(incumbentFitness),margin:0};
   } else {
     // An evaluation already in progress at deployment uses legacy semantics.
     training.history.push({generation:training.generation,
