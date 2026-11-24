@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
-import { newTraining, recordRound, trainingStats, migrateTraining, fitness, decide, rotationTimingFeatures, opportunityPenalty } from "./learner.mjs";
+import { newTraining, recordRound, trainingStats, migrateTraining, fitness, decide, rotationTimingFeatures, opportunityPenalty, competitiveScore, competitiveResults } from "./learner.mjs";
 import { encodeWebm } from "./video.mjs";
 import { decode, memoryFields } from "./emulator.mjs";
 import { predictLanding, landingSafety, landingFeatures } from "./landing-predictor.mjs";
@@ -292,4 +292,80 @@ test("modest opportunity shaping is capped, absent on historical rows, and leave
  const t=newTraining();
  recordRound(t,{...base,opportunity:{eligibleEmpty:2,abandonedRotations:3}});
  assert.equal(t.highScore,4000);
+});
+
+test("competitive scoring uses only final ROM points and verified uncapped extension",()=>{
+ const completed={finished:true,score:7429,extendedScore:7429,extendedValid:true,averageSpeed:1.25,hpRemaining:100,
+   tricks:{"180":0},wipeouts:2,opportunity:{eligibleEmpty:12,abandonedRotations:50}};
+ const shorter={...completed,score:7100,extendedScore:7100,averageSpeed:1.95,hpRemaining:3200,
+   tricks:{"500":2},wipeouts:0,opportunity:{eligibleEmpty:0,abandonedRotations:0}};
+ assert.ok(fitness(completed,.95)<fitness(shorter,.95));
+ assert.ok(competitiveScore(completed)>competitiveScore(shorter));
+ assert.equal(competitiveScore({...completed,finished:false,score:9876}),0);
+ assert.equal(competitiveScore({...completed,score:9999,extendedScore:12600}),12600);
+ assert.equal(competitiveScore({...completed,score:9999,extendedValid:false,extendedScore:12600}),9999);
+ assert.deepEqual(competitiveResults([completed,shorter]),{averageScore:7264.5,finishes:2,runs:2});
+});
+test("highest-scoring reliable challenger is nominated despite smaller shaped fitness",()=>{
+ const t=newTraining();
+ t.candidates[1].weights.fill(.21);
+ t.candidates[2].weights.fill(.32);
+ const r=(score,tricks={})=>({finished:true,score,progress:1,wipeouts:0,tricks,
+   averageSpeed:1.5,hpRemaining:1000});
+ for(let policy=0;policy<10;policy++) for(let n=0;n<4;n++) {
+   const item=policy===1?r(3100,{"500":2,"350":2,"180":2}):
+     policy===2?r(3200):r(3000);
+   recordRound(t,item);
+ }
+ assert.equal(t.duel.challengerIndex,2);
+ assert.deepEqual(t.duel.challenger,t.candidates[2].weights);
+ // The shaped exploratory candidate is not lost; it survives as an elite.
+ assert.ok(t.elites.some(weights=>weights.every(value=>value===.21)));
+});
+test("higher actual game score promotes a safer slower policy despite shaped disadvantage",()=>{
+ const t=newTraining();
+ t.candidates[1].weights.fill(.31);
+ const make=(score,speed,hp,tricks={})=>({finished:true,score,extendedScore:score,
+   extendedValid:true,averageSpeed:speed,hpRemaining:hp,progress:1,wipeouts:0,
+   tricks,opportunity:{eligibleEmpty:0,abandonedRotations:0}});
+ for(let policy=0;policy<10;policy++) for(let n=0;n<4;n++)
+   recordRound(t,policy===1?make(4200,1.15,300):make(4000,1.9,2600,{"500":2}));
+ assert.equal(t.duel.challengerIndex,1);
+ for(let n=0;n<4;n++) recordRound(t,make(4200,1.15,300));
+ for(let n=0;n<4;n++) recordRound(t,make(4000,1.9,2600,{"500":2}));
+ assert.equal(t.lastSelection.selectionMode,"game-score-v3");
+ assert.equal(t.lastSelection.promoted,true);
+ assert.equal(t.lastSelection.challengerScore,4200);
+ assert.equal(t.lastSelection.incumbentScore,4000);
+ assert.equal(t.lastSelection.challengerFinishes,8);
+ assert.deepEqual(t.champion,Array(t.champion.length).fill(.31));
+});
+test("a higher scoring challenger cannot win by repeatedly failing courses",()=>{
+ const t=newTraining();
+ t.candidates[1].weights.fill(.44);
+ const good=score=>({finished:true,score,progress:1,wipeouts:0,averageSpeed:1.5,tricks:{}});
+ for(let policy=0;policy<10;policy++)for(let i=0;i<4;i++)
+   recordRound(t,good(policy===1?4500:4000));
+ const incumbent=[...t.champion];
+ for(let i=0;i<4;i++)recordRound(t,i===0?{
+   finished:false,score:0,progress:.9,wipeouts:1,averageSpeed:1.5,tricks:{}
+ }:good(8000));
+ for(let i=0;i<4;i++)recordRound(t,good(4000));
+ assert.ok(t.lastSelection.challengerScore>t.lastSelection.incumbentScore);
+ assert.equal(t.lastSelection.challengerFinishes,7);
+ assert.equal(t.lastSelection.incumbentFinishes,8);
+ assert.equal(t.lastSelection.promoted,false);
+ assert.deepEqual(t.champion,incumbent);
+});
+test("migration updates score-selection metadata without changing an active duel or its weights",()=>{
+ const t=newTraining();
+ t.selectionVersion=2;
+ t.duel={incumbent:[...t.champion],challenger:[...t.candidates[1].weights],
+   challengerIndex:1,baseline:.95,incumbentRounds:[],challengerRounds:[]};
+ const incumbent=[...t.duel.incumbent],challenger=[...t.duel.challenger];
+ const migrated=migrateTraining(t);
+ assert.equal(migrated.selectionVersion,3);
+ assert.deepEqual(migrated.duel.incumbent,incumbent);
+ assert.deepEqual(migrated.duel.challenger,challenger);
+ assert.equal(migrated.generation,1);
 });
