@@ -130,9 +130,20 @@ async function show(state, source) {
   if (state.history.length) drawHistory(state.history);
   const selection=byId("selection-status");
   if(state.selection) {
-    selection.textContent = state.selection.promoted
-      ? `Generation ${state.selection.generation}: challenger ${state.selection.challengerIndex} promoted (+${state.selection.challengerFitness-state.selection.incumbentFitness} fitness)`
-      : `Generation ${state.selection.generation}: incumbent retained (challenger ${state.selection.challengerIndex}, difference ${state.selection.challengerFitness-state.selection.incumbentFitness})`;
+    const result=state.selection;
+    if(result.selectionMode==="game-score-v3") {
+      const difference=result.challengerScore-result.incumbentScore;
+      const signed=difference>0?`+${difference}`:String(difference);
+      const reliability=`${result.challengerFinishes}/${result.trialCount} finishes vs ${result.incumbentFinishes}/${result.trialCount}`;
+      selection.textContent=result.promoted
+        ? `Generation ${result.generation}: challenger ${result.challengerIndex} promoted (${signed} average game points; ${reliability})`
+        : `Generation ${result.generation}: incumbent retained (challenger ${result.challengerIndex}, ${signed} average game points; ${reliability})`;
+    } else {
+      // Historical selections continue to display their recorded v2 fitness.
+      selection.textContent=result.promoted
+        ? `Generation ${result.generation}: challenger ${result.challengerIndex} promoted (+${result.challengerFitness-result.incumbentFitness} fitness)`
+        : `Generation ${result.generation}: incumbent retained (challenger ${result.challengerIndex}, difference ${result.challengerFitness-result.incumbentFitness})`;
+    }
   } else selection.textContent="Champion comparisons begin with the next completed generation.";
   if (state.lastRound) {
     const last = byId("last-round");
