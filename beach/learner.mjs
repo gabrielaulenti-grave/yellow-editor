@@ -17,7 +17,6 @@ const RUNS_PER_POLICY = 4;
 const EVALUATION_RUNS = 8;
 const ELITE_COUNT = 3;
 const SPECIALIST_GENERATIONS = 2;
-const PROMOTION_MARGIN = 125;
 const MUTATION_SCALES = [0.055, 0.085, 0.11, 0.15, 0.20, 0.26, 0.34];
 
 const MILESTONE_BONUSES = Object.freeze({ "150": 15, "180": 100, "350": 150, "500": 300 });
