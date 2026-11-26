@@ -12,7 +12,7 @@ export function startRunTelemetry() {
     tricks: { "50":0, "150":0, "180":0, "350":0, "500":0 },
     speedSum:0, speedSamples:0, hpRemaining:0, radness:0,
     lastState:null, lastRadness:0, lastMeter:0, lastFlags:0,
-    uncappedRadness:0, unclassifiedRadness:0, confirmed500:0,
+    uncappedRadness:0, unclassifiedRadness:0, confirmed500:0, observed500:0, fiveHundredEvidence:[],
     attributionMismatch:false, overflowUncertain:false,
     opportunity:{eligibleEmpty:0,abandonedRotations:0,eligibleJumps:0},
     jumpHadOpportunity:false,
@@ -50,6 +50,27 @@ export function observeRun(run, state) {
   const crashed = run.lastState === 1 && state.state === 3;
   const award = landed ? trickAward(run.lastMeter,run.lastFlags) : 0;
   const landed500 = award === 500;
+  const expectedIncrease=Math.min(Math.max(0,9999-previous),500);
+  const verified500=landed500 && hasRadness && Number.isSafeInteger(previous) &&
+    previous<9999 && increase===expectedIncrease &&
+    state.landingQuality!==4;
+  if (landed500) {
+    run.observed500++;
+    if (verified500) run.confirmed500++;
+    // A saturated register cannot independently establish the award; keep
+    // the observation and its evidence rather than declaring it verified.
+    run.fiveHundredEvidence.push({
+      status:verified500?"verified":"unverified",
+      reason:verified500?"rom-radness-increment":
+        previous>=9999?"radness-saturated":"radness-or-landing-mismatch",
+      beforeRadness:previous,afterRadness:current,delta:increase,
+      expectedDelta:expectedIncrease,
+      meter:run.lastMeter,flags:run.lastFlags,
+      speedBefore:run.lastSpeed??null,speedAfter:state.speed??null,
+      hpBefore:run.lastHP??null,hpAfter:state.hp??null,
+      progress:state.progress??null,landingQuality:state.landingQuality??null,
+    });
+  }
   if (crashed) {
     run.jumpHadOpportunity=false;
     run.jumps.wipeouts++;
@@ -83,7 +104,6 @@ export function observeRun(run, state) {
   if (increase > 0) run.uncappedRadness += increase;
   if (award) {
     run.tricks[String(award)]++;
-    if (landed500) run.confirmed500++;
     if (previous === 9999)
       run.uncappedRadness += award;
     else if (current === 9999)
@@ -105,6 +125,8 @@ export function observeRun(run, state) {
   run.lastState = state.state;
   run.lastMeter = state.trickMeter ?? 0;
   run.lastFlags = state.trickFlags ?? 0;
+  run.lastSpeed = state.speed ?? null;
+  run.lastHP = state.hp ?? null;
   // HP is valid through routine 7. Routine 8 begins consuming it for the
   // results screen, so it must not overwrite the earned HP bonus.
   if (state.routine <= 7 && Number.isSafeInteger(state.hp))
@@ -136,7 +158,9 @@ export function finishRunTelemetry(run, result) {
     extendedScore,extendedValid,
     scoreReconciliation:finished && !aboveCap ? gameScore-independentlyComputed : null,
     extendedSource:!finished ? "not-awarded" : aboveCap ? "uncapped-tricks" : "game-verified",
-    confirmed500:run.confirmed500,unclassifiedRadness:run.unclassifiedRadness,
+    confirmed500:run.confirmed500,observed500:run.observed500,
+    fiveHundredEvidence:run.fiveHundredEvidence.map(entry=>({...entry})),
+    unclassifiedRadness:run.unclassifiedRadness,
     opportunity:{...run.opportunity},
     jumps:{...run.jumps,
       avgPointsPerLanding:run.jumps.landed
