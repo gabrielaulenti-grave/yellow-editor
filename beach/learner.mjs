@@ -29,8 +29,13 @@ function trickCount(round, award) {
 
 export function milestoneBonus(round) {
   // Modest and capped: impressive tricks matter, but finishing still matters.
-  return Object.entries(MILESTONE_BONUSES).reduce((sum,[award,bonus]) =>
-    sum + Math.min(2,trickCount(round,award))*bonus,0);
+  return Object.entries(MILESTONE_BONUSES).reduce((sum,[award,bonus]) => {
+    // New +500 telemetry must corroborate the ROM's actual point increment.
+    // Historic rows without confirmation metadata retain their old semantics.
+    const count=award==="500" && Number.isSafeInteger(round?.confirmed500)
+      ? Math.max(0,round.confirmed500) : trickCount(round,award);
+    return sum+Math.min(2,count)*bonus;
+  },0);
 }
 
 function validPolicy(weights) {
