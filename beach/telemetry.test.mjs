@@ -86,6 +86,9 @@ test("a real +500 landing is flagged for independent video archival", () => {
     finished:false,score:0,progress:0.78,wipeouts:1
   });
   assert.equal(result.confirmed500,2);
+  assert.equal(result.observed500,2);
+  assert.equal(result.fiveHundredEvidence.length,2);
+  assert.ok(result.fiveHundredEvidence.every(e=>e.status==="verified"));
   assert.equal(result.tricks["500"],2);
   assert.equal(result.finished,false);
 });
@@ -113,7 +116,10 @@ test("uncapped tricks continue beyond 9999 while the ROM BCD radness is saturate
   assert.equal(row.extendedScore,12400);
   assert.equal(row.radness,9999);
   assert.equal(row.extendedValid,true);
-  assert.equal(row.confirmed500,22);
+  assert.equal(row.confirmed500,20);
+  assert.equal(row.observed500,22);
+  assert.equal(row.fiveHundredEvidence[20].status,"unverified");
+  assert.equal(row.fiveHundredEvidence[20].reason,"radness-saturated");
 });
 
 test("sub-cap game score remains authoritative if the trick detector differs",()=>{
@@ -268,4 +274,27 @@ test("older archives lack shaping telemetry instead of being assigned artificial
  const result=generationSummary(200,[{finished:true,score:1000,tricks:{}}],
  );
  assert.equal(result.opportunitySummary,null);
+});
+
+test("a +500 meter/flag pattern with no matching ROM points is not independently verified",()=>{
+ const t=startRunTelemetry();
+ observeRun(t,{routine:1,state:1,radness:0,trickMeter:3,trickFlags:3,hp:1200,speed:1.9});
+ assert.equal(observeRun(t,{routine:1,state:2,radness:180,trickMeter:0,trickFlags:0,
+   landingQuality:1,hp:1199,speed:1.9}),true);
+ const result=finishRunTelemetry(t,{finished:true,score:1380,progress:1,wipeouts:0});
+ assert.equal(result.observed500,1);
+ assert.equal(result.confirmed500,0);
+ assert.equal(result.fiveHundredEvidence[0].status,"unverified");
+ assert.equal(result.fiveHundredEvidence[0].delta,180);
+ assert.equal(result.fiveHundredEvidence[0].expectedDelta,500);
+});
+test("a +500 at the 9999 boundary is verified only for the actual remaining BCD increment",()=>{
+ const t=startRunTelemetry();
+ observeRun(t,{routine:1,state:1,radness:9900,trickMeter:3,trickFlags:3,hp:1000,speed:1.98});
+ assert.equal(observeRun(t,{routine:1,state:2,radness:9999,
+   landingQuality:1,hp:999,speed:1.98}),true);
+ const result=finishRunTelemetry(t,{finished:true,score:9999,progress:1,wipeouts:0});
+ assert.equal(result.confirmed500,1);
+ assert.equal(result.fiveHundredEvidence[0].expectedDelta,99);
+ assert.equal(result.fiveHundredEvidence[0].status,"verified");
 });
