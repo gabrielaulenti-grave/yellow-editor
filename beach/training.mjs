@@ -42,6 +42,8 @@ export async function train(emulator, training, options) {
   let sampledFrames = 0;
   let actionMemory = { actions: [] };
   let runTelemetry;
+  let actionTrace = [];
+  let observedFrame = 0;
   while (!options.signal.aborted) {
     const active = state?.routine === 1 && attempt?.finished === undefined;
     const observation = active && {
@@ -55,7 +57,12 @@ export async function train(emulator, training, options) {
     };
     const prediction = active ? predictLanding(state) : null;
     const action = active ? decide(training, observation, state.y - lastY, actionMemory, prediction) : 0;
-    if (active && runTelemetry) observeOpportunity(runTelemetry, state, prediction, action);
+    if (active && runTelemetry) {
+      observeOpportunity(runTelemetry, state, prediction, action);
+      // Exact host inputs are retained only if a +500 candidate appears.
+      actionTrace.push(action);
+      observedFrame++;
+    }
     if (active) {
       // Memory is scoped to a single course, never leaked across runs.
       actionMemory.actions.push(action);
@@ -88,6 +95,8 @@ export async function train(emulator, training, options) {
       attempt = { wipeouts: 0, previousState: state.state };
       actionMemory = { actions: [] };
       runTelemetry = startRunTelemetry();
+      actionTrace = [];
+      observedFrame = 0;
       recentPacked.length = 0;
       milestoneFrames = null;
       milestoneAfter = 0;
@@ -95,6 +104,10 @@ export async function train(emulator, training, options) {
     }
     if (attempt && attempt.finished === undefined) {
       const landed500 = observeRun(runTelemetry, state);
+      if (landed500) {
+        const evidence=runTelemetry.fiveHundredEvidence.at(-1);
+        if (evidence) evidence.frame=observedFrame;
+      }
       if (landed500 && !milestoneFrames) {
         // Capture roughly 10 seconds before the first verified +500 and
         // the next 10 seconds at 12 video samples per second.
@@ -112,6 +125,15 @@ export async function train(emulator, training, options) {
             finished, score: finished ? state.score : 0,
             progress: state.progress, wipeouts: attempt.wipeouts,
           });
+          if (lastRound.observed500 > 0) {
+            lastRound.fiveHundredTrace = {
+              format:"host-actions-v1",romBuildId:emulator.buildId,
+              // A trace without the initial emulator RAM/RNG snapshot is
+              // forensic evidence, not a deterministic replay artifact.
+              replayable:false,frameCount:actionTrace.length,
+              actions:actionTrace.join(""),
+            };
+          }
           const isNewRecord = lastRound.finished && lastRound.score > (training.highScore || 0);
           const isNewExtendedRecord = lastRound.finished && lastRound.extendedValid &&
             Number.isSafeInteger(lastRound.extendedScore) &&
@@ -121,15 +143,15 @@ export async function train(emulator, training, options) {
           const generation = training.generation;
           recordRound(training, lastRound);
           // Preserve the model before encoding/uploading a potentially long recording.
-          await options.checkpoint(training, { milestone: lastRound.confirmed500 > 0 || isMaxout });
+          await options.checkpoint(training, { milestone: lastRound.observed500 > 0 || isMaxout });
           if (clipFrames) {
             const start = Math.max(0, clipFrames - clipSize);
             const frames = Array.from({ length: Math.min(clipFrames, clipSize) }, (_, i) => clip[(start + i) % clipSize]);
             try {
               await options.saveClip(lastRound, frames,
-                isNewRecord || (isNewExtendedRecord && lastRound.extendedScore > 9999) || isMaxout || lastRound.confirmed500 > 0 ? fullFrames : null, {
+                isNewRecord || (isNewExtendedRecord && lastRound.extendedScore > 9999) || isMaxout || lastRound.observed500 > 0 ? fullFrames : null, {
                 generation, total: training.total,
-                specialCount: lastRound.confirmed500 || 0,
+                specialCount: lastRound.observed500 || 0,
                 isRecord: isNewRecord,
                 isExtendedRecord: isNewExtendedRecord && lastRound.extendedScore > 9999,
                 isMaxout,
@@ -146,6 +168,8 @@ export async function train(emulator, training, options) {
           milestoneFrames = null;
           milestoneAfter = 0;
           sampledFrames = 0;
+          actionTrace = [];
+          observedFrame = 0;
           watchdog = 0;
         }
       }
